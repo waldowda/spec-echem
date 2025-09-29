@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
-A Python library for synchronized spectroelectrochemistry experiments using Avantes spectrometers and Gamry potentiostats.
+A Python library for synchronized spectroelectrochemistry experiments using Avantes spectrometers and Gamry potentiostats. Currently, the approach is to use Python to acquire spectra with the Avantes spectrometer and be set to wait from a trigger from the Gamry potentiostat. The Gamry is initially running using the sequence wizard but in a future release it will also be run using Python. Additional information will be provided regarding the trigger wiring as well.
 
 ## ⚠️ Pre-Release Notice
 
