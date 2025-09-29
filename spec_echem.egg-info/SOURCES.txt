@@ -1,6 +1,7 @@
 setup.py
 spec_echem/__init__.py
 spec_echem/globals.py
+spec_echem/spectrometer.py
 spec_echem.egg-info/PKG-INFO
 spec_echem.egg-info/SOURCES.txt
 spec_echem.egg-info/dependency_links.txt
