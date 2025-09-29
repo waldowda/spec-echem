@@ -188,21 +188,12 @@ Pacific Lutheran University
 - [ ] Eliminate global variables dependency
 - [ ] Add automated calibration routines
 - [ ] Implement data export to common formats (CSV, HDF5)
-- [ ] Create GUI for experiment control
-- [ ] Add support for additional spectrometer models
-- [ ] Expand electrochemistry integration beyond Gamry
-
-### Future Developments
-- [ ] Real-time fitting of spectroscopic features
-- [ ] Machine learning integration for spectral analysis
-- [ ] Cloud data storage and sharing capabilities
-- [ ] Docker container for easy deployment
+- [ ] Move code to a unified Python package using PyQt5 as a windowing environment.
 
 ## Support
 
 For questions, issues, or suggestions:
 - Open an issue on [GitHub](https://github.com/waldowda/spec-echem/issues)
-- Contact the author directly (see university directory)
 
 ---
 
