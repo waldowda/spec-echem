@@ -49,7 +49,6 @@ This software is currently in **pre-release** (v0.1.0). The API and functionalit
    matplotlib>=3.3.0
    pandas>=1.3.0
    scipy>=1.5.0
-   RPi.GPIO  # For Raspberry Pi GPIO control
    ```
 
 ## Installation
