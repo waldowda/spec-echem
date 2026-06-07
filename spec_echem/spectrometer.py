@@ -18,7 +18,12 @@ import pickle
 import warnings
 import json
 from datetime import datetime
-from avaspec import *
+try:
+    from avaspec import *
+    AVASPEC_AVAILABLE = True
+except ImportError:
+    AVASPEC_AVAILABLE = False
+
 from . import globals
 
 

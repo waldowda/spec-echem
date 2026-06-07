@@ -1,7 +1,10 @@
 """
 Spectroelectrochemistry Package using Avantes Spectrometers
 """
-from .spectrometer import AvantesSpectrometer
+try:
+    from .spectrometer import AvantesSpectrometer
+except ImportError:
+    pass
 
 __version__ = "0.1.0"
 __author__ = "Dean Waldow"
