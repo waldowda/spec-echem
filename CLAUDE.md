@@ -76,7 +76,7 @@ vendor hardware physically connected. Code touching these must handle missing im
 
 **avaspec.py setup (Win11 instrument machine):** Copy from
 `C:\AvaSpecX64-DLL_9.14.0.0\examples\PyQt5_simple\avaspec.py` to
-`C:\Users\inst-chem\anaconda3\envs\SpecEchem\Lib\site-packages\avaspec.py`, then make three edits:
+`C:\Users\inst-chem\AppData\Local\anaconda3\envs\SpecEchem\Lib\site-packages\avaspec.py`, then make three edits:
 1. Comment out `import globals` (unused vestigial import)
 2. Comment out `from PyQt5.QtCore import *` (unused vestigial import)
 3. Replace the Windows DLL block to use `os.add_dll_directory(r"C:\AvaSpecX64-DLL_9.14.0.0")`
