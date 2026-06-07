@@ -16,13 +16,13 @@ This software is currently in **pre-release** (v0.1.0). The API and functionalit
 
 - **Avantes spectrometer** control for UV-Vis spectroscopy (~380-1100 nm)
 - **Gamry potentiostat** triggering for synchronized data acquisition
-- GPIO-based hardware triggering for precise temporal correlation
+- Hardware triggering via Avantes trigger input for precise temporal correlation
 - Automated data collection and storage
 
 ## Features
 
 - 🔬 Real-time spectrum acquisition triggered by electrochemical events
-- ⚡ Hardware triggering via GPIO pins for microsecond synchronization
+- ⚡ Hardware triggering via Avantes trigger input synchronized to Gamry DIGOUT0
 - 📊 Integrated data processing for both spectroscopic and electrochemical data
 - 🔄 Support for complex electrochemical sequences (CV, chronoamperometry, stepping protocols)
 - 💾 Synchronized data storage with timestamps
@@ -33,7 +33,6 @@ This software is currently in **pre-release** (v0.1.0). The API and functionalit
 ### Hardware
 - Avantes spectrometer (tested with models supporting 380-1100 nm range)
 - Gamry potentiostat with digital output capabilities
-- GPIO-capable system (e.g., Raspberry Pi) for trigger detection
 - USB connections for instruments
 
 ### Software Prerequisites
@@ -66,12 +65,10 @@ Follow the installation guide provided by Avantes for your specific spectrometer
 
 ### 3. Install the Package
 
-```bash
-# Create a virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+Activate your conda environment (e.g., `SpecEchem`), then install in development mode. This can be done before the Avantes SDK is installed — the package handles missing hardware dependencies gracefully.
 
-# Install in development mode
+```bash
+conda activate SpecEchem
 pip install -e .
 ```
 
@@ -84,9 +81,9 @@ spec-echem/
 │   ├── spectrometer.py     # Avantes spectrometer control class
 │   └── globals.py          # Global variables for SDK
 ├── notebooks/               # Jupyter notebooks
-│   └── spec_echem_exp_0716dw_CHI.ipynb  # Example experimental workflow
+│   └── SpecEchem Avantes 0.996-20250717.ipynb  # Main experimental workflow
 ├── gamry/                   # Gamry sequence files
-│   └── Spec_Echem_20250714test.GSequence  # Example sequence with triggers
+│   └── Spec_Echem_20250714.GSequence  # Example sequence with triggers
 ├── examples/                # Example scripts (coming soon)
 ├── docs/                    # Documentation (in development)
 ├── tests/                   # Unit tests (in development)
@@ -121,8 +118,8 @@ spec.plot_data(wavelength, spectrum)
 
 ### Synchronized Spectroelectrochemistry
 
-See the Jupyter notebook `notebooks/spec_echem_exp_0716dw_CHI.ipynb` for a complete example of:
-- Setting up GPIO triggers
+See the Jupyter notebook `notebooks/SpecEchem Avantes 0.996-20250717.ipynb` for a complete example of:
+- Setting up hardware triggers
 - Coordinating with Gamry sequences
 - Real-time data acquisition
 - Data processing and visualization
@@ -131,7 +128,7 @@ See the Jupyter notebook `notebooks/spec_echem_exp_0716dw_CHI.ipynb` for a compl
 
 1. **Configure Gamry Sequence**: Load the provided `.GSequence` file or create your own with digital output triggers
 2. **Initialize Spectrometer**: Set integration time and averaging parameters
-3. **Setup Trigger Detection**: Configure GPIO pins to detect Gamry digital outputs
+3. **Setup Trigger Detection**: Avantes hardware trigger input detects Gamry DIGOUT0 signal
 4. **Run Experiment**: Start Gamry sequence and collect triggered spectra
 5. **Process Data**: Analyze synchronized electrochemical and spectroscopic data
 
