@@ -54,11 +54,8 @@ Three coordinated components:
 2. **Avantes Spectrometer** — Collects UV-Vis spectra. Controlled via the proprietary `avaspec`
    Python module (comes with the Avantes SDK, not pip-installable).
 
-3. **GPIO Triggering** — GPIO pin 17 (input) detects Gamry's DIGOUT0 going HIGH to synchronize
-   spectrum acquisition with electrochemical events.
-
-**Data flow:** Gamry starts electrochemical step → DIGOUT0 HIGH → GPIO detects trigger → Python
-collects spectra at `deltaTime` intervals → Gamry completes step → DIGOUT0 LOW → collection stops.
+3. **Hardware Triggering** — Gamry's DIGOUT0 output is wired directly to the Avantes hardware
+   trigger input. The `avaspec` SDK detects the trigger via `m_Trigger_m_Mode` in `MeasConfigType`.
 
 ---
 
@@ -69,7 +66,6 @@ numpy>=1.19.0
 matplotlib>=3.3.0
 pandas>=1.3.0
 scipy>=1.5.0
-RPi.GPIO          # GPIO trigger — only on Raspberry Pi / Linux with GPIO hardware
 avaspec           # Avantes proprietary — NOT pip-installable, requires Avantes SDK + hardware
 EchemToolkitPy    # Gamry proprietary — NOT pip-installable, requires Gamry Framework install
 ```
