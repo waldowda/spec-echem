@@ -268,24 +268,27 @@ dark, ref = setup(wavelength, load_existing=True)
 
 ### 3.7 Set Up the Gamry Sequence
 
-Open **Gamry Framework Sequence Wizard** and load:
+Open **Gamry Framework** and launch the **Sequence Wizard** from the menu. Click **Load Sequence** and open:
 ```
 C:\Users\inst-chem\Documents\spec-echem\gamry\Spec_Echem_20250714.GSequence
 ```
 
-At runtime, the sequence will prompt you to set the following variables:
+The right panel ("User Defined Sequence") shows the full experiment tree. **Double-click any `Define...` item to change its value** for your experiment. The editable items near the top of the tree are:
 
-| Variable | Description | Typical Value |
-|----------|-------------|---------------|
-| `cvcycles` | Number of CV cycles | 1 |
-| `CVScanLimit1` | CV negative scan limit (V vs. ref) | −0.5 |
-| `CVScanLimit2` | CV positive scan limit (V vs. ref) | +0.7 |
-| `DedopingPotential` | Dedoping potential (V vs. ref) | −0.5 |
-| `DopingPotInitial` | Starting doping potential (V vs. ref) | +0.1 |
-| `DopingDurationsec` | Duration of each doping/dedoping step (s) | 5 |
-| Data directory name | Folder for Gamry output files | `YYYYMMDD_SampleName` |
+| Item in tree | What it controls | Typical value |
+|---|---|---|
+| `Define An Integer Number, [cvcycles]` | Number of CV cycles | 1 |
+| `Define A Potential (V), [CVScanLimit1]` | CV negative scan limit (V vs. ref) | −0.5 |
+| `Define A Potential (V), [CVScanLimit2]` | CV positive scan limit (V vs. ref) | +0.7 |
+| `Define A Potential (V), [DedopingPotential]` | Dedoping potential (V vs. ref) | −0.5 |
+| `Define A Potential (V), [DopingPotInitial]` | Starting doping potential (V vs. ref) | +0.1 |
+| `Define A Real Number, [DopingDurationsec]` | Duration of each doping/dedoping step (s) | 5 |
 
-**Default doping/dedoping cycle count:** With `DopingPotInitial = 0.1 V`, the sequence runs 2 cycles (at 0.1 V and 0.2 V) before stopping. It increments by 0.1 V per cycle and stops when the potential exceeds 0.25 V.
+Also double-click **Group Data Files** to set the output directory name for this experiment (e.g., `YYYYMMDD_SampleName`).
+
+**Doping/dedoping cycle count:** The loop at the bottom of the tree reads "Loop Until [DopingPotInitial] > 0.25". Starting at 0.1 V and incrementing by 0.1 V per cycle, the sequence runs **2 cycles** (at 0.1 V and 0.2 V) by default. To run more cycles, increase the loop threshold or lower `DopingPotInitial`.
+
+When all values are set, click **Run Sequence** — but do not click it until the notebook is running and waiting (see Section 3.9).
 
 ### 3.8 Set the Data Folder in the Notebook
 
