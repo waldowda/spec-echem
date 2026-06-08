@@ -288,7 +288,31 @@ Also double-click **Group Data Files** to set the output directory name for this
 
 **Doping/dedoping cycle count:** The loop at the bottom of the tree reads "Loop Until [DopingPotInitial] > 0.25". Starting at 0.1 V and incrementing by 0.1 V per cycle, the sequence runs **2 cycles** (at 0.1 V and 0.2 V) by default. To run more cycles, increase the loop threshold or lower `DopingPotInitial`.
 
-When all values are set, click **Run Sequence** — but do not click it until the notebook is running and waiting (see Section 3.9).
+#### Individual step dialogs (double-click to open, then click OK)
+
+The remaining items in the sequence tree each open a dialog when double-clicked. You generally do not need to change anything in these — all potentials and times are grayed out and controlled by the variables you already set above. Review the key fields below and click OK.
+
+**Cyclic Voltammetry** (`CV.DTA`):
+- Scan Limit 1, Scan Limit 2, Cycles — grayed out (set by variables above)
+- Fields you may adjust for your sample: **Scan Rate (mV/s)** (default 1000), **Step Size (mV)** (default 100), **Max Current (mA)** (default 0.3)
+- Initial E and Final E are 0 V vs Eref — leave unless your experiment requires otherwise
+
+**Chronoamperometry — Pre-dedoping** (`prededope.DTA`):
+- Runs before the doping/dedoping loop to ensure the sample starts in the fully dedoped state
+- All voltage and time fields grayed out (controlled by `DedopingPotential` and `DopingDurationsec`)
+- Click OK without changes
+
+**Chronoamperometry — Doping** (`steps.DTA`, inside the loop):
+- Applies the doping potential (`DopingPotInitial`, incrementing each cycle)
+- All voltage and time fields grayed out
+- Click OK without changes
+
+**Chronoamperometry — Dedoping** (`dedoping.DTA`, inside the loop):
+- Returns the sample to `DedopingPotential` after each doping step
+- All voltage and time fields grayed out
+- Click OK without changes
+
+When all dialogs are confirmed, click **Run Sequence** — but do not click it until the notebook is running and waiting (see Section 3.9).
 
 ### 3.8 Set the Data Folder in the Notebook
 
