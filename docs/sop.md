@@ -302,8 +302,8 @@ The remaining items in the sequence tree each open a dialog when double-clicked.
 - Fields you may adjust for your sample: **Scan Rate (mV/s)** (default 1000), **Step Size (mV)** (default 100), **Max Current (mA)** (default 0.3)
 - Initial E and Final E are 0 V vs Eref — leave unless your experiment requires otherwise
 
-**Set Digital Out** (appears multiple times in the tree):
-- These dialogs set DIGOUT0 High (trigger on) or Low (trigger off) at each step boundary
+**Set Digital Out** (appears multiple times in the tree, always in pairs):
+- Each electrochemical step is bracketed by two Set Digital Out calls: **High before** (trigger on, tells the spectrometer to start collecting) and **Low after** (trigger off, collection stops)
 - They are fully pre-configured — **do not edit them**. Click OK if one opens.
 
 **Chronoamperometry — Pre-dedoping** (`prededope.DTA`):
