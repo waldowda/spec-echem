@@ -284,7 +284,12 @@ The right panel ("User Defined Sequence") shows the full experiment tree. **Doub
 | `Define A Potential (V), [DopingPotInitial]` | Starting doping potential (V vs. ref) | +0.1 |
 | `Define A Real Number, [DopingDurationsec]` | Duration of each doping/dedoping step (s) | 5 |
 
-Also double-click **Group Data Files** to set the output directory name for this experiment (e.g., `YYYYMMDD_SampleName`).
+Also double-click **Group Data Files** to set the output directory name. In the dialog:
+- **Group By:** leave set to Directory
+- **Directory/Precursor:** enter your experiment folder name (e.g., `20250714-SampleName`)
+- **Show runtime dialog** is checked — Gamry will show this dialog again when the sequence starts, so you can confirm or change the name at that point
+
+The directory name here should match the `data_folder` variable you set in the notebook (see Section 3.8).
 
 **Doping/dedoping cycle count:** The loop at the bottom of the tree reads "Loop Until [DopingPotInitial] > 0.25". Starting at 0.1 V and incrementing by 0.1 V per cycle, the sequence runs **2 cycles** (at 0.1 V and 0.2 V) by default. To run more cycles, increase the loop threshold or lower `DopingPotInitial`.
 
