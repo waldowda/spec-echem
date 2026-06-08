@@ -162,6 +162,13 @@ Files are tab-separated, saved to:
 Downstream analysis tools at UW depend on this format. Do not change column names, order,
 separator, or naming conventions without explicit instruction.
 
+**Downstream analysis repo:** `rajgiriUW/OECT_processing` (github.com/rajgiriUW/OECT_processing),
+maintained by Raj Giri. The `oect_processing/specechem/read_files.py` module reads spec-echem
+output files and explicitly depends on the `spectra(N).txt` / `dedopingspectra(N).txt` naming.
+
+**Open question:** `read_files.py` reads a `Potential` or `Vf` column from spectra files, but
+the current 8-column format does not include one. Needs clarification before full pipeline testing.
+
 **Absorbance calculation pipeline:**
 ```
 raw spectra (wavelength_pixels × num_time_points)
