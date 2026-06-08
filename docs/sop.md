@@ -302,6 +302,10 @@ The remaining items in the sequence tree each open a dialog when double-clicked.
 - Fields you may adjust for your sample: **Scan Rate (mV/s)** (default 1000), **Step Size (mV)** (default 100), **Max Current (mA)** (default 0.3)
 - Initial E and Final E are 0 V vs Eref — leave unless your experiment requires otherwise
 
+**Set Digital Out** (appears multiple times in the tree):
+- These dialogs set DIGOUT0 High (trigger on) or Low (trigger off) at each step boundary
+- They are fully pre-configured — **do not edit them**. Click OK if one opens.
+
 **Chronoamperometry — Pre-dedoping** (`prededope.DTA`):
 - Runs before the doping/dedoping loop to ensure the sample starts in the fully dedoped state
 - All voltage and time fields grayed out (controlled by `DedopingPotential` and `DopingDurationsec`)
