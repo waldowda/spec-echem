@@ -228,6 +228,10 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
 - **Architecture:** thin GUI over current workflow first; swap in EchemToolkitPy backend later
 - **Unanswered:** threading model for non-blocking acquisition (QThread subclass vs worker-object
   pattern) — resolve before starting implementation
+- **Logging:** one log file per run, named to match data folder and saved alongside data:
+  `specechem_data/YYYYMMDD_Name/YYYYMMDD_Name.log`. DEBUG to file, INFO to UI status log.
+- **No live plot updates** — plots update post-segment only (simplifies threading)
+- **Stop vs Abort:** Stop finishes current acquisition cleanly; Abort is immediate (confirm dialog)
 
 ### Modularization
 - Move `get_spectra()` from notebooks into `spec_echem/` as a proper module function
