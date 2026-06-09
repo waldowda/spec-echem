@@ -166,8 +166,13 @@ separator, or naming conventions without explicit instruction.
 maintained by Raj Giri. The `oect_processing/specechem/read_files.py` module reads spec-echem
 output files and explicitly depends on the `spectra(N).txt` / `dedopingspectra(N).txt` naming.
 
-**Open question:** `read_files.py` reads a `Potential` or `Vf` column from spectra files, but
-the current 8-column format does not include one. Needs clarification before full pipeline testing.
+**Known bug in OECT_processing (not spec-echem):** Two commits May 26–27 2026 accidentally
+changed `read_files.py` to read `Potential`/`Vf` from spectra files instead of the Gamry steps
+files (`WE(1).Potential (V)`). The 8-column spec-echem format is correct — no changes needed.
+Fix: in `read_files.py` lines ~76–85, revert `specfiles[0]` back to `stepfiles[0]`. Notify Raj.
+
+**Steps files dependency:** Gamry `.DTA` steps files must be in the same folder as spectra files
+for `current_vs_time()` to work. Gamry and spec-echem output directories must match.
 
 **Absorbance calculation pipeline:**
 ```
