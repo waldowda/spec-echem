@@ -207,13 +207,27 @@ Migrating from `.GSequence` files + GPIO to Gamry's `EchemToolkitPy` Python libr
 
 - **Current:** `.GSequence` files define experiment sequences; GPIO is used as the sync signal
 - **Planned:** `gamry_interface.py` module using `EchemToolkitPy` API directly in Python
-- **Status:** Awaiting confirmation from Gamry on Python version constraints (docs say 3.7 32-bit
-  but this likely reflects tested version not a hard constraint)
+- **Status:** EchemToolkitPy is 32-bit Python only; Gamry targeting 64-bit support ~September 2026
+  (historically late). Plan around 32-bit until further notice.
 - **What stays the same:** Avantes interface, `get_spectra()` output format
 - **What changes:** `.GSequence` files → Python scripts; GPIO middleman may be eliminated if
   ToolkitPy can trigger spectrum collection directly
 
 When `gamry_interface.py` work begins: confirm ToolkitPy API patterns first, then implement.
+
+### GUI
+Planned instrument control GUI to replace the Jupyter notebook workflow.
+
+- **32-bit phase (now → ~Sept 2026):** PyQt5 + QtPy abstraction layer + PyQtGraph for live plots
+- **64-bit phase (post Gamry 64-bit):** swap to PySide6 via QtPy — should be low-effort
+- **Why not PySide6 now:** no 32-bit Windows wheel on PyPI (confirmed)
+- **Why PyQtGraph not matplotlib:** faster live updates via NumPy + Qt GraphicsView; do NOT enable
+  OpenGL in 2D mode on Windows (degrades performance)
+- **PySide6 version pin:** when migrating, pin below 6.9.1 (active regressions in 6.9.x)
+- **UI pattern:** QWizard for step-by-step experiment sequence (validateCurrentPage() for validation)
+- **Architecture:** thin GUI over current workflow first; swap in EchemToolkitPy backend later
+- **Unanswered:** threading model for non-blocking acquisition (QThread subclass vs worker-object
+  pattern) — resolve before starting implementation
 
 ### Modularization
 - Move `get_spectra()` from notebooks into `spec_echem/` as a proper module function
