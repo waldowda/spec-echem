@@ -8,11 +8,29 @@ widgets — so the GUI thread can update safely. Stop and Abort are threading.Ev
     - Abort : checked between segments AND inside the measure poll loop; the
               current segment is abandoned with no file written.
 """
+import logging
 import threading
 
 from qtpy.QtCore import QObject, Signal
 
 from spec_echem.experiment import run_one_segment
+from spec_echem.logging_config import get_run_logger
+
+
+class QtLogHandler(logging.Handler):
+    """
+    Bridges logging records to a Qt signal so the GUI status pane mirrors the
+    log. Lives here (not in logging_config) to keep the core Qt-free. The sink
+    is a bound Qt signal's emit, which is thread-safe across the worker thread.
+    """
+
+    def __init__(self, emit_func, level=logging.INFO):
+        super().__init__(level)
+        self._emit = emit_func
+        self.setFormatter(logging.Formatter("%(message)s"))
+
+    def emit(self, record):
+        self._emit(self.format(record))
 
 
 class AcquisitionWorker(QObject):
@@ -40,34 +58,42 @@ class AcquisitionWorker(QObject):
         self.abort_event.set()
 
     def run(self):
+        logger = get_run_logger()
+        ui_handler = QtLogHandler(self.status.emit)
+        logger.addHandler(ui_handler)
+        reason = "done"
         try:
             total = len(self.segments)
+            logger.info("Run started: %d segments.", total)
             for i, seg in enumerate(self.segments):
                 if self.abort_event.is_set():
-                    self.finished.emit("aborted")
-                    return
+                    reason = "aborted"
+                    break
                 if self.stop_event.is_set():
-                    self.finished.emit("stopped")
-                    return
+                    reason = "stopped"
+                    break
 
                 self.segment_started.emit(seg.label, i + 1, total)
-                self.status.emit(
-                    f"Armed for {seg.label} ({i + 1}/{total}) — waiting for Gamry trigger"
-                )
+                logger.info("Armed for %s (%d/%d) — waiting for Gamry trigger",
+                            seg.label, i + 1, total)
+                logger.debug("%s: %d points @ %.4gs, trigger=%s",
+                             seg.label, seg.num_points, seg.delta_time, seg.trigger)
 
                 result = run_one_segment(
                     self.spec, seg, self.dark, self.ref, self.wavelengths,
                     self.data_root, self.added_path, self.abort_event,
                 )
                 if result is None:
-                    self.finished.emit("aborted")
-                    return
+                    reason = "aborted"
+                    break
 
                 absorb_df, path = result
                 self.segment_done.emit(seg.label, absorb_df)
-                self.status.emit(f"{seg.label} complete → {path.name}")
-
-            self.finished.emit("done")
-        except Exception as exc:  # noqa: BLE001 — surface any failure to the status log
-            self.status.emit(f"Error: {exc}")
-            self.finished.emit("error")
+                logger.info("%s complete → %s", seg.label, path.name)
+        except Exception:  # noqa: BLE001 — surface any failure to the log + UI
+            logger.exception("Acquisition error")
+            reason = "error"
+        finally:
+            logger.info("Run finished: %s.", reason)
+            logger.removeHandler(ui_handler)
+            self.finished.emit(reason)
