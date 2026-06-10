@@ -6,7 +6,29 @@ try:
 except ImportError:
     pass
 
+from .acquisition import acquire_segment
+from .settings import load_settings, save_settings, DEFAULT_SETTINGS
+from .data import (
+    compute_absorbance,
+    write_spectra_file,
+    write_run_metadata,
+    DATA_TYPE_CV,
+    DATA_TYPE_DOPING,
+    DATA_TYPE_DEDOPING,
+    DATA_TYPE_PREDEDOPING,
+)
+
 __version__ = "0.1.0"
 __author__ = "Dean Waldow"
 
-__all__ = ["AvantesSpectrometer"]
+__all__ = [
+    "AvantesSpectrometer",
+    "acquire_segment",
+    "compute_absorbance",
+    "write_spectra_file",
+    "write_run_metadata",
+    "DATA_TYPE_CV",
+    "DATA_TYPE_DOPING",
+    "DATA_TYPE_DEDOPING",
+    "DATA_TYPE_PREDEDOPING",
+]
