@@ -6,6 +6,8 @@ round-trips the full settings dict via JSON. Doping/dedoping/prededoping
 potential fields are documentation-only in this phase (the Gamry sequence file
 holds the real potentials) — labeled "recorded for reference".
 """
+from pathlib import Path
+
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
     QPushButton, QLabel, QLineEdit, QPlainTextEdit, QCheckBox,
@@ -52,6 +54,18 @@ class ParametersTab(QWidget):
         self._widgets[key] = w
         return w
 
+    def _hint(self, widget, text):
+        """Wrap a field with a grey example/format hint to its right."""
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(widget)
+        label = QLabel(text)
+        label.setStyleSheet("color: #888;")
+        row.addWidget(label)
+        row.addStretch()
+        return box
+
     def _build(self):
         outer = QVBoxLayout(self)
 
@@ -77,14 +91,38 @@ class ParametersTab(QWidget):
         # --- Sample info ---
         sample_group = QGroupBox("Sample Info")
         sform = QFormLayout(sample_group)
-        sform.addRow("Sample name:", self._line("sample_name"))
-        sform.addRow("Electrolyte:", self._line("electrolyte"))
+        sform.addRow("Sample name:", self._hint(self._line("sample_name"), "e.g. P3HT 95:05"))
+        sform.addRow("Electrolyte:", self._hint(self._line("electrolyte"), "e.g. 0.1 M KPF6 / MeCN"))
+
+        # Notes — full width, taller
+        sform.addRow(QLabel("Notes:"))
         self.notes_edit = QPlainTextEdit()
-        self.notes_edit.setFixedHeight(60)
+        self.notes_edit.setFixedHeight(80)
+        self.notes_edit.setPlaceholderText(
+            "Film prep, atmosphere, anything worth recording with the data…")
         self._widgets["notes"] = self.notes_edit
-        sform.addRow("Notes:", self.notes_edit)
-        sform.addRow("Data folder:", self._line("data_folder"))
-        sform.addRow("", QLabel("format: YYYYMMDD_Description"))
+        sform.addRow(self.notes_edit)
+
+        # Data folder name + save-location browser + resolved full path
+        sform.addRow("Data folder name:", self._hint(self._line("data_folder"), "YYYYMMDD_Description"))
+        loc_box = QWidget()
+        loc_row = QHBoxLayout(loc_box)
+        loc_row.setContentsMargins(0, 0, 0, 0)
+        self.data_root_edit = QLineEdit()
+        self.data_root_edit.setReadOnly(True)
+        self._widgets["data_root"] = self.data_root_edit
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self.on_browse_root)
+        loc_row.addWidget(self.data_root_edit)
+        loc_row.addWidget(browse_btn)
+        sform.addRow("Save location:", loc_box)
+        self.full_path_label = QLabel()
+        self.full_path_label.setStyleSheet("color: #555;")
+        self.full_path_label.setWordWrap(True)
+        sform.addRow("Full path:", self.full_path_label)
+        self._widgets["data_folder"].textChanged.connect(self._update_full_path)
+        self.data_root_edit.textChanged.connect(self._update_full_path)
+
         sform.addRow(self._check("trigger", "Wait for Gamry trigger"))
         layout.addWidget(sample_group)
 
@@ -93,7 +131,9 @@ class ParametersTab(QWidget):
         cv_form = QFormLayout(cv_group)
         cv_form.addRow(self._check("cv_enabled", "Include CV"))
         cv_form.addRow("Cycles:", self._ispin("cv_cycles", 1, 1000))
-        cv_form.addRow("Total voltage:", self._dspin("cv_total_voltage", 0.0, 100.0, 3, 0.1, " V"))
+        cv_form.addRow("Total voltage:", self._hint(
+            self._dspin("cv_total_voltage", 0.0, 100.0, 3, 0.1, " V"),
+            "total sweep path, e.g. 0→0.7→−0.5→0 = 2.4 V"))
         cv_form.addRow("Step size:", self._dspin("cv_step_size", 0.1, 1000.0, 1, 1.0, " mV"))
         cv_form.addRow("Scan rate:", self._dspin("cv_scan_rate", 0.1, 10000.0, 1, 10.0, " mV/s"))
         layout.addWidget(cv_group)
@@ -102,7 +142,7 @@ class ParametersTab(QWidget):
         pre_group = QGroupBox("Pre-dedoping Baseline")
         pre_form = QFormLayout(pre_group)
         pre_form.addRow(self._check("prededoping_enabled", "Include pre-dedoping"))
-        pre_form.addRow("Potential:" + REF_NOTE,
+        pre_form.addRow("Potential (vs Vref):" + REF_NOTE,
                         self._dspin("prededoping_potential", -10.0, 10.0, 3, 0.05, " V"))
         pre_form.addRow("Duration:", self._dspin("prededoping_time", 0.1, 100000.0, 1, 1.0, " s"))
         layout.addWidget(pre_group)
@@ -111,13 +151,13 @@ class ParametersTab(QWidget):
         dope_group = QGroupBox("Doping / Dedoping Cycles")
         dope_form = QFormLayout(dope_group)
         dope_form.addRow(self._check("doping_enabled", "Include doping/dedoping"))
-        dope_form.addRow("Doping start:" + REF_NOTE,
+        dope_form.addRow("Doping start (vs Vref):" + REF_NOTE,
                          self._dspin("doping_potential_start", -10.0, 10.0, 3, 0.05, " V"))
-        dope_form.addRow("Doping end:" + REF_NOTE,
+        dope_form.addRow("Doping end (vs Vref):" + REF_NOTE,
                          self._dspin("doping_potential_end", -10.0, 10.0, 3, 0.05, " V"))
-        dope_form.addRow("Doping step:" + REF_NOTE,
+        dope_form.addRow("Doping step (vs Vref):" + REF_NOTE,
                          self._dspin("doping_potential_step", -10.0, 10.0, 3, 0.05, " V"))
-        dope_form.addRow("Dedoping potential:" + REF_NOTE,
+        dope_form.addRow("Dedoping potential (vs Vref):" + REF_NOTE,
                          self._dspin("dedoping_potential", -10.0, 10.0, 3, 0.05, " V"))
         dope_form.addRow("Step duration:", self._dspin("chrono_time", 0.1, 100000.0, 1, 1.0, " s"))
         dope_form.addRow("Time between spectra:",
@@ -152,6 +192,20 @@ class ParametersTab(QWidget):
                 settings[key] = w.toPlainText()
             elif isinstance(w, QLineEdit):
                 settings[key] = w.text()
+
+    # --- data folder location ---
+
+    def on_browse_root(self):
+        start = self.data_root_edit.text() or ""
+        path = QFileDialog.getExistingDirectory(
+            self, "Choose where experiment folders are saved (you can create a new folder)", start)
+        if path:
+            self.data_root_edit.setText(path)
+
+    def _update_full_path(self, *_):
+        root = self.data_root_edit.text()
+        name = self._widgets["data_folder"].text()
+        self.full_path_label.setText(str(Path(root) / name) if (root or name) else "")
 
     # --- load / save ---
 
