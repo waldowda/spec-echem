@@ -218,9 +218,19 @@ When `gamry_interface.py` work begins: confirm ToolkitPy API patterns first, the
 ### GUI
 Planned instrument control GUI to replace the Jupyter notebook workflow.
 
-- **32-bit phase (now → ~Sept 2026):** PyQt5 + QtPy abstraction layer + embedded matplotlib for plots
-- **64-bit phase (post Gamry 64-bit):** swap to PySide6 via QtPy — should be low-effort
-- **Why not PySide6 now:** no 32-bit Windows wheel on PyPI (confirmed)
+- **Which env runs the GUI (important):** the GUI currently talks ONLY to the Avantes spectrometer
+  (`avaspec`), which lives in the **64-bit `SpecEchem`** env (Python 3.13). So run the GUI there NOW:
+  `conda activate SpecEchem; pip install PyQt5 qtpy matplotlib; python -m gui`. PyQt5 + PyQt5-sip
+  have prebuilt cp313 win_amd64 wheels → no compiler needed.
+- **Phase 1 (now):** 64-bit SpecEchem env. PyQt5 + QtPy + embedded matplotlib. No Gamry Python
+  control yet — `.GSequence` + hardware trigger; Python only drives the spectrometer.
+- **Phase 2 (EchemToolkitPy integration, until Gamry ships 64-bit ~Sept 2026):** GUI must run in the
+  **32-bit `specechem32`** env to call EchemToolkitPy. CAUTION: `pip install PyQt5` fails there —
+  `PyQt5-sip` has no prebuilt 32-bit wheel and tries to compile (needs MSVC C++ Build Tools).
+  Solve when we get there (prebuilt 32-bit sip wheel, or install Build Tools in specechem32).
+- **Phase 3 (post Gamry 64-bit):** everything 64-bit; optionally swap to PySide6 via QtPy.
+- **Why QtPy abstraction:** keeps the binding swappable across these phases (PyQt5 now, PySide6 later)
+  with no code changes. PySide6 has no 32-bit Windows wheel, so PyQt5 is the binding for Phase 2.
 - **Why matplotlib not PyQtGraph:** all plots are post-segment/static, so PyQtGraph's live-update
   edge is moot. matplotlib is one fewer dependency, familiar, publication-style, and works under
   both PyQt5 and PySide6 via `FigureCanvasQTAgg`. Rendering happens on the GUI thread, never the
