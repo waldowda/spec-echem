@@ -102,6 +102,9 @@ class RunTab(QWidget):
     def on_start(self):
         settings = self.win.collect_settings()
 
+        # Normalize the folder name so stray whitespace can't pollute paths/filenames
+        settings["data_folder"] = settings["data_folder"].strip()
+
         # Validation at the GUI boundary
         if self.win.spec is None:
             QMessageBox.warning(self, "Not connected",
