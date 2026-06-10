@@ -11,8 +11,11 @@ from qtpy.QtWidgets import (
     QPlainTextEdit, QPushButton, QMessageBox, QSplitter,
 )
 
+from pathlib import Path
+
 from spec_echem.experiment import build_segments
 from spec_echem.data import write_run_metadata
+from spec_echem.logging_config import configure_run_logging, close_run_logging
 from gui.widgets.plot_canvas import MplCanvas
 from gui.workers import AcquisitionWorker
 
@@ -119,8 +122,11 @@ class RunTab(QWidget):
                                 "Enable at least one step (CV / pre-dedoping / doping) on the Parameters tab.")
             return
 
-        # Write the self-documenting run metadata before any acquisition
+        # Write the self-documenting run metadata and open the per-run log file
         write_run_metadata(settings, settings["data_root"], settings["data_folder"])
+        run_folder = Path(settings["data_root"]) / settings["data_folder"]
+        _, log_path = configure_run_logging(run_folder, settings["data_folder"])
+        self.log(f"Logging to {log_path.name}")
 
         # Build the progress list
         self.sequence_list.clear()
@@ -145,7 +151,6 @@ class RunTab(QWidget):
         self._thread.start()
 
         self.set_banner("⏳ Armed — now START the Gamry sequence", "#ffd")
-        self.log(f"Sequence built: {len(segments)} segments. Armed; waiting for Gamry trigger.")
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.abort_btn.setEnabled(True)
@@ -199,7 +204,7 @@ class RunTab(QWidget):
         }
         text, color = banners.get(reason, ("Idle", "#eef"))
         self.set_banner(text, color)
-        self.log(f"Run finished: {reason}.")
+        close_run_logging()
         self._reset_controls()
         self.win.instrument_tab._set_actions_enabled(True)
         self._worker = None
