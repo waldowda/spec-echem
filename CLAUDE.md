@@ -218,20 +218,42 @@ When `gamry_interface.py` work begins: confirm ToolkitPy API patterns first, the
 ### GUI
 Planned instrument control GUI to replace the Jupyter notebook workflow.
 
-- **32-bit phase (now → ~Sept 2026):** PyQt5 + QtPy abstraction layer + PyQtGraph for live plots
+- **32-bit phase (now → ~Sept 2026):** PyQt5 + QtPy abstraction layer + embedded matplotlib for plots
 - **64-bit phase (post Gamry 64-bit):** swap to PySide6 via QtPy — should be low-effort
 - **Why not PySide6 now:** no 32-bit Windows wheel on PyPI (confirmed)
-- **Why PyQtGraph not matplotlib:** faster live updates via NumPy + Qt GraphicsView; do NOT enable
-  OpenGL in 2D mode on Windows (degrades performance)
+- **Why matplotlib not PyQtGraph:** all plots are post-segment/static, so PyQtGraph's live-update
+  edge is moot. matplotlib is one fewer dependency, familiar, publication-style, and works under
+  both PyQt5 and PySide6 via `FigureCanvasQTAgg`. Rendering happens on the GUI thread, never the
+  acquisition thread, so it cannot threaten the ~50 ms/spectrum timing budget. If live update is
+  ever wanted, throttled redraw (2–5 Hz) of in-memory data stays well within matplotlib's range —
+  PyQtGraph would only be needed for 30–60 Hz rendering, which human monitoring never requires.
 - **PySide6 version pin:** when migrating, pin below 6.9.1 (active regressions in 6.9.x)
-- **UI pattern:** QWizard for step-by-step experiment sequence (validateCurrentPage() for validation)
-- **Architecture:** thin GUI over current workflow first; swap in EchemToolkitPy backend later
-- **Unanswered:** threading model for non-blocking acquisition (QThread subclass vs worker-object
-  pattern) — resolve before starting implementation
+- **UI pattern:** tabbed layout (4 tabs), not QWizard.
+- **Architecture:** thin GUI over current workflow first; swap in EchemToolkitPy backend later.
+  Threading: worker-object + `moveToThread()` (not QThread subclass).
+- **Potentiostat status (phase-aware):** keep a potentiostat status indicator in the layout, but in
+  the 32-bit phase Python CANNOT control or query the Gamry — the `.GSequence` file runs
+  autonomously and fires hardware triggers. Show it as "Gamry: standalone (runs from sequence file)"
+  in a neutral/disabled state now; it becomes a live green/red connection indicator when
+  EchemToolkitPy arrives. The real coordination today is a two-step manual sequence: (1) student
+  clicks Start → worker arms spectrometer and BLOCKS on the first trigger → UI shows "Armed — now
+  start the Gamry sequence"; (2) student starts the Gamry sequence manually → triggers fire →
+  collection proceeds. The UI must make this two-step start explicit so students aren't confused.
+- **Triggering stays Gamry-in-charge / Avantes-listening** — Gamry DIGOUT0 wired to the Avantes
+  hardware trigger input. This arrangement is kept through the EchemToolkitPy migration.
+- **Doping-potential fields are documentation-only in this phase** — the Gamry sequence file holds
+  the real potentials. GUI fields (`doping_potential_start/end/step`, `dedoping_potential`,
+  `prededoping_potential`) are saved to the run metadata JSON but do NOT drive the experiment until
+  EchemToolkitPy arrives. Label them clearly in the UI as "recorded for reference."
 - **Logging:** one log file per run, named to match data folder and saved alongside data:
   `specechem_data/YYYYMMDD_Name/YYYYMMDD_Name.log`. DEBUG to file, INFO to UI status log.
 - **No live plot updates** — plots update post-segment only (simplifies threading)
-- **Stop vs Abort:** Stop finishes current acquisition cleanly; Abort is immediate (confirm dialog)
+- **Stop vs Abort:** Stop finishes current acquisition cleanly; Abort is immediate (confirm dialog).
+  NOTE: Abort must check `abort_event` inside the spectrometer measure poll loop, not just the
+  acquisition loop — otherwise Abort won't respond while blocked waiting for a trigger (the most
+  common wait state). `threading.Event` is stdlib, so this doesn't violate the no-Qt-in-core rule.
+- **Run metadata:** `write_run_metadata()` writes `{folder}/{folder}_metadata.json` at run start —
+  sample name, electrolyte, notes, and full settings snapshot — making each data folder self-documenting.
 
 ### Modularization
 - Move `get_spectra()` from notebooks into `spec_echem/` as a proper module function

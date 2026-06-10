@@ -24,8 +24,6 @@ try:
 except ImportError:
     AVASPEC_AVAILABLE = False
 
-from . import globals
-
 
 class AvantesSpectrometer:
     """
@@ -65,18 +63,15 @@ class AvantesSpectrometer:
         print(f"Found Serial number: {self.serial_number}")
         
         # Activate device
-        globals.dev_handle = AVS_Activate(mylist[0])
-        self.dev_handle = globals.dev_handle
+        self.dev_handle = AVS_Activate(mylist[0])
         print(f"AVS_Activate returned: {self.dev_handle}")
-        
+
         # Get device configuration
         devcon = AVS_GetParameter(self.dev_handle, 63484)
-        globals.pixels = devcon.m_Detector_m_NrPixels
-        self.pixels = globals.pixels
-        
+        self.pixels = devcon.m_Detector_m_NrPixels
+
         # Get wavelength calibration
-        globals.wavelength = AVS_GetLambda(self.dev_handle)
-        self.wavelength = globals.wavelength
+        self.wavelength = AVS_GetLambda(self.dev_handle)
         
         # Enable high resolution ADC
         ret = AVS_UseHighResAdc(self.dev_handle, True)
@@ -177,27 +172,33 @@ class AvantesSpectrometer:
             
         return timestamp, np.array(spectral_data[395:1660]), net_dif, t_dif
     
-    def measure(self):
+    def measure(self, abort_event=None):
         """
         Perform a single measurement and return spectral data.
-        
+
+        Args:
+            abort_event: optional threading.Event — if set while waiting for the
+                trigger / data, the measurement is abandoned and None is returned.
+
         Returns:
-            tuple: (timestamp, spectral_data_array)
+            tuple (timestamp, spectral_data_array), or None if aborted.
         """
         # Start measurement
         ret = AVS_Measure(self.dev_handle, 0, 1)
-        
+
         # Wait for data ready
         dataready = False
         while not dataready:
+            if abort_event is not None and abort_event.is_set():
+                return None
             dataready = AVS_PollScan(self.dev_handle)
             time.sleep(0.001)
-        
+
         # Get spectral data
         ret = AVS_GetScopeData(self.dev_handle)
         timestamp = ret[0]
         spectral_data = ret[1]
-        
+
         return timestamp, np.array(spectral_data[395:1660])
     
     def plot_data(self, wavelength, spectral_data):
