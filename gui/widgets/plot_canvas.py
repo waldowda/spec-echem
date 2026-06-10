@@ -6,17 +6,24 @@ import matplotlib
 matplotlib.use("QtAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
 
 
 class MplCanvas(FigureCanvasQTAgg):
     def __init__(self, parent=None, xlabel="Wavelength (nm)", ylabel="Intensity (counts)"):
         self.fig = Figure(figsize=(5, 3), tight_layout=True)
-        self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig)
         self.setParent(parent)
         self._xlabel = xlabel
         self._ylabel = ylabel
+        self.ax = self.fig.add_subplot(111)
         self._decorate()
+
+    def _new_axes(self):
+        """Fresh axes on a cleared figure — also removes any prior colorbar."""
+        self.fig.clear()
+        self.ax = self.fig.add_subplot(111)
 
     def _decorate(self, title=None):
         self.ax.set_xlabel(self._xlabel)
@@ -26,14 +33,14 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax.grid(True, alpha=0.3)
 
     def clear(self):
-        self.ax.clear()
+        self._new_axes()
         self._decorate()
         self.draw_idle()
 
     def show_spectrum(self, wavelengths, values, title=None, ylabel="Intensity (counts)"):
         """Single intensity/absorbance trace vs wavelength."""
         self._ylabel = ylabel
-        self.ax.clear()
+        self._new_axes()
         self.ax.plot(wavelengths, values, lw=1.0, color="#1f77b4")
         self._decorate(title)
         self.draw_idle()
@@ -41,7 +48,7 @@ class MplCanvas(FigureCanvasQTAgg):
     def show_dark_ref(self, wavelengths, dark, ref):
         """Overlay dark and reference (100%T) for checking detector range."""
         self._ylabel = "Intensity (counts)"
-        self.ax.clear()
+        self._new_axes()
         if dark is not None:
             self.ax.plot(wavelengths, dark, lw=1.0, color="#444", label="Dark")
         if ref is not None:
@@ -52,19 +59,23 @@ class MplCanvas(FigureCanvasQTAgg):
 
     def show_absorbance(self, absorb_df, title=None, wl_min=None, wl_max=None):
         """
-        Absorbance vs wavelength for every time point in a segment.
-        absorb_df: DataFrame indexed by wavelength (rows), columns = relative time (s).
-        Traces are colored light→dark by time so evolution is visible.
+        Absorbance vs wavelength for every time point in a segment. Traces are
+        colored by elapsed time (viridis), with a colorbar so the time evolution
+        is legible. title is shown above the plot (the segment label).
         """
         self._ylabel = "Absorbance"
-        self.ax.clear()
+        self._new_axes()
         wl = absorb_df.index.values
-        n = absorb_df.shape[1]
+        times = [float(c) for c in absorb_df.columns]
         cmap = matplotlib.colormaps["viridis"]
-        for i, col in enumerate(absorb_df.columns):
-            shade = cmap(i / max(n - 1, 1))
-            self.ax.plot(wl, absorb_df[col].values, lw=0.8, color=shade)
+        norm = Normalize(vmin=min(times), vmax=max(times)) if len(times) > 1 \
+            else Normalize(vmin=0.0, vmax=1.0)
+        for t, col in zip(times, absorb_df.columns):
+            self.ax.plot(wl, absorb_df[col].values, lw=0.8, color=cmap(norm(t)))
         if wl_min is not None and wl_max is not None:
             self.ax.set_xlim(wl_min, wl_max)
         self._decorate(title)
+        sm = ScalarMappable(norm=norm, cmap=cmap)
+        sm.set_array([])
+        self.fig.colorbar(sm, ax=self.ax, label="Time (s)")
         self.draw_idle()
