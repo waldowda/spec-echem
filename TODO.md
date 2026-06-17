@@ -20,6 +20,19 @@ and/or roll our own raw-`.DTA` parser, address:
 - [ ] **Multi-cycle CV is concatenated** into one series (loops overlay). Fine for I-vs-E plotting;
       just noted — revisit if per-cycle separation is ever needed.
 
+## Integration-time unit is ambiguous (reconcile before next data campaign)
+
+- [ ] Three sources disagree on the unit of the integration time:
+      - `CLAUDE.md` documents `set_integration_time(time)` as **seconds** ("0.05 = 50 ms")
+      - `settings.py` names the field **`integration_time_ms`** (default `0.022`)
+      - the value flows unchanged into the Avantes `MeasConfigType.m_IntegrationTime`, which the
+        Avantes SDK defines in **milliseconds**
+      The GUI passes the spin value straight through (`set_integration_time(self.integration_spin.value())`),
+      so whatever the box shows IS `m_IntegrationTime`. The 2026-06-16 validation run recorded
+      `0.08` — fine for the structural comparison (both control and GUI used the same value), but
+      the label/doc mismatch means a student can't tell what unit to type. Pick one unit, fix the
+      field name + CLAUDE.md doc + any conversion so they agree, and label the GUI spin box with it.
+
 ## Decide later (triggered)
 
 - [ ] **Roll our own raw-`.DTA` parser** to drop the `gamry_parser` dependency — only when triggered
