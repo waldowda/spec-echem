@@ -93,7 +93,7 @@ Do NOT copy a fresh SDK file over this without reapplying these three edits.
 | Method | Returns | Notes |
 |--------|---------|-------|
 | `init()` | `(measconfig, serial_number)` | Must call before measuring |
-| `set_integration_time(time)` | — | Time in seconds (e.g., 0.05 = 50 ms) |
+| `set_integration_time(time)` | — | Time in **milliseconds** — passed straight to Avantes `m_IntegrationTime` (no conversion). e.g. `50` = 50 ms. Matches the `integration_time_ms` settings key. |
 | `set_scan_averages(n)` | — | Scans to average per measurement |
 | `measure()` | `(timestamp, spectrum)` | Single spectrum acquisition |
 | `wavelengths()` | `(_, wavelength_array)` | Calibration wavelengths |
@@ -209,6 +209,10 @@ Migrating from `.GSequence` files + GPIO to Gamry's `EchemToolkitPy` Python libr
 - **Planned:** `gamry_interface.py` module using `EchemToolkitPy` API directly in Python
 - **Status:** EchemToolkitPy is 32-bit Python only; Gamry targeting 64-bit support ~September 2026
   (historically late). Plan around 32-bit until further notice.
+- **Architecture gate PASSED (2026-06-18):** in one 32-bit env (`SpecEchem32`, Python 3.7.13),
+  `toolkitpy 7.11.0` and `avaspec` both import and the spectrometer measures — so Phase 2 is a
+  single 32-bit app driving both instruments (no two-process split). Setup recipe + the trigger
+  validation that preceded it are captured in the project memory notes.
 - **What stays the same:** Avantes interface, `get_spectra()` output format
 - **What changes:** `.GSequence` files → Python scripts; GPIO middleman may be eliminated if
   ToolkitPy can trigger spectrum collection directly
