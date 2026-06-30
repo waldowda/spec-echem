@@ -23,6 +23,11 @@ DEFAULT_SETTINGS = {
     # --- Trigger ---
     "trigger": True,
 
+    # --- Potentiostat control ---
+    # "external" = human starts the Gamry .GSequence (Phase-1, proven default);
+    # "python"   = Python drives the Gamry via EchemToolkitPy (Phase-2).
+    "potentiostat_mode": "external",
+
     # --- Cyclic voltammetry ---
     "cv_enabled": True,
     "cv_cycles": 3,
