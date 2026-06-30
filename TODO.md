@@ -37,6 +37,25 @@ ms), with NO conversion. Confirmed on hardware 2026-06-18 — `spectrometer.py` 
       (distribution/reproducibility need, `gamry_parser` breaks/unmaintained, or GUI-automated
       conversion). Check `gamry_parser` license first (likely MIT) to learn from it.
 
+## Phase 2 — Python potentiostat (EchemToolkitPy)
+
+`spec_echem/potentiostat.py` is drafted (`ExternalPotentiostat` = today's manual path,
+`ToolkitPotentiostat` = Python-driven). Chrono steps (pre-dedoping / doping / dedoping)
+map cleanly; remaining items:
+
+- [ ] **Python-mode CV needs explicit vertex potentials.** `signal_r_up_dn_new` wants
+      `[initial, apex1, apex2, final]`, but settings only store `cv_total_voltage` (a sweep
+      *path length*), from which vertices can't be recovered. Add `cv_initial_v` /
+      `cv_apex1_v` / `cv_apex2_v` / `cv_final_v` to settings + the Parameters tab, then build
+      the CV signal in `ToolkitPotentiostat._cv_signal()` (currently raises NotImplementedError).
+- [ ] **Bench-settle `curve.run()` blocks vs polls** (the `# BENCH:` markers in
+      `potentiostat.py`). Threading is written to be correct either way, but confirm timing
+      and that DIGOUT0 HIGH lands while the spectrometer is armed.
+- [ ] **Verify toolkitpy API names on hardware:** `initialize_pstat`, `set_signal_const` /
+      `signal_const_new` arg order, `RcvCurve`/`ChronoCurve` vs `ChronoACurve`, `pstat_is_valid`.
+- [ ] In Python mode the doping/dedoping potential fields go live — drop the
+      "(recorded for reference)" `REF_NOTE` on those rows in `parameters_tab.py`.
+
 ## Echem plotting in the GUI (Phase 1)
 
 - [ ] Wire CV (I vs E) + chrono (I vs t) plots into the Results review area, reading converted files

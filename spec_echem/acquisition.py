@@ -5,7 +5,8 @@ No Qt imports. No vendor SDK imports — spec is injected.
 import time
 
 
-def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False, abort_event=None):
+def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
+                    abort_event=None, on_armed=None):
     """
     Collect a segment of spectra from the spectrometer.
 
@@ -15,6 +16,10 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False, abo
         delta_time: Target seconds between spectrum acquisitions
         trigger: If True, wait for hardware trigger on first measurement
         abort_event: threading.Event — if set, stops acquisition immediately
+        on_armed: optional callable, invoked once immediately after the trigger
+            is armed and before the first measurement. In Python-controlled mode
+            this is where the Gamry is started so its DIGOUT0 edge fires the
+            (already-armed) spectrometer trigger. None in external mode → no-op.
 
     Returns:
         (spectra, timestamps): spectra is list of 1D arrays, timestamps are
@@ -22,6 +27,9 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False, abo
     """
     trigger_mode = 1 if trigger else 0
     spec.set_trigger_mode(trigger_mode)
+
+    if on_armed is not None:
+        on_armed()
 
     spectra = []
     timestamps = []

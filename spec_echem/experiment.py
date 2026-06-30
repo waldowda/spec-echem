@@ -67,16 +67,28 @@ def build_segments(settings):
 
 
 def run_one_segment(spec, segment, dark, ref, wavelengths,
-                    data_root, added_path, abort_event=None):
+                    data_root, added_path, abort_event=None, potentiostat=None):
     """
     Acquire one segment, compute absorbance, and write the data file.
+
+    If a potentiostat is given (Python-controlled mode), it is started the
+    instant the spectrometer trigger is armed and stopped once collection ends —
+    so the Gamry runs concurrently with spectrum acquisition. An ExternalPotentiostat
+    (or None) makes this a no-op, preserving the manual two-step behaviour exactly.
 
     Returns (absorbance_df, path), or None if aborted (no file is written for a
     partial/aborted segment).
     """
-    spectra, timestamps = acquire_segment(
-        spec, segment.num_points, segment.delta_time, segment.trigger, abort_event,
-    )
+    on_armed = (lambda: potentiostat.start_segment(segment)) if potentiostat is not None else None
+    try:
+        spectra, timestamps = acquire_segment(
+            spec, segment.num_points, segment.delta_time, segment.trigger,
+            abort_event, on_armed,
+        )
+    finally:
+        if potentiostat is not None:
+            aborted = abort_event is not None and abort_event.is_set()
+            potentiostat.finish_segment(aborted=aborted)
     if abort_event is not None and abort_event.is_set():
         return None
     if not spectra:
