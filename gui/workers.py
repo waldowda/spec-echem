@@ -39,7 +39,8 @@ class AcquisitionWorker(QObject):
     status = Signal(str)
     finished = Signal(str)                    # 'done' | 'stopped' | 'aborted' | 'error'
 
-    def __init__(self, spec, segments, dark, ref, wavelengths, data_root, added_path):
+    def __init__(self, spec, segments, dark, ref, wavelengths, data_root, added_path,
+                 potentiostat=None):
         super().__init__()
         self.spec = spec
         self.segments = segments
@@ -48,6 +49,7 @@ class AcquisitionWorker(QObject):
         self.wavelengths = wavelengths
         self.data_root = data_root
         self.added_path = added_path
+        self.potentiostat = potentiostat
         self.stop_event = threading.Event()
         self.abort_event = threading.Event()
 
@@ -56,6 +58,8 @@ class AcquisitionWorker(QObject):
 
     def request_abort(self):
         self.abort_event.set()
+        if self.potentiostat is not None:
+            self.potentiostat.stop()
 
     def run(self):
         logger = get_run_logger()
@@ -63,6 +67,8 @@ class AcquisitionWorker(QObject):
         logger.addHandler(ui_handler)
         reason = "done"
         try:
+            if self.potentiostat is not None:
+                self.potentiostat.open()
             total = len(self.segments)
             logger.info("Run started: %d segments.", total)
             for i, seg in enumerate(self.segments):
@@ -82,6 +88,7 @@ class AcquisitionWorker(QObject):
                 result = run_one_segment(
                     self.spec, seg, self.dark, self.ref, self.wavelengths,
                     self.data_root, self.added_path, self.abort_event,
+                    self.potentiostat,
                 )
                 if result is None:
                     reason = "aborted"
@@ -94,6 +101,11 @@ class AcquisitionWorker(QObject):
             logger.exception("Acquisition error")
             reason = "error"
         finally:
+            if self.potentiostat is not None:
+                try:
+                    self.potentiostat.close()
+                except Exception:  # noqa: BLE001 — never let cleanup mask the run result
+                    logger.exception("Potentiostat close error")
             logger.info("Run finished: %s.", reason)
             logger.removeHandler(ui_handler)
             self.finished.emit(reason)

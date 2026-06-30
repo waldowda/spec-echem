@@ -9,10 +9,11 @@ counts or absorbance.
 import numpy as np
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
-    QPushButton, QLabel, QCheckBox, QDoubleSpinBox, QSpinBox, QFileDialog,
+    QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
 )
 
 from spec_echem.fakes import FakeSpectrometer
+from spec_echem.potentiostat import TOOLKITPY_AVAILABLE
 from gui.widgets.plot_canvas import MplCanvas
 
 try:
@@ -75,12 +76,20 @@ class InstrumentTab(QWidget):
         form.addRow("Timing:", self._wrap(timing_row))
         layout.addWidget(settings_group)
 
-        # --- Potentiostat status (phase-aware) ---
-        pstat_group = QGroupBox("Potentiostat")
+        # --- Potentiostat control mode ---
+        pstat_group = QGroupBox("Potentiostat Control")
         pstat_layout = QVBoxLayout(pstat_group)
-        self.pstat_status = QLabel("Gamry: standalone (runs from sequence file)")
-        self.pstat_status.setStyleSheet("color: #888;")
-        pstat_layout.addWidget(self.pstat_status)
+        self.pstat_external_radio = QRadioButton(
+            "External — start the Gamry sequence in Gamry Framework")
+        self.pstat_python_radio = QRadioButton(
+            "Python — drive the Gamry from here (EchemToolkitPy)")
+        self.pstat_external_radio.setChecked(True)
+        if not TOOLKITPY_AVAILABLE:
+            self.pstat_python_radio.setEnabled(False)
+            self.pstat_python_radio.setText(
+                "Python — drive the Gamry from here (EchemToolkitPy) — toolkitpy not available")
+        pstat_layout.addWidget(self.pstat_external_radio)
+        pstat_layout.addWidget(self.pstat_python_radio)
         layout.addWidget(pstat_group)
 
         # --- Dark / Reference: buttons on the left, live plot on the right ---
@@ -143,10 +152,17 @@ class InstrumentTab(QWidget):
     def populate_from(self, settings):
         self.integration_spin.setValue(settings["integration_time_ms"])
         self.averages_spin.setValue(settings["scan_averages"])
+        mode = settings.get("potentiostat_mode", "external")
+        if mode == "python" and self.pstat_python_radio.isEnabled():
+            self.pstat_python_radio.setChecked(True)
+        else:
+            self.pstat_external_radio.setChecked(True)
 
     def collect_into(self, settings):
         settings["integration_time_ms"] = self.integration_spin.value()
         settings["scan_averages"] = self.averages_spin.value()
+        settings["potentiostat_mode"] = (
+            "python" if self.pstat_python_radio.isChecked() else "external")
 
     # --- actions ---
 
