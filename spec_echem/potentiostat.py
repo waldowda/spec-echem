@@ -75,19 +75,19 @@ def initialize_pstat(pstat):
     pstat.set_pos_feed_resistance(0.0)
 
 
-def probe_serial():
+def probe_identity():
     """
-    Open the Gamry briefly, read its serial number, and close. Backs a GUI
-    "Identify" button so the user can confirm the potentiostat is reachable and
-    see which unit it is before committing to a run. Raises if toolkitpy or the
-    hardware is unavailable.
+    Open the Gamry briefly, read its label (user-assigned custom name) and serial
+    number, and close. Returns (label, serial). Backs a GUI "Identify" button so
+    the user can confirm the potentiostat is reachable and recognize which unit it
+    is before committing to a run. Raises if toolkitpy or the hardware is unavailable.
     """
     if not TOOLKITPY_AVAILABLE:
         raise RuntimeError("toolkitpy is not importable — Python potentiostat control unavailable.")
     tkp.toolkitpy_init("spec-echem-identify")
     try:
         pstat = tkp.Pstat("PSTAT")
-        return pstat.serial_no()
+        return pstat.label(), pstat.serial_no()
     finally:
         tkp.toolkitpy_close()
 

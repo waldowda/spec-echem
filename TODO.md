@@ -54,10 +54,9 @@ map cleanly; remaining items:
       `signal_const_new` arg order, `RcvCurve`/`ChronoCurve` vs `ChronoACurve`, `pstat_is_valid`.
 - [ ] In Python mode the doping/dedoping potential fields go live — drop the
       "(recorded for reference)" `REF_NOTE` on those rows in `parameters_tab.py`.
-- [ ] **Show the Gamry's custom name in "Identify".** `probe_serial()` currently returns only
-      `Pstat.serial_no()`; also grab `Pstat.label()` (the user-assigned name, e.g. "duck") and show
-      "Gamry connected — {label} (serial {serial})". Recognizable name is more convincing than a serial.
-      Optionally `Pstat.family()` for the model. One-liner in `spec_echem/potentiostat.py:probe_serial`.
+- [x] **Show the Gamry's custom name in "Identify".** DONE (2026-07-01): `probe_identity()` returns
+      `(Pstat.label(), Pstat.serial_no())`; the Identify status shows "Gamry connected — {label}
+      (serial {serial})" (falls back to serial-only if no label). Optionally add `Pstat.family()` later.
 
 ## Echem plotting in the GUI (Phase 1)
 
