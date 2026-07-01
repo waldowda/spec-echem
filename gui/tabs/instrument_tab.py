@@ -13,7 +13,7 @@ from qtpy.QtWidgets import (
 )
 
 from spec_echem.fakes import FakeSpectrometer
-from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_serial
+from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_identity
 from gui.widgets.plot_canvas import MplCanvas
 
 try:
@@ -199,12 +199,14 @@ class InstrumentTab(QWidget):
         self.pstat_status.setText("Identifying…")
         self.pstat_status.setStyleSheet("color: #555;")
         try:
-            serial = probe_serial()
+            label, serial = probe_identity()
         except Exception as exc:  # noqa: BLE001 — surface any toolkitpy/hardware failure
             self.pstat_status.setText(f"Identify failed: {exc}")
             self.pstat_status.setStyleSheet("color: #b00;")
             return
-        self.pstat_status.setText(f"Gamry connected — serial {serial}")
+        label = (label or "").strip()
+        who = f"{label} (serial {serial})" if label else f"serial {serial}"
+        self.pstat_status.setText(f"Gamry connected — {who}")
         self.pstat_status.setStyleSheet("color: #080;")
 
     def _update_cal_plot(self):
