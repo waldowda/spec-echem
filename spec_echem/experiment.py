@@ -84,7 +84,10 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     Returns (absorbance_df, path), or None if aborted (no file is written for a
     partial/aborted segment).
     """
-    on_armed = (lambda: potentiostat.start_segment(segment)) if potentiostat is not None else None
+    on_armed = None
+    if potentiostat is not None:
+        potentiostat.prepare(segment)   # slow setup, before the spectrometer is armed
+        on_armed = potentiostat.fire    # fired from inside measure(), once armed
     try:
         spectra, timestamps = acquire_segment(
             spec, segment.num_points, segment.delta_time, segment.trigger,
@@ -93,7 +96,7 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     finally:
         if potentiostat is not None:
             aborted = abort_event is not None and abort_event.is_set()
-            potentiostat.finish_segment(aborted=aborted)
+            potentiostat.finish(aborted=aborted)
     if abort_event is not None and abort_event.is_set():
         return None
     if not spectra:
