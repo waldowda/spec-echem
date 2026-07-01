@@ -56,7 +56,9 @@ class AvantesSpectrometer:
         # Get number of devices
         ret = AVS_GetNrOfDevices()
         print(f"AVS_GetNrOfDevices returned: {ret}")
-        
+        if ret < 1:
+            raise RuntimeError("Invalid index (forget to plug in the spectrometer?)")
+
         # Get device list and activate first device
         mylist = AVS_GetList(1)
         self.serial_number = str(mylist[0].SerialNumber.decode("utf-8"))
