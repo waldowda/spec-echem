@@ -75,6 +75,23 @@ def initialize_pstat(pstat):
     pstat.set_pos_feed_resistance(0.0)
 
 
+def probe_serial():
+    """
+    Open the Gamry briefly, read its serial number, and close. Backs a GUI
+    "Identify" button so the user can confirm the potentiostat is reachable and
+    see which unit it is before committing to a run. Raises if toolkitpy or the
+    hardware is unavailable.
+    """
+    if not TOOLKITPY_AVAILABLE:
+        raise RuntimeError("toolkitpy is not importable — Python potentiostat control unavailable.")
+    tkp.toolkitpy_init("spec-echem-identify")
+    try:
+        pstat = tkp.Pstat("PSTAT")
+        return pstat.serial_no()
+    finally:
+        tkp.toolkitpy_close()
+
+
 class Potentiostat:
     """
     No-op base / interface. ExternalPotentiostat is exactly this: the Gamry runs
