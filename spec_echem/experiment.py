@@ -44,7 +44,12 @@ def build_segments(settings):
     segments = []
 
     if settings["cv_enabled"]:
-        cv_points = int(settings["cv_total_voltage"] / settings["cv_step_size"]
+        # Sweep path length from the vertices (init→limit1→limit2→final), so the
+        # spectrum count is exact — same value cv_total_voltage used to hold.
+        cv_path = (abs(settings["cv_initial_v"] - settings["cv_limit1_v"])
+                   + abs(settings["cv_limit1_v"] - settings["cv_limit2_v"])
+                   + abs(settings["cv_limit2_v"] - settings["cv_final_v"]))
+        cv_points = int(cv_path / settings["cv_step_size"]
                         * 1000 * settings["cv_cycles"] + 1)
         cv_delta = settings["cv_step_size"] / settings["cv_scan_rate"]
         segments.append(Segment("CV", DATA_TYPE_CV, 0, cv_points, cv_delta, trigger))
