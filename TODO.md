@@ -43,11 +43,10 @@ ms), with NO conversion. Confirmed on hardware 2026-06-18 — `spectrometer.py` 
 `ToolkitPotentiostat` = Python-driven). Chrono steps (pre-dedoping / doping / dedoping)
 map cleanly; remaining items:
 
-- [ ] **Python-mode CV needs explicit vertex potentials.** `signal_r_up_dn_new` wants
-      `[initial, apex1, apex2, final]`, but settings only store `cv_total_voltage` (a sweep
-      *path length*), from which vertices can't be recovered. Add `cv_initial_v` /
-      `cv_apex1_v` / `cv_apex2_v` / `cv_final_v` to settings + the Parameters tab, then build
-      the CV signal in `ToolkitPotentiostat._cv_signal()` (currently raises NotImplementedError).
+- [x] **Python-mode CV vertex potentials.** DONE (2026-06-30): settings now carry
+      `cv_initial_v / cv_limit1_v / cv_limit2_v / cv_final_v` (replacing `cv_total_voltage`),
+      Parameters tab exposes them, and `ToolkitPotentiostat._cv_signal()` builds the CV signal.
+      Still bench-unconfirmed like the rest of the toolkitpy path.
 - [ ] **Bench-settle `curve.run()` blocks vs polls** (the `# BENCH:` markers in
       `potentiostat.py`). Threading is written to be correct either way, but confirm timing
       and that DIGOUT0 HIGH lands while the spectrometer is armed.

@@ -130,12 +130,13 @@ class ParametersTab(QWidget):
         cv_group = QGroupBox("Cyclic Voltammetry")
         cv_form = QFormLayout(cv_group)
         cv_form.addRow(self._check("cv_enabled", "Include CV"))
-        cv_form.addRow("Cycles:", self._ispin("cv_cycles", 1, 1000))
-        cv_form.addRow("Total voltage:", self._hint(
-            self._dspin("cv_total_voltage", 0.0, 100.0, 3, 0.1, " V"),
-            "total sweep path, e.g. 0→0.7→−0.5→0 = 2.4 V"))
+        cv_form.addRow("Initial E:", self._dspin("cv_initial_v", -10.0, 10.0, 3, 0.05, " V"))
+        cv_form.addRow("Scan Limit 1:", self._dspin("cv_limit1_v", -10.0, 10.0, 3, 0.05, " V"))
+        cv_form.addRow("Scan Limit 2:", self._dspin("cv_limit2_v", -10.0, 10.0, 3, 0.05, " V"))
+        cv_form.addRow("Final E:", self._dspin("cv_final_v", -10.0, 10.0, 3, 0.05, " V"))
         cv_form.addRow("Step size:", self._dspin("cv_step_size", 0.1, 1000.0, 1, 1.0, " mV"))
         cv_form.addRow("Scan rate:", self._dspin("cv_scan_rate", 0.1, 10000.0, 1, 10.0, " mV/s"))
+        cv_form.addRow("Cycles:", self._ispin("cv_cycles", 1, 1000))
         layout.addWidget(cv_group)
 
         # --- Pre-dedoping ---
