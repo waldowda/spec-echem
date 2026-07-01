@@ -13,7 +13,7 @@ from qtpy.QtWidgets import (
 )
 
 from spec_echem.fakes import FakeSpectrometer
-from spec_echem.potentiostat import TOOLKITPY_AVAILABLE
+from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_serial
 from gui.widgets.plot_canvas import MplCanvas
 
 try:
@@ -90,6 +90,19 @@ class InstrumentTab(QWidget):
                 "Python — drive the Gamry from here (EchemToolkitPy) — toolkitpy not available")
         pstat_layout.addWidget(self.pstat_external_radio)
         pstat_layout.addWidget(self.pstat_python_radio)
+
+        # Identify (Python mode): confirm the Gamry is reachable + show its serial
+        id_row = QHBoxLayout()
+        self.pstat_identify_btn = QPushButton("Identify Potentiostat")
+        self.pstat_identify_btn.clicked.connect(self.on_identify_pstat)
+        self.pstat_status = QLabel("—")
+        self.pstat_status.setStyleSheet("color: #555;")
+        id_row.addWidget(self.pstat_identify_btn)
+        id_row.addWidget(self.pstat_status)
+        id_row.addStretch()
+        pstat_layout.addLayout(id_row)
+        self.pstat_external_radio.toggled.connect(self._update_pstat_controls)
+        self._update_pstat_controls()
         layout.addWidget(pstat_group)
 
         # --- Dark / Reference: buttons on the left, live plot on the right ---
@@ -175,6 +188,24 @@ class InstrumentTab(QWidget):
     def _update_absorbance_enabled(self):
         ready = self.win.spec is not None and self.win.dark is not None and self.win.ref is not None
         self.test_absorb_btn.setEnabled(ready)
+
+    def _update_pstat_controls(self):
+        python = self.pstat_python_radio.isChecked()
+        self.pstat_identify_btn.setEnabled(python and TOOLKITPY_AVAILABLE)
+        self.pstat_status.setText("—" if python else "Gamry runs from Gamry Framework")
+        self.pstat_status.setStyleSheet("color: #555;")
+
+    def on_identify_pstat(self):
+        self.pstat_status.setText("Identifying…")
+        self.pstat_status.setStyleSheet("color: #555;")
+        try:
+            serial = probe_serial()
+        except Exception as exc:  # noqa: BLE001 — surface any toolkitpy/hardware failure
+            self.pstat_status.setText(f"Identify failed: {exc}")
+            self.pstat_status.setStyleSheet("color: #b00;")
+            return
+        self.pstat_status.setText(f"Gamry connected — serial {serial}")
+        self.pstat_status.setStyleSheet("color: #080;")
 
     def _update_cal_plot(self):
         self.cal_canvas.show_dark_ref(self.win.wavelengths, self.win.dark, self.win.ref)
