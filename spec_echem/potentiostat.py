@@ -265,28 +265,17 @@ class ToolkitPotentiostat(Potentiostat):
         raise ValueError(f"No chrono potential for data_type {segment.data_type}")
 
     def _cv_signal(self, segment):
-        # GAP (surfaced, not faked): signal_r_up_dn_new needs explicit vertices
-        # [initial, apex1, apex2, final], but the current settings model CV as a
-        # total sweep *path length* (cv_total_voltage), from which the two apex
-        # potentials cannot be recovered. Once cv_initial_v / cv_limit1_v /
-        # cv_limit2_v / cv_final_v exist in settings (mapping the .GSequence's
-        # VINIT / VLIMIT1 / VLIMIT2 / VFINAL), the body is exactly:
-        #
-        #   s = self.settings
-        #   scan_rate = s["cv_scan_rate"] / 1000.0        # mV/s -> V/s
-        #   step      = s["cv_step_size"] / 1000.0        # mV   -> V
-        #   sample_time = step / scan_rate
-        #   signal = self._pstat.signal_r_up_dn_new(
-        #       [s["cv_initial_v"], s["cv_limit1_v"], s["cv_limit2_v"], s["cv_final_v"]],
-        #       [scan_rate, scan_rate, scan_rate],        # one rate per leg
-        #       [0.0, 0.0, 0.0],                          # apex/final holds
-        #       sample_time, int(s["cv_cycles"]), tkp.PSTATMODE)
-        #   return signal
-        #
-        # Until those settings land, fail loudly rather than invent vertices.
-        raise NotImplementedError(
-            "Python-mode CV needs explicit vertex potentials (initial / limit1 / "
-            "limit2 / final). Settings currently store only a total sweep length, "
-            "which can't be turned into vertices. Add cv_initial_v / cv_limit1_v / "
-            "cv_limit2_v / cv_final_v, then uncomment the body here. (Chrono works.)"
+        # Vertices map straight onto the .GSequence VINIT/VLIMIT1/VLIMIT2/VFINAL.
+        # toolkitpy's extra knobs are derived: one scan rate per leg (the single
+        # rate repeated), zero apex/final holds, sample_time = step/rate. Arg
+        # order matches the bundled cyclic_voltammetery.py.
+        s = self.settings
+        scan_rate = s["cv_scan_rate"] / 1000.0   # mV/s -> V/s
+        step = s["cv_step_size"] / 1000.0        # mV   -> V
+        sample_time = step / scan_rate
+        return self._pstat.signal_r_up_dn_new(
+            [s["cv_initial_v"], s["cv_limit1_v"], s["cv_limit2_v"], s["cv_final_v"]],
+            [scan_rate, scan_rate, scan_rate],   # one rate per leg
+            [0.0, 0.0, 0.0],                     # apex1 / apex2 / final holds
+            sample_time, int(s["cv_cycles"]), tkp.PSTATMODE,
         )
