@@ -31,7 +31,6 @@ returns immediately (manual says blocks; examples poll ``curve.running()``); the
 threading here is written to be correct *either way* (the Gamry runs on its own
 thread, joined when the spectrometer segment finishes).
 """
-import threading
 import time
 
 from spec_echem.data import (
@@ -47,6 +46,14 @@ except ImportError:
 
 # Generous curve buffer; the Gamry manual caps a signal at < 262143 points.
 MAX_CURVE_SIZE = 200000
+
+# Small margin so AVS_Measure() finishes arming before fire() raises DIGOUT0 — the
+# edge must land while the spectrometer is waiting (diag_trigger_timing.py showed an
+# edge fired before arming is missed). It delays BOTH instruments together, so it
+# does not desync them; tune/remove once the bench confirms the arm is instant.
+_FIRE_ARM_MARGIN_S = 0.005
+# Upper bound on how long finish() waits for the waveform to end (guards a hung run).
+_FINISH_MAX_WAIT_S = 10.0
 
 
 def initialize_pstat(pstat):
@@ -98,26 +105,33 @@ class Potentiostat:
     standalone from a sequence file, so every hook does nothing.
 
     Lifecycle, per run:
-        open()                      once, before the first segment
+        open()               once, before the first segment
         for each segment:
-            start_segment(segment)  called the instant the spectrometer is armed
-                                    and waiting for the trigger (see acquisition
-                                    .acquire_segment's on_armed callback)
-            finish_segment(aborted) called after the segment's spectra are in
-        close()                     once, after the last segment
+            prepare(segment) before the spectrometer is armed — slow setup
+                             (build the signal, create the curve)
+            fire()           at the exact instant the spectrometer is armed and
+                             polling for the trigger (acquire_segment passes this
+                             as measure()'s on_armed for spectrum 0) — raise
+                             DIGOUT0 + start the waveform
+            finish(aborted)  after the segment's spectra are in
+        close()              once, after the last segment
 
-    start/finish are split because in Python mode the Gamry must start *after*
-    the spectrometer trigger is armed (so the DIGOUT0 edge isn't missed) and run
-    concurrently with spectrum collection.
+    prepare/fire are split so the DIGOUT0 edge is raised ONLY after AVS_Measure()
+    has armed the spectrometer — examples/diag_trigger_timing.py proved an edge
+    fired before arming is missed. This mirrors the legacy order: spectrometer
+    armed and waiting, THEN the trigger.
     """
 
     def open(self):
         pass
 
-    def start_segment(self, segment):
+    def prepare(self, segment):
         pass
 
-    def finish_segment(self, aborted=False):
+    def fire(self):
+        pass
+
+    def finish(self, aborted=False):
         pass
 
     def stop(self):
@@ -152,8 +166,6 @@ class ToolkitPotentiostat(Potentiostat):
         self.settings = settings
         self._pstat = None
         self._curve = None
-        self._thread = None
-        self._gamry_error = None
 
     # --- lifecycle ------------------------------------------------------
 
@@ -176,56 +188,50 @@ class ToolkitPotentiostat(Potentiostat):
 
     # --- per-segment ----------------------------------------------------
 
-    def start_segment(self, segment):
+    def prepare(self, segment):
         """
-        Build + arm this segment's signal, raise DIGOUT0 (fires the spectrometer
-        trigger), then run the Gamry on its own thread so collection proceeds
-        concurrently. Called from acquire_segment's on_armed hook, i.e. the
-        spectrometer is already armed and waiting.
+        Slow, non-time-critical setup done BEFORE the spectrometer is armed: build
+        the segment's signal and create the curve. No cell, no trigger, no run
+        here — those happen in fire(), at the armed instant.
         """
-        self._gamry_error = None
         self._curve = self._build_and_arm_signal(segment)
 
+    def fire(self):
+        """
+        Called the instant the spectrometer is armed and polling (as measure()'s
+        on_armed for spectrum 0). Turn the cell on, raise DIGOUT0 (the edge the
+        armed spectrometer catches), and start the waveform. run(True) is
+        non-blocking (confirmed on hardware), so the Gamry then runs concurrently
+        with spectrum collection — no thread needed. Ordering matches the
+        .GSequence: DIGOUT0 high, then the experiment runs.
+        """
+        time.sleep(_FIRE_ARM_MARGIN_S)      # let AVS_Measure() finish arming before the edge
         self._pstat.set_cell(True)
-        self._set_trigger_line(high=True)   # DIGOUT0 HIGH -> Avantes captures spectrum 0
+        self._set_trigger_line(high=True)   # DIGOUT0 HIGH -> armed Avantes catches spectrum 0
+        self._curve.run(True)               # non-blocking; Gamry runs the waveform
 
-        self._thread = threading.Thread(
-            target=self._run_curve, name=f"gamry-{segment.label}", daemon=True
-        )
-        self._thread.start()
-
-    def finish_segment(self, aborted=False):
-        """Wait for (or stop) the Gamry, drop DIGOUT0, open the cell."""
+    def finish(self, aborted=False):
+        """Wait out (or stop) the waveform, drop DIGOUT0, open the cell."""
         if aborted:
             self._stop_curve()
-        if self._thread is not None:
-            # On a normal finish the curve ends ~when collection does; the
-            # timeout guards a hung run so the GUI never wedges.
-            self._thread.join(timeout=5.0)
-            self._thread = None
+        else:
+            # The waveform ran concurrently with collection, so it's ~done now.
+            # Poll to completion, bounded so a hung run can't wedge the GUI.
+            deadline = time.time() + _FINISH_MAX_WAIT_S
+            while (self._curve is not None and tkp.pstat_is_valid(self._pstat)
+                   and self._curve.running() and time.time() < deadline):
+                time.sleep(0.02)
+            if self._curve is not None and self._curve.running():
+                self._stop_curve()
         self._set_trigger_line(high=False)  # DIGOUT0 LOW
         if self._pstat is not None:
             self._pstat.set_cell(False)
-        if self._gamry_error is not None and not aborted:
-            err, self._gamry_error = self._gamry_error, None
-            raise err
+        self._curve = None
 
     def stop(self):
         self._stop_curve()
 
     # --- internals ------------------------------------------------------
-
-    def _run_curve(self):
-        try:
-            # BENCH: open question — does run() block or return immediately?
-            # run(True) = auto-run. The poll loop is a no-op if run() blocked
-            # (running() already False), and the real driver if it didn't — so
-            # this is correct either way.
-            self._curve.run(True)
-            while tkp.pstat_is_valid(self._pstat) and self._curve.running():
-                time.sleep(0.05)
-        except Exception as exc:  # noqa: BLE001 — surfaced via finish_segment
-            self._gamry_error = exc
 
     def _stop_curve(self):
         if self._curve is not None:
