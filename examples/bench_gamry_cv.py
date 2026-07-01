@@ -74,14 +74,18 @@ def main():
     if tkp.pstat_is_valid(pstat):
         pstat.set_cell(False)
 
-    data = curve.acq_data()
-    print("\nacq_data keys:", list(data.keys()))
-    n = len(data["vf"]) if "vf" in data else 0
+    data = curve.acq_data()   # numpy structured array (fields via .dtype.names)
+    names = getattr(getattr(data, "dtype", None), "names", None)
+    print("\nacq_data type:", type(data).__name__, "| fields:", names)
+    n = len(data)
     print(f"points: {n}")
     if n:
-        print(f"first: vf={data['vf'][0]:.3f} V  im={data['im'][0]:.3e} A")
-        print(f"last : vf={data['vf'][-1]:.3f} V  im={data['im'][-1]:.3e} A")
-        print(f"vf range: {min(data['vf']):.3f} .. {max(data['vf']):.3f} V")
+        print("first row:", data[0])
+        print("last row :", data[-1])
+        if names and "vf" in names:
+            print(f"vf range: {data['vf'].min():.3f} .. {data['vf'].max():.3f} V")
+        if names and "im" in names:
+            print(f"im range: {data['im'].min():.3e} .. {data['im'].max():.3e} A")
 
     tkp.toolkitpy_close()
     print("\ndone.")
