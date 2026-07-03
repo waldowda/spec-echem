@@ -26,6 +26,10 @@ from spec_echem.data import DATA_TYPE_DOPING
 from spec_echem.potentiostat import ToolkitPotentiostat
 
 # --- small, safe segment ------------------------------------------------------
+USE_TRIGGER = True    # set False first for a no-trigger smoke test (do the two
+                      # instruments co-run + produce data?), then True to test the
+                      # DIGOUT0 trigger handshake. With False the spectrometer free-
+                      # runs instead of waiting for the edge.
 POTENTIAL_V = 0.1     # hold potential (safe with open leads / dummy cell)
 CHRONO_TIME = 2.0     # s
 DELTA_S = 0.1         # s between spectra
@@ -54,7 +58,7 @@ def main():
     pstat = ToolkitPotentiostat(settings)
     pstat.open()
 
-    seg = Segment("Doping 0 (bench)", DATA_TYPE_DOPING, 0, NUM_POINTS, DELTA_S, trigger=True)
+    seg = Segment("Doping 0 (bench)", DATA_TYPE_DOPING, 0, NUM_POINTS, DELTA_S, trigger=USE_TRIGGER)
     out = tempfile.mkdtemp()
 
     # Safety timeout: if spectrum 0 never triggers, don't hang — abort and report.
@@ -62,8 +66,8 @@ def main():
     timer = threading.Timer(CHRONO_TIME + 10.0, abort.set)
     timer.start()
 
-    print(f"Running one triggered chrono: {POTENTIAL_V} V, {CHRONO_TIME}s, "
-          f"expecting ~{NUM_POINTS} spectra...")
+    print(f"Running one chrono ({'TRIGGERED' if USE_TRIGGER else 'free-run, no trigger'}): "
+          f"{POTENTIAL_V} V, {CHRONO_TIME}s, expecting ~{NUM_POINTS} spectra...")
     t0 = time.perf_counter()
     try:
         result = run_one_segment(spec, seg, dark, ref, wl, out, "coacquire", abort, pstat)
