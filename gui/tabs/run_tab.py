@@ -16,6 +16,7 @@ from pathlib import Path
 from spec_echem.experiment import build_segments
 from spec_echem.data import write_run_metadata
 from spec_echem.logging_config import configure_run_logging, close_run_logging
+from spec_echem.potentiostat import ExternalPotentiostat, ToolkitPotentiostat
 from gui.widgets.plot_canvas import MplCanvas
 from gui.workers import AcquisitionWorker
 
@@ -138,11 +139,16 @@ class RunTab(QWidget):
             self.sequence_list.addItem("○  " + seg.label)
             self._row_for_label[seg.label] = i
 
+        # Pick the potentiostat: Python-controlled drives the Gamry itself;
+        # external means the human starts the .GSequence (the proven default).
+        python_mode = settings.get("potentiostat_mode", "external") == "python"
+        potentiostat = ToolkitPotentiostat(settings) if python_mode else ExternalPotentiostat()
+
         # Spin up the worker on its own thread
         self._thread = QThread()
         self._worker = AcquisitionWorker(
             self.win.spec, segments, self.win.dark, self.win.ref, self.win.wavelengths,
-            settings["data_root"], settings["data_folder"],
+            settings["data_root"], settings["data_folder"], potentiostat,
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -153,7 +159,10 @@ class RunTab(QWidget):
         self._worker.finished.connect(self._thread.quit)
         self._thread.start()
 
-        self.set_banner("⏳ Armed — now START the Gamry sequence", "#ffd")
+        if python_mode:
+            self.set_banner("▶ Running — Python is driving the Gamry", "#dfd")
+        else:
+            self.set_banner("⏳ Armed — now START the Gamry sequence", "#ffd")
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.abort_btn.setEnabled(True)

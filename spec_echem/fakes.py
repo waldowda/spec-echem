@@ -57,10 +57,12 @@ class FakeSpectrometer:
         self._call_count += 1
         return np.clip(spectrum, 0.0, None)
 
-    def measure(self, abort_event=None):
+    def measure(self, abort_event=None, on_armed=None):
         """Single acquisition; returns (timestamp, spectrum), or None if aborted."""
         if abort_event is not None and abort_event.is_set():
             return None
+        if on_armed is not None:
+            on_armed()
         timestamp = time.perf_counter() * 1e5  # /1e5 -> seconds downstream
         return timestamp, self._synthetic_spectrum()
 

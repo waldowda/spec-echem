@@ -44,7 +44,12 @@ def build_segments(settings):
     segments = []
 
     if settings["cv_enabled"]:
-        cv_points = int(settings["cv_total_voltage"] / settings["cv_step_size"]
+        # Sweep path length from the vertices (init→limit1→limit2→final), so the
+        # spectrum count is exact — same value cv_total_voltage used to hold.
+        cv_path = (abs(settings["cv_initial_v"] - settings["cv_limit1_v"])
+                   + abs(settings["cv_limit1_v"] - settings["cv_limit2_v"])
+                   + abs(settings["cv_limit2_v"] - settings["cv_final_v"]))
+        cv_points = int(cv_path / settings["cv_step_size"]
                         * 1000 * settings["cv_cycles"] + 1)
         cv_delta = settings["cv_step_size"] / settings["cv_scan_rate"]
         segments.append(Segment("CV", DATA_TYPE_CV, 0, cv_points, cv_delta, trigger))
@@ -67,16 +72,31 @@ def build_segments(settings):
 
 
 def run_one_segment(spec, segment, dark, ref, wavelengths,
-                    data_root, added_path, abort_event=None):
+                    data_root, added_path, abort_event=None, potentiostat=None):
     """
     Acquire one segment, compute absorbance, and write the data file.
+
+    If a potentiostat is given (Python-controlled mode), it is started the
+    instant the spectrometer trigger is armed and stopped once collection ends —
+    so the Gamry runs concurrently with spectrum acquisition. An ExternalPotentiostat
+    (or None) makes this a no-op, preserving the manual two-step behaviour exactly.
 
     Returns (absorbance_df, path), or None if aborted (no file is written for a
     partial/aborted segment).
     """
-    spectra, timestamps = acquire_segment(
-        spec, segment.num_points, segment.delta_time, segment.trigger, abort_event,
-    )
+    on_armed = None
+    if potentiostat is not None:
+        potentiostat.prepare(segment)   # slow setup, before the spectrometer is armed
+        on_armed = potentiostat.fire    # fired from inside measure(), once armed
+    try:
+        spectra, timestamps = acquire_segment(
+            spec, segment.num_points, segment.delta_time, segment.trigger,
+            abort_event, on_armed,
+        )
+    finally:
+        if potentiostat is not None:
+            aborted = abort_event is not None and abort_event.is_set()
+            potentiostat.finish(aborted=aborted)
     if abort_event is not None and abort_event.is_set():
         return None
     if not spectra:

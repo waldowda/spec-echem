@@ -9,10 +9,11 @@ counts or absorbance.
 import numpy as np
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
-    QPushButton, QLabel, QCheckBox, QDoubleSpinBox, QSpinBox, QFileDialog,
+    QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
 )
 
 from spec_echem.fakes import FakeSpectrometer
+from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_identity
 from gui.widgets.plot_canvas import MplCanvas
 
 try:
@@ -75,12 +76,33 @@ class InstrumentTab(QWidget):
         form.addRow("Timing:", self._wrap(timing_row))
         layout.addWidget(settings_group)
 
-        # --- Potentiostat status (phase-aware) ---
-        pstat_group = QGroupBox("Potentiostat")
+        # --- Potentiostat control mode ---
+        pstat_group = QGroupBox("Potentiostat Control")
         pstat_layout = QVBoxLayout(pstat_group)
-        self.pstat_status = QLabel("Gamry: standalone (runs from sequence file)")
-        self.pstat_status.setStyleSheet("color: #888;")
-        pstat_layout.addWidget(self.pstat_status)
+        self.pstat_external_radio = QRadioButton(
+            "External — start the Gamry sequence in Gamry Framework")
+        self.pstat_python_radio = QRadioButton(
+            "Python — drive the Gamry from here (EchemToolkitPy)")
+        self.pstat_external_radio.setChecked(True)
+        if not TOOLKITPY_AVAILABLE:
+            self.pstat_python_radio.setEnabled(False)
+            self.pstat_python_radio.setText(
+                "Python — drive the Gamry from here (EchemToolkitPy) — toolkitpy not available")
+        pstat_layout.addWidget(self.pstat_external_radio)
+        pstat_layout.addWidget(self.pstat_python_radio)
+
+        # Identify (Python mode): confirm the Gamry is reachable + show its serial
+        id_row = QHBoxLayout()
+        self.pstat_identify_btn = QPushButton("Identify Potentiostat")
+        self.pstat_identify_btn.clicked.connect(self.on_identify_pstat)
+        self.pstat_status = QLabel("—")
+        self.pstat_status.setStyleSheet("color: #555;")
+        id_row.addWidget(self.pstat_identify_btn)
+        id_row.addWidget(self.pstat_status)
+        id_row.addStretch()
+        pstat_layout.addLayout(id_row)
+        self.pstat_external_radio.toggled.connect(self._update_pstat_controls)
+        self._update_pstat_controls()
         layout.addWidget(pstat_group)
 
         # --- Dark / Reference: buttons on the left, live plot on the right ---
@@ -143,10 +165,17 @@ class InstrumentTab(QWidget):
     def populate_from(self, settings):
         self.integration_spin.setValue(settings["integration_time_ms"])
         self.averages_spin.setValue(settings["scan_averages"])
+        mode = settings.get("potentiostat_mode", "external")
+        if mode == "python" and self.pstat_python_radio.isEnabled():
+            self.pstat_python_radio.setChecked(True)
+        else:
+            self.pstat_external_radio.setChecked(True)
 
     def collect_into(self, settings):
         settings["integration_time_ms"] = self.integration_spin.value()
         settings["scan_averages"] = self.averages_spin.value()
+        settings["potentiostat_mode"] = (
+            "python" if self.pstat_python_radio.isChecked() else "external")
 
     # --- actions ---
 
@@ -154,11 +183,38 @@ class InstrumentTab(QWidget):
         for w in (self.apply_btn, self.collect_dark_btn, self.collect_ref_btn,
                   self.test_counts_btn, self.timing_btn):
             w.setEnabled(enabled)
+        # Identify re-inits toolkitpy; forbid it during a run so it can't collide
+        # with a Python-mode run driving the Gamry. Restore its normal (python +
+        # toolkitpy) state when the run ends.
+        if enabled:
+            self._update_pstat_controls()
+        else:
+            self.pstat_identify_btn.setEnabled(False)
         self._update_absorbance_enabled()
 
     def _update_absorbance_enabled(self):
         ready = self.win.spec is not None and self.win.dark is not None and self.win.ref is not None
         self.test_absorb_btn.setEnabled(ready)
+
+    def _update_pstat_controls(self):
+        python = self.pstat_python_radio.isChecked()
+        self.pstat_identify_btn.setEnabled(python and TOOLKITPY_AVAILABLE)
+        self.pstat_status.setText("—" if python else "Gamry runs from Gamry Framework")
+        self.pstat_status.setStyleSheet("color: #555;")
+
+    def on_identify_pstat(self):
+        self.pstat_status.setText("Identifying…")
+        self.pstat_status.setStyleSheet("color: #555;")
+        try:
+            label, serial = probe_identity()
+        except Exception as exc:  # noqa: BLE001 — surface any toolkitpy/hardware failure
+            self.pstat_status.setText(f"Identify failed: {exc}")
+            self.pstat_status.setStyleSheet("color: #b00;")
+            return
+        label = (label or "").strip()
+        who = f"{label} (serial {serial})" if label else f"serial {serial}"
+        self.pstat_status.setText(f"Gamry connected — {who}")
+        self.pstat_status.setStyleSheet("color: #080;")
 
     def _update_cal_plot(self):
         self.cal_canvas.show_dark_ref(self.win.wavelengths, self.win.dark, self.win.ref)

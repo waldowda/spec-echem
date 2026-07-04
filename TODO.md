@@ -37,6 +37,28 @@ ms), with NO conversion. Confirmed on hardware 2026-06-18 — `spectrometer.py` 
       (distribution/reproducibility need, `gamry_parser` breaks/unmaintained, or GUI-automated
       conversion). Check `gamry_parser` license first (likely MIT) to learn from it.
 
+## Phase 2 — Python potentiostat (EchemToolkitPy)
+
+`spec_echem/potentiostat.py` is implemented and hardware-validated (SpecEchem32, 2026-07-04):
+`ExternalPotentiostat` = today's manual path, `ToolkitPotentiostat` = Python-driven. All four
+segment types (CV + doping/dedoping/pre-dedoping) run in Python mode with golden output and the
+DIGOUT0 handshake confirmed. Remaining items:
+
+- [x] **Python-mode CV vertex potentials.** DONE (2026-06-30): settings now carry
+      `cv_initial_v / cv_limit1_v / cv_limit2_v / cv_final_v` (replacing `cv_total_voltage`),
+      Parameters tab exposes them, and `ToolkitPotentiostat._cv_signal()` builds the CV signal.
+      Still bench-unconfirmed like the rest of the toolkitpy path.
+- [x] **`curve.run()` blocks vs polls — SETTLED (2026-07-03):** `run(True)` is NON-blocking;
+      `fire()` starts it synchronously and `finish()` polls `curve.running()`. No worker thread.
+      DIGOUT0 HIGH confirmed to land while the spectrometer is armed (arm-then-fire handshake).
+- [x] **toolkitpy API names verified on hardware (2026-07-03):** `initialize_pstat`, `signal_d_step_new`,
+      `signal_r_up_dn_new`, `RcvCurve` / `ChronoCurve`, `pstat_is_valid`, `set_digital_out` all work.
+- [ ] In Python mode the doping/dedoping potential fields go live — drop the
+      "(recorded for reference)" `REF_NOTE` on those rows in `parameters_tab.py`.
+- [x] **Show the Gamry's custom name in "Identify".** DONE (2026-07-01): `probe_identity()` returns
+      `(Pstat.label(), Pstat.serial_no())`; the Identify status shows "Gamry connected — {label}
+      (serial {serial})" (falls back to serial-only if no label). Optionally add `Pstat.family()` later.
+
 ## Echem plotting in the GUI (Phase 1)
 
 - [ ] Wire CV (I vs E) + chrono (I vs t) plots into the Results review area, reading converted files
