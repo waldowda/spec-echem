@@ -75,8 +75,10 @@ def test_nothing_enabled_is_empty():
 
 
 def test_cv_points_and_delta_match_notebook_formula():
-    s = settings(cv_total_voltage=2.4, cv_step_size=10.0, cv_scan_rate=100.0, cv_cycles=3)
+    s = settings(cv_initial_v=0.0, cv_limit1_v=-0.5, cv_limit2_v=0.7, cv_final_v=0.0,
+                 cv_step_size=10.0, cv_scan_rate=100.0, cv_cycles=3)
     cv = build_segments(s)[0]
+    # sweep path = |0-(-0.5)| + |-0.5-0.7| + |0.7-0| = 2.4 V
     # int(2.4 / 10 * 1000 * 3 + 1) = int(721) ; delta = 10/100 = 0.1
     assert cv.num_points == 721
     assert cv.delta_time == pytest.approx(0.1)
