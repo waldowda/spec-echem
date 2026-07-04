@@ -7,6 +7,8 @@ collect dark / reference spectra with a live preview, and test-measure in raw
 counts or absorbance.
 """
 import numpy as np
+from datetime import datetime
+from pathlib import Path
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
     QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
@@ -14,12 +16,23 @@ from qtpy.QtWidgets import (
 
 from spec_echem.fakes import FakeSpectrometer
 from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_identity
+from spec_echem.settings import DEFAULT_SETTINGS
 from gui.widgets.plot_canvas import MplCanvas
 
 try:
     from spec_echem import AvantesSpectrometer
 except ImportError:
     AvantesSpectrometer = None
+
+
+def _next_dark_path(darks_dir, date):
+    """First unused ``{date}_dark_NNN.txt`` in darks_dir — a per-day serial so
+    multiple darks in one day don't collide. (Overwriting is still possible by
+    choosing an existing name in the Save dialog.)"""
+    n = 1
+    while (darks_dir / f"{date}_dark_{n:03d}.txt").exists():
+        n += 1
+    return darks_dir / f"{date}_dark_{n:03d}.txt"
 
 
 class InstrumentTab(QWidget):
@@ -112,9 +125,12 @@ class InstrumentTab(QWidget):
         dark_row = QHBoxLayout()
         self.collect_dark_btn = QPushButton("Collect New Dark")
         self.collect_dark_btn.clicked.connect(self.on_collect_dark)
+        self.save_dark_btn = QPushButton("Save Dark to File")
+        self.save_dark_btn.clicked.connect(self.on_save_dark)
         self.load_dark_btn = QPushButton("Load Dark from File")
         self.load_dark_btn.clicked.connect(self.on_load_dark)
         dark_row.addWidget(self.collect_dark_btn)
+        dark_row.addWidget(self.save_dark_btn)
         dark_row.addWidget(self.load_dark_btn)
         dark_row.addStretch()
         self.dark_status = QLabel("Dark: none")
@@ -251,6 +267,28 @@ class InstrumentTab(QWidget):
         self.dark_status.setText(f"Dark: collected ({len(spectrum)} px)")
         self._update_cal_plot()
         self._update_absorbance_enabled()
+
+    def on_save_dark(self):
+        if self.win.dark is None:
+            self.dark_status.setText("Dark: nothing to save (collect one first)")
+            return
+        # Standard darks folder under the current Save location (the parent dir).
+        root = (self.win.parameters_tab._widgets["data_root"].text()
+                or DEFAULT_SETTINGS["data_root"])
+        darks_dir = Path(root) / "darks"
+        darks_dir.mkdir(parents=True, exist_ok=True)
+        # Pre-fill the next unused serial for today so same-day darks don't collide;
+        # the Save dialog still lets you pick an existing name to overwrite.
+        default_path = str(_next_dark_path(darks_dir, datetime.now().strftime("%Y%m%d")))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Dark Spectrum", default_path, "Text files (*.txt)")
+        if not path:
+            return
+        try:
+            np.savetxt(path, self.win.dark)
+            self.dark_status.setText(f"Dark: saved ({Path(path).name})")
+        except Exception as exc:  # noqa: BLE001
+            self.dark_status.setText(f"Dark: save failed ({exc})")
 
     def on_load_dark(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load Dark Spectrum", "", "Text files (*.txt *.csv)")
