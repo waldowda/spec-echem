@@ -63,3 +63,6 @@ DIGOUT0 handshake confirmed. Remaining items:
 
 - [ ] Wire CV (I vs E) + chrono (I vs t) plots into the Results review area, reading converted files
       via `spec_echem.gamry_data`. Live echem deferred to the EchemToolkitPy phase.
+- [ ] **Linearity check on the raw-counts test (future):** flag when the peak test counts approach the
+      detector's saturation ceiling, so the user confirms they're in the linear regime before collecting
+      dark/reference/data. (The test-counts graph already annotates the peak value.)
