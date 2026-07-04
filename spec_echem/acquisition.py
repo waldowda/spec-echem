@@ -5,7 +5,8 @@ No Qt imports. No vendor SDK imports — spec is injected.
 import time
 
 
-def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False, abort_event=None):
+def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
+                    abort_event=None, on_armed=None):
     """
     Collect a segment of spectra from the spectrometer.
 
@@ -15,6 +16,12 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False, abo
         delta_time: Target seconds between spectrum acquisitions
         trigger: If True, wait for hardware trigger on first measurement
         abort_event: threading.Event — if set, stops acquisition immediately
+        on_armed: optional callable passed into measure() for spectrum 0, so it
+            fires from INSIDE measure() — right after AVS_Measure() has armed the
+            device and before it polls. In Python-controlled mode this raises
+            DIGOUT0 + starts the Gamry, so the edge lands while the spectrometer
+            is waiting (an edge fired before AVS_Measure() is missed — see
+            examples/diag_trigger_timing.py). None in external mode → no-op.
 
     Returns:
         (spectra, timestamps): spectra is list of 1D arrays, timestamps are
@@ -31,7 +38,9 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False, abo
             break
 
         pretime1 = time.time_ns() / 1e9
-        result = spec.measure(abort_event)
+        # Fire the trigger (on_armed) only for spectrum 0, from inside measure()
+        # so the DIGOUT0 edge lands after AVS_Measure() has armed the device.
+        result = spec.measure(abort_event, on_armed if j == 0 else None)
         if result is None:  # aborted while waiting for the trigger / data
             break
         timestamp_av, data = result

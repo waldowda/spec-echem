@@ -56,7 +56,9 @@ class AvantesSpectrometer:
         # Get number of devices
         ret = AVS_GetNrOfDevices()
         print(f"AVS_GetNrOfDevices returned: {ret}")
-        
+        if ret < 1:
+            raise RuntimeError("Invalid index (forget to plug in the spectrometer?)")
+
         # Get device list and activate first device
         mylist = AVS_GetList(1)
         self.serial_number = str(mylist[0].SerialNumber.decode("utf-8"))
@@ -172,19 +174,32 @@ class AvantesSpectrometer:
             
         return timestamp, np.array(spectral_data[395:1660]), net_dif, t_dif
     
-    def measure(self, abort_event=None):
+    def measure(self, abort_event=None, on_armed=None):
         """
         Perform a single measurement and return spectral data.
 
         Args:
             abort_event: optional threading.Event — if set while waiting for the
                 trigger / data, the measurement is abandoned and None is returned.
+            on_armed: optional callable invoked right after AVS_Measure() has
+                armed the device and before polling. Python-mode co-acquisition
+                raises DIGOUT0 / starts the Gamry here, so the trigger edge lands
+                while the device is armed and waiting.
 
         Returns:
             tuple (timestamp, spectral_data_array), or None if aborted.
         """
-        # Start measurement
+        # Start measurement (in trigger mode this arms the device to wait for the edge)
         ret = AVS_Measure(self.dev_handle, 0, 1)
+        if ret < 0:
+            # Arm failed: do NOT fire the trigger — otherwise the Gamry would run
+            # while the spectrometer captures nothing (a silent time-zero desync).
+            raise RuntimeError(
+                f"AVS_Measure failed (code {ret}); spectrometer not armed — trigger not fired.")
+
+        # Device is now armed and waiting; fire the trigger here if asked.
+        if on_armed is not None:
+            on_armed()
 
         # Wait for data ready
         dataready = False
