@@ -220,6 +220,9 @@ class InstrumentTab(QWidget):
     def _update_absorbance_enabled(self):
         ready = self.win.spec is not None and self.win.dark is not None and self.win.ref is not None
         self.test_absorb_btn.setEnabled(ready)
+        # Can only save a dark/ref once one has been collected or loaded.
+        self.save_dark_btn.setEnabled(self.win.dark is not None)
+        self.save_ref_btn.setEnabled(self.win.ref is not None)
 
     def _update_pstat_controls(self):
         python = self.pstat_python_radio.isChecked()
@@ -361,7 +364,8 @@ class InstrumentTab(QWidget):
         self.preview_label.setText(
             f"Counts: {len(spectrum)} px, min={spectrum.min():.0f}  max={spectrum.max():.0f}")
         self.test_canvas.show_spectrum(self.win.wavelengths, spectrum,
-                                       title="Test (counts)", ylabel="Intensity (counts)")
+                                       title="Test (counts)", ylabel="Intensity (counts)",
+                                       mark_max=True)
 
     def on_test_absorbance(self):
         if self.win.spec is None or self.win.dark is None or self.win.ref is None:
