@@ -6,6 +6,7 @@ round-trips the full settings dict via JSON. Doping/dedoping/prededoping
 potential fields are documentation-only in this phase (the Gamry sequence file
 holds the real potentials) — labeled "recorded for reference".
 """
+from datetime import datetime
 from pathlib import Path
 
 from qtpy.QtWidgets import (
@@ -104,7 +105,8 @@ class ParametersTab(QWidget):
         sform.addRow(self.notes_edit)
 
         # Data folder name + save-location browser + resolved full path
-        sform.addRow("Data folder name:", self._hint(self._line("data_folder"), "YYYYMMDD_Description"))
+        sform.addRow("Enter data folder name:",
+                     self._hint(self._line("data_folder"), "YYYYMMDD_Description"))
         loc_box = QWidget()
         loc_row = QHBoxLayout(loc_box)
         loc_row.setContentsMargins(0, 0, 0, 0)
@@ -182,6 +184,13 @@ class ParametersTab(QWidget):
                 w.setPlainText(str(value))
             elif isinstance(w, QLineEdit):
                 w.setText(str(value))
+
+        # Convenience: seed today's date prefix when no folder name is set yet,
+        # so the student just appends a description. Never clobbers an existing
+        # name (typed or loaded).
+        folder = self._widgets["data_folder"]
+        if not folder.text().strip():
+            folder.setText(datetime.now().strftime("%Y%m%d_"))
 
     def collect_into(self, settings):
         for key, w in self._widgets.items():
