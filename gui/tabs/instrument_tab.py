@@ -25,14 +25,14 @@ except ImportError:
     AvantesSpectrometer = None
 
 
-def _next_dark_path(darks_dir, date):
-    """First unused ``{date}_dark_NNN.txt`` in darks_dir — a per-day serial so
-    multiple darks in one day don't collide. (Overwriting is still possible by
-    choosing an existing name in the Save dialog.)"""
+def _next_serial_path(folder, date, kind):
+    """First unused ``{date}_{kind}_NNN.txt`` in folder — a per-day serial so
+    multiple saves in one day don't collide. (Overwriting is still possible by
+    choosing an existing name in the Save dialog.) kind is "dark" or "ref"."""
     n = 1
-    while (darks_dir / f"{date}_dark_{n:03d}.txt").exists():
+    while (folder / f"{date}_{kind}_{n:03d}.txt").exists():
         n += 1
-    return darks_dir / f"{date}_dark_{n:03d}.txt"
+    return folder / f"{date}_{kind}_{n:03d}.txt"
 
 
 class InstrumentTab(QWidget):
@@ -134,12 +134,21 @@ class InstrumentTab(QWidget):
         dark_row.addWidget(self.load_dark_btn)
         dark_row.addStretch()
         self.dark_status = QLabel("Dark: none")
+        ref_row = QHBoxLayout()
         self.collect_ref_btn = QPushButton("Collect Reference")
         self.collect_ref_btn.clicked.connect(self.on_collect_ref)
+        self.save_ref_btn = QPushButton("Save Reference to File")
+        self.save_ref_btn.clicked.connect(self.on_save_ref)
+        self.load_ref_btn = QPushButton("Load Reference from File")
+        self.load_ref_btn.clicked.connect(self.on_load_ref)
+        ref_row.addWidget(self.collect_ref_btn)
+        ref_row.addWidget(self.save_ref_btn)
+        ref_row.addWidget(self.load_ref_btn)
+        ref_row.addStretch()
         self.ref_status = QLabel("Reference: none")
         cal_left.addLayout(dark_row)
         cal_left.addWidget(self.dark_status)
-        cal_left.addWidget(self.collect_ref_btn)
+        cal_left.addLayout(ref_row)
         cal_left.addWidget(self.ref_status)
         cal_left.addStretch()
         cal_outer.addLayout(cal_left, stretch=1)
@@ -279,7 +288,7 @@ class InstrumentTab(QWidget):
         darks_dir.mkdir(parents=True, exist_ok=True)
         # Pre-fill the next unused serial for today so same-day darks don't collide;
         # the Save dialog still lets you pick an existing name to overwrite.
-        default_path = str(_next_dark_path(darks_dir, datetime.now().strftime("%Y%m%d")))
+        default_path = str(_next_serial_path(darks_dir, datetime.now().strftime("%Y%m%d"), "dark"))
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Dark Spectrum", default_path, "Text files (*.txt)")
         if not path:
@@ -311,6 +320,39 @@ class InstrumentTab(QWidget):
         self.ref_status.setText(f"Reference: collected ({len(spectrum)} px)")
         self._update_cal_plot()
         self._update_absorbance_enabled()
+
+    def on_save_ref(self):
+        if self.win.ref is None:
+            self.ref_status.setText("Reference: nothing to save (collect one first)")
+            return
+        # Standard refs folder under the current Save location (the parent dir).
+        root = (self.win.parameters_tab._widgets["data_root"].text()
+                or DEFAULT_SETTINGS["data_root"])
+        refs_dir = Path(root) / "refs"
+        refs_dir.mkdir(parents=True, exist_ok=True)
+        default_path = str(_next_serial_path(refs_dir, datetime.now().strftime("%Y%m%d"), "ref"))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Reference Spectrum", default_path, "Text files (*.txt)")
+        if not path:
+            return
+        try:
+            np.savetxt(path, self.win.ref)
+            self.ref_status.setText(f"Reference: saved ({Path(path).name})")
+        except Exception as exc:  # noqa: BLE001
+            self.ref_status.setText(f"Reference: save failed ({exc})")
+
+    def on_load_ref(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Load Reference Spectrum", "", "Text files (*.txt *.csv)")
+        if not path:
+            return
+        try:
+            data = np.loadtxt(path)
+            self.win.ref = data if data.ndim == 1 else data[:, -1]
+            self.ref_status.setText(f"Reference: loaded ({len(self.win.ref)} px)")
+            self._update_cal_plot()
+            self._update_absorbance_enabled()
+        except Exception as exc:  # noqa: BLE001
+            self.ref_status.setText(f"Reference: load failed ({exc})")
 
     def on_test_counts(self):
         if self.win.spec is None:
