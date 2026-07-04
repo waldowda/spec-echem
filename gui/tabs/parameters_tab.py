@@ -18,7 +18,7 @@ from qtpy.QtWidgets import (
 
 from spec_echem.settings import load_settings, save_settings
 
-REF_NOTE = "  (recorded for reference)"
+REF_NOTE = "  (External: recorded for reference · Python: drives the run)"
 
 
 class ParametersTab(QWidget):

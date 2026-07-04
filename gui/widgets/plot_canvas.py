@@ -4,6 +4,7 @@ and the Results review tab. Static plots only (drawn on demand / post-segment).
 """
 import matplotlib
 matplotlib.use("QtAgg")
+import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.cm import ScalarMappable
@@ -37,11 +38,21 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate()
         self.draw_idle()
 
-    def show_spectrum(self, wavelengths, values, title=None, ylabel="Intensity (counts)"):
-        """Single intensity/absorbance trace vs wavelength."""
+    def show_spectrum(self, wavelengths, values, title=None, ylabel="Intensity (counts)",
+                      mark_max=False):
+        """Single intensity/absorbance trace vs wavelength. mark_max annotates the
+        peak with its value — used by the raw-counts test to show the detector level."""
         self._ylabel = ylabel
         self._new_axes()
         self.ax.plot(wavelengths, values, lw=1.0, color="#1f77b4")
+        if mark_max and len(values):
+            i = int(np.argmax(values))
+            xmax, ymax = wavelengths[i], values[i]
+            self.ax.plot([xmax], [ymax], "o", color="#d62728", ms=5)
+            self.ax.annotate(f"max {ymax:.0f} counts @ {xmax:.0f} nm",
+                             xy=(xmax, ymax), xytext=(0.98, 0.96),
+                             textcoords="axes fraction", ha="right", va="top",
+                             fontsize=8, color="#d62728")
         self._decorate(title)
         self.draw_idle()
 
