@@ -124,6 +124,19 @@ See the Jupyter notebook `notebooks/SpecEchem Avantes 0.996-20250717.ipynb` for 
 - Real-time data acquisition
 - Data processing and visualization
 
+### Where your data is saved (GUI)
+
+When you start a run in the GUI, files are written to **`‹Save location›\‹Data folder name›\`**:
+
+- **Save location** is the *parent* folder — leave it at `…\Documents\specechem_data`. Just point at the
+  parent; you don't need to create a run folder here.
+- **Data folder name** is the run folder, which the program **creates for you** (e.g.
+  `20260704_P3HT_KPF6`). It is pre-filled with today's date — just add a short description. If the app has
+  been open past midnight, click **Today** to bump the date (it keeps your description).
+
+> ⚠️ Don't browse *into* a folder you made yourself for the Save location, or you'll get a doubled path
+> like `…\20260704_test\20260704_test\`.
+
 ## Workflow
 
 1. **Configure Gamry Sequence**: Load the provided `.GSequence` file or create your own with digital output triggers
