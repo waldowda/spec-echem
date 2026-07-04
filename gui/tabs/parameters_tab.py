@@ -2,9 +2,9 @@
 Tab 2 — Parameters.
 
 Experiment settings bound 1:1 to the keys in spec_echem.settings. Load/Save
-round-trips the full settings dict via JSON. Doping/dedoping/prededoping
-potential fields are documentation-only in this phase (the Gamry sequence file
-holds the real potentials) — labeled "recorded for reference".
+round-trips the full settings dict via JSON. The doping/dedoping/prededoping
+potential fields are recorded for reference in External mode but DRIVE the run
+in Python mode — each section header states this once (POTENTIAL_NOTE).
 """
 import re
 from datetime import datetime
@@ -18,7 +18,7 @@ from qtpy.QtWidgets import (
 
 from spec_echem.settings import load_settings, save_settings
 
-REF_NOTE = "  (External: recorded for reference · Python: drives the run)"
+POTENTIAL_NOTE = "  (Python mode drives these; External = reference)"
 
 
 class ParametersTab(QWidget):
@@ -155,25 +155,25 @@ class ParametersTab(QWidget):
         layout.addWidget(cv_group)
 
         # --- Pre-dedoping ---
-        pre_group = QGroupBox("Pre-dedoping Baseline")
+        pre_group = QGroupBox("Pre-dedoping Baseline" + POTENTIAL_NOTE)
         pre_form = QFormLayout(pre_group)
         pre_form.addRow(self._check("prededoping_enabled", "Include pre-dedoping"))
-        pre_form.addRow("Potential (vs Vref):" + REF_NOTE,
+        pre_form.addRow("Potential (vs Vref):",
                         self._dspin("prededoping_potential", -10.0, 10.0, 3, 0.05, " V"))
         pre_form.addRow("Duration:", self._dspin("prededoping_time", 0.1, 100000.0, 1, 1.0, " s"))
         layout.addWidget(pre_group)
 
         # --- Doping / dedoping ---
-        dope_group = QGroupBox("Doping / Dedoping Cycles")
+        dope_group = QGroupBox("Doping / Dedoping Cycles" + POTENTIAL_NOTE)
         dope_form = QFormLayout(dope_group)
         dope_form.addRow(self._check("doping_enabled", "Include doping/dedoping"))
-        dope_form.addRow("Doping start (vs Vref):" + REF_NOTE,
+        dope_form.addRow("Doping start (vs Vref):",
                          self._dspin("doping_potential_start", -10.0, 10.0, 3, 0.05, " V"))
-        dope_form.addRow("Doping end (vs Vref):" + REF_NOTE,
+        dope_form.addRow("Doping end (vs Vref):",
                          self._dspin("doping_potential_end", -10.0, 10.0, 3, 0.05, " V"))
-        dope_form.addRow("Doping step (vs Vref):" + REF_NOTE,
+        dope_form.addRow("Doping step (vs Vref):",
                          self._dspin("doping_potential_step", -10.0, 10.0, 3, 0.05, " V"))
-        dope_form.addRow("Dedoping potential (vs Vref):" + REF_NOTE,
+        dope_form.addRow("Dedoping potential (vs Vref):",
                          self._dspin("dedoping_potential", -10.0, 10.0, 3, 0.05, " V"))
         dope_form.addRow("Step duration:", self._dspin("chrono_time", 0.1, 100000.0, 1, 1.0, " s"))
         dope_form.addRow("Time between spectra:",
