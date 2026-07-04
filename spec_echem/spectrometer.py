@@ -191,6 +191,11 @@ class AvantesSpectrometer:
         """
         # Start measurement (in trigger mode this arms the device to wait for the edge)
         ret = AVS_Measure(self.dev_handle, 0, 1)
+        if ret < 0:
+            # Arm failed: do NOT fire the trigger — otherwise the Gamry would run
+            # while the spectrometer captures nothing (a silent time-zero desync).
+            raise RuntimeError(
+                f"AVS_Measure failed (code {ret}); spectrometer not armed — trigger not fired.")
 
         # Device is now armed and waiting; fire the trigger here if asked.
         if on_armed is not None:

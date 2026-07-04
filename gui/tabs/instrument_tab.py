@@ -183,6 +183,13 @@ class InstrumentTab(QWidget):
         for w in (self.apply_btn, self.collect_dark_btn, self.collect_ref_btn,
                   self.test_counts_btn, self.timing_btn):
             w.setEnabled(enabled)
+        # Identify re-inits toolkitpy; forbid it during a run so it can't collide
+        # with a Python-mode run driving the Gamry. Restore its normal (python +
+        # toolkitpy) state when the run ends.
+        if enabled:
+            self._update_pstat_controls()
+        else:
+            self.pstat_identify_btn.setEnabled(False)
         self._update_absorbance_enabled()
 
     def _update_absorbance_enabled(self):
