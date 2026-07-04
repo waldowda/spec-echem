@@ -9,7 +9,7 @@ simultaneous analysis of electrochemical and optical properties — primarily co
 and organic mixed ionic-electronic conductors (OMIECs).
 
 The key technical challenge is precise temporal correlation between the two instruments, solved
-via GPIO-based hardware triggering.
+via hardware triggering — the Gamry's DIGOUT0 output is wired directly to the Avantes trigger input.
 
 **GitHub:** github.com/waldowda/spec-echem (private)  
 **Zenodo DOI:** 10.5281/zenodo.17221314  
@@ -202,22 +202,28 @@ raw spectra (wavelength_pixels × num_time_points)
 
 ## Planned Work / Active Migration
 
-### Gamry ToolkitPy Migration
-Migrating from `.GSequence` files + GPIO to Gamry's `EchemToolkitPy` Python library.
+### Gamry ToolkitPy Migration — IMPLEMENTED (Phase 2), hardware-validated 2026-07-04
+All-Python Gamry control via `EchemToolkitPy` (`toolkitpy`) is implemented in
+`spec_echem/potentiostat.py` and selectable at runtime alongside the original manual `.GSequence`
+workflow.
 
-- **Current:** `.GSequence` files define experiment sequences; GPIO is used as the sync signal
-- **Planned:** `gamry_interface.py` module using `EchemToolkitPy` API directly in Python
-- **Status:** EchemToolkitPy is 32-bit Python only; Gamry targeting 64-bit support ~September 2026
-  (historically late). Plan around 32-bit until further notice.
+- **Two modes, one seam:** `ExternalPotentiostat` (human starts a `.GSequence`; byte-identical to
+  Phase 1) vs `ToolkitPotentiostat` (Python drives the Gamry and fires DIGOUT0 itself). Both run the
+  SAME recipe from `build_segments()` — they differ only in *who starts the Gamry*. The guarded
+  `import toolkitpy` auto-forces External mode where the 32-bit stack is absent.
+- **Trigger unchanged (and never GPIO):** Gamry DIGOUT0 is wired directly to the Avantes hardware
+  trigger input. The DIGOUT0 edge is raised only AFTER the spectrometer is armed (`AVS_Measure`),
+  matching the proven legacy ordering; `curve.run()` is non-blocking (confirmed on hardware) so no
+  extra thread is used.
+- **Status:** `toolkitpy` is 32-bit Python only; Gamry targets 64-bit support ~September 2026
+  (historically late). Plan around 32-bit until further notice. External mode stays the default + fallback.
 - **Architecture gate PASSED (2026-06-18):** in one 32-bit env (`SpecEchem32`, Python 3.7.13),
-  `toolkitpy 7.11.0` and `avaspec` both import and the spectrometer measures — so Phase 2 is a
-  single 32-bit app driving both instruments (no two-process split). Setup recipe + the trigger
-  validation that preceded it are captured in the project memory notes.
-- **What stays the same:** Avantes interface, `get_spectra()` output format
-- **What changes:** `.GSequence` files → Python scripts; GPIO middleman may be eliminated if
-  ToolkitPy can trigger spectrum collection directly
-
-When `gamry_interface.py` work begins: confirm ToolkitPy API patterns first, then implement.
+  `toolkitpy 7.11.0` and `avaspec` both import and the spectrometer measures — so Phase 2 is a single
+  32-bit app driving both instruments (no two-process split).
+- **Validated on hardware (SpecEchem32, 2026-07-03/04):** all four segment types (CV + doping +
+  dedoping + pre-dedoping) run in Python mode with golden 8-column output; the trigger handshake was
+  confirmed via `examples/diag_trigger_timing.py` and `examples/bench_coacquire.py`.
+- **Unchanged:** the Avantes interface and the output format.
 
 ### GUI
 Planned instrument control GUI to replace the Jupyter notebook workflow.
@@ -228,10 +234,12 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   have prebuilt cp313 win_amd64 wheels → no compiler needed.
 - **Phase 1 (now):** 64-bit SpecEchem env. PyQt5 + QtPy + embedded matplotlib. No Gamry Python
   control yet — `.GSequence` + hardware trigger; Python only drives the spectrometer.
-- **Phase 2 (EchemToolkitPy integration, until Gamry ships 64-bit ~Sept 2026):** GUI must run in the
-  **32-bit `specechem32`** env to call EchemToolkitPy. CAUTION: `pip install PyQt5` fails there —
-  `PyQt5-sip` has no prebuilt 32-bit wheel and tries to compile (needs MSVC C++ Build Tools).
-  Solve when we get there (prebuilt 32-bit sip wheel, or install Build Tools in specechem32).
+- **Phase 2 (EchemToolkitPy integration, CURRENT until Gamry ships 64-bit ~Sept 2026):** GUI runs in
+  the **32-bit `SpecEchem32`** env (Python 3.7.13) to call `toolkitpy`. 32-bit PyQt5 is SOLVED —
+  install with `pip install --only-binary=:all: "PyQt5==5.15.2" "PyQt5-sip==12.11.0"` (5.15.2 is the
+  last self-contained release with a 32-bit win32 wheel that bundles Qt; newer PyQt5 pulls `PyQt5-Qt5`,
+  which has no 32-bit wheel). Also needs qtpy/matplotlib/pandas. Python potentiostat control is
+  implemented + hardware-validated in this env.
 - **Phase 3 (post Gamry 64-bit):** everything 64-bit; optionally swap to PySide6 via QtPy.
 - **Why QtPy abstraction:** keeps the binding swappable across these phases (PyQt5 now, PySide6 later)
   with no code changes. PySide6 has no 32-bit Windows wheel, so PyQt5 is the binding for Phase 2.
@@ -255,10 +263,11 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   collection proceeds. The UI must make this two-step start explicit so students aren't confused.
 - **Triggering stays Gamry-in-charge / Avantes-listening** — Gamry DIGOUT0 wired to the Avantes
   hardware trigger input. This arrangement is kept through the EchemToolkitPy migration.
-- **Doping-potential fields are documentation-only in this phase** — the Gamry sequence file holds
-  the real potentials. GUI fields (`doping_potential_start/end/step`, `dedoping_potential`,
-  `prededoping_potential`) are saved to the run metadata JSON but do NOT drive the experiment until
-  EchemToolkitPy arrives. Label them clearly in the UI as "recorded for reference."
+- **Doping-potential fields are mode-dependent:** in **External mode** they are documentation-only
+  (the `.GSequence` holds the real potentials) and are labeled "recorded for reference"; in **Python
+  mode** they DRIVE the run — `ToolkitPotentiostat` applies `doping_potential_start + run_number*step`,
+  `dedoping_potential`, `prededoping_potential`, and the CV vertices (`cv_initial_v` / `cv_limit1_v` /
+  `cv_limit2_v` / `cv_final_v`). Saved to the run metadata JSON in both modes.
 - **Logging:** one log file per run, named to match data folder and saved alongside data:
   `specechem_data/YYYYMMDD_Name/YYYYMMDD_Name.log`. DEBUG to file, INFO to UI status log.
 - **No live plot updates** — plots update post-segment only (simplifies threading)

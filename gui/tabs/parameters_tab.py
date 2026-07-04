@@ -6,6 +6,8 @@ round-trips the full settings dict via JSON. Doping/dedoping/prededoping
 potential fields are documentation-only in this phase (the Gamry sequence file
 holds the real potentials) — labeled "recorded for reference".
 """
+import re
+from datetime import datetime
 from pathlib import Path
 
 from qtpy.QtWidgets import (
@@ -104,7 +106,20 @@ class ParametersTab(QWidget):
         sform.addRow(self.notes_edit)
 
         # Data folder name + save-location browser + resolved full path
-        sform.addRow("Data folder name:", self._hint(self._line("data_folder"), "YYYYMMDD_Description"))
+        folder_box = QWidget()
+        folder_row = QHBoxLayout(folder_box)
+        folder_row.setContentsMargins(0, 0, 0, 0)
+        folder_row.addWidget(self._line("data_folder"))
+        today_btn = QPushButton("Today")
+        today_btn.setToolTip("Set the date prefix to today's date, keeping any description "
+                             "(for sessions left running overnight)")
+        today_btn.clicked.connect(self._stamp_today)
+        folder_row.addWidget(today_btn)
+        folder_hint = QLabel("YYYYMMDD_Description")
+        folder_hint.setStyleSheet("color: #888;")
+        folder_row.addWidget(folder_hint)
+        folder_row.addStretch()
+        sform.addRow("Enter data folder name:", folder_box)
         loc_box = QWidget()
         loc_row = QHBoxLayout(loc_box)
         loc_row.setContentsMargins(0, 0, 0, 0)
@@ -130,12 +145,13 @@ class ParametersTab(QWidget):
         cv_group = QGroupBox("Cyclic Voltammetry")
         cv_form = QFormLayout(cv_group)
         cv_form.addRow(self._check("cv_enabled", "Include CV"))
-        cv_form.addRow("Cycles:", self._ispin("cv_cycles", 1, 1000))
-        cv_form.addRow("Total voltage:", self._hint(
-            self._dspin("cv_total_voltage", 0.0, 100.0, 3, 0.1, " V"),
-            "total sweep path, e.g. 0→0.7→−0.5→0 = 2.4 V"))
+        cv_form.addRow("Initial E:", self._dspin("cv_initial_v", -10.0, 10.0, 3, 0.05, " V"))
+        cv_form.addRow("Scan Limit 1:", self._dspin("cv_limit1_v", -10.0, 10.0, 3, 0.05, " V"))
+        cv_form.addRow("Scan Limit 2:", self._dspin("cv_limit2_v", -10.0, 10.0, 3, 0.05, " V"))
+        cv_form.addRow("Final E:", self._dspin("cv_final_v", -10.0, 10.0, 3, 0.05, " V"))
         cv_form.addRow("Step size:", self._dspin("cv_step_size", 0.1, 1000.0, 1, 1.0, " mV"))
         cv_form.addRow("Scan rate:", self._dspin("cv_scan_rate", 0.1, 10000.0, 1, 10.0, " mV/s"))
+        cv_form.addRow("Cycles:", self._ispin("cv_cycles", 1, 1000))
         layout.addWidget(cv_group)
 
         # --- Pre-dedoping ---
@@ -182,6 +198,13 @@ class ParametersTab(QWidget):
             elif isinstance(w, QLineEdit):
                 w.setText(str(value))
 
+        # Convenience: seed today's date prefix when no folder name is set yet,
+        # so the student just appends a description. Never clobbers an existing
+        # name (typed or loaded).
+        folder = self._widgets["data_folder"]
+        if not folder.text().strip():
+            folder.setText(datetime.now().strftime("%Y%m%d_"))
+
     def collect_into(self, settings):
         for key, w in self._widgets.items():
             if isinstance(w, QCheckBox):
@@ -201,6 +224,16 @@ class ParametersTab(QWidget):
             self, "Choose where experiment folders are saved (you can create a new folder)", start)
         if path:
             self.data_root_edit.setText(path)
+
+    def _stamp_today(self):
+        """Re-stamp the folder name's date prefix to today, keeping any description.
+
+        20260703_P3HT -> 20260704_P3HT ; empty -> 20260704_ ; P3HT -> 20260704_P3HT.
+        """
+        w = self._widgets["data_folder"]
+        # Strip a leading YYYYMMDD_ (or bare YYYYMMDD) token; keep the rest.
+        suffix = re.sub(r"^\d{8}_?", "", w.text().strip())
+        w.setText(datetime.now().strftime("%Y%m%d_") + suffix)
 
     def _update_full_path(self, *_):
         root = self.data_root_edit.text()

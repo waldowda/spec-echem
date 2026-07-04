@@ -7,6 +7,9 @@ except ImportError:
     pass
 
 from .acquisition import acquire_segment
+from .potentiostat import (
+    Potentiostat, ExternalPotentiostat, ToolkitPotentiostat, TOOLKITPY_AVAILABLE,
+)
 from .settings import load_settings, save_settings, DEFAULT_SETTINGS
 from .gamry_data import read_cv, read_chrono
 from .data import (
@@ -25,6 +28,10 @@ __author__ = "Dean Waldow"
 __all__ = [
     "AvantesSpectrometer",
     "acquire_segment",
+    "Potentiostat",
+    "ExternalPotentiostat",
+    "ToolkitPotentiostat",
+    "TOOLKITPY_AVAILABLE",
     "compute_absorbance",
     "write_spectra_file",
     "write_run_metadata",

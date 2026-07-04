@@ -23,10 +23,18 @@ DEFAULT_SETTINGS = {
     # --- Trigger ---
     "trigger": True,
 
-    # --- Cyclic voltammetry ---
+    # --- Potentiostat control ---
+    # "external" = human starts the Gamry .GSequence (Phase-1, proven default);
+    # "python"   = Python drives the Gamry via EchemToolkitPy (Phase-2).
+    "potentiostat_mode": "external",
+
+    # --- Cyclic voltammetry (vertices map to Gamry VINIT/VLIMIT1/VLIMIT2/VFINAL) ---
     "cv_enabled": True,
     "cv_cycles": 3,
-    "cv_total_voltage": 2.4,    # V  — total path length of sweep (e.g. 0→0.7→-0.5→0 = 2.4 V)
+    "cv_initial_v": 0.0,        # V  — Initial E
+    "cv_limit1_v": -0.5,        # V  — Scan Limit 1
+    "cv_limit2_v": 0.7,         # V  — Scan Limit 2
+    "cv_final_v": 0.0,          # V  — Final E
     "cv_step_size": 10.0,       # mV
     "cv_scan_rate": 100.0,      # mV/s
 
