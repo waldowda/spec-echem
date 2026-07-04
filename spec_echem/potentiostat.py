@@ -23,13 +23,12 @@ The hardware import is optional and guarded (same pattern as avaspec in
 ``import toolkitpy`` fails and ``TOOLKITPY_AVAILABLE`` is False — the GUI then
 disables the Python option and only ExternalPotentiostat is offered.
 
-NOTE — this module is drafted against the toolkitpy API mapped from the Help
-manual + bundled examples but has NOT been exercised on hardware. Every block
-that talks to ``toolkitpy`` is marked ``# BENCH:`` where a real run must confirm
-behaviour. The single biggest open question is whether ``curve.run()`` blocks or
-returns immediately (manual says blocks; examples poll ``curve.running()``); the
-threading here is written to be correct *either way* (the Gamry runs on its own
-thread, joined when the spectrometer segment finishes).
+Validated on hardware (SpecEchem32, 2026-07-04): all four segment types (CV +
+doping + dedoping + pre-dedoping) run in Python mode with golden output and the
+DIGOUT0 trigger handshake confirmed. ``curve.run(True)`` is non-blocking
+(bench-confirmed), so the Gamry runs concurrently with spectrum collection and no
+worker thread is needed — ``fire()`` starts the waveform synchronously right after
+the spectrometer is armed, and ``finish()`` polls ``curve.running()`` to completion.
 """
 import time
 
