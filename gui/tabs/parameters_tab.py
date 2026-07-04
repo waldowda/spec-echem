@@ -6,6 +6,7 @@ round-trips the full settings dict via JSON. Doping/dedoping/prededoping
 potential fields are documentation-only in this phase (the Gamry sequence file
 holds the real potentials) — labeled "recorded for reference".
 """
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -105,8 +106,20 @@ class ParametersTab(QWidget):
         sform.addRow(self.notes_edit)
 
         # Data folder name + save-location browser + resolved full path
-        sform.addRow("Enter data folder name:",
-                     self._hint(self._line("data_folder"), "YYYYMMDD_Description"))
+        folder_box = QWidget()
+        folder_row = QHBoxLayout(folder_box)
+        folder_row.setContentsMargins(0, 0, 0, 0)
+        folder_row.addWidget(self._line("data_folder"))
+        today_btn = QPushButton("Today")
+        today_btn.setToolTip("Set the date prefix to today's date, keeping any description "
+                             "(for sessions left running overnight)")
+        today_btn.clicked.connect(self._stamp_today)
+        folder_row.addWidget(today_btn)
+        folder_hint = QLabel("YYYYMMDD_Description")
+        folder_hint.setStyleSheet("color: #888;")
+        folder_row.addWidget(folder_hint)
+        folder_row.addStretch()
+        sform.addRow("Enter data folder name:", folder_box)
         loc_box = QWidget()
         loc_row = QHBoxLayout(loc_box)
         loc_row.setContentsMargins(0, 0, 0, 0)
@@ -211,6 +224,16 @@ class ParametersTab(QWidget):
             self, "Choose where experiment folders are saved (you can create a new folder)", start)
         if path:
             self.data_root_edit.setText(path)
+
+    def _stamp_today(self):
+        """Re-stamp the folder name's date prefix to today, keeping any description.
+
+        20260703_P3HT -> 20260704_P3HT ; empty -> 20260704_ ; P3HT -> 20260704_P3HT.
+        """
+        w = self._widgets["data_folder"]
+        # Strip a leading YYYYMMDD_ (or bare YYYYMMDD) token; keep the rest.
+        suffix = re.sub(r"^\d{8}_?", "", w.text().strip())
+        w.setText(datetime.now().strftime("%Y%m%d_") + suffix)
 
     def _update_full_path(self, *_):
         root = self.data_root_edit.text()
