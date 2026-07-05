@@ -100,6 +100,8 @@ def main():
                       + f"   [last {tl[-1][0]}s, {len(tl)} polls]")
             else:
                 print("           timeline: EMPTY (poll loop never ran — curve not running?)")
+            print(f"           ran_ok={getattr(pstat, '_ran_ok', None)}  "
+                  f"exit=[{getattr(pstat, '_exit_reason', '')}]")
     finally:
         pstat.close()
 

@@ -193,6 +193,8 @@ class ToolkitPotentiostat(Potentiostat):
         self._error = None                # exception from the Gamry thread, if any
         self._max_wait = 60.0             # safety cap on the poll loop (set per segment)
         self._timeline = []               # debug: (elapsed_s, acq_points) per poll iter
+        self._ran_ok = None               # debug: curve.running() right after run()
+        self._exit_reason = ""            # debug: why the poll loop exited
 
     # --- lifecycle ------------------------------------------------------
 
@@ -297,6 +299,7 @@ class ToolkitPotentiostat(Potentiostat):
             pstat.set_cell(True)
             pstat.set_digital_out(0x1, 0x1)  # DIGOUT0 HIGH -> armed Avantes fires
             curve.run(True)
+            self._ran_ok = curve.running()   # did the curve actually start?
 
             self._timeline = []
             t_run = time.time()
@@ -310,6 +313,9 @@ class ToolkitPotentiostat(Potentiostat):
                 d = curve.acq_data()
                 self._timeline.append((round(time.time() - t_run, 2), len(d)))
                 time.sleep(0.05)
+            self._exit_reason = (
+                f"pstat_valid={tkp.pstat_is_valid(pstat)} running={curve.running()} "
+                f"aborted={self._abort.is_set()} timeout={time.time() >= deadline}")
             if curve.running():
                 try:
                     curve.stop()
