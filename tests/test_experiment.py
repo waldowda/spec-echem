@@ -114,12 +114,16 @@ class FakePotentiostat:
     def __init__(self, data=None):
         self._data = data
         self.fired = False
+        self.pumps = 0
 
     def prepare(self, segment):
         self._segment = segment
 
     def fire(self):
         self.fired = True
+
+    def pump(self):
+        self.pumps += 1
 
     def finish(self, aborted=False):
         pass
@@ -153,6 +157,7 @@ def test_run_one_segment_writes_echem_next_to_spectra(tmp_path):
     assert (folder / "spectra(0).txt").exists()   # optical, as before
     assert (folder / "steps(0).txt").exists()      # echem, written alongside
     assert pstat.fired                             # trigger fired at the armed instant
+    assert pstat.pumps == seg.num_points           # curve pumped once per spectrum
 
 
 def test_run_one_segment_no_potentiostat_writes_no_echem(tmp_path):

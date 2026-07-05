@@ -85,13 +85,15 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     partial/aborted segment).
     """
     on_armed = None
+    on_tick = None
     if potentiostat is not None:
         potentiostat.prepare(segment)   # slow setup, before the spectrometer is armed
         on_armed = potentiostat.fire    # fired from inside measure(), once armed
+        on_tick = potentiostat.pump     # per-spectrum: cook the Gamry curve's data
     try:
         spectra, timestamps = acquire_segment(
             spec, segment.num_points, segment.delta_time, segment.trigger,
-            abort_event, on_armed,
+            abort_event, on_armed, on_tick,
         )
     finally:
         if potentiostat is not None:
