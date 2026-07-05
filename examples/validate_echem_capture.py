@@ -19,6 +19,7 @@ the files have rows. Run on SpecEchem32 with the Gamry connected:
 PASS on every segment => the refactor works; wire the GUI run next.
 """
 import tempfile
+import time
 from pathlib import Path
 
 import numpy as np
@@ -64,20 +65,30 @@ def main():
     pstat = ToolkitPotentiostat(settings)
     pstat.open()
     rows = []
+    fields_shown = False
     try:
         for seg in segments:
+            expected = seg.num_points * seg.delta_time
+            t0 = time.perf_counter()
             run_one_segment(spec, seg, dark, ref, wl, root, settings["data_folder"],
                             potentiostat=pstat)
+            elapsed = time.perf_counter() - t0
             data = pstat.last_data()
             n = 0 if data is None else len(data)
+            err = getattr(pstat, "_error", None)
             fname = _echem_filename_for(seg.data_type, seg.run_number)
             fpath = Path(root) / settings["data_folder"] / fname
             lines = fpath.read_text().strip().splitlines() if fpath.exists() else []
             data_rows = max(0, len(lines) - 1)   # minus header
             ok = n > 0 and data_rows > 0
             rows.append(ok)
-            print(f"  {'PASS' if ok else 'FAIL':6s}  {seg.label:12s}  {n:7d}  "
-                  f"{fname} (rows={data_rows})")
+            print(f"  {'PASS' if ok else 'FAIL':6s}  {seg.label:12s}  pts={n:4d}  "
+                  f"rows={data_rows:4d}  elapsed={elapsed:4.1f}s (seg~{expected:.1f}s)  {fname}")
+            if err is not None:
+                print(f"           thread error: {type(err).__name__}: {err}")
+            if n and not fields_shown:
+                print(f"           acq_data fields: {data.dtype.names}")
+                fields_shown = True
     finally:
         pstat.close()
 
