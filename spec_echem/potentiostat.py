@@ -188,6 +188,7 @@ class ToolkitPotentiostat(Potentiostat):
         self._last_data = None            # acq_data() captured from the last segment
         self._thread = None               # the per-segment Gamry thread
         self._armed = threading.Event()   # set by fire() when the spectrometer is armed
+        self._built = threading.Event()   # set by the thread once the signal is built
         self._abort = threading.Event()   # set to stop a segment early
         self._error = None                # exception from the Gamry thread, if any
         self._max_wait = 60.0             # safety cap on the poll loop (set per segment)
@@ -217,6 +218,7 @@ class ToolkitPotentiostat(Potentiostat):
         survives only on a thread running an uninterrupted poll loop.
         """
         self._armed.clear()
+        self._built.clear()
         self._abort.clear()
         self._last_data = None
         self._error = None
@@ -227,6 +229,13 @@ class ToolkitPotentiostat(Potentiostat):
             target=self._run_segment, args=(segment,),
             name=f"gamry-{segment.label}", daemon=True)
         self._thread.start()
+        # Block until the Gamry thread has opened its session and built the signal,
+        # so that slow toolkitpy_init/build runs on a CLEAR thread — before the
+        # caller arms the spectrometer and its acquisition loop starts hammering the
+        # CPU. Building under that load leaves the curve stillborn (it runs ~50 ms
+        # then dies with zero data); a clear runway is what bench_gamry_thread's
+        # sleep(0.2) gave it. Bounded so a hung open can't wedge the caller.
+        self._built.wait(timeout=30.0)
 
     def fire(self):
         """
@@ -278,6 +287,7 @@ class ToolkitPotentiostat(Potentiostat):
             pstat.set_ctrl_mode(tkp.PSTATMODE)
             initialize_pstat(pstat)
             curve = self._build_signal(pstat, segment)
+            self._built.set()                # release prepare(): build done on a clear thread
 
             self._armed.wait()               # block until the spectrometer is armed
             if self._abort.is_set():
@@ -313,6 +323,7 @@ class ToolkitPotentiostat(Potentiostat):
             self._error = exc
             logger.exception("Gamry segment '%s' failed", getattr(segment, "label", "?"))
         finally:
+            self._built.set()   # never leave prepare() blocked, even on a build error
             if pstat is not None:
                 try:
                     pstat.set_digital_out(0x0, 0x1)  # DIGOUT0 LOW
