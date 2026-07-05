@@ -140,12 +140,13 @@ def _echem_filename_for(data_type, run_number):
 
 
 def _echem_dta_path(data_type, run_number, data_root, added_path):
-    """Native-.DTA path — parallel to the clean txt, in a `dta/` subfolder."""
+    """Native-.dta path — parallel to the clean txt, in a `dta/` subfolder.
+    Lowercase .dta extension matches the Gamry/toolkitpy convention."""
     name = {
-        DATA_TYPE_CV:          'CV.DTA',
-        DATA_TYPE_DOPING:      f'steps({run_number}).DTA',
-        DATA_TYPE_DEDOPING:    f'dedoping({run_number}).DTA',
-        DATA_TYPE_PREDEDOPING: f'prededoping({run_number}).DTA',
+        DATA_TYPE_CV:          'CV.dta',
+        DATA_TYPE_DOPING:      f'steps({run_number}).dta',
+        DATA_TYPE_DEDOPING:    f'dedoping({run_number}).dta',
+        DATA_TYPE_PREDEDOPING: f'prededoping({run_number}).dta',
     }[data_type]
     return Path(data_root) / added_path / 'dta' / name
 
