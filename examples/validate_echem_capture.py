@@ -89,6 +89,17 @@ def main():
             if n and not fields_shown:
                 print(f"           acq_data fields: {data.dtype.names}")
                 fields_shown = True
+            # Show the Gamry thread's poll timeline (elapsed -> acq points) so we can
+            # see whether the curve is running and whether data accumulates.
+            tl = getattr(pstat, "_timeline", [])
+            if tl:
+                step = max(1, len(tl) // 12)
+                sampled = tl[::step]
+                print("           timeline (s->pts): "
+                      + "  ".join(f"{t}:{c}" for t, c in sampled)
+                      + f"   [last {tl[-1][0]}s, {len(tl)} polls]")
+            else:
+                print("           timeline: EMPTY (poll loop never ran — curve not running?)")
     finally:
         pstat.close()
 
