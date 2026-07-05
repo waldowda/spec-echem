@@ -303,20 +303,29 @@ class ToolkitPotentiostat(Potentiostat):
         """
         Translate a Segment into a toolkitpy signal + curve, mirroring the
         .GSequence recipe. Returns the armed curve.
+
+        ORDER MATTERS: the curve MUST be constructed BEFORE the signal is set and
+        init_signal() is called. The curve registers as the pstat's data sink at
+        construction — a curve created *after* init_signal() still runs the
+        waveform but collects NO data, so acq_data() comes back empty (blank .txt,
+        empty .DTA CURVE table). Both the vendor examples (cyclic_voltammetery.py /
+        chronoamperometry.py) and our bench scripts create the curve first.
         """
         pstat = self._pstat
         s = self.settings
 
         if segment.data_type == DATA_TYPE_CV:
+            curve = tkp.RcvCurve(pstat, MAX_CURVE_SIZE)   # create the curve FIRST
             signal = self._cv_signal(segment)
             pstat.set_signal_r_up_dn(signal)
             pstat.init_signal()
-            return tkp.RcvCurve(pstat, MAX_CURVE_SIZE)
+            return curve
 
         # Non-CV steps are constant-potential holds, built exactly as the
         # .GSequence does it: a double-step (signal_d_step) with the pre-step and
         # step-2 times zeroed, so it's a single hold at `potential` for
         # chrono_time seconds. Arg order matches the bundled chronoamperometry.py.
+        curve = tkp.ChronoCurve(pstat, MAX_CURVE_SIZE)    # create the curve FIRST
         potential = self._chrono_potential(segment)
         signal = pstat.signal_d_step_new(
             potential, 0.0,                 # pre-step voltage, pre-step time
@@ -326,7 +335,7 @@ class ToolkitPotentiostat(Potentiostat):
         )
         pstat.set_signal_d_step(signal)
         pstat.init_signal()
-        return tkp.ChronoCurve(pstat, MAX_CURVE_SIZE)
+        return curve
 
     def _chrono_potential(self, segment):
         s = self.settings
