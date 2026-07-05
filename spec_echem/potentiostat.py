@@ -141,6 +141,14 @@ class Potentiostat:
         """Request an in-progress segment to halt early (abort path)."""
         pass
 
+    def pump(self):
+        """
+        Called once per spectrum during acquisition. In Python-controlled mode
+        this services the running Gamry curve so the framework accumulates its
+        data; External/no-op does nothing.
+        """
+        pass
+
     def last_data(self):
         """
         Echem data (numpy structured array) captured from the just-finished
@@ -248,6 +256,22 @@ class ToolkitPotentiostat(Potentiostat):
 
     def last_data(self):
         return self._last_data
+
+    def pump(self):
+        """
+        Service the running curve so the Gamry framework accumulates its data
+        into the curve object. MUST be called periodically DURING the run (from
+        the acquisition loop, once per spectrum) on this same curve-owning thread
+        — the vendor examples and our bench scripts poll the curve throughout the
+        run for exactly this reason. Without it, acq_data() returns empty. Cheap
+        (a single COM property read) and lands in the idle gap between spectra, so
+        it does not perturb the spectrometer cadence.
+        """
+        if self._curve is not None:
+            try:
+                self._curve.running()
+            except Exception:  # noqa: BLE001 — a pump hiccup must not sink acquisition
+                pass
 
     def stop(self):
         self._stop_curve()
