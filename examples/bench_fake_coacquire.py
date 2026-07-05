@@ -69,16 +69,32 @@ class TimelinePstat(ToolkitPotentiostat):
         self._t_run = None
 
     def fire(self):
-        time.sleep(_FIRE_ARM_MARGIN_S)
-        self._pstat.set_cell(True)
-        if self.fire_mode == "before":
+        if self.fire_mode == "reinit":
+            # prepare() already built+set+init'd the signal; re-init it here so
+            # init_signal() is contiguous with run() (like bench).
+            self._pstat.init_signal()
             self._set_trigger_line(high=True)
+            self._pstat.set_cell(True)
             self._curve.run(True)
-        elif self.fire_mode == "after":
-            self._curve.run(True)
+        elif self.fire_mode == "allinfire":
+            # Rebuild the whole signal+curve here so build→init→run is one
+            # contiguous sequence, exactly like the working bench pattern.
+            self._curve = self._build_and_arm_signal(self._segment)
             self._set_trigger_line(high=True)
-        else:  # "none"
+            self._pstat.set_cell(True)
+            time.sleep(0.010)
             self._curve.run(True)
+        else:
+            time.sleep(_FIRE_ARM_MARGIN_S)
+            self._pstat.set_cell(True)
+            if self.fire_mode == "before":
+                self._set_trigger_line(high=True)
+                self._curve.run(True)
+            elif self.fire_mode == "after":
+                self._curve.run(True)
+                self._set_trigger_line(high=True)
+            else:  # "none"
+                self._curve.run(True)
         self._t_run = time.perf_counter()
 
     def pump(self):
@@ -159,7 +175,8 @@ def run_bench():
     tkp.toolkitpy_close()
 
 
-_SEAM_MODES = {"seam": "before", "nodig": "none", "digafter": "after"}
+_SEAM_MODES = {"seam": "before", "nodig": "none", "digafter": "after",
+               "reinit": "reinit", "allinfire": "allinfire"}
 
 
 def main():
