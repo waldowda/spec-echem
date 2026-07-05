@@ -37,6 +37,7 @@ try:
     import toolkitpy as tkp
     from spec_echem.potentiostat import (
         ToolkitPotentiostat, TOOLKITPY_AVAILABLE, initialize_pstat, MAX_CURVE_SIZE,
+        _FIRE_ARM_MARGIN_S,
     )
 except Exception as exc:  # pragma: no cover
     raise SystemExit(f"could not import toolkitpy path: {exc}")
@@ -54,14 +55,30 @@ DELTA_S = 0.1
 
 
 class TimelinePstat(ToolkitPotentiostat):
-    """Records (elapsed, running, n_points) at each pump, timed from run()."""
-    def __init__(self, settings):
+    """Records (elapsed, running, n_points) at each pump, timed from run().
+
+    fire_mode controls where DIGOUT0 is raised relative to curve.run():
+        "before" — set_cell, DIGOUT high, run   (the current potentiostat.fire)
+        "none"   — set_cell, run                 (no DIGOUT — isolates the split)
+        "after"  — set_cell, run, DIGOUT high    (candidate fix)
+    """
+    def __init__(self, settings, fire_mode="before"):
         super().__init__(settings)
+        self.fire_mode = fire_mode
         self.timeline = []
         self._t_run = None
 
     def fire(self):
-        super().fire()
+        time.sleep(_FIRE_ARM_MARGIN_S)
+        self._pstat.set_cell(True)
+        if self.fire_mode == "before":
+            self._set_trigger_line(high=True)
+            self._curve.run(True)
+        elif self.fire_mode == "after":
+            self._curve.run(True)
+            self._set_trigger_line(high=True)
+        else:  # "none"
+            self._curve.run(True)
         self._t_run = time.perf_counter()
 
     def pump(self):
@@ -77,7 +94,7 @@ class TimelinePstat(ToolkitPotentiostat):
         self.timeline.append((elapsed, running, n))
 
 
-def run_seam():
+def run_seam(fire_mode):
     settings = DEFAULT_SETTINGS.copy()
     settings.update(dict(
         cv_initial_v=CV_VERTICES[0], cv_limit1_v=CV_VERTICES[1],
@@ -92,7 +109,7 @@ def run_seam():
     _, ref = spec.measure()
     seg = Segment("CV", DATA_TYPE_CV, 0, num_points=N_POINTS, delta_time=DELTA_S, trigger=False)
 
-    pstat = TimelinePstat(settings)
+    pstat = TimelinePstat(settings, fire_mode=fire_mode)
     pstat.open()
     try:
         run_one_segment(spec, seg, dark, ref, wl,
@@ -142,12 +159,18 @@ def run_bench():
     tkp.toolkitpy_close()
 
 
+_SEAM_MODES = {"seam": "before", "nodig": "none", "digafter": "after"}
+
+
 def main():
     mode = (sys.argv[1].lower() if len(sys.argv) > 1 else "seam")
-    if mode not in ("seam", "bench"):
-        raise SystemExit("mode must be 'seam' or 'bench'")
     print(f"== mode: {mode} ==")
-    (run_seam if mode == "seam" else run_bench)()
+    if mode == "bench":
+        run_bench()
+    elif mode in _SEAM_MODES:
+        run_seam(_SEAM_MODES[mode])
+    else:
+        raise SystemExit(f"mode must be 'bench' or one of {list(_SEAM_MODES)}")
 
 
 if __name__ == "__main__":
