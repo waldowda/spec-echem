@@ -290,7 +290,12 @@ class ToolkitPotentiostat(Potentiostat):
             deadline = time.time() + self._max_wait
             while (tkp.pstat_is_valid(pstat) and curve.running()
                    and not self._abort.is_set() and time.time() < deadline):
-                time.sleep(0.05)             # clean, uninterrupted poll loop
+                # Polling acq_data() DURING the run is what accumulates the data on
+                # this (non-main) thread — running() alone does NOT cook it. This is
+                # the load-bearing call bench_gamry_thread.py had (as len(acq_data));
+                # dropping it here is exactly what produced empty .txt/.dta.
+                curve.acq_data()
+                time.sleep(0.05)
             if curve.running():
                 try:
                     curve.stop()
