@@ -2,29 +2,33 @@
 Standalone CV -> .dta smoke test. No spec_echem, no GUI — just toolkitpy.
 
 Pins down the empty-.dta / empty-.txt bug: the toolkit curve only accumulates
-data if curve.running() is polled DURING the run. Runs the SAME CV two ways and
-writes a .dta for each so you can open them in Echem Analyst:
+data if curve.running() is polled DURING the run. Runs ONE mode per invocation
+(fresh pstat each time — do NOT run several curves in one process, the leftover
+state wedges the next run's curve.running()). Writes a .dta you can open in
+Echem Analyst.
 
-  A) UNPUMPED    — start the run, then sleep the whole duration WITHOUT polling
-                   the curve (this is what the GUI does today, because the
-                   spectrometer loop keeps the worker thread busy). Expect
-                   acq_data() EMPTY and an unreadable .dta ("No CURVE found").
+Usage on SpecEchem32 with the Gamry connected (open leads are fine — we only
+care that data points EXIST and the .dta loads):
 
-  B) INTERLEAVED — the proposed fix: one thread, pump curve.running() in the GAP
-                   between simulated spectra (sleep = "collect a spectrum", then
-                   a quick running() poll). Expect acq_data() FULL, a readable
-                   .dta, AND a preserved inter-"spectrum" cadence (printed) — so
-                   you can see the pump does NOT disturb the ~delta_time spacing.
+    python examples/standalone_cv_dta.py pumped        # baseline (= bench_gamry_cv): expect DATA
+    python examples/standalone_cv_dta.py unpumped      # the GUI bug:               expect 0 points
+    python examples/standalone_cv_dta.py interleaved   # the proposed fix:          expect DATA
 
-Open leads are fine (values will be floating/noise; we only care that data
-points EXIST and the .dta loads). Run on SpecEchem32 with the Gamry connected:
+Modes:
+  pumped       start run, then `while running(): sleep(0.1)` — continuous poll.
+               This is exactly what the working bench script does; proves the
+               script + hardware acquire data at all.
+  unpumped     start run, then sleep the whole duration with NO polling — what
+               the GUI does today (spectrometer loop keeps the thread busy).
+  interleaved  the fix: one thread, pump curve.running() in the GAP between
+               simulated spectra (sleep = 'collect a spectrum', then a quick
+               poll). Prints the achieved cadence so you can see the pump does
+               not disturb the ~delta_time spacing.
 
-    python examples/standalone_cv_dta.py
-
-Files are written to the current directory: standalone_CV_UNPUMPED.dta and
-standalone_CV_INTERLEAVED.dta.
+File written to the current directory: standalone_CV_<MODE>.dta
 """
 import os
+import sys
 import time
 import toolkitpy as tkp
 
@@ -34,6 +38,8 @@ SCAN_RATE_VPS = 0.1      # V/s
 STEP_SIZE_V = 0.01       # V
 CYCLES = 1
 DELTA_S = 0.1            # simulated seconds between spectra (the acquisition cadence)
+
+MODES = ("pumped", "unpumped", "interleaved")
 
 
 def initialize_pstat(pstat):
@@ -77,42 +83,38 @@ def _cv_seconds():
     return path / SCAN_RATE_VPS + 1.0   # + margin
 
 
-def run_unpumped(pstat):
-    """Start the run, then sleep the whole duration WITHOUT polling — the bug."""
+def run(pstat, mode):
     curve = build_cv_curve(pstat)
     pstat.set_cell(True)
     time.sleep(0.010)
-    curve.run(True)
-    time.sleep(_cv_seconds())           # worker 'busy elsewhere', curve unattended
-    if tkp.pstat_is_valid(pstat):
-        pstat.set_cell(False)
-    return curve
 
-
-def run_interleaved(pstat):
-    """The fix: pump curve.running() in the gap between simulated spectra, one
-    thread. Also records the achieved inter-'spectrum' cadence."""
-    curve = build_cv_curve(pstat)
-    pstat.set_cell(True)
-    time.sleep(0.010)
+    t0 = time.perf_counter()
     curve.run(True)
+    print(f"  running() right after run(True): {curve.running()}  "
+          f"(waveform should take ~{_cv_seconds() - 1.0:.1f}s)")
 
     ticks = []
-    last = time.perf_counter()
-    while tkp.pstat_is_valid(pstat) and curve.running():
-        time.sleep(DELTA_S)             # stand-in for spec.measure() (~one spectrum)
-        curve.running()                # <-- the pump: quick poll in the idle gap
-        now = time.perf_counter()
-        ticks.append(now - last)
-        last = now
+    if mode == "pumped":
+        while tkp.pstat_is_valid(pstat) and curve.running():
+            time.sleep(0.1)
+    elif mode == "unpumped":
+        time.sleep(_cv_seconds())
+    elif mode == "interleaved":
+        last = time.perf_counter()
+        while tkp.pstat_is_valid(pstat) and curve.running():
+            time.sleep(DELTA_S)         # stand-in for spec.measure() (~one spectrum)
+            curve.running()            # <-- the pump: quick poll in the idle gap
+            now = time.perf_counter()
+            ticks.append(now - last)
+            last = now
+
+    elapsed = time.perf_counter() - t0
     if tkp.pstat_is_valid(pstat):
         pstat.set_cell(False)
-
+    print(f"  run window: {elapsed:.2f}s")
     if ticks:
-        mx = max(ticks)
-        avg = sum(ticks) / len(ticks)
-        print(f"      cadence: {len(ticks)} ticks, target {DELTA_S:.3f}s, "
-              f"mean {avg:.4f}s, max {mx:.4f}s")
+        print(f"  cadence: {len(ticks)} ticks, target {DELTA_S:.3f}s, "
+              f"mean {sum(ticks) / len(ticks):.4f}s, max {max(ticks):.4f}s")
     return curve
 
 
@@ -134,19 +136,19 @@ def report(tag, curve, pstat):
 
 
 def main():
+    mode = (sys.argv[1].lower() if len(sys.argv) > 1 else "pumped")
+    if mode not in MODES:
+        raise SystemExit(f"mode must be one of {MODES}; got {mode!r}")
+    print(f"== mode: {mode} ==")
+
     tkp.toolkitpy_init("standalone_cv_dta")
     pstat = tkp.Pstat("PSTAT")
     pstat.set_ctrl_mode(tkp.PSTATMODE)
     initialize_pstat(pstat)
     try:
-        print("== A) UNPUMPED (sleep, no polling — reproduces the GUI bug) ==")
-        report("UNPUMPED", run_unpumped(pstat), pstat)
-        print("\n== B) INTERLEAVED (pump between 'spectra', one thread — the fix) ==")
-        report("INTERLEAVED", run_interleaved(pstat), pstat)
+        report(mode.upper(), run(pstat, mode), pstat)
     finally:
         tkp.toolkitpy_close()
-    print("\nExpected: UNPUMPED = 0 points / empty .dta; INTERLEAVED = many points / "
-          "loadable .dta, with cadence ~= target (pump doesn't disturb timing).")
 
 
 if __name__ == "__main__":
