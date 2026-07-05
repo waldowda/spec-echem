@@ -1,27 +1,29 @@
 """
-Reproduce the GUI's echem-capture path with a FAKE spectrometer — no Qt, no real
-Avantes, just toolkitpy + the REAL spec_echem seam. Isolates whether the empty
-echem-data bug is in our acquire/pump/finish logic or is GUI/thread-specific.
+Locate WHY the Gamry curve stops almost immediately in our capture seam.
 
-Drives ONE CV segment through the exact production path
-(run_one_segment -> acquire_segment -> ToolkitPotentiostat.prepare/fire/pump/finish
--> write_echem_file) and reports:
-  - pump calls and how many saw curve.running() == True   (is the pump working?)
-  - acq_data() point count right after finish()            (did data accumulate?)
-  - CV.txt line count                                      (did the file get rows?)
+Earlier finding: driving one CV segment through the real run_one_segment path,
+curve.running() was True on only the FIRST pump of 41 — the curve dies in ~0.1s
+though the waveform should take ~4s. Both main and worker thread behaved the
+same, so it is NOT a threading issue.
 
-Run ONE mode per invocation on SpecEchem32 with the Gamry connected:
+Two modes to pin it down (run on SpecEchem32, Gamry connected):
 
-    python examples/bench_fake_coacquire.py main     # run on the main thread
-    python examples/bench_fake_coacquire.py thread    # run on a worker thread (like the GUI)
+    python examples/bench_fake_coacquire.py seam
+        Real seam (run_one_segment + ToolkitPotentiostat + FakeSpectrometer),
+        with a per-pump timeline: elapsed-since-run, running(), acq_data points.
+        Shows exactly WHEN the curve stops and whether data ever accumulates.
 
-Compare the two: if 'main' gets data but 'thread' doesn't, the bug is that the
-Gamry data pump isn't serviced on a secondary (worker) thread — and the fix is
-about WHERE the Gamry runs, not the pump call.
+    python examples/bench_fake_coacquire.py bench
+        The known-good bench_gamry_cv pattern (build curve, set signal, init,
+        set_cell, run, tight `while running(): sleep(0.1)` loop) but using OUR
+        CV params (scan 0.1 V/s, the ones the seam uses). If THIS runs ~4s and
+        gets data, the params are fine and the bug is our prepare/fire SPLIT
+        (init_signal in prepare, run in fire, with arming + DIGOUT between). If
+        this ALSO dies instantly, the CV params/signal are the problem.
 """
 import sys
+import time
 import tempfile
-import threading
 from pathlib import Path
 
 import numpy as np
@@ -32,84 +34,120 @@ from spec_echem.settings import DEFAULT_SETTINGS
 from spec_echem.data import DATA_TYPE_CV
 
 try:
-    from spec_echem.potentiostat import ToolkitPotentiostat, TOOLKITPY_AVAILABLE
+    import toolkitpy as tkp
+    from spec_echem.potentiostat import (
+        ToolkitPotentiostat, TOOLKITPY_AVAILABLE, initialize_pstat, MAX_CURVE_SIZE,
+    )
 except Exception as exc:  # pragma: no cover
-    raise SystemExit(f"could not import ToolkitPotentiostat: {exc}")
+    raise SystemExit(f"could not import toolkitpy path: {exc}")
 
 if not TOOLKITPY_AVAILABLE:
     raise SystemExit("toolkitpy not importable — run this on SpecEchem32.")
 
+# The exact CV params the GUI/seam uses (100 mV/s, 10 mV, 0/-0.1/0.1/0, 1 cycle)
+CV_VERTICES = [0.0, -0.1, 0.1, 0.0]
+SCAN_RATE_VPS = 0.1
+STEP_V = 0.01
+CYCLES = 1
+N_POINTS = 41
+DELTA_S = 0.1
 
-class InstrumentedPstat(ToolkitPotentiostat):
-    """Same behaviour, but counts pump calls and how often the curve is running."""
+
+class TimelinePstat(ToolkitPotentiostat):
+    """Records (elapsed, running, n_points) at each pump, timed from run()."""
     def __init__(self, settings):
         super().__init__(settings)
-        self.pump_calls = 0
-        self.running_true = 0
+        self.timeline = []
+        self._t_run = None
+
+    def fire(self):
+        super().fire()
+        self._t_run = time.perf_counter()
 
     def pump(self):
-        self.pump_calls += 1
-        super().pump()  # the real pump: curve.running()
-        try:
-            if self._curve is not None and self._curve.running():
-                self.running_true += 1
-        except Exception:  # noqa: BLE001
-            pass
+        elapsed = None if self._t_run is None else time.perf_counter() - self._t_run
+        running = None
+        n = None
+        if self._curve is not None:
+            try:
+                running = self._curve.running()
+                n = len(self._curve.acq_data())
+            except Exception as exc:  # noqa: BLE001
+                running = f"ERR:{exc}"
+        self.timeline.append((elapsed, running, n))
 
 
-def do_run(tag):
+def run_seam():
     settings = DEFAULT_SETTINGS.copy()
     settings.update(dict(
-        cv_initial_v=0.0, cv_limit1_v=-0.1, cv_limit2_v=0.1, cv_final_v=0.0,
-        cv_step_size=10.0, cv_scan_rate=100.0, cv_cycles=1,
-        save_dta=False,                       # focus on the acq_data/txt path first
-        data_root=tempfile.mkdtemp(),
-        data_folder=f"fake_{tag}",
+        cv_initial_v=CV_VERTICES[0], cv_limit1_v=CV_VERTICES[1],
+        cv_limit2_v=CV_VERTICES[2], cv_final_v=CV_VERTICES[3],
+        cv_step_size=STEP_V * 1000, cv_scan_rate=SCAN_RATE_VPS * 1000, cv_cycles=CYCLES,
+        save_dta=False, data_root=tempfile.mkdtemp(), data_folder="fake_seam",
     ))
-
     spec = FakeSpectrometer()
     spec.init()
     _, wl = spec.wavelengths()
     dark = np.full(len(wl), 100.0)
     _, ref = spec.measure()
+    seg = Segment("CV", DATA_TYPE_CV, 0, num_points=N_POINTS, delta_time=DELTA_S, trigger=False)
 
-    # CV: path 0.4 V / 10 mV * 1000 + 1 = 41 points, delta = 10/100 = 0.1 s
-    seg = Segment("CV", DATA_TYPE_CV, 0, num_points=41, delta_time=0.1, trigger=False)
-
-    pstat = InstrumentedPstat(settings)
+    pstat = TimelinePstat(settings)
     pstat.open()
     try:
         run_one_segment(spec, seg, dark, ref, wl,
-                        settings["data_root"], settings["data_folder"],
-                        potentiostat=pstat)
+                        settings["data_root"], settings["data_folder"], potentiostat=pstat)
     finally:
         pstat.close()
 
+    print("  pump#   elapsed(s)  running   acq_points")
+    for i, (el, run, n) in enumerate(pstat.timeline):
+        els = "  n/a " if el is None else f"{el:7.3f}"
+        print(f"  {i:5d}   {els}    {str(run):7s}  {n}")
     data = pstat.last_data()
-    n = 0 if data is None else len(data)
-    folder = Path(settings["data_root"]) / settings["data_folder"]
-    cvtxt = folder / "CV.txt"
-    lines = cvtxt.read_text().strip().splitlines() if cvtxt.exists() else []
+    print(f"[seam] final acq_data points: {0 if data is None else len(data)}")
 
-    print(f"[{tag}] pump calls: {pstat.pump_calls}  |  running()==True: {pstat.running_true}")
-    print(f"[{tag}] acq_data points after finish: {n}")
-    print(f"[{tag}] CV.txt lines: {len(lines)}  (1 = header only)  @ {cvtxt}")
-    if n:
-        names = data.dtype.names or ()
-        print(f"[{tag}] fields: {names}")
+
+def run_bench():
+    """Direct bench_gamry_cv pattern with OUR CV params — no seam, no split."""
+    tkp.toolkitpy_init("bench_fake_coacquire")
+    pstat = tkp.Pstat("PSTAT")
+    pstat.set_ctrl_mode(tkp.PSTATMODE)
+    initialize_pstat(pstat)
+
+    sample_time = STEP_V / SCAN_RATE_VPS
+    curve = tkp.RcvCurve(pstat, MAX_CURVE_SIZE)
+    signal = pstat.signal_r_up_dn_new(
+        CV_VERTICES, [SCAN_RATE_VPS] * 3, [0.0, 0.0, 0.0], sample_time, CYCLES, tkp.PSTATMODE)
+    pstat.set_signal_r_up_dn(signal)
+    pstat.init_signal()
+
+    pstat.set_cell(True)
+    time.sleep(0.010)
+    t0 = time.perf_counter()
+    curve.run(True)
+    print(f"  running() right after run(True): {curve.running()}  (expect True, ~4s waveform)")
+    polls = trues = 0
+    while tkp.pstat_is_valid(pstat) and curve.running():
+        polls += 1
+        trues += 1
+        time.sleep(0.1)
+    elapsed = time.perf_counter() - t0
+    if tkp.pstat_is_valid(pstat):
+        pstat.set_cell(False)
+    data = curve.acq_data()
+    n = len(data)
+    print(f"[bench] run window: {elapsed:.2f}s | polls with running()==True: {trues}")
+    print(f"[bench] acq_data points: {n}  (sample_time={sample_time:.3f}s)")
+    tkp.toolkitpy_close()
 
 
 def main():
-    mode = (sys.argv[1].lower() if len(sys.argv) > 1 else "main")
-    if mode not in ("main", "thread"):
-        raise SystemExit("mode must be 'main' or 'thread'")
-    print(f"== running on the {mode} ==")
-    if mode == "main":
-        do_run("main")
-    else:
-        t = threading.Thread(target=do_run, args=("thread",))
-        t.start()
-        t.join()
+    mode = (sys.argv[1].lower() if len(sys.argv) > 1 else "seam")
+    if mode not in ("seam", "bench"):
+        raise SystemExit("mode must be 'seam' or 'bench'")
+    print(f"== mode: {mode} ==")
+    (run_seam if mode == "seam" else run_bench)()
 
 
 if __name__ == "__main__":
