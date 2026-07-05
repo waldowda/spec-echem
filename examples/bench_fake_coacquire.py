@@ -68,6 +68,15 @@ class TimelinePstat(ToolkitPotentiostat):
         self.timeline = []
         self._t_run = None
 
+    def prepare(self, segment):
+        # onlyfire: touch NOTHING on the pstat here — no set_signal / init_signal /
+        # curve — so fire() does the whole build->init->run in one contiguous block
+        # with no prior init to poison it (exactly like bench).
+        if self.fire_mode == "onlyfire":
+            self._segment = segment
+        else:
+            super().prepare(segment)
+
     def fire(self):
         if self.fire_mode == "reinit":
             # prepare() already built+set+init'd the signal; re-init it here so
@@ -76,9 +85,10 @@ class TimelinePstat(ToolkitPotentiostat):
             self._set_trigger_line(high=True)
             self._pstat.set_cell(True)
             self._curve.run(True)
-        elif self.fire_mode == "allinfire":
-            # Rebuild the whole signal+curve here so build→init→run is one
-            # contiguous sequence, exactly like the working bench pattern.
+        elif self.fire_mode in ("allinfire", "onlyfire"):
+            # Build the whole signal+curve here so build→init→run is one contiguous
+            # sequence, exactly like bench. In 'onlyfire', prepare() built nothing,
+            # so there is NO prior init_signal to poison this one.
             self._curve = self._build_and_arm_signal(self._segment)
             self._set_trigger_line(high=True)
             self._pstat.set_cell(True)
@@ -176,7 +186,7 @@ def run_bench():
 
 
 _SEAM_MODES = {"seam": "before", "nodig": "none", "digafter": "after",
-               "reinit": "reinit", "allinfire": "allinfire"}
+               "reinit": "reinit", "allinfire": "allinfire", "onlyfire": "onlyfire"}
 
 
 def main():
