@@ -288,7 +288,14 @@ class ToolkitPotentiostat(Potentiostat):
             pstat = tkp.Pstat("PSTAT")
             pstat.set_ctrl_mode(tkp.PSTATMODE)
             initialize_pstat(pstat)
-            curve = self._build_signal(pstat, segment)
+            # Hold `signal` as a live local for the WHOLE segment. The toolkitpy
+            # signal object must outlive curve.run(): if its last Python reference
+            # drops, CPython frees it immediately (refcount, no GC needed) and the
+            # curve is left with a degenerate waveform — it starts (running()==True)
+            # then dies with zero data in ~50 ms. This was THE stillborn-curve bug:
+            # _build_signal used to return only the curve, dropping `signal` on
+            # return. Bench survived only because it kept `signal` as a local.
+            curve, signal = self._build_signal(pstat, segment)
             self._built.set()                # release prepare(): build done on a clear thread
 
             self._armed.wait()               # block until the spectrometer is armed
@@ -362,9 +369,12 @@ class ToolkitPotentiostat(Potentiostat):
 
     def _build_signal(self, pstat, segment):
         """
-        Build + arm the signal, returning the curve. The curve is created BEFORE the
-        signal is set (it registers as the data sink at construction), and
-        init_signal() must be contiguous with the run() that follows on this thread.
+        Build + arm the signal, returning ``(curve, signal)``. The caller MUST keep
+        a live reference to `signal` until curve.run() has finished — the toolkitpy
+        signal object owns the waveform, and if it is freed the curve runs empty and
+        dies (see _run_segment). The curve is created BEFORE the signal is set (it
+        registers as the data sink at construction), and init_signal() must be
+        contiguous with the run() that follows on this thread.
         """
         s = self.settings
         if segment.data_type == DATA_TYPE_CV:
@@ -372,7 +382,7 @@ class ToolkitPotentiostat(Potentiostat):
             signal = self._cv_signal(pstat, segment)
             pstat.set_signal_r_up_dn(signal)
             pstat.init_signal()
-            return curve
+            return curve, signal
 
         # Non-CV steps are constant-potential holds: a double-step with the pre-step
         # and step-2 times zeroed, i.e. a single hold at `potential` for chrono_time s.
@@ -386,7 +396,7 @@ class ToolkitPotentiostat(Potentiostat):
         )
         pstat.set_signal_d_step(signal)
         pstat.init_signal()
-        return curve
+        return curve, signal
 
     def _chrono_potential(self, segment):
         s = self.settings
