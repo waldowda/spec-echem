@@ -191,6 +191,7 @@ class ToolkitPotentiostat(Potentiostat):
         self._abort = threading.Event()   # set to stop a segment early
         self._error = None                # exception from the Gamry thread, if any
         self._max_wait = 60.0             # safety cap on the poll loop (set per segment)
+        self._timeline = []               # debug: (elapsed_s, acq_points) per poll iter
 
     # --- lifecycle ------------------------------------------------------
 
@@ -287,14 +288,17 @@ class ToolkitPotentiostat(Potentiostat):
             pstat.set_digital_out(0x1, 0x1)  # DIGOUT0 HIGH -> armed Avantes fires
             curve.run(True)
 
-            deadline = time.time() + self._max_wait
+            self._timeline = []
+            t_run = time.time()
+            deadline = t_run + self._max_wait
             while (tkp.pstat_is_valid(pstat) and curve.running()
                    and not self._abort.is_set() and time.time() < deadline):
                 # Polling acq_data() DURING the run is what accumulates the data on
                 # this (non-main) thread — running() alone does NOT cook it. This is
                 # the load-bearing call bench_gamry_thread.py had (as len(acq_data));
                 # dropping it here is exactly what produced empty .txt/.dta.
-                curve.acq_data()
+                d = curve.acq_data()
+                self._timeline.append((round(time.time() - t_run, 2), len(d)))
                 time.sleep(0.05)
             if curve.running():
                 try:
