@@ -8,6 +8,10 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+from spec_echem.gamry_data import (
+    POTENTIAL_COL, CURRENT_COL, CV_COLUMNS, CHRONO_COLUMNS,
+)
+
 DATA_TYPE_CV = 1
 DATA_TYPE_DOPING = 2
 DATA_TYPE_DEDOPING = 3
@@ -121,6 +125,81 @@ def write_spectra_file(absorb7, spectra, dark, ref, wavelengths, timestamps,
     path = Path(data_root) / added_path / _filename_for(data_type, run_number)
     path.parent.mkdir(parents=True, exist_ok=True)
     output_df_all.to_csv(path, header=True, index=False, sep='\t')
+
+    return path
+
+
+def _echem_filename_for(data_type, run_number):
+    """Clean-txt echem filename — the names the converter/Raj already expect."""
+    return {
+        DATA_TYPE_CV:          'CV.txt',
+        DATA_TYPE_DOPING:      f'steps({run_number}).txt',
+        DATA_TYPE_DEDOPING:    f'dedoping({run_number}).txt',
+        DATA_TYPE_PREDEDOPING: f'prededoping({run_number}).txt',
+    }[data_type]
+
+
+def _echem_dta_path(data_type, run_number, data_root, added_path):
+    """Native-.DTA path — parallel to the clean txt, in a `dta/` subfolder."""
+    name = {
+        DATA_TYPE_CV:          'CV.DTA',
+        DATA_TYPE_DOPING:      f'steps({run_number}).DTA',
+        DATA_TYPE_DEDOPING:    f'dedoping({run_number}).DTA',
+        DATA_TYPE_PREDEDOPING: f'prededoping({run_number}).DTA',
+    }[data_type]
+    return Path(data_root) / added_path / 'dta' / name
+
+
+def _acq_field(acq_data, name):
+    """Pull a named field from the toolkit's numpy structured array (defensive)."""
+    names = acq_data.dtype.names or ()
+    if name not in names:
+        raise ValueError(f"acq_data missing field '{name}'; got {list(names)}")
+    return np.asarray(acq_data[name])
+
+
+def write_echem_file(acq_data, data_type, run_number, data_root, added_path):
+    """
+    Write the clean analysis .txt for one Python-mode segment straight from the
+    toolkit's acq_data() structured array — no gamry_parser, matching the exact
+    column contract the reader (gamry_data.py) enforces.
+
+      CV                       -> CV.txt            [potential, current] (cycles concatenated)
+      doping/dedoping/prededope -> steps/dedoping/prededoping(N).txt
+                                  [Time (s), Corrected time (s), potential, current, Index]
+
+    Time (s) and Corrected time (s) both start at 0 (device `time` minus its first
+    sample) — no vestigial +100 offset (downstream keys off Corrected time by name).
+
+    Args:
+        acq_data: numpy structured array from curve.acq_data() (fields vf, im, time)
+        data_type: int, one of DATA_TYPE_* constants
+        run_number: int, cycle counter for the filename
+        data_root: str or Path, base data directory
+        added_path: str, subfolder name (format: YYYYMMDD_Description)
+
+    Returns:
+        Path: path to the file written
+    """
+    potential = _acq_field(acq_data, 'vf')
+    current = _acq_field(acq_data, 'im')
+
+    if data_type == DATA_TYPE_CV:
+        df = pd.DataFrame({POTENTIAL_COL: potential, CURRENT_COL: current})[CV_COLUMNS]
+    else:
+        t = _acq_field(acq_data, 'time')
+        rel = t - t[0] if len(t) else t
+        df = pd.DataFrame({
+            'Time (s)':           rel,
+            'Corrected time (s)': rel,
+            POTENTIAL_COL:        potential,
+            CURRENT_COL:          current,
+            'Index':              range(len(current)),
+        })[CHRONO_COLUMNS]
+
+    path = Path(data_root) / added_path / _echem_filename_for(data_type, run_number)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, header=True, index=False, sep='\t')
 
     return path
 

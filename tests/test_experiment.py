@@ -109,6 +109,67 @@ def test_run_one_segment_writes_file(tmp_path):
     assert path.exists()
 
 
+class FakePotentiostat:
+    """Minimal potentiostat for run_one_segment: no-op lifecycle, canned echem data."""
+    def __init__(self, data=None):
+        self._data = data
+        self.fired = False
+
+    def prepare(self, segment):
+        self._segment = segment
+
+    def fire(self):
+        self.fired = True
+
+    def finish(self, aborted=False):
+        pass
+
+    def last_data(self):
+        return self._data
+
+
+def _chrono_acq(n=5):
+    dt = np.dtype([('time', 'f8'), ('vf', 'f8'), ('im', 'f8')])
+    arr = np.zeros(n, dtype=dt)
+    arr['time'] = np.arange(n) * 0.1
+    arr['vf'] = 0.2
+    arr['im'] = np.linspace(1e-6, 5e-6, n)
+    return arr
+
+
+def test_run_one_segment_writes_echem_next_to_spectra(tmp_path):
+    spec = FakeSpectrometer()
+    spec.init()
+    _, wl = spec.wavelengths()
+    dark = np.full(len(wl), 100.0)
+    _, ref = spec.measure()
+    seg = Segment("Doping 0", DATA_TYPE_DOPING, 0, num_points=5, delta_time=0.01, trigger=False)
+    pstat = FakePotentiostat(_chrono_acq(5))
+
+    result = run_one_segment(spec, seg, dark, ref, wl, tmp_path, "20250715_Test",
+                             potentiostat=pstat)
+    assert result is not None
+    folder = tmp_path / "20250715_Test"
+    assert (folder / "spectra(0).txt").exists()   # optical, as before
+    assert (folder / "steps(0).txt").exists()      # echem, written alongside
+    assert pstat.fired                             # trigger fired at the armed instant
+
+
+def test_run_one_segment_no_potentiostat_writes_no_echem(tmp_path):
+    # External mode (potentiostat=None): spectra only, no echem file.
+    spec = FakeSpectrometer()
+    spec.init()
+    _, wl = spec.wavelengths()
+    dark = np.full(len(wl), 100.0)
+    _, ref = spec.measure()
+    seg = Segment("Doping 0", DATA_TYPE_DOPING, 0, num_points=5, delta_time=0.01, trigger=False)
+
+    run_one_segment(spec, seg, dark, ref, wl, tmp_path, "20250715_Test")
+    folder = tmp_path / "20250715_Test"
+    assert (folder / "spectra(0).txt").exists()
+    assert not (folder / "steps(0).txt").exists()
+
+
 def test_run_one_segment_aborts_without_writing(tmp_path):
     import threading
     spec = FakeSpectrometer()

@@ -30,11 +30,15 @@ DIGOUT0 trigger handshake confirmed. ``curve.run(True)`` is non-blocking
 worker thread is needed — ``fire()`` starts the waveform synchronously right after
 the spectrometer is armed, and ``finish()`` polls ``curve.running()`` to completion.
 """
+import logging
 import time
 
 from spec_echem.data import (
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
+    _echem_dta_path,
 )
+
+logger = logging.getLogger(__name__)
 
 try:
     import toolkitpy as tkp
@@ -137,6 +141,13 @@ class Potentiostat:
         """Request an in-progress segment to halt early (abort path)."""
         pass
 
+    def last_data(self):
+        """
+        Echem data (numpy structured array) captured from the just-finished
+        segment, or None. External/no-op has none — Python never touches the Gamry.
+        """
+        return None
+
     def close(self):
         pass
 
@@ -165,6 +176,8 @@ class ToolkitPotentiostat(Potentiostat):
         self.settings = settings
         self._pstat = None
         self._curve = None
+        self._segment = None      # current segment (names the .DTA file)
+        self._last_data = None    # acq_data() from the just-finished segment
 
     # --- lifecycle ------------------------------------------------------
 
@@ -193,6 +206,7 @@ class ToolkitPotentiostat(Potentiostat):
         the segment's signal and create the curve. No cell, no trigger, no run
         here — those happen in fire(), at the armed instant.
         """
+        self._segment = segment
         self._curve = self._build_and_arm_signal(segment)
 
     def fire(self):
@@ -210,7 +224,8 @@ class ToolkitPotentiostat(Potentiostat):
         self._curve.run(True)               # non-blocking; Gamry runs the waveform
 
     def finish(self, aborted=False):
-        """Wait out (or stop) the waveform, drop DIGOUT0, open the cell."""
+        """Wait out (or stop) the waveform, capture the echem data, drop DIGOUT0, open the cell."""
+        self._last_data = None
         if aborted:
             self._stop_curve()
         else:
@@ -222,10 +237,17 @@ class ToolkitPotentiostat(Potentiostat):
                 time.sleep(0.02)
             if self._curve is not None and self._curve.running():
                 self._stop_curve()
+            # Curve still alive here — grab the current/potential data and,
+            # optionally, let the toolkit write a native .DTA (both need the curve).
+            self._capture_data()
+            self._write_dta()
         self._set_trigger_line(high=False)  # DIGOUT0 LOW
         if self._pstat is not None:
             self._pstat.set_cell(False)
         self._curve = None
+
+    def last_data(self):
+        return self._last_data
 
     def stop(self):
         self._stop_curve()
@@ -238,6 +260,38 @@ class ToolkitPotentiostat(Potentiostat):
                 self._curve.stop()
             except Exception:  # noqa: BLE001
                 pass
+
+    def _capture_data(self):
+        """Read the echem data off the (still-live) curve so run_one_segment can
+        write the clean .txt. Never let a read failure sink the spectra write."""
+        if self._curve is None:
+            return
+        try:
+            self._last_data = self._curve.acq_data()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("acq_data() failed for %s: %s — no echem file written.",
+                           getattr(self._segment, "label", "?"), exc)
+            self._last_data = None
+
+    def _write_dta(self):
+        """Optionally emit a native Gamry .DTA via the toolkit (dta/ subfolder).
+        Opt-out via settings['save_dta']; a failure here must not sink the run."""
+        if not self.settings.get("save_dta", True):
+            return
+        if not hasattr(tkp, "print_default_dta_file"):
+            logger.info("toolkitpy has no print_default_dta_file — skipping native .DTA.")
+            return
+        if self._curve is None or self._segment is None:
+            return
+        kind = "CV" if self._segment.data_type == DATA_TYPE_CV else "CHRONOA"
+        path = _echem_dta_path(self._segment.data_type, self._segment.run_number,
+                               self.settings["data_root"], self.settings["data_folder"])
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tkp.print_default_dta_file(self._curve, self._pstat, str(path), kind)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Native .DTA write failed for %s: %s",
+                           self._segment.label, exc)
 
     def _set_trigger_line(self, high):
         """DIGOUT0 high/low — the exact line the .GSequence toggles."""
