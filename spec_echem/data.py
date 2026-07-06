@@ -139,6 +139,12 @@ def _echem_filename_for(data_type, run_number):
     }[data_type]
 
 
+def echem_txt_path(run_folder, data_type, run_number):
+    """Full path to a segment's clean echem .txt inside an existing run folder.
+    Public accessor so the GUI can locate the file that write_echem_file wrote."""
+    return Path(run_folder) / _echem_filename_for(data_type, run_number)
+
+
 def _echem_dta_path(data_type, run_number, data_root, added_path):
     """Native-.dta path — parallel to the clean txt, in a `dta/` subfolder.
     Lowercase .dta extension matches the Gamry/toolkitpy convention."""

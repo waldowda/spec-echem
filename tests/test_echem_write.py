@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from spec_echem.data import (
-    write_echem_file,
+    write_echem_file, echem_txt_path,
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
 )
 from spec_echem.gamry_data import read_cv, read_chrono, CV_COLUMNS, CHRONO_COLUMNS
@@ -86,3 +86,20 @@ def test_missing_field_raises(tmp_path):
     bad = np.zeros(3, dtype=np.dtype([('time', 'f8'), ('im', 'f8')]))
     with pytest.raises(ValueError, match="vf"):
         write_echem_file(bad, DATA_TYPE_DOPING, 0, tmp_path, "20250715_Test")
+
+
+# --- echem_txt_path: the public accessor the GUI uses to find a segment's file ---
+
+@pytest.mark.parametrize("data_type,run_number,expected", [
+    (DATA_TYPE_CV, 0, "CV.txt"),
+    (DATA_TYPE_DOPING, 2, "steps(2).txt"),
+    (DATA_TYPE_DEDOPING, 2, "dedoping(2).txt"),
+    (DATA_TYPE_PREDEDOPING, 0, "prededoping(0).txt"),
+])
+def test_echem_txt_path_matches_written_file(tmp_path, data_type, run_number, expected):
+    run_folder = tmp_path / "20250715_Test"
+    written = write_echem_file(chrono_acq() if data_type != DATA_TYPE_CV else cv_acq(),
+                               data_type, run_number, tmp_path, "20250715_Test")
+    located = echem_txt_path(run_folder, data_type, run_number)
+    assert located.name == expected
+    assert located == written  # the accessor points exactly at what the writer wrote
