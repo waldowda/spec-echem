@@ -25,14 +25,14 @@ except ImportError:
     AvantesSpectrometer = None
 
 
-def _next_serial_path(folder, date, kind):
-    """First unused ``{date}_{kind}_NNN.txt`` in folder — a per-day serial so
+def _next_serial_path(folder, date, kind, ext=".txt"):
+    """First unused ``{date}_{kind}_NNN{ext}`` in folder — a per-day serial so
     multiple saves in one day don't collide. (Overwriting is still possible by
-    choosing an existing name in the Save dialog.) kind is "dark" or "ref"."""
+    choosing an existing name in the Save dialog.) kind is "dark"/"ref"/"settings"."""
     n = 1
-    while (folder / f"{date}_{kind}_{n:03d}.txt").exists():
+    while (folder / f"{date}_{kind}_{n:03d}{ext}").exists():
         n += 1
-    return folder / f"{date}_{kind}_{n:03d}.txt"
+    return folder / f"{date}_{kind}_{n:03d}{ext}"
 
 
 class InstrumentTab(QWidget):
