@@ -293,14 +293,19 @@ class InstrumentTab(QWidget):
         self._update_cal_plot()
         self._update_absorbance_enabled()
 
+    def _data_root(self):
+        """The data root (the Save location on the Parameters tab), falling back to
+        the default. All calibration files live in subfolders under it so Save and
+        Open land in the same, predictable place."""
+        return (self.win.parameters_tab._widgets["data_root"].text()
+                or DEFAULT_SETTINGS["data_root"])
+
     def on_save_dark(self):
         if self.win.dark is None:
             self.dark_status.setText("Dark: nothing to save (collect one first)")
             return
         # Standard darks folder under the current Save location (the parent dir).
-        root = (self.win.parameters_tab._widgets["data_root"].text()
-                or DEFAULT_SETTINGS["data_root"])
-        darks_dir = Path(root) / "darks"
+        darks_dir = Path(self._data_root()) / "darks"
         darks_dir.mkdir(parents=True, exist_ok=True)
         # Pre-fill the next unused serial for today so same-day darks don't collide;
         # the Save dialog still lets you pick an existing name to overwrite.
@@ -316,7 +321,8 @@ class InstrumentTab(QWidget):
             self.dark_status.setText(f"Dark: save failed ({exc})")
 
     def on_load_dark(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load Dark Spectrum", "", "Text files (*.txt *.csv)")
+        start = str(Path(self._data_root()) / "darks")
+        path, _ = QFileDialog.getOpenFileName(self, "Load Dark Spectrum", start, "Text files (*.txt *.csv)")
         if not path:
             return
         try:
@@ -342,9 +348,7 @@ class InstrumentTab(QWidget):
             self.ref_status.setText("Reference: nothing to save (collect one first)")
             return
         # Standard refs folder under the current Save location (the parent dir).
-        root = (self.win.parameters_tab._widgets["data_root"].text()
-                or DEFAULT_SETTINGS["data_root"])
-        refs_dir = Path(root) / "refs"
+        refs_dir = Path(self._data_root()) / "refs"
         refs_dir.mkdir(parents=True, exist_ok=True)
         default_path = str(_next_serial_path(refs_dir, datetime.now().strftime("%Y%m%d"), "ref"))
         path, _ = QFileDialog.getSaveFileName(
@@ -358,7 +362,8 @@ class InstrumentTab(QWidget):
             self.ref_status.setText(f"Reference: save failed ({exc})")
 
     def on_load_ref(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load Reference Spectrum", "", "Text files (*.txt *.csv)")
+        start = str(Path(self._data_root()) / "refs")
+        path, _ = QFileDialog.getOpenFileName(self, "Load Reference Spectrum", start, "Text files (*.txt *.csv)")
         if not path:
             return
         try:
