@@ -58,18 +58,6 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
-    def show_dark_ref(self, wavelengths, dark, ref):
-        """Overlay dark and reference (100%T) for checking detector range."""
-        self._ylabel = "Intensity (counts)"
-        self._new_axes()
-        if dark is not None:
-            self.ax.plot(wavelengths, dark, lw=1.0, color="#444", label="Dark")
-        if ref is not None:
-            self.ax.plot(wavelengths, ref, lw=1.0, color="#d62728", label="Reference (100%T)")
-        self._decorate("Dark & 100%T")
-        self.ax.legend(loc="best", fontsize=8)
-        self.draw_idle()
-
     def show_cv(self, df, title=None):
         """Cyclic voltammogram: current vs potential (I vs E). Cycles concatenated."""
         self._xlabel, self._ylabel = "Potential (V)", "Current (A)"
