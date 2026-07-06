@@ -10,7 +10,7 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 from qtpy.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
     QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
 )
 
@@ -42,7 +42,14 @@ class InstrumentTab(QWidget):
         self._build()
 
     def _build(self):
-        layout = QVBoxLayout(self)
+        # Scrollable body: four graphs (dark/ref + counts/absorbance) make this tall.
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
 
         # --- Connection ---
         conn_group = QGroupBox("Spectrometer Connection")
@@ -127,65 +134,88 @@ class InstrumentTab(QWidget):
         self._update_pstat_controls()
         layout.addWidget(pstat_group)
 
-        # --- Dark / Reference: buttons on the left, live plot on the right ---
-        cal_group = QGroupBox("Dark / Reference (100%T)")
-        cal_outer = QHBoxLayout(cal_group)
-        cal_left = QVBoxLayout()
-        dark_row = QHBoxLayout()
-        self.collect_dark_btn = QPushButton("Collect New Dark")
-        self.collect_dark_btn.clicked.connect(self.on_collect_dark)
-        self.save_dark_btn = QPushButton("Save Dark to File")
-        self.save_dark_btn.clicked.connect(self.on_save_dark)
-        self.load_dark_btn = QPushButton("Load Dark from File")
-        self.load_dark_btn.clicked.connect(self.on_load_dark)
-        dark_row.addWidget(self.collect_dark_btn)
-        dark_row.addWidget(self.save_dark_btn)
-        dark_row.addWidget(self.load_dark_btn)
-        dark_row.addStretch()
-        self.dark_status = QLabel("Dark: none")
-        ref_row = QHBoxLayout()
-        self.collect_ref_btn = QPushButton("Collect Reference")
-        self.collect_ref_btn.clicked.connect(self.on_collect_ref)
-        self.save_ref_btn = QPushButton("Save Reference to File")
-        self.save_ref_btn.clicked.connect(self.on_save_ref)
-        self.load_ref_btn = QPushButton("Load Reference from File")
-        self.load_ref_btn.clicked.connect(self.on_load_ref)
-        ref_row.addWidget(self.collect_ref_btn)
-        ref_row.addWidget(self.save_ref_btn)
-        ref_row.addWidget(self.load_ref_btn)
-        ref_row.addStretch()
-        self.ref_status = QLabel("Reference: none")
-        cal_left.addLayout(dark_row)
-        cal_left.addWidget(self.dark_status)
-        cal_left.addLayout(ref_row)
-        cal_left.addWidget(self.ref_status)
-        cal_left.addStretch()
-        cal_outer.addLayout(cal_left, stretch=1)
-        self.cal_canvas = MplCanvas(ylabel="Intensity (counts)")
-        self.cal_canvas.setMinimumHeight(180)
-        cal_outer.addWidget(self.cal_canvas, stretch=2)
-        layout.addWidget(cal_group)
+        # --- Dark / Reference: two graphs side by side, controls above each ---
+        cal_row = QHBoxLayout()
 
-        # --- Test measurement: counts or absorbance ---
-        test_group = QGroupBox("Test Measurement")
-        test_layout = QVBoxLayout(test_group)
-        btn_row = QHBoxLayout()
-        self.test_counts_btn = QPushButton("Test (counts)")
+        dark_box = QGroupBox("Dark")
+        dark_col = QVBoxLayout(dark_box)
+        dark_btns = QHBoxLayout()
+        self.collect_dark_btn = QPushButton("Collect New")
+        self.collect_dark_btn.clicked.connect(self.on_collect_dark)
+        self.save_dark_btn = QPushButton("Save")
+        self.save_dark_btn.clicked.connect(self.on_save_dark)
+        self.load_dark_btn = QPushButton("Load")
+        self.load_dark_btn.clicked.connect(self.on_load_dark)
+        dark_btns.addWidget(self.collect_dark_btn)
+        dark_btns.addWidget(self.save_dark_btn)
+        dark_btns.addWidget(self.load_dark_btn)
+        dark_btns.addStretch()
+        self.dark_status = QLabel("Dark: none")
+        self.dark_canvas = MplCanvas(ylabel="Intensity (counts)")
+        self.dark_canvas.setMinimumHeight(180)
+        dark_col.addLayout(dark_btns)
+        dark_col.addWidget(self.dark_status)
+        dark_col.addWidget(self.dark_canvas)
+        cal_row.addWidget(dark_box, stretch=1)
+
+        ref_box = QGroupBox("Reference (100%T)")
+        ref_col = QVBoxLayout(ref_box)
+        ref_btns = QHBoxLayout()
+        self.collect_ref_btn = QPushButton("Collect New")
+        self.collect_ref_btn.clicked.connect(self.on_collect_ref)
+        self.save_ref_btn = QPushButton("Save")
+        self.save_ref_btn.clicked.connect(self.on_save_ref)
+        self.load_ref_btn = QPushButton("Load")
+        self.load_ref_btn.clicked.connect(self.on_load_ref)
+        ref_btns.addWidget(self.collect_ref_btn)
+        ref_btns.addWidget(self.save_ref_btn)
+        ref_btns.addWidget(self.load_ref_btn)
+        ref_btns.addStretch()
+        self.ref_status = QLabel("Reference: none")
+        self.ref_canvas = MplCanvas(ylabel="Intensity (counts)")
+        self.ref_canvas.setMinimumHeight(180)
+        ref_col.addLayout(ref_btns)
+        ref_col.addWidget(self.ref_status)
+        ref_col.addWidget(self.ref_canvas)
+        cal_row.addWidget(ref_box, stretch=1)
+        layout.addLayout(cal_row)
+
+        # --- Test measurement: counts and absorbance, side by side ---
+        test_row = QHBoxLayout()
+
+        counts_box = QGroupBox("Test (counts)")
+        counts_col = QVBoxLayout(counts_box)
+        counts_btns = QHBoxLayout()
+        self.test_counts_btn = QPushButton("Measure counts")
         self.test_counts_btn.clicked.connect(self.on_test_counts)
-        self.test_absorb_btn = QPushButton("Test (absorbance)")
+        counts_btns.addWidget(self.test_counts_btn)
+        counts_btns.addStretch()
+        self.counts_label = QLabel("Connect, then measure to preview.")
+        self.counts_label.setStyleSheet("color: #888;")
+        self.counts_canvas = MplCanvas(ylabel="Intensity (counts)")
+        self.counts_canvas.setMinimumHeight(180)
+        counts_col.addLayout(counts_btns)
+        counts_col.addWidget(self.counts_label)
+        counts_col.addWidget(self.counts_canvas)
+        test_row.addWidget(counts_box, stretch=1)
+
+        absorb_box = QGroupBox("Test (absorbance)")
+        absorb_col = QVBoxLayout(absorb_box)
+        absorb_btns = QHBoxLayout()
+        self.test_absorb_btn = QPushButton("Measure absorbance")
         self.test_absorb_btn.clicked.connect(self.on_test_absorbance)
         self.test_absorb_btn.setToolTip("Needs a dark and a reference first")
-        btn_row.addWidget(self.test_counts_btn)
-        btn_row.addWidget(self.test_absorb_btn)
-        btn_row.addStretch()
-        self.preview_label = QLabel("Connect, then Test to preview a spectrum.")
-        self.preview_label.setStyleSheet("color: #888;")
-        self.test_canvas = MplCanvas(ylabel="Intensity (counts)")
-        self.test_canvas.setMinimumHeight(200)
-        test_layout.addLayout(btn_row)
-        test_layout.addWidget(self.preview_label)
-        test_layout.addWidget(self.test_canvas)
-        layout.addWidget(test_group)
+        absorb_btns.addWidget(self.test_absorb_btn)
+        absorb_btns.addStretch()
+        self.absorb_label = QLabel("Needs a dark and a reference first.")
+        self.absorb_label.setStyleSheet("color: #888;")
+        self.absorb_canvas = MplCanvas(ylabel="Absorbance")
+        self.absorb_canvas.setMinimumHeight(180)
+        absorb_col.addLayout(absorb_btns)
+        absorb_col.addWidget(self.absorb_label)
+        absorb_col.addWidget(self.absorb_canvas)
+        test_row.addWidget(absorb_box, stretch=1)
+        layout.addLayout(test_row)
 
         self._set_actions_enabled(False)
 
@@ -258,7 +288,12 @@ class InstrumentTab(QWidget):
         self.pstat_status.setStyleSheet("color: #080;")
 
     def _update_cal_plot(self):
-        self.cal_canvas.show_dark_ref(self.win.wavelengths, self.win.dark, self.win.ref)
+        if self.win.dark is not None:
+            self.dark_canvas.show_spectrum(self.win.wavelengths, self.win.dark,
+                                           title="Dark", ylabel="Intensity (counts)")
+        if self.win.ref is not None:
+            self.ref_canvas.show_spectrum(self.win.wavelengths, self.win.ref,
+                                          title="Reference (100%T)", ylabel="Intensity (counts)")
 
     def on_connect(self):
         if self.simulated_check.isChecked() or AvantesSpectrometer is None:
@@ -379,11 +414,11 @@ class InstrumentTab(QWidget):
         if self.win.spec is None:
             return
         _, spectrum = self.win.spec.measure()
-        self.preview_label.setText(
+        self.counts_label.setText(
             f"Counts: {len(spectrum)} px, min={spectrum.min():.0f}  max={spectrum.max():.0f}")
-        self.test_canvas.show_spectrum(self.win.wavelengths, spectrum,
-                                       title="Test (counts)", ylabel="Intensity (counts)",
-                                       mark_max=True)
+        self.counts_canvas.show_spectrum(self.win.wavelengths, spectrum,
+                                         title="Test (counts)", ylabel="Intensity (counts)",
+                                         mark_max=True)
 
     def on_test_absorbance(self):
         if self.win.spec is None or self.win.dark is None or self.win.ref is None:
@@ -392,9 +427,9 @@ class InstrumentTab(QWidget):
         with np.errstate(divide="ignore", invalid="ignore"):
             transmittance = (spectrum - self.win.dark) / (self.win.ref - self.win.dark)
             absorbance = -np.log10(transmittance)
-        self.preview_label.setText("Absorbance = −log₁₀((sample − dark) / (ref − dark))")
-        self.test_canvas.show_spectrum(self.win.wavelengths, absorbance,
-                                       title="Test (absorbance)", ylabel="Absorbance")
+        self.absorb_label.setText("A = −log₁₀((sample − dark) / (ref − dark))")
+        self.absorb_canvas.show_spectrum(self.win.wavelengths, absorbance,
+                                         title="Test (absorbance)", ylabel="Absorbance")
 
     def on_timing_test(self):
         if self.win.spec is None:
