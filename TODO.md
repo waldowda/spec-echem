@@ -28,8 +28,8 @@ ms), with NO conversion. Confirmed on hardware 2026-06-18 — `spectrometer.py` 
 "Integration time set to 0.022 ms". The lone outlier was the CLAUDE.md doc (said "seconds") — now
 **fixed** to ms. No code change needed (everything already agrees on ms).
 
-- [ ] Remaining: **label the GUI integration-time spin box "(ms)"** so a student knows the unit
-      without reading the docs.
+- [x] **Label the GUI integration-time spin box "(ms)"** — DONE: the spin box already sets
+      `.setSuffix(" ms")` (`instrument_tab.py`), so the unit shows inline in the field.
 
 ## Decide later (triggered)
 
@@ -53,16 +53,32 @@ DIGOUT0 handshake confirmed. Remaining items:
       DIGOUT0 HIGH confirmed to land while the spectrometer is armed (arm-then-fire handshake).
 - [x] **toolkitpy API names verified on hardware (2026-07-03):** `initialize_pstat`, `signal_d_step_new`,
       `signal_r_up_dn_new`, `RcvCurve` / `ChronoCurve`, `pstat_is_valid`, `set_digital_out` all work.
-- [ ] In Python mode the doping/dedoping potential fields go live — drop the
-      "(recorded for reference)" `REF_NOTE` on those rows in `parameters_tab.py`.
+- [x] In Python mode the doping/dedoping potential fields go live — DONE: the section note now
+      reads "(Python mode drives these; External = reference)" (`parameters_tab.py` `POTENTIAL_NOTE`),
+      replacing the old "(recorded for reference)" wording.
 - [x] **Show the Gamry's custom name in "Identify".** DONE (2026-07-01): `probe_identity()` returns
       `(Pstat.label(), Pstat.serial_no())`; the Identify status shows "Gamry connected — {label}
       (serial {serial})" (falls back to serial-only if no label). Optionally add `Pstat.family()` later.
 
+## Post-Phase-2.5 follow-ups (mirror of STATUS.md)
+
+- [ ] **Two-thread simplification check.** The empty-echem-file bug was a signal refcount/GC issue,
+      not threading. Re-evaluate whether the per-segment dedicated thread + fresh-session-per-segment +
+      `acq_data()`-in-loop machinery in `potentiostat.py` is still needed, or whether a simpler
+      same-thread design works. Best done on the instrument box (hardware-tested). The `acq_data()`
+      poll in the run loop is flagged in-code as unconfirmed-necessity.
+- [ ] **First real-sample test (the gold standard).** Real polymer sample, real dark (lamp blocked) +
+      reference (blank, lamp on), full multi-cycle sequence in one Start; then confirm the output
+      analyzes cleanly in Raj's `OECT_processing`. External mode is real-test-ready today; Python mode
+      is ready now that echem capture landed.
+
 ## Echem plotting in the GUI (Phase 1)
 
-- [ ] Wire CV (I vs E) + chrono (I vs t) plots into the Results review area, reading converted files
-      via `spec_echem.gamry_data`. Live echem deferred to the EchemToolkitPy phase.
+- [x] Wire CV (I vs E) + chrono (I vs t) plots into the Results review area — DONE (2026-07-06):
+      absorbance (optical) and electrochemistry are shown side by side; the Results tab loads each
+      segment's clean echem `.txt` via `spec_echem.gamry_data` (`data.echem_txt_path` locates it),
+      and shows a friendly note when there's no echem file (e.g. External mode). CV → I-vs-E,
+      chrono → I-vs-t.
 - [ ] **Linearity check on the raw-counts test (future):** flag when the peak test counts approach the
       detector's saturation ceiling, so the user confirms they're in the linear regime before collecting
       dark/reference/data. (The test-counts graph already annotates the peak value.)
