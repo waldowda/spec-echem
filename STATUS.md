@@ -46,11 +46,14 @@ machinery is now suspect — see follow-up #1.)
    needed, or would a simpler same-thread design work? Best done on the instrument box.
 2. **First real-sample test** — a real polymer sample with proper dark (lamp blocked) and
    reference (blank, lamp on), full multi-cycle sequence in one run.
-3. **Echem plots in the GUI** (I-vs-E, I-vs-t) in the Results area — readers
-   (`gamry_data.read_cv` / `read_chrono`) and the plot canvas already exist.
-4. **GUI rearrangement pass** — tab-layout cleanup, including auto-verifying the Gamry when
-   Python mode is selected and regrouping the External/Python/Identify controls (see the
-   "GUI UX" section in `TODO.md`).
+3. ~~Echem plots in the GUI (I-vs-E, I-vs-t) in the Results area.~~ **DONE (2026-07-06)** —
+   absorbance and electrochemistry now shown side by side per segment. Successor:
+   **live echem graph during a Python-mode run** (poll `acq_data()` mid-run) so you can watch
+   the CV and abort before committing to a long doping sweep. See `TODO.md`.
+4. **GUI rearrangement pass** — further tab-layout cleanup (a first pass landed 2026-07-06:
+   Instrument tab split into four side-by-side graphs, Run controls moved to top). Still to do:
+   auto-verify the Gamry when Python mode is selected, and regroup the External/Python/Identify
+   controls (see the "GUI UX" section in `TODO.md`).
 5. **Linearity check** on the peak test-counts (saturation warning).
 6. **Future/optional:** a compact tidy-DataFrame sidecar to cut Raj-format duplication —
    an *additional* output; the `.txt` files stay the compatibility contract.
