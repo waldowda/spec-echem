@@ -66,3 +66,12 @@ DIGOUT0 handshake confirmed. Remaining items:
 - [ ] **Linearity check on the raw-counts test (future):** flag when the peak test counts approach the
       detector's saturation ceiling, so the user confirms they're in the linear regime before collecting
       dark/reference/data. (The test-counts graph already annotates the peak value.)
+
+## GUI UX — Instrument tab potentiostat controls (Dean, 2026-07-05)
+
+- [ ] **Auto-verify the Gamry when Python mode is selected.** Selecting "Python" (vs "External") is
+      exactly when you'd want the connection confirmed — it should run the Identify probe automatically
+      and show "Gamry connected — Gamry Duck (serial 08083)", instead of leaving it to a separate
+      "Identify Potentiostat" click. At minimum, make connection verification part of switching to Python.
+- [ ] **Reconsider the layout of the External/Python radios + Identify button** — there's likely a
+      cleaner grouping/arrangement of those choices. Fold into the broader GUI rearrangement pass.
