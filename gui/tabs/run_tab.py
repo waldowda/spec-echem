@@ -33,13 +33,28 @@ class RunTab(QWidget):
     def _build(self):
         layout = QVBoxLayout(self)
 
-        # --- run-state banner ---
+        # --- controls + run-state banner (top row: Start is where the eye lands) ---
+        top_row = QHBoxLayout()
+        self.start_btn = QPushButton("Start")
+        self.start_btn.clicked.connect(self.on_start)
+        self.stop_btn = QPushButton("Stop")
+        self.stop_btn.clicked.connect(self.on_stop)
+        self.stop_btn.setEnabled(False)
+        self.abort_btn = QPushButton("ABORT")
+        self.abort_btn.setStyleSheet("color: #b00; font-weight: bold;")
+        self.abort_btn.clicked.connect(self.on_abort)
+        self.abort_btn.setEnabled(False)
+        top_row.addWidget(self.start_btn)
+        top_row.addWidget(self.stop_btn)
+        top_row.addWidget(self.abort_btn)
+        top_row.addSpacing(12)
         self.banner = QLabel("Idle")
         self.banner.setAlignment(Qt.AlignCenter)
         self.banner.setStyleSheet(
             "background: #eef; padding: 10px; font-weight: bold; border: 1px solid #ccd;"
         )
-        layout.addWidget(self.banner)
+        top_row.addWidget(self.banner, stretch=1)
+        layout.addLayout(top_row)
 
         # --- cockpit: sequence progress (left) + last-segment plot (right) ---
         cockpit = QSplitter(Qt.Horizontal)
@@ -67,23 +82,6 @@ class RunTab(QWidget):
         self.status_log.setReadOnly(True)
         log_layout.addWidget(self.status_log)
         layout.addWidget(log_group, stretch=1)
-
-        # --- controls ---
-        btn_row = QHBoxLayout()
-        self.start_btn = QPushButton("Start")
-        self.start_btn.clicked.connect(self.on_start)
-        self.stop_btn = QPushButton("Stop")
-        self.stop_btn.clicked.connect(self.on_stop)
-        self.stop_btn.setEnabled(False)
-        self.abort_btn = QPushButton("ABORT")
-        self.abort_btn.setStyleSheet("color: #b00; font-weight: bold;")
-        self.abort_btn.clicked.connect(self.on_abort)
-        self.abort_btn.setEnabled(False)
-        btn_row.addWidget(self.start_btn)
-        btn_row.addWidget(self.stop_btn)
-        btn_row.addWidget(self.abort_btn)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
 
     def log(self, message):
         self.status_log.appendPlainText(message)
@@ -131,6 +129,11 @@ class RunTab(QWidget):
         run_folder = Path(settings["data_root"]) / settings["data_folder"]
         _, log_path = configure_run_logging(run_folder, settings["data_folder"])
         self.log(f"Logging to {log_path.name}")
+
+        # Expose the run folder + segment map so the Results tab can find each
+        # segment's echem file (written next to the spectra in Python mode).
+        self.win.run_folder = run_folder
+        self.win.segments_by_label = {seg.label: seg for seg in segments}
 
         # Build the progress list
         self.sequence_list.clear()

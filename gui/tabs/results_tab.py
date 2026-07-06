@@ -5,11 +5,14 @@ Segment selector, wavelength range, absorbance plot (updates after each segment
 completes — no live updating), and data-folder actions. The matplotlib canvas
 is wired together with the Instrument-tab preview in the plotting increment.
 """
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel,
-    QComboBox, QDoubleSpinBox, QPushButton, QFileDialog,
+    QComboBox, QDoubleSpinBox, QPushButton, QFileDialog, QSplitter,
 )
 
+from spec_echem.data import echem_txt_path, DATA_TYPE_CV
+from spec_echem.gamry_data import read_cv, read_chrono
 from gui.widgets.plot_canvas import MplCanvas
 
 
@@ -49,9 +52,24 @@ class ResultsTab(QWidget):
         ctrl_form.addRow("Wavelength range:", range_row)
         layout.addWidget(ctrl_group)
 
-        # --- absorbance plot ---
+        # --- plots: absorbance (optical) beside electrochemistry, side by side ---
+        plots = QSplitter(Qt.Horizontal)
+
+        abs_box = QGroupBox("Absorbance (optical)")
+        abs_layout = QVBoxLayout(abs_box)
         self.canvas = MplCanvas(ylabel="Absorbance")
-        layout.addWidget(self.canvas, stretch=1)
+        abs_layout.addWidget(self.canvas)
+        plots.addWidget(abs_box)
+
+        echem_box = QGroupBox("Electrochemistry")
+        echem_layout = QVBoxLayout(echem_box)
+        self.echem_canvas = MplCanvas(xlabel="Potential (V)", ylabel="Current (A)")
+        echem_layout.addWidget(self.echem_canvas)
+        plots.addWidget(echem_box)
+
+        plots.setStretchFactor(0, 1)
+        plots.setStretchFactor(1, 1)
+        layout.addWidget(plots, stretch=1)
 
         # --- actions ---
         btn_row = QHBoxLayout()
@@ -82,6 +100,30 @@ class ResultsTab(QWidget):
             absorb_df, title=label,
             wl_min=self.wl_min.value(), wl_max=self.wl_max.value(),
         )
+        self._plot_echem(label)
+
+    def _plot_echem(self, label):
+        """Show the segment's electrochemistry (I-vs-E for CV, I-vs-t for chrono).
+        Echem files are written in Python mode; in External mode they come from the
+        Gamry Framework + conversion, so a missing file is normal, not an error."""
+        seg = self.win.segments_by_label.get(label)
+        if seg is None or self.win.run_folder is None:
+            self.echem_canvas.show_message("No echem data yet — run a sequence.")
+            return
+        path = echem_txt_path(self.win.run_folder, seg.data_type, seg.run_number)
+        if not path.exists():
+            self.echem_canvas.show_message(
+                "No echem file for this segment.\n\n"
+                "Python mode saves echem data here;\n"
+                "External mode records it via Gamry Framework.")
+            return
+        try:
+            if seg.data_type == DATA_TYPE_CV:
+                self.echem_canvas.show_cv(read_cv(path), title=label)
+            else:
+                self.echem_canvas.show_chrono(read_chrono(path), title=label)
+        except Exception as exc:  # noqa: BLE001 — surface a bad/short file as a note, not a crash
+            self.echem_canvas.show_message(f"Could not read echem file:\n{exc}")
 
     def on_save_plot(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Plot", "plot.png",

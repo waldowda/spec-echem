@@ -10,6 +10,8 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
+from spec_echem.gamry_data import POTENTIAL_COL, CURRENT_COL
+
 
 class MplCanvas(FigureCanvasQTAgg):
     def __init__(self, parent=None, xlabel="Wavelength (nm)", ylabel="Intensity (counts)"):
@@ -66,6 +68,32 @@ class MplCanvas(FigureCanvasQTAgg):
             self.ax.plot(wavelengths, ref, lw=1.0, color="#d62728", label="Reference (100%T)")
         self._decorate("Dark & 100%T")
         self.ax.legend(loc="best", fontsize=8)
+        self.draw_idle()
+
+    def show_cv(self, df, title=None):
+        """Cyclic voltammogram: current vs potential (I vs E). Cycles concatenated."""
+        self._xlabel, self._ylabel = "Potential (V)", "Current (A)"
+        self._new_axes()
+        self.ax.plot(df[POTENTIAL_COL].values, df[CURRENT_COL].values, lw=1.0, color="#1f77b4")
+        self._decorate(title)
+        self.draw_idle()
+
+    def show_chrono(self, df, title=None):
+        """Chronoamperometry: current vs corrected time (I vs t)."""
+        self._xlabel, self._ylabel = "Time (s)", "Current (A)"
+        self._new_axes()
+        self.ax.plot(df["Corrected time (s)"].values, df[CURRENT_COL].values,
+                     lw=1.0, color="#1f77b4")
+        self._decorate(title)
+        self.draw_idle()
+
+    def show_message(self, text):
+        """Clear the canvas and show a centered note (e.g. 'no echem data yet')."""
+        self._new_axes()
+        self.ax.text(0.5, 0.5, text, ha="center", va="center",
+                     transform=self.ax.transAxes, color="#888", fontsize=9)
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
         self.draw_idle()
 
     def show_absorbance(self, absorb_df, title=None, wl_min=None, wl_max=None):

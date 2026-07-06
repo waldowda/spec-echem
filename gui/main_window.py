@@ -29,6 +29,8 @@ class MainWindow(QMainWindow):
         self.ref = None
         self.wavelengths = None
         self.results = {}   # segment label -> absorbance DataFrame (populated during a run)
+        self.run_folder = None       # Path to the active/last run folder (echem file lookup)
+        self.segments_by_label = {}  # segment label -> Segment (echem file type/number)
 
         # --- tabs ---
         self.tabs = QTabWidget()
