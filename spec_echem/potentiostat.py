@@ -23,18 +23,27 @@ The hardware import is optional and guarded (same pattern as avaspec in
 ``import toolkitpy`` fails and ``TOOLKITPY_AVAILABLE`` is False — the GUI then
 disables the Python option and only ExternalPotentiostat is offered.
 
-Validated on hardware (SpecEchem32, 2026-07-04): all four segment types (CV +
-doping + dedoping + pre-dedoping) run in Python mode with golden output and the
-DIGOUT0 trigger handshake confirmed. ``curve.run(True)`` is non-blocking
-(bench-confirmed), so the Gamry runs concurrently with spectrum collection and no
-worker thread is needed — ``fire()`` starts the waveform synchronously right after
-the spectrometer is armed, and ``finish()`` polls ``curve.running()`` to completion.
+Hardware finding (SpecEchem32, 2026-07-05): a toolkitpy curve DIES within ~50 ms
+if the thread that ran it does anything other than poll it in an uninterrupted
+loop — sharing a thread with the spectrometer's acquisition loop kills it. So the
+Gamry runs on its OWN dedicated thread (one per segment, owning a fresh toolkitpy
+session end to end), synchronized to the spectrometer via an "armed" event:
+``prepare()`` launches the thread (it opens the session and builds the signal, then
+blocks), ``fire()`` releases it the instant the spectrometer is armed (DIGOUT0
+high, then run + clean poll loop), and ``finish()`` joins it and picks up the
+captured data. The spectrometer keeps its own thread, so their timing is
+independent; t=0 is still synced by the hardware trigger.
 """
+import logging
+import threading
 import time
 
 from spec_echem.data import (
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
+    _echem_dta_path,
 )
+
+logger = logging.getLogger(__name__)
 
 try:
     import toolkitpy as tkp
@@ -51,8 +60,6 @@ MAX_CURVE_SIZE = 200000
 # edge fired before arming is missed). It delays BOTH instruments together, so it
 # does not desync them; tune/remove once the bench confirms the arm is instant.
 _FIRE_ARM_MARGIN_S = 0.005
-# Upper bound on how long finish() waits for the waveform to end (guards a hung run).
-_FINISH_MAX_WAIT_S = 10.0
 
 
 def initialize_pstat(pstat):
@@ -137,6 +144,21 @@ class Potentiostat:
         """Request an in-progress segment to halt early (abort path)."""
         pass
 
+    def pump(self):
+        """
+        Called once per spectrum during acquisition. In Python-controlled mode
+        this services the running Gamry curve so the framework accumulates its
+        data; External/no-op does nothing.
+        """
+        pass
+
+    def last_data(self):
+        """
+        Echem data (numpy structured array) captured from the just-finished
+        segment, or None. External/no-op has none — Python never touches the Gamry.
+        """
+        return None
+
     def close(self):
         pass
 
@@ -163,106 +185,198 @@ class ToolkitPotentiostat(Potentiostat):
                 "the 32-bit Gamry stack. Use External mode."
             )
         self.settings = settings
-        self._pstat = None
-        self._curve = None
+        self._last_data = None            # acq_data() captured from the last segment
+        self._thread = None               # the per-segment Gamry thread
+        self._armed = threading.Event()   # set by fire() when the spectrometer is armed
+        self._built = threading.Event()   # set by the thread once the signal is built
+        self._abort = threading.Event()   # set to stop a segment early
+        self._error = None                # exception from the Gamry thread, if any
+        self._max_wait = 60.0             # safety cap on the poll loop (set per segment)
 
     # --- lifecycle ------------------------------------------------------
 
     def open(self):
-        tkp.toolkitpy_init("spec-echem")
-        self._pstat = tkp.Pstat("PSTAT")
-        self._pstat.set_ctrl_mode(tkp.PSTATMODE)
-        initialize_pstat(self._pstat)
+        """No toolkit work on the caller's thread — each segment's Gamry thread
+        opens and closes its OWN toolkitpy session (see _run_segment). A curve must
+        be created, run, and polled all on one thread that does nothing else."""
+        pass
 
     def close(self):
-        if self._pstat is not None:
-            # Belt-and-suspenders: make sure the cell is off and DIGOUT0 is low.
-            try:
-                self._pstat.set_cell(False)
-                self._set_trigger_line(high=False)
-            except Exception:  # noqa: BLE001 — closing must not mask the real error
-                pass
-        tkp.toolkitpy_close()
-        self._pstat = None
+        """Ensure no Gamry thread is left running."""
+        self._join_thread()
 
     # --- per-segment ----------------------------------------------------
 
     def prepare(self, segment):
         """
-        Slow, non-time-critical setup done BEFORE the spectrometer is armed: build
-        the segment's signal and create the curve. No cell, no trigger, no run
-        here — those happen in fire(), at the armed instant.
+        Launch the Gamry on its OWN thread. That thread opens a fresh toolkitpy
+        session, builds + initializes the signal, then BLOCKS until fire() signals
+        the spectrometer is armed. A dedicated thread is REQUIRED: a toolkitpy curve
+        that shares a thread with the spectrometer's acquisition loop dies within
+        ~50 ms (hardware-confirmed 2026-07-05, examples/bench_fake_coacquire.py); it
+        survives only on a thread running an uninterrupted poll loop.
         """
-        self._curve = self._build_and_arm_signal(segment)
+        self._armed.clear()
+        self._built.clear()
+        self._abort.clear()
+        self._last_data = None
+        self._error = None
+        # Safety cap for the poll loop: comfortably longer than the real segment
+        # (num_points * delta_time is ~the segment duration).
+        self._max_wait = segment.num_points * segment.delta_time * 3.0 + 30.0
+        self._thread = threading.Thread(
+            target=self._run_segment, args=(segment,),
+            name=f"gamry-{segment.label}", daemon=True)
+        self._thread.start()
+        # Block until the Gamry thread has opened its session and built the signal,
+        # so that slow toolkitpy_init/build runs on a CLEAR thread — before the
+        # caller arms the spectrometer and its acquisition loop starts hammering the
+        # CPU. Building under that load leaves the curve stillborn (it runs ~50 ms
+        # then dies with zero data); a clear runway is what bench_gamry_thread's
+        # sleep(0.2) gave it. Bounded so a hung open can't wedge the caller.
+        self._built.wait(timeout=30.0)
 
     def fire(self):
         """
-        Called the instant the spectrometer is armed and polling (as measure()'s
-        on_armed for spectrum 0). Turn the cell on, raise DIGOUT0 (the edge the
-        armed spectrometer catches), and start the waveform. run(True) is
-        non-blocking (confirmed on hardware), so the Gamry then runs concurrently
-        with spectrum collection — no thread needed. Ordering matches the
-        .GSequence: DIGOUT0 high, then the experiment runs.
+        Called from inside measure() the instant the spectrometer is armed for
+        spectrum 0. Release the Gamry thread — it raises DIGOUT0 (the edge the armed
+        Avantes catches) and runs the waveform. Returns immediately; the Gamry runs
+        concurrently on its own thread.
         """
-        time.sleep(_FIRE_ARM_MARGIN_S)      # let AVS_Measure() finish arming before the edge
-        self._pstat.set_cell(True)
-        self._set_trigger_line(high=True)   # DIGOUT0 HIGH -> armed Avantes catches spectrum 0
-        self._curve.run(True)               # non-blocking; Gamry runs the waveform
+        self._armed.set()
 
     def finish(self, aborted=False):
-        """Wait out (or stop) the waveform, drop DIGOUT0, open the cell."""
+        """Wait for the Gamry thread to finish (or stop it on abort) and pick up the
+        data it captured. On abort no data is kept (mirrors the spectra rule)."""
         if aborted:
-            self._stop_curve()
-        else:
-            # The waveform ran concurrently with collection, so it's ~done now.
-            # Poll to completion, bounded so a hung run can't wedge the GUI.
-            deadline = time.time() + _FINISH_MAX_WAIT_S
-            while (self._curve is not None and tkp.pstat_is_valid(self._pstat)
-                   and self._curve.running() and time.time() < deadline):
-                time.sleep(0.02)
-            if self._curve is not None and self._curve.running():
-                self._stop_curve()
-        self._set_trigger_line(high=False)  # DIGOUT0 LOW
-        if self._pstat is not None:
-            self._pstat.set_cell(False)
-        self._curve = None
+            self._abort.set()
+        self._armed.set()   # unblock the thread if fire() never happened
+        self._join_thread()
+        if self._error is not None:
+            logger.warning("Gamry segment thread reported an error: %s", self._error)
 
     def stop(self):
-        self._stop_curve()
+        self._abort.set()
 
-    # --- internals ------------------------------------------------------
+    def last_data(self):
+        return self._last_data
 
-    def _stop_curve(self):
-        if self._curve is not None:
+    # --- the Gamry thread ----------------------------------------------
+
+    def _join_thread(self):
+        t = self._thread
+        if t is not None and t.is_alive():
+            t.join(timeout=self._max_wait + 5.0)
+        self._thread = None
+
+    def _run_segment(self, segment):
+        """
+        The ENTIRE toolkitpy lifecycle for one segment, alone on this thread: open a
+        fresh session, build + init the signal, wait until the spectrometer is armed,
+        then set_cell + DIGOUT0-high + run, poll the curve in a clean UNINTERRUPTED
+        loop (the only pattern that keeps a curve alive), capture acq_data, write the
+        native .dta, and close. A fresh session per segment sidesteps the
+        multi-curve-in-one-session hazard.
+        """
+        pstat = None
+        curve = None
+        try:
+            tkp.toolkitpy_init("spec-echem")
+            pstat = tkp.Pstat("PSTAT")
+            pstat.set_ctrl_mode(tkp.PSTATMODE)
+            initialize_pstat(pstat)
+            # Hold `signal` as a live local for the WHOLE segment. The toolkitpy
+            # signal object must outlive curve.run(): if its last Python reference
+            # drops, CPython frees it immediately (refcount, no GC needed) and the
+            # curve is left with a degenerate waveform — it starts (running()==True)
+            # then dies with zero data in ~50 ms. This was THE stillborn-curve bug:
+            # _build_signal used to return only the curve, dropping `signal` on
+            # return. Bench survived only because it kept `signal` as a local.
+            curve, signal = self._build_signal(pstat, segment)
+            self._built.set()                # release prepare(): build done on a clear thread
+
+            self._armed.wait()               # block until the spectrometer is armed
+            if self._abort.is_set():
+                return
+
+            time.sleep(_FIRE_ARM_MARGIN_S)   # let AVS_Measure() finish arming
+            pstat.set_cell(True)
+            pstat.set_digital_out(0x1, 0x1)  # DIGOUT0 HIGH -> armed Avantes fires
+            curve.run(True)
+
+            deadline = time.time() + self._max_wait
+            while (tkp.pstat_is_valid(pstat) and curve.running()
+                   and not self._abort.is_set() and time.time() < deadline):
+                # Poll acq_data() during the run. Retained from the validated path;
+                # with the signal-lifetime fix (keeping `signal` alive) it's unconfirmed
+                # whether this is still required vs running() alone — flagged for the
+                # two-thread simplification follow-up.
+                curve.acq_data()
+                time.sleep(0.05)
+            if curve.running():
+                try:
+                    curve.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+
+            if not self._abort.is_set():
+                self._last_data = curve.acq_data()
+                self._write_dta(curve, pstat, segment)
+        except Exception as exc:  # noqa: BLE001 — surface via _error, never crash the thread
+            self._error = exc
+            logger.exception("Gamry segment '%s' failed", getattr(segment, "label", "?"))
+        finally:
+            self._built.set()   # never leave prepare() blocked, even on a build error
+            if pstat is not None:
+                try:
+                    pstat.set_digital_out(0x0, 0x1)  # DIGOUT0 LOW
+                    pstat.set_cell(False)
+                except Exception:  # noqa: BLE001
+                    pass
             try:
-                self._curve.stop()
+                tkp.toolkitpy_close()
             except Exception:  # noqa: BLE001
                 pass
 
-    def _set_trigger_line(self, high):
-        """DIGOUT0 high/low — the exact line the .GSequence toggles."""
-        if self._pstat is None:
+    def _write_dta(self, curve, pstat, segment):
+        """Optionally emit a native Gamry .dta via the toolkit (dta/ subfolder).
+        Opt-out via settings['save_dta']; a failure must not sink the run."""
+        if not self.settings.get("save_dta", True):
             return
-        self._pstat.set_digital_out(0x1 if high else 0x0, 0x1)
+        if not hasattr(tkp, "print_default_dta_file"):
+            logger.info("toolkitpy has no print_default_dta_file — skipping native .dta.")
+            return
+        kind = "CV" if segment.data_type == DATA_TYPE_CV else "CHRONOA"
+        path = _echem_dta_path(segment.data_type, segment.run_number,
+                               self.settings["data_root"], self.settings["data_folder"])
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tkp.print_default_dta_file(curve, pstat, str(path), kind)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Native .dta write failed for %s: %s", segment.label, exc)
 
-    def _build_and_arm_signal(self, segment):
+    # --- signal building (runs on the Gamry thread) --------------------
+
+    def _build_signal(self, pstat, segment):
         """
-        Translate a Segment into a toolkitpy signal + curve, mirroring the
-        .GSequence recipe. Returns the armed curve.
+        Build + arm the signal, returning ``(curve, signal)``. The caller MUST keep
+        a live reference to `signal` until curve.run() has finished — the toolkitpy
+        signal object owns the waveform, and if it is freed the curve runs empty and
+        dies (see _run_segment). The curve is created BEFORE the signal is set (it
+        registers as the data sink at construction), and init_signal() must be
+        contiguous with the run() that follows on this thread.
         """
-        pstat = self._pstat
         s = self.settings
-
         if segment.data_type == DATA_TYPE_CV:
-            signal = self._cv_signal(segment)
+            curve = tkp.RcvCurve(pstat, MAX_CURVE_SIZE)
+            signal = self._cv_signal(pstat, segment)
             pstat.set_signal_r_up_dn(signal)
             pstat.init_signal()
-            return tkp.RcvCurve(pstat, MAX_CURVE_SIZE)
+            return curve, signal
 
-        # Non-CV steps are constant-potential holds, built exactly as the
-        # .GSequence does it: a double-step (signal_d_step) with the pre-step and
-        # step-2 times zeroed, so it's a single hold at `potential` for
-        # chrono_time seconds. Arg order matches the bundled chronoamperometry.py.
+        # Non-CV steps are constant-potential holds: a double-step with the pre-step
+        # and step-2 times zeroed, i.e. a single hold at `potential` for chrono_time s.
+        curve = tkp.ChronoCurve(pstat, MAX_CURVE_SIZE)
         potential = self._chrono_potential(segment)
         signal = pstat.signal_d_step_new(
             potential, 0.0,                 # pre-step voltage, pre-step time
@@ -272,7 +386,7 @@ class ToolkitPotentiostat(Potentiostat):
         )
         pstat.set_signal_d_step(signal)
         pstat.init_signal()
-        return tkp.ChronoCurve(pstat, MAX_CURVE_SIZE)
+        return curve, signal
 
     def _chrono_potential(self, segment):
         s = self.settings
@@ -286,7 +400,7 @@ class ToolkitPotentiostat(Potentiostat):
             return s["dedoping_potential"]
         raise ValueError(f"No chrono potential for data_type {segment.data_type}")
 
-    def _cv_signal(self, segment):
+    def _cv_signal(self, pstat, segment):
         # Vertices map straight onto the .GSequence VINIT/VLIMIT1/VLIMIT2/VFINAL.
         # toolkitpy's extra knobs are derived: one scan rate per leg (the single
         # rate repeated), zero apex/final holds, sample_time = step/rate. Arg
@@ -295,7 +409,7 @@ class ToolkitPotentiostat(Potentiostat):
         scan_rate = s["cv_scan_rate"] / 1000.0   # mV/s -> V/s
         step = s["cv_step_size"] / 1000.0        # mV   -> V
         sample_time = step / scan_rate
-        return self._pstat.signal_r_up_dn_new(
+        return pstat.signal_r_up_dn_new(
             [s["cv_initial_v"], s["cv_limit1_v"], s["cv_limit2_v"], s["cv_final_v"]],
             [scan_rate, scan_rate, scan_rate],   # one rate per leg
             [0.0, 0.0, 0.0],                     # apex1 / apex2 / final holds

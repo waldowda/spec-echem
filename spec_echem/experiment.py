@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from spec_echem.acquisition import acquire_segment
 from spec_echem.data import (
-    compute_absorbance, write_spectra_file,
+    compute_absorbance, write_spectra_file, write_echem_file,
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
 )
 
@@ -85,13 +85,15 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     partial/aborted segment).
     """
     on_armed = None
+    on_tick = None
     if potentiostat is not None:
         potentiostat.prepare(segment)   # slow setup, before the spectrometer is armed
         on_armed = potentiostat.fire    # fired from inside measure(), once armed
+        on_tick = potentiostat.pump     # per-spectrum: cook the Gamry curve's data
     try:
         spectra, timestamps = acquire_segment(
             spec, segment.num_points, segment.delta_time, segment.trigger,
-            abort_event, on_armed,
+            abort_event, on_armed, on_tick,
         )
     finally:
         if potentiostat is not None:
@@ -107,4 +109,12 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
         absorb_df, spectra, dark, ref, wavelengths, timestamps,
         segment.data_type, segment.run_number, data_root, added_path,
     )
+
+    # Python mode: write the echem data (current/potential) captured during the
+    # segment next to the spectra. External/None has no data — this is a no-op.
+    echem = potentiostat.last_data() if potentiostat is not None else None
+    if echem is not None:
+        write_echem_file(echem, segment.data_type, segment.run_number,
+                         data_root, added_path)
+
     return absorb_df, path
