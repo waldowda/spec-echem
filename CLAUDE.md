@@ -24,16 +24,24 @@ spec-echem/
 ├── spec_echem/                      # Python package (import spec_echem)
 │   ├── __init__.py
 │   ├── spectrometer.py              # AvantesSpectrometer class
+│   ├── potentiostat.py              # Gamry control (External + Python/toolkitpy)
+│   ├── acquisition.py, experiment.py  # Segment acquisition + orchestration
+│   ├── data.py, gamry_data.py       # Spectra + echem file writers/readers
+│   ├── settings.py, fakes.py        # Settings dict; hardware fakes for testing
 │   └── globals.py                   # Global variables for Avantes SDK
+├── gui/                             # PyQt5 GUI (4 tabs); run via `python -m gui`
 ├── notebooks/
 │   └── spec_echem_exp_*.ipynb       # Jupyter experimental workflows
 ├── gamry/
 │   └── *.GSequence                  # Gamry sequence files with digital triggers
 ├── docs/
-│   └── data-format.md               # Output file format specification (DO NOT CHANGE)
-├── examples/                        # Example scripts (in development)
-├── tests/                           # Unit tests (in development)
+│   ├── data-format.md               # Output file format specification (DO NOT CHANGE)
+│   └── sop.md                       # Standard operating procedure
+├── examples/                        # Bench/validation scripts
+├── tests/                           # Unit tests
 ├── data/                            # Sample data directory
+├── STATUS.md                        # Human-readable project status + next steps
+├── TODO.md                          # Task list / deferred cleanups
 ├── README.md
 ├── setup.py
 ├── requirements.txt
@@ -143,24 +151,14 @@ N = `run_number`. **Note: parentheses in filenames are literal** — `spectra(0)
 
 ## Output File Format — DO NOT CHANGE
 
-Files are tab-separated, saved to:
-`C:\Users\inst-chem\Documents\specechem_data\{added_path}\{filename}`
+**The authoritative spec is [`docs/data-format.md`](docs/data-format.md)** — spectra files
+(8 columns), the Phase 2.5 echem `.txt` files (`CV.txt` / `steps(N).txt` / etc.), the native
+`.dta` outputs, and the absorbance pipeline. Downstream analysis tools at UW depend on these
+formats; do not change column names, order, separator, or filename conventions without explicit
+instruction.
 
-**8 columns:**
-
-| # | Header | Content | Notes |
-|---|--------|---------|-------|
-| 1 | Wavelength (nm) | Wavelength calibration | Same for every time point |
-| 2 | Absorbance | Calculated absorbance | A = −log₁₀((Sample − Dark) / (Ref − Dark)) |
-| 3 | Column 3 (a. u.) | Dark spectrum | Only for time_point == 0; empty otherwise |
-| 4 | Column 4 (a. u.) | Reference spectrum | Only for time_point == 0; empty otherwise |
-| 5 | Measured value (a.u.) | Raw intensity | Direct spectrometer output |
-| 6 | Spectrum number | Integer index | Sequential across all time points |
-| 7 | Time (s) | Absolute timestamp | Seconds since acquisition start |
-| 8 | Corrected time (s) | Relative timestamp | Time relative to first spectrum in step |
-
-Downstream analysis tools at UW depend on this format. Do not change column names, order,
-separator, or naming conventions without explicit instruction.
+Files are tab-separated, saved under `{data_root}/{added_path}/`
+(e.g. `C:\Users\inst-chem\Documents\specechem_data\20260705_P3HT\`).
 
 **Downstream analysis repo:** `rajgiriUW/OECT_processing` (github.com/rajgiriUW/OECT_processing),
 maintained by Raj Giri. The `oect_processing/specechem/read_files.py` module reads spec-echem
@@ -173,18 +171,6 @@ Fix: in `read_files.py` lines ~76–85, revert `specfiles[0]` back to `stepfiles
 
 **Steps files dependency:** Gamry `.DTA` steps files must be in the same folder as spectra files
 for `current_vs_time()` to work. Gamry and spec-echem output directories must match.
-
-**Absorbance calculation pipeline:**
-```
-raw spectra (wavelength_pixels × num_time_points)
-    → transmittance = (spectra - dark) / (ref - dark)
-    → absorbance = -1 * np.log10(transmittance)
-    → absorb3_df = pd.DataFrame(absorb3)
-    → absorb4 = absorb3_df.T
-    → absorb5 = absorb4.set_index(wavelengths)
-    → absorb6 = absorb5.T  →  absorb6.index = timeStamp_diff
-    → absorb7 = absorb6.T  ← this is what gets written to file
-```
 
 ---
 
