@@ -6,7 +6,7 @@ import time
 
 
 def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
-                    abort_event=None, on_armed=None):
+                    abort_event=None, on_armed=None, on_tick=None):
     """
     Collect a segment of spectra from the spectrometer.
 
@@ -22,6 +22,13 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
             DIGOUT0 + starts the Gamry, so the edge lands while the spectrometer
             is waiting (an edge fired before AVS_Measure() is missed — see
             examples/diag_trigger_timing.py). None in external mode → no-op.
+        on_tick: optional callable invoked once per spectrum, in the idle gap
+            after each measurement. In Python mode this pumps the Gamry curve
+            (curve.running()) so the framework accumulates its data DURING the
+            run — without it, acq_data() comes back empty (the curve is only
+            serviced on this, the curve-owning, thread). Same-thread by design:
+            no second thread, so it can't contend with the spectrometer timing.
+            None in external mode → no-op.
 
     Returns:
         (spectra, timestamps): spectra is list of 1D arrays, timestamps are
@@ -50,6 +57,9 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
 
         if j == 0:
             spec.set_trigger_mode(0)  # disable trigger after first measurement fires
+
+        if on_tick is not None:
+            on_tick()  # pump the Gamry curve so its data accumulates during the run
 
         time.sleep(0.002)
         check_time = time.time_ns() / 1e9

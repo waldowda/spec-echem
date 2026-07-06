@@ -114,6 +114,15 @@ class InstrumentTab(QWidget):
         id_row.addWidget(self.pstat_status)
         id_row.addStretch()
         pstat_layout.addLayout(id_row)
+
+        # Python mode only: also save Gamry-native .DTA files alongside the clean .txt
+        self.save_dta_check = QCheckBox("Also save Gamry .DTA files (dta/ subfolder)")
+        self.save_dta_check.setChecked(True)
+        self.save_dta_check.setToolTip(
+            "Python mode: write native Gamry .DTA files (for Echem Analyst / archival) "
+            "into a dta/ subfolder, alongside the clean analysis .txt files.")
+        pstat_layout.addWidget(self.save_dta_check)
+
         self.pstat_external_radio.toggled.connect(self._update_pstat_controls)
         self._update_pstat_controls()
         layout.addWidget(pstat_group)
@@ -195,12 +204,14 @@ class InstrumentTab(QWidget):
             self.pstat_python_radio.setChecked(True)
         else:
             self.pstat_external_radio.setChecked(True)
+        self.save_dta_check.setChecked(settings.get("save_dta", True))
 
     def collect_into(self, settings):
         settings["integration_time_ms"] = self.integration_spin.value()
         settings["scan_averages"] = self.averages_spin.value()
         settings["potentiostat_mode"] = (
             "python" if self.pstat_python_radio.isChecked() else "external")
+        settings["save_dta"] = self.save_dta_check.isChecked()
 
     # --- actions ---
 
@@ -229,6 +240,8 @@ class InstrumentTab(QWidget):
         self.pstat_identify_btn.setEnabled(python and TOOLKITPY_AVAILABLE)
         self.pstat_status.setText("—" if python else "Gamry runs from Gamry Framework")
         self.pstat_status.setStyleSheet("color: #555;")
+        # .DTA files only exist in Python mode (External writes its own via Framework)
+        self.save_dta_check.setEnabled(python)
 
     def on_identify_pstat(self):
         self.pstat_status.setText("Identifying…")
@@ -280,14 +293,19 @@ class InstrumentTab(QWidget):
         self._update_cal_plot()
         self._update_absorbance_enabled()
 
+    def _data_root(self):
+        """The data root (the Save location on the Parameters tab), falling back to
+        the default. All calibration files live in subfolders under it so Save and
+        Open land in the same, predictable place."""
+        return (self.win.parameters_tab._widgets["data_root"].text()
+                or DEFAULT_SETTINGS["data_root"])
+
     def on_save_dark(self):
         if self.win.dark is None:
             self.dark_status.setText("Dark: nothing to save (collect one first)")
             return
         # Standard darks folder under the current Save location (the parent dir).
-        root = (self.win.parameters_tab._widgets["data_root"].text()
-                or DEFAULT_SETTINGS["data_root"])
-        darks_dir = Path(root) / "darks"
+        darks_dir = Path(self._data_root()) / "darks"
         darks_dir.mkdir(parents=True, exist_ok=True)
         # Pre-fill the next unused serial for today so same-day darks don't collide;
         # the Save dialog still lets you pick an existing name to overwrite.
@@ -303,7 +321,8 @@ class InstrumentTab(QWidget):
             self.dark_status.setText(f"Dark: save failed ({exc})")
 
     def on_load_dark(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load Dark Spectrum", "", "Text files (*.txt *.csv)")
+        start = str(Path(self._data_root()) / "darks")
+        path, _ = QFileDialog.getOpenFileName(self, "Load Dark Spectrum", start, "Text files (*.txt *.csv)")
         if not path:
             return
         try:
@@ -329,9 +348,7 @@ class InstrumentTab(QWidget):
             self.ref_status.setText("Reference: nothing to save (collect one first)")
             return
         # Standard refs folder under the current Save location (the parent dir).
-        root = (self.win.parameters_tab._widgets["data_root"].text()
-                or DEFAULT_SETTINGS["data_root"])
-        refs_dir = Path(root) / "refs"
+        refs_dir = Path(self._data_root()) / "refs"
         refs_dir.mkdir(parents=True, exist_ok=True)
         default_path = str(_next_serial_path(refs_dir, datetime.now().strftime("%Y%m%d"), "ref"))
         path, _ = QFileDialog.getSaveFileName(
@@ -345,7 +362,8 @@ class InstrumentTab(QWidget):
             self.ref_status.setText(f"Reference: save failed ({exc})")
 
     def on_load_ref(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load Reference Spectrum", "", "Text files (*.txt *.csv)")
+        start = str(Path(self._data_root()) / "refs")
+        path, _ = QFileDialog.getOpenFileName(self, "Load Reference Spectrum", start, "Text files (*.txt *.csv)")
         if not path:
             return
         try:

@@ -41,6 +41,7 @@ def test_all_default_keys_present():
         "data_root", "data_folder",
         "sample_name", "electrolyte", "notes",
         "trigger",
+        "potentiostat_mode", "save_dta",
         "cv_enabled", "cv_cycles",
         "cv_initial_v", "cv_limit1_v", "cv_limit2_v", "cv_final_v",
         "cv_step_size", "cv_scan_rate",
