@@ -27,6 +27,9 @@ DEFAULT_SETTINGS = {
     # "external" = human starts the Gamry .GSequence (Phase-1, proven default);
     # "python"   = Python drives the Gamry via EchemToolkitPy (Phase-2).
     "potentiostat_mode": "external",
+    # Python mode only: also emit native Gamry .DTA files (dta/ subfolder)
+    # alongside the clean analysis .txt. No-op in External mode.
+    "save_dta": True,
 
     # --- Cyclic voltammetry (vertices map to Gamry VINIT/VLIMIT1/VLIMIT2/VFINAL) ---
     "cv_enabled": True,

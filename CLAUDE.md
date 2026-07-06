@@ -213,8 +213,15 @@ workflow.
   `import toolkitpy` auto-forces External mode where the 32-bit stack is absent.
 - **Trigger unchanged (and never GPIO):** Gamry DIGOUT0 is wired directly to the Avantes hardware
   trigger input. The DIGOUT0 edge is raised only AFTER the spectrometer is armed (`AVS_Measure`),
-  matching the proven legacy ordering; `curve.run()` is non-blocking (confirmed on hardware) so no
-  extra thread is used.
+  matching the proven legacy ordering.
+- **Phase 2.5 — echem capture (2026-07-05):** `ToolkitPotentiostat` runs the Gamry on a **dedicated
+  per-segment thread** (owns a fresh toolkitpy session end to end), synced to the spectrometer via an
+  `armed` event; `finish()` joins it and hands `acq_data()` to `write_echem_file()` (clean `.txt`) and
+  `print_default_dta_file` (native `.dta` in `dta/`). **Root-cause gotcha:** the toolkitpy signal
+  object must be kept alive (a live Python ref) through `run()` and the poll loop — a dropped local is
+  GC'd immediately and the curve runs an empty/degenerate waveform (0 data). Open follow-up: with the
+  signal kept alive, whether the dedicated-thread machinery is still necessary is unconfirmed —
+  candidate simplification.
 - **Status:** `toolkitpy` is 32-bit Python only; Gamry targets 64-bit support ~September 2026
   (historically late). Plan around 32-bit until further notice. External mode stays the default + fallback.
 - **Architecture gate PASSED (2026-06-18):** in one 32-bit env (`SpecEchem32`, Python 3.7.13),
