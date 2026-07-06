@@ -192,9 +192,6 @@ class ToolkitPotentiostat(Potentiostat):
         self._abort = threading.Event()   # set to stop a segment early
         self._error = None                # exception from the Gamry thread, if any
         self._max_wait = 60.0             # safety cap on the poll loop (set per segment)
-        self._timeline = []               # debug: (elapsed_s, acq_points) per poll iter
-        self._ran_ok = None               # debug: curve.running() right after run()
-        self._exit_reason = ""            # debug: why the poll loop exited
 
     # --- lifecycle ------------------------------------------------------
 
@@ -306,23 +303,16 @@ class ToolkitPotentiostat(Potentiostat):
             pstat.set_cell(True)
             pstat.set_digital_out(0x1, 0x1)  # DIGOUT0 HIGH -> armed Avantes fires
             curve.run(True)
-            self._ran_ok = curve.running()   # did the curve actually start?
 
-            self._timeline = []
-            t_run = time.time()
-            deadline = t_run + self._max_wait
+            deadline = time.time() + self._max_wait
             while (tkp.pstat_is_valid(pstat) and curve.running()
                    and not self._abort.is_set() and time.time() < deadline):
-                # Polling acq_data() DURING the run is what accumulates the data on
-                # this (non-main) thread — running() alone does NOT cook it. This is
-                # the load-bearing call bench_gamry_thread.py had (as len(acq_data));
-                # dropping it here is exactly what produced empty .txt/.dta.
-                d = curve.acq_data()
-                self._timeline.append((round(time.time() - t_run, 2), len(d)))
+                # Poll acq_data() during the run. Retained from the validated path;
+                # with the signal-lifetime fix (keeping `signal` alive) it's unconfirmed
+                # whether this is still required vs running() alone — flagged for the
+                # two-thread simplification follow-up.
+                curve.acq_data()
                 time.sleep(0.05)
-            self._exit_reason = (
-                f"pstat_valid={tkp.pstat_is_valid(pstat)} running={curve.running()} "
-                f"aborted={self._abort.is_set()} timeout={time.time() >= deadline}")
             if curve.running():
                 try:
                     curve.stop()

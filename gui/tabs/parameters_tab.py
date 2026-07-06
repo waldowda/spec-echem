@@ -16,7 +16,7 @@ from qtpy.QtWidgets import (
     QDoubleSpinBox, QSpinBox, QFileDialog,
 )
 
-from spec_echem.settings import load_settings, save_settings
+from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
 
 POTENTIAL_NOTE = "  (Python mode drives these; External = reference)"
 
@@ -242,15 +242,25 @@ class ParametersTab(QWidget):
 
     # --- load / save ---
 
+    def _settings_dir(self):
+        """Consistent home for settings files: a `settings/` subfolder under the
+        data root, so Load and Save land in the same predictable place (not the cwd)."""
+        root = self.data_root_edit.text() or DEFAULT_SETTINGS["data_root"]
+        return Path(root) / "settings"
+
     def on_load(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load Settings", "", "JSON files (*.json)")
+        start = str(self._settings_dir())
+        path, _ = QFileDialog.getOpenFileName(self, "Load Settings", start, "JSON files (*.json)")
         if not path:
             return
         settings = load_settings(path)
         self.win.apply_settings(settings)
 
     def on_save(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save Settings", "settings.json", "JSON files (*.json)")
+        settings_dir = self._settings_dir()
+        settings_dir.mkdir(parents=True, exist_ok=True)
+        default_path = str(settings_dir / "settings.json")
+        path, _ = QFileDialog.getSaveFileName(self, "Save Settings", default_path, "JSON files (*.json)")
         if not path:
             return
         self.win.collect_settings()
