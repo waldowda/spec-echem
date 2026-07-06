@@ -17,6 +17,7 @@ from qtpy.QtWidgets import (
 )
 
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
+from gui.tabs.instrument_tab import _next_serial_path
 
 POTENTIAL_NOTE = "  (Python mode drives these; External = reference)"
 
@@ -259,7 +260,10 @@ class ParametersTab(QWidget):
     def on_save(self):
         settings_dir = self._settings_dir()
         settings_dir.mkdir(parents=True, exist_ok=True)
-        default_path = str(settings_dir / "settings.json")
+        # Pre-fill a per-day serial name (YYYYMMDD_settings_NNN.json), matching the
+        # dark/ref Save convention; the dialog still lets you overwrite an existing one.
+        default_path = str(_next_serial_path(
+            settings_dir, datetime.now().strftime("%Y%m%d"), "settings", ".json"))
         path, _ = QFileDialog.getSaveFileName(self, "Save Settings", default_path, "JSON files (*.json)")
         if not path:
             return
