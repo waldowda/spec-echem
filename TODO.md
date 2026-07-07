@@ -101,10 +101,10 @@ DIGOUT0 handshake confirmed. Remaining items:
 
 ## GUI UX — data folder guidance / existing-folder warning (Dean, 2026-07-06)
 
-- [ ] **Warn (or guide) when the target run folder already exists.** On Start, the code does
-      `mkdir(parents=True, exist_ok=True)` and writes straight in, so an already-existing folder is used
-      silently — which is how the earlier double-nesting happened (browsing *into* a run folder, then also
-      typing its name). Add a check at the Start boundary: if `{data_root}/{data_folder}` already exists,
-      prompt "This folder already exists and may contain data — continue / rename?" And/or a short
-      student-facing guide/tooltip that Save location = the PARENT and Data folder name = the subfolder the
-      app creates (the 1–2 sentence quick-start noted on 2026-07-03). Goal: no accidental overwrite / nesting.
+- [x] **Warn when the target run folder already exists.** DONE (2026-07-06): Start now checks
+      `{data_root}/{data_folder}`; if it exists and contains files, a confirm dialog (default Cancel)
+      warns that continuing may overwrite a previous run. Prompted by Dean actually overwriting older
+      data by forgetting to rename the folder — silent `mkdir(exist_ok=True)` clobbered same-named files.
+- [ ] **Still to do: a short student-facing guide/tooltip** that Save location = the PARENT and Data
+      folder name = the subfolder the app creates (the 1–2 sentence quick-start noted 2026-07-03), to
+      also head off the *double-nesting* case (browsing into a run folder, then typing its name too).
