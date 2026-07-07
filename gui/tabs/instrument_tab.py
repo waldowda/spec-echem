@@ -39,6 +39,7 @@ class InstrumentTab(QWidget):
     def __init__(self, main_window):
         super().__init__()
         self.win = main_window
+        self._pstat_connected = False   # last Connect-Potentiostat verify succeeded
         self._build()
 
     def _build(self):
@@ -69,7 +70,6 @@ class InstrumentTab(QWidget):
         row.addStretch()
         conn_layout.addWidget(self.simulated_check)
         conn_layout.addLayout(row)
-        layout.addWidget(conn_group)
 
         # --- Spectrometer settings (incl. timing test, which depends on these) ---
         settings_group = QGroupBox("Spectrometer Settings")
@@ -94,10 +94,9 @@ class InstrumentTab(QWidget):
         timing_row.addWidget(self.timing_result)
         timing_row.addStretch()
         form.addRow("Timing:", self._wrap(timing_row))
-        layout.addWidget(settings_group)
 
         # --- Potentiostat control mode ---
-        pstat_group = QGroupBox("Potentiostat Control")
+        pstat_group = QGroupBox("Potentiostat")
         pstat_layout = QVBoxLayout(pstat_group)
         self.pstat_external_radio = QRadioButton(
             "External — start the Gamry sequence in Gamry Framework")
@@ -111,16 +110,17 @@ class InstrumentTab(QWidget):
         pstat_layout.addWidget(self.pstat_external_radio)
         pstat_layout.addWidget(self.pstat_python_radio)
 
-        # Identify (Python mode): confirm the Gamry is reachable + show its serial
-        id_row = QHBoxLayout()
-        self.pstat_identify_btn = QPushButton("Identify Potentiostat")
-        self.pstat_identify_btn.clicked.connect(self.on_identify_pstat)
-        self.pstat_status = QLabel("—")
+        # Connect (Python mode): verify the Gamry is reachable + show its name/serial,
+        # mirroring the spectrometer's Connect button + status dot.
+        connect_row = QHBoxLayout()
+        self.pstat_connect_btn = QPushButton("Connect Potentiostat")
+        self.pstat_connect_btn.clicked.connect(self.on_connect_pstat)
+        self.pstat_status = QLabel("● Runs from Gamry Framework")
         self.pstat_status.setStyleSheet("color: #555;")
-        id_row.addWidget(self.pstat_identify_btn)
-        id_row.addWidget(self.pstat_status)
-        id_row.addStretch()
-        pstat_layout.addLayout(id_row)
+        connect_row.addWidget(self.pstat_connect_btn)
+        connect_row.addWidget(self.pstat_status)
+        connect_row.addStretch()
+        pstat_layout.addLayout(connect_row)
 
         # Python mode only: also save Gamry-native .DTA files alongside the clean .txt
         self.save_dta_check = QCheckBox("Also save Gamry .DTA files (dta/ subfolder)")
@@ -132,7 +132,14 @@ class InstrumentTab(QWidget):
 
         self.pstat_external_radio.toggled.connect(self._update_pstat_controls)
         self._update_pstat_controls()
-        layout.addWidget(pstat_group)
+
+        # Top row: Spectrometer Connection | Potentiostat side by side (half width
+        # each); Spectrometer Settings full width beneath.
+        top_row = QHBoxLayout()
+        top_row.addWidget(conn_group, stretch=1)
+        top_row.addWidget(pstat_group, stretch=1)
+        layout.addLayout(top_row)
+        layout.addWidget(settings_group)
 
         # --- Dark / Reference: two graphs side by side, controls above each ---
         cal_row = QHBoxLayout()
@@ -249,13 +256,13 @@ class InstrumentTab(QWidget):
         for w in (self.apply_btn, self.collect_dark_btn, self.collect_ref_btn,
                   self.test_counts_btn, self.timing_btn):
             w.setEnabled(enabled)
-        # Identify re-inits toolkitpy; forbid it during a run so it can't collide
+        # Connect re-inits toolkitpy; forbid it during a run so it can't collide
         # with a Python-mode run driving the Gamry. Restore its normal (python +
         # toolkitpy) state when the run ends.
         if enabled:
             self._update_pstat_controls()
         else:
-            self.pstat_identify_btn.setEnabled(False)
+            self.pstat_connect_btn.setEnabled(False)
         self._update_absorbance_enabled()
 
     def _update_absorbance_enabled(self):
@@ -265,27 +272,33 @@ class InstrumentTab(QWidget):
         self.save_dark_btn.setEnabled(self.win.dark is not None)
         self.save_ref_btn.setEnabled(self.win.ref is not None)
 
+    def _set_pstat_status(self, text, color):
+        self.pstat_status.setText(text)
+        self.pstat_status.setStyleSheet(f"color: {color};")
+
     def _update_pstat_controls(self):
         python = self.pstat_python_radio.isChecked()
-        self.pstat_identify_btn.setEnabled(python and TOOLKITPY_AVAILABLE)
-        self.pstat_status.setText("—" if python else "Gamry runs from Gamry Framework")
-        self.pstat_status.setStyleSheet("color: #555;")
+        self.pstat_connect_btn.setEnabled(python and TOOLKITPY_AVAILABLE)
         # .DTA files only exist in Python mode (External writes its own via Framework)
         self.save_dta_check.setEnabled(python)
+        if not python:
+            self._set_pstat_status("● Runs from Gamry Framework", "#555")
+        elif not self._pstat_connected:
+            self._set_pstat_status("● Not connected", "#b00")
+        # else: keep the green "● Connected — …" so it survives run-end / re-toggle
 
-    def on_identify_pstat(self):
-        self.pstat_status.setText("Identifying…")
-        self.pstat_status.setStyleSheet("color: #555;")
+    def on_connect_pstat(self):
+        self._set_pstat_status("● Connecting…", "#555")
         try:
             label, serial = probe_identity()
         except Exception as exc:  # noqa: BLE001 — surface any toolkitpy/hardware failure
-            self.pstat_status.setText(f"Identify failed: {exc}")
-            self.pstat_status.setStyleSheet("color: #b00;")
+            self._pstat_connected = False
+            self._set_pstat_status(f"● Connect failed: {exc}", "#b00")
             return
         label = (label or "").strip()
         who = f"{label} (serial {serial})" if label else f"serial {serial}"
-        self.pstat_status.setText(f"Gamry connected — {who}")
-        self.pstat_status.setStyleSheet("color: #080;")
+        self._pstat_connected = True
+        self._set_pstat_status(f"● Connected — {who}", "#080")
 
     def _update_cal_plot(self):
         if self.win.dark is not None:
