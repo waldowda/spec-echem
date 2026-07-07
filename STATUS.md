@@ -46,10 +46,10 @@ machinery is now suspect — see follow-up #1.)
    needed, or would a simpler same-thread design work? Best done on the instrument box.
 2. **First real-sample test** — a real polymer sample with proper dark (lamp blocked) and
    reference (blank, lamp on), full multi-cycle sequence in one run.
-3. ~~Echem plots in the GUI (I-vs-E, I-vs-t) in the Results area.~~ **DONE (2026-07-06)** —
-   absorbance and electrochemistry now shown side by side per segment. Successor:
-   **live echem graph during a Python-mode run** (poll `acq_data()` mid-run) so you can watch
-   the CV and abort before committing to a long doping sweep. See `TODO.md`.
+3. ~~Echem plots in the GUI (I-vs-E, I-vs-t).~~ **DONE (2026-07-06)** — absorbance and
+   electrochemistry side by side per segment (Results), **plus a live echem trace on the Run tab**
+   that builds mid-segment so you can watch a CV and abort before a long doping sweep. Bench-untested
+   on real hardware — verify on the box. Possible follow-up: live *absorbance* too.
 4. **GUI rearrangement pass** — further tab-layout cleanup (a first pass landed 2026-07-06:
    Instrument tab split into four side-by-side graphs, Run controls moved to top). Still to do:
    auto-verify the Gamry when Python mode is selected, and regroup the External/Python/Identify
