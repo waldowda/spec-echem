@@ -7,11 +7,14 @@ is injected, so this is fully testable with FakeSpectrometer.
 """
 from dataclasses import dataclass
 
+import numpy as np
+
 from spec_echem.acquisition import acquire_segment
 from spec_echem.data import (
     compute_absorbance, write_spectra_file, write_echem_file,
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
 )
+from spec_echem.logging_config import get_run_logger
 
 
 @dataclass
@@ -103,6 +106,16 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
         return None
     if not spectra:
         return None
+
+    # Report the ACTUAL spectra cadence from the hardware timestamps, so any timing
+    # impact (e.g. the live-plot redraw contending for the GIL) is visible per segment
+    # and can be compared against the target delta_time. Logged at INFO -> status pane.
+    if len(timestamps) > 1:
+        d = np.diff(timestamps)
+        get_run_logger().info(
+            "%s cadence: mean %.1f ms (target %.1f), min %.1f, max %.1f, jitter(sd) %.1f ms, n=%d",
+            segment.label, d.mean() * 1000, segment.delta_time * 1000,
+            d.min() * 1000, d.max() * 1000, d.std() * 1000, len(timestamps))
 
     absorb_df = compute_absorbance(spectra, dark, ref, wavelengths, timestamps)
     path = write_spectra_file(
