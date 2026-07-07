@@ -227,14 +227,29 @@ class ParametersTab(QWidget):
             self.data_root_edit.setText(path)
 
     def _stamp_today(self):
-        """Re-stamp the folder name's date prefix to today, keeping any description.
+        """Re-stamp the folder name's date prefix to today, keeping any description,
+        then bump to the next free name if that folder already exists.
 
         20260703_P3HT -> 20260704_P3HT ; empty -> 20260704_ ; P3HT -> 20260704_P3HT.
+        If 20260704_P3HT already has a run in it -> 20260704_P3HT_2, _3, ...
         """
         w = self._widgets["data_folder"]
         # Strip a leading YYYYMMDD_ (or bare YYYYMMDD) token; keep the rest.
         suffix = re.sub(r"^\d{8}_?", "", w.text().strip())
-        w.setText(datetime.now().strftime("%Y%m%d_") + suffix)
+        base = datetime.now().strftime("%Y%m%d_") + suffix
+        w.setText(self._next_available_folder(base))
+
+    def _next_available_folder(self, base):
+        """If a run folder named `base` already exists under the data root, append
+        _2, _3, ... so a re-stamp doesn't overwrite a previous run — the folder-level
+        analogue of the serial naming used for dark/ref files."""
+        root = Path(self.data_root_edit.text() or DEFAULT_SETTINGS["data_root"])
+        if not (root / base).exists():
+            return base
+        n = 2
+        while (root / f"{base}_{n}").exists():
+            n += 1
+        return f"{base}_{n}"
 
     def _update_full_path(self, *_):
         root = self.data_root_edit.text()

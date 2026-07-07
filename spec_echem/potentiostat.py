@@ -159,6 +159,14 @@ class Potentiostat:
         """
         return None
 
+    def live_data(self):
+        """
+        Snapshot of the echem data captured SO FAR in the current segment (numpy
+        structured array), or None — lets the GUI draw a live plot mid-run so the
+        user can watch a CV/hold and abort early. External/no-op has none.
+        """
+        return None
+
     def close(self):
         pass
 
@@ -186,6 +194,7 @@ class ToolkitPotentiostat(Potentiostat):
             )
         self.settings = settings
         self._last_data = None            # acq_data() captured from the last segment
+        self._live_data = None            # acq_data() snapshot mid-run (for the live plot)
         self._thread = None               # the per-segment Gamry thread
         self._armed = threading.Event()   # set by fire() when the spectrometer is armed
         self._built = threading.Event()   # set by the thread once the signal is built
@@ -220,6 +229,7 @@ class ToolkitPotentiostat(Potentiostat):
         self._built.clear()
         self._abort.clear()
         self._last_data = None
+        self._live_data = None
         self._error = None
         # Safety cap for the poll loop: comfortably longer than the real segment
         # (num_points * delta_time is ~the segment duration).
@@ -260,6 +270,11 @@ class ToolkitPotentiostat(Potentiostat):
 
     def last_data(self):
         return self._last_data
+
+    def live_data(self):
+        # Reading the reference is atomic (GIL); acq_data() returns a fresh array
+        # each poll, so the GUI thread always sees a consistent snapshot — no lock.
+        return self._live_data
 
     # --- the Gamry thread ----------------------------------------------
 
@@ -307,11 +322,11 @@ class ToolkitPotentiostat(Potentiostat):
             deadline = time.time() + self._max_wait
             while (tkp.pstat_is_valid(pstat) and curve.running()
                    and not self._abort.is_set() and time.time() < deadline):
-                # Poll acq_data() during the run. Retained from the validated path;
-                # with the signal-lifetime fix (keeping `signal` alive) it's unconfirmed
-                # whether this is still required vs running() alone — flagged for the
-                # two-thread simplification follow-up.
-                curve.acq_data()
+                # Poll acq_data() during the run and stash it as the live snapshot so
+                # the GUI can draw the curve mid-run. (This poll was already here from
+                # the validated path; feeding the live plot now also gives it a clear
+                # purpose — still flagged for the two-thread simplification follow-up.)
+                self._live_data = curve.acq_data()
                 time.sleep(0.05)
             if curve.running():
                 try:
