@@ -98,3 +98,13 @@ DIGOUT0 handshake confirmed. Remaining items:
       "Identify Potentiostat" click. At minimum, make connection verification part of switching to Python.
 - [ ] **Reconsider the layout of the External/Python radios + Identify button** — there's likely a
       cleaner grouping/arrangement of those choices. Fold into the broader GUI rearrangement pass.
+
+## GUI UX — data folder guidance / existing-folder warning (Dean, 2026-07-06)
+
+- [ ] **Warn (or guide) when the target run folder already exists.** On Start, the code does
+      `mkdir(parents=True, exist_ok=True)` and writes straight in, so an already-existing folder is used
+      silently — which is how the earlier double-nesting happened (browsing *into* a run folder, then also
+      typing its name). Add a check at the Start boundary: if `{data_root}/{data_folder}` already exists,
+      prompt "This folder already exists and may contain data — continue / rename?" And/or a short
+      student-facing guide/tooltip that Save location = the PARENT and Data folder name = the subfolder the
+      app creates (the 1–2 sentence quick-start noted on 2026-07-03). Goal: no accidental overwrite / nesting.
