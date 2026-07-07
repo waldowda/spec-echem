@@ -108,12 +108,14 @@ DIGOUT0 handshake confirmed. Remaining items:
 
 ## GUI UX — Instrument tab potentiostat controls (Dean, 2026-07-05)
 
-- [ ] **Auto-verify the Gamry when Python mode is selected.** Selecting "Python" (vs "External") is
-      exactly when you'd want the connection confirmed — it should run the Identify probe automatically
-      and show "Gamry connected — Gamry Duck (serial 08083)", instead of leaving it to a separate
-      "Identify Potentiostat" click. At minimum, make connection verification part of switching to Python.
-- [ ] **Reconsider the layout of the External/Python radios + Identify button** — there's likely a
-      cleaner grouping/arrangement of those choices. Fold into the broader GUI rearrangement pass.
+- [x] **Reconsider the layout — DONE (2026-07-07, `329ed23`).** Instrument tab now pairs the
+      Spectrometer Connection and Potentiostat boxes side by side, and the potentiostat mirrors the
+      spectrometer: "Connect Potentiostat" button (renamed from "Identify"), gated by the Python
+      radio, with a green/red status dot ("● Connected — Gamry Duck (serial …)").
+- [ ] **Auto-verify the Gamry when Python mode is selected.** Now a small follow-on to the pairing:
+      selecting "Python" could auto-run the Connect probe (call `on_connect_pstat`) instead of
+      requiring the click, so the green "● Connected — …" appears on switch. Weigh against the probe's
+      cost (opens/closes a toolkitpy session) and doing it silently on every toggle.
 
 ## GUI UX — data folder guidance / existing-folder warning (Dean, 2026-07-06)
 
@@ -124,3 +126,21 @@ DIGOUT0 handshake confirmed. Remaining items:
 - [ ] **Still to do: a short student-facing guide/tooltip** that Save location = the PARENT and Data
       folder name = the subfolder the app creates (the 1–2 sentence quick-start noted 2026-07-03), to
       also head off the *double-nesting* case (browsing into a run folder, then typing its name too).
+
+## Future — light-source control (AvaLight-HAL-S-Mini2 halogen source) (Dean, 2026-07-07)
+
+- [ ] **Software-control the AvaLight-HAL-S-Mini2 halogen lamp from the GUI (future).** The compact
+      Avantes halogen source has a shutter (and, depending on config, a TTL/software-controllable
+      one). Controlling it would let the app **automate the dark/reference workflow** that's manual
+      today: close the shutter → collect Dark, open the shutter → collect Reference / measure — no
+      more "block the lamp by hand," fewer operator errors, and a reproducible lamp state per run.
+      Could also enforce lamp warm-up/stability before a run.
+      - **Investigate the control path first:** does this unit have the TTL-shuttered variant, or a
+        manual shutter only? Likely options: the Avantes electronics (AS7010) digital I/O / a lamp
+        TTL line, or an `avaspec` SDK call — check the SDK for lamp/shutter/digital-out control
+        (parallels the DIGOUT trigger work). If it's manual-shutter-only, this needs the TTL option
+        or an external relay, so confirm the hardware before designing UI.
+      - **UI (once controllable):** a shutter/lamp toggle in the Instrument-tab Dark/Reference area;
+        optionally auto-close for "Collect Dark" and auto-open for "Collect Reference".
+      - Ties to the existing dark/ref Collect/Save/Load controls and the linearity/saturation TODO
+        (a stable, known lamp state helps keep reference counts in the linear regime).
