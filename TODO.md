@@ -74,12 +74,14 @@ DIGOUT0 handshake confirmed. Remaining items:
 
 ## Echem plotting in the GUI (Phase 1)
 
-- [ ] **NEXT (Dean, 2026-07-07): sign off live echem timing.** On the incremental-redraw build
-      (gui-dev ≥ `173bcbe`), run the live CV **2–3 times** in Python mode, then
-      `python examples/plot_spectra_timing.py <run_live> <run_off>` and compare the per-spectrum
-      interval plots. Pass = no 119-style spikes, live ≈ off (~target ± a few ms). The effect is
-      stochastic (a single clean run isn't proof), so do a few reps. If clean, mark the live-echem
-      item below fully done; if a spike persists, slow the 400 ms redraw or decimate the points drawn.
+- [x] **Live echem timing SIGNED OFF (Dean, 2026-07-07).** Ran the CV live/off A/B ×2 pairs on the
+      incremental-redraw build. Across all 4 runs (~160 spectra) NO 119-style spikes; steady-state
+      (spectra 2–40) all within ~100–103 ms, ~±1.5 ms of the 100 ms target, live indistinguishable
+      from off. The only outlier is the first interval (spectrum 0→1, ~86–97 ms) — the trigger-armed
+      first-measurement settling, present in every run regardless of live/off, and harmless (it's
+      timestamped). Conclusion: the incremental redraw (`update_live_line`) removed the cadence
+      perturbation; the live plot is timing-safe. Minor future-if-ever: the ~first-interval dip could
+      be looked at for perfectly-uniform-from-start sampling, but it's a startup artifact, not the plot.
 - [x] Wire CV (I vs E) + chrono (I vs t) plots into the Results review area — DONE (2026-07-06):
       absorbance (optical) and electrochemistry are shown side by side; the Results tab loads each
       segment's clean echem `.txt` via `spec_echem.gamry_data` (`data.echem_txt_path` locates it),
@@ -90,9 +92,10 @@ DIGOUT0 handshake confirmed. Remaining items:
       absorbance — so you can watch a CV and ABORT before committing to a long doping sweep. Mechanism:
       the Gamry thread's existing `acq_data()` poll now stashes each snapshot (`potentiostat.live_data()`);
       a 400 ms QTimer on the GUI thread reads it and redraws (never touches the acquisition thread, so
-      timing/50 ms budget is safe). **NOT yet bench-verified (Dean, 2026-07-06): coded + looks right, but
-      confirm on the box that it doesn't perturb the SPECTRA cadence** (the one real risk = GIL contention
-      from the redraw on the GUI thread vs the worker's Python timing loop). Verification tooling shipped:
+      timing/50 ms budget is safe). **BENCH-VERIFIED + SIGNED OFF 2026-07-07** (see the item above) —
+      after the redraw was made incremental (`update_live_line`), a first full-redraw version DID perturb
+      the spectra cadence (max 119 ms / jitter 3.5) via GIL contention; the incremental version does not.
+      Verification tooling shipped:
       (a) every segment logs its actual cadence — "X cadence: mean … (target …), min/max, jitter(sd), n"
       — from hardware timestamps, to the status pane + .log; (b) a "Live echem" checkbox on the Run tab
       to A/B the same run plot-on vs plot-off and compare the logged cadence. If jitter is bad, the 400 ms
