@@ -6,6 +6,3 @@ __pycache__/
 
 # user-saved GUI settings files ("Save Settings File")
 settings_*.json
-
-# local vendor/hardware reference — datasheets, manuals, vendor notes (not committed)
-hardware_ref/
