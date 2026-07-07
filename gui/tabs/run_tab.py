@@ -124,9 +124,23 @@ class RunTab(QWidget):
                                 "Enable at least one step (CV / pre-dedoping / doping) on the Parameters tab.")
             return
 
+        # Guard against silently overwriting a previous run. The writers use
+        # mkdir(exist_ok=True) and fixed filenames, so re-running into a folder that
+        # already holds data clobbers it. Make the user confirm or go rename the folder.
+        run_folder = Path(settings["data_root"]) / settings["data_folder"]
+        if run_folder.exists() and any(run_folder.iterdir()):
+            reply = QMessageBox.warning(
+                self, "Folder already exists",
+                f"\"{settings['data_folder']}\" already exists and contains files.\n\n"
+                "Continuing may overwrite data from a previous run. Change the Data folder "
+                "name on the Parameters tab to keep it, or continue to write here anyway.",
+                QMessageBox.Cancel | QMessageBox.Ok, QMessageBox.Cancel)
+            if reply != QMessageBox.Ok:
+                self.log("Start cancelled — folder already exists (rename it to keep the old data).")
+                return
+
         # Write the self-documenting run metadata and open the per-run log file
         write_run_metadata(settings, settings["data_root"], settings["data_folder"])
-        run_folder = Path(settings["data_root"]) / settings["data_folder"]
         _, log_path = configure_run_logging(run_folder, settings["data_folder"])
         self.log(f"Logging to {log_path.name}")
 
