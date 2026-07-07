@@ -74,6 +74,12 @@ DIGOUT0 handshake confirmed. Remaining items:
 
 ## Echem plotting in the GUI (Phase 1)
 
+- [ ] **NEXT (Dean, 2026-07-07): sign off live echem timing.** On the incremental-redraw build
+      (gui-dev ≥ `173bcbe`), run the live CV **2–3 times** in Python mode, then
+      `python examples/plot_spectra_timing.py <run_live> <run_off>` and compare the per-spectrum
+      interval plots. Pass = no 119-style spikes, live ≈ off (~target ± a few ms). The effect is
+      stochastic (a single clean run isn't proof), so do a few reps. If clean, mark the live-echem
+      item below fully done; if a spike persists, slow the 400 ms redraw or decimate the points drawn.
 - [x] Wire CV (I vs E) + chrono (I vs t) plots into the Results review area — DONE (2026-07-06):
       absorbance (optical) and electrochemistry are shown side by side; the Results tab loads each
       segment's clean echem `.txt` via `spec_echem.gamry_data` (`data.echem_txt_path` locates it),
