@@ -10,12 +10,17 @@ against a plot-off run) instead of trusting only the summary stats in the log.
 No hardware, no repo imports — just reads the saved .txt with pandas.
 
 Usage:
-    python examples/plot_spectra_timing.py RUN1/CVspectra.txt [RUN2/CVspectra.txt ...]
+    python examples/plot_spectra_timing.py RUN_OR_FILE [RUN_OR_FILE ...]
 
-For each file it prints a per-spectrum table + summary and writes
-`<file>_timing.csv`. If given more than one file it also saves one comparison plot
-(`spectra_timing.png`, interval-vs-spectrum overlaid) next to the first file — the
-direct way to compare live-plot ON vs OFF.
+Each argument may be a spectra .txt OR a run folder (in which case every
+`*spectra*.txt` inside it — CV / doping / dedoping / pre-dedoping — is used). So
+    python examples/plot_spectra_timing.py RUN_live RUN_off
+compares two whole runs.
+
+For each file it prints a per-spectrum table + summary and writes `<file>_timing.csv`.
+Given 2+ files it also saves one comparison plot (`spectra_timing.png`,
+interval-vs-spectrum overlaid) next to the first — the direct way to compare
+live-plot ON vs OFF.
 """
 import sys
 from pathlib import Path
@@ -71,7 +76,27 @@ def report(path):
     return nums, times
 
 
-def main(paths):
+def resolve(args):
+    """Expand each argument to spectra file(s): a file stays as-is; a run folder
+    yields every *spectra*.txt inside it (CV/doping/dedoping/pre-dedoping)."""
+    files = []
+    for a in args:
+        p = Path(a)
+        if p.is_dir():
+            found = sorted(p.glob("*spectra*.txt"))
+            if not found:
+                print(f"(no spectra .txt files in {p})")
+            files.extend(found)
+        else:
+            files.append(p)
+    return files
+
+
+def main(args):
+    paths = resolve(args)
+    if not paths:
+        print("No spectra files found. Pass a spectra .txt or a run folder.")
+        return
     have_plot = False
     plt.figure(figsize=(9, 4))
     for p in paths:
