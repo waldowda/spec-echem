@@ -84,9 +84,15 @@ DIGOUT0 handshake confirmed. Remaining items:
       absorbance — so you can watch a CV and ABORT before committing to a long doping sweep. Mechanism:
       the Gamry thread's existing `acq_data()` poll now stashes each snapshot (`potentiostat.live_data()`);
       a 400 ms QTimer on the GUI thread reads it and redraws (never touches the acquisition thread, so
-      timing/50 ms budget is safe). Bench-untested on real hardware — verify on the box.
-      Possible follow-ups: live *absorbance* too (needs per-spectrum emit from the worker); make the
-      poll/redraw rate tunable; drop the now-purposeful `acq_data()` poll into the two-thread review.
+      timing/50 ms budget is safe). **NOT yet bench-verified (Dean, 2026-07-06): coded + looks right, but
+      confirm on the box that it doesn't perturb the SPECTRA cadence** (the one real risk = GIL contention
+      from the redraw on the GUI thread vs the worker's Python timing loop). Verification tooling shipped:
+      (a) every segment logs its actual cadence — "X cadence: mean … (target …), min/max, jitter(sd), n"
+      — from hardware timestamps, to the status pane + .log; (b) a "Live echem" checkbox on the Run tab
+      to A/B the same run plot-on vs plot-off and compare the logged cadence. If jitter is bad, the 400 ms
+      redraw interval is a one-line knob (make it tunable). Possible follow-ups: live *absorbance* too
+      (needs per-spectrum emit from the worker); drop the now-purposeful `acq_data()` poll into the
+      two-thread review.
 - [ ] **Linearity check on the raw-counts test (future):** flag when the peak test counts approach the
       detector's saturation ceiling, so the user confirms they're in the linear regime before collecting
       dark/reference/data. (The test-counts graph already annotates the peak value.)

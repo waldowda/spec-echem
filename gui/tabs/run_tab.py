@@ -8,7 +8,7 @@ buttons drive the banner so the two-step coordination UX can be reviewed.
 from qtpy.QtCore import Qt, QThread, QTimer
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QListWidget,
-    QPlainTextEdit, QPushButton, QMessageBox, QSplitter,
+    QPlainTextEdit, QPushButton, QMessageBox, QSplitter, QCheckBox,
 )
 
 from pathlib import Path
@@ -49,6 +49,13 @@ class RunTab(QWidget):
         top_row.addWidget(self.start_btn)
         top_row.addWidget(self.stop_btn)
         top_row.addWidget(self.abort_btn)
+        top_row.addSpacing(12)
+        self.live_check = QCheckBox("Live echem")
+        self.live_check.setChecked(True)
+        self.live_check.setToolTip(
+            "Draw the echem curve live during a Python-mode run. Uncheck to compare "
+            "the spectra cadence (logged per segment) with the plot off.")
+        top_row.addWidget(self.live_check)
         top_row.addSpacing(12)
         self.banner = QLabel("Idle")
         self.banner.setAlignment(Qt.AlignCenter)
@@ -198,12 +205,14 @@ class RunTab(QWidget):
         # acq_data snapshot and redraw here on the GUI thread, throttled — this
         # never touches the acquisition thread, so it can't affect timing.
         self._current_segment = None
-        if python_mode:
+        if python_mode and self.live_check.isChecked():
             self.live_canvas.show_message("Waiting for the first segment…")
             self._live_timer = QTimer(self)
             self._live_timer.setInterval(400)
             self._live_timer.timeout.connect(self._update_live_echem)
             self._live_timer.start()
+        elif python_mode:
+            self.live_canvas.show_message("Live echem plot off (timing comparison).")
         else:
             self.live_canvas.show_message(
                 "External mode — Gamry Framework shows the live echem data.")
