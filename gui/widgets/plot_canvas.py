@@ -75,6 +75,15 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
+    def show_live_echem(self, x, y, xlabel, ylabel, title=None):
+        """Live echem trace mid-run (red = running). Generic x/y so the caller
+        picks I-vs-E (CV) or I-vs-t (chrono) from the acq_data fields."""
+        self._xlabel, self._ylabel = xlabel, ylabel
+        self._new_axes()
+        self.ax.plot(x, y, lw=1.0, color="#d62728")
+        self._decorate(title)
+        self.draw_idle()
+
     def show_message(self, text):
         """Clear the canvas and show a centered note (e.g. 'no echem data yet')."""
         self._new_axes()
