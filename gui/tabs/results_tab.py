@@ -5,10 +5,13 @@ Segment selector, wavelength range, absorbance plot (updates after each segment
 completes — no live updating), and data-folder actions. The matplotlib canvas
 is wired together with the Instrument-tab preview in the plotting increment.
 """
-from qtpy.QtCore import Qt
+from pathlib import Path
+
+from qtpy.QtCore import Qt, QUrl
+from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel,
-    QComboBox, QDoubleSpinBox, QPushButton, QFileDialog, QSplitter,
+    QComboBox, QDoubleSpinBox, QPushButton, QFileDialog, QSplitter, QMessageBox,
 )
 
 from spec_echem.data import echem_txt_path, DATA_TYPE_CV
@@ -75,9 +78,10 @@ class ResultsTab(QWidget):
 
         # --- actions ---
         btn_row = QHBoxLayout()
-        self.save_plot_btn = QPushButton("Save Plot")
+        self.save_plot_btn = QPushButton("Save Plots")
         self.save_plot_btn.clicked.connect(self.on_save_plot)
         self.open_folder_btn = QPushButton("Open Data Folder")
+        self.open_folder_btn.clicked.connect(self.on_open_folder)
         btn_row.addWidget(self.save_plot_btn)
         btn_row.addWidget(self.open_folder_btn)
         btn_row.addStretch()
@@ -107,7 +111,9 @@ class ResultsTab(QWidget):
     def _plot_echem(self, label):
         """Show the segment's electrochemistry (I-vs-E for CV, I-vs-t for chrono).
         Echem files are written in Python mode; in External mode they come from the
-        Gamry Framework + conversion, so a missing file is normal, not an error."""
+        Gamry Framework + conversion, so a missing file is normal, not an error.
+        Sets self._has_echem so Save Plots knows whether the echem panel holds a plot."""
+        self._has_echem = False
         seg = self.win.segments_by_label.get(label)
         if seg is None or self.win.run_folder is None:
             self.echem_canvas.show_message("No echem data yet — run a sequence.")
@@ -124,11 +130,36 @@ class ResultsTab(QWidget):
                 self.echem_canvas.show_cv(read_cv(path), title=label)
             else:
                 self.echem_canvas.show_chrono(read_chrono(path), title=label)
+            self._has_echem = True
         except Exception as exc:  # noqa: BLE001 — surface a bad/short file as a note, not a crash
             self.echem_canvas.show_message(f"Could not read echem file:\n{exc}")
 
     def on_save_plot(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save Plot", "plot.png",
-                                              "PNG (*.png);;PDF (*.pdf)")
-        if path:
-            self.canvas.fig.savefig(path, dpi=150)
+        """Save the absorbance and (when present) echem plots as two files, named
+        from the chosen base with _absorbance / _echem suffixes so both segments'
+        views are captured, not just the optical one."""
+        label = self.segment_combo.currentText() or "plot"
+        start = str(self.win.run_folder / label) if self.win.run_folder else label
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Plots (absorbance + echem)", start + ".png",
+            "PNG (*.png);;PDF (*.pdf)")
+        if not path:
+            return
+        p = Path(path)
+        abs_path = p.with_name(f"{p.stem}_absorbance{p.suffix}")
+        self.canvas.fig.savefig(abs_path, dpi=150)
+        saved = [abs_path.name]
+        if getattr(self, "_has_echem", False):
+            echem_path = p.with_name(f"{p.stem}_echem{p.suffix}")
+            self.echem_canvas.fig.savefig(echem_path, dpi=150)
+            saved.append(echem_path.name)
+        QMessageBox.information(self, "Saved", "Saved:\n" + "\n".join(saved))
+
+    def on_open_folder(self):
+        """Open the run folder in the OS file browser (Explorer / Finder)."""
+        folder = self.win.run_folder
+        if folder is None or not Path(folder).exists():
+            QMessageBox.information(self, "No data folder",
+                                   "No run folder yet — run a sequence first.")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
