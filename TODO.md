@@ -79,13 +79,14 @@ DIGOUT0 handshake confirmed. Remaining items:
       segment's clean echem `.txt` via `spec_echem.gamry_data` (`data.echem_txt_path` locates it),
       and shows a friendly note when there's no echem file (e.g. External mode). CV → I-vs-E,
       chrono → I-vs-t.
-- [ ] **Live echem graph during a Python-mode run (Dean, 2026-07-06).** Update the echem plot as data
-      comes in (poll `curve.acq_data()` mid-run), not just post-segment. High value as a safety check:
-      watch the CV before committing to a long doping sequence (e.g. 0.2→0.7 V by 0.1 V, ~30 min) and
-      ABORT early if it looks wrong. Was deferred as "live echem = EchemToolkitPy phase"; now feasible
-      since Python mode already captures acq_data(). Tie in with the two-thread simplification review —
-      the acq_data() poll that's already in the run loop is the natural feed for a throttled (~2–5 Hz)
-      live redraw on the GUI thread (never on the acquisition thread — protect the ~50 ms/spectrum budget).
+- [x] **Live echem graph during a Python-mode run — DONE (2026-07-06).** The Run tab now shows a live
+      echem trace (CV → I-vs-E, chrono → I-vs-t) that updates mid-segment, above the last-completed
+      absorbance — so you can watch a CV and ABORT before committing to a long doping sweep. Mechanism:
+      the Gamry thread's existing `acq_data()` poll now stashes each snapshot (`potentiostat.live_data()`);
+      a 400 ms QTimer on the GUI thread reads it and redraws (never touches the acquisition thread, so
+      timing/50 ms budget is safe). Bench-untested on real hardware — verify on the box.
+      Possible follow-ups: live *absorbance* too (needs per-spectrum emit from the worker); make the
+      poll/redraw rate tunable; drop the now-purposeful `acq_data()` poll into the two-thread review.
 - [ ] **Linearity check on the raw-counts test (future):** flag when the peak test counts approach the
       detector's saturation ceiling, so the user confirms they're in the linear regime before collecting
       dark/reference/data. (The test-counts graph already annotates the peak value.)

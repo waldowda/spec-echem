@@ -5,7 +5,7 @@ Sequence progress, status log, run-state banner, and Start/Stop/Abort.
 Threaded acquisition (workers.py) is wired in the next increment — for now the
 buttons drive the banner so the two-step coordination UX can be reviewed.
 """
-from qtpy.QtCore import Qt, QThread
+from qtpy.QtCore import Qt, QThread, QTimer
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QListWidget,
     QPlainTextEdit, QPushButton, QMessageBox, QSplitter,
@@ -14,7 +14,7 @@ from qtpy.QtWidgets import (
 from pathlib import Path
 
 from spec_echem.experiment import build_segments
-from spec_echem.data import write_run_metadata
+from spec_echem.data import write_run_metadata, DATA_TYPE_CV
 from spec_echem.logging_config import configure_run_logging, close_run_logging
 from spec_echem.potentiostat import ExternalPotentiostat, ToolkitPotentiostat
 from gui.widgets.plot_canvas import MplCanvas
@@ -28,6 +28,8 @@ class RunTab(QWidget):
         self._thread = None
         self._worker = None
         self._row_for_label = {}
+        self._live_timer = None
+        self._current_segment = None
         self._build()
 
     def _build(self):
@@ -56,7 +58,7 @@ class RunTab(QWidget):
         top_row.addWidget(self.banner, stretch=1)
         layout.addLayout(top_row)
 
-        # --- cockpit: sequence progress (left) + last-segment plot (right) ---
+        # --- cockpit: sequence progress (left) + plots (right) ---
         cockpit = QSplitter(Qt.Horizontal)
 
         seq_group = QGroupBox("Sequence Progress")
@@ -65,12 +67,24 @@ class RunTab(QWidget):
         seq_layout.addWidget(self.sequence_list)
         cockpit.addWidget(seq_group)
 
+        # Right side, stacked: the live echem trace (updates DURING a Python-mode
+        # segment — so there's visible feedback mid-run) above the last completed
+        # segment's absorbance.
+        right = QSplitter(Qt.Vertical)
+
+        live_group = QGroupBox("Live Echem (current segment)")
+        live_layout = QVBoxLayout(live_group)
+        self.live_canvas = MplCanvas(xlabel="Potential (V)", ylabel="Current (A)")
+        live_layout.addWidget(self.live_canvas)
+        right.addWidget(live_group)
+
         plot_group = QGroupBox("Last Completed Segment")
         plot_layout = QVBoxLayout(plot_group)
         self.canvas = MplCanvas(ylabel="Absorbance")
         plot_layout.addWidget(self.canvas)
-        cockpit.addWidget(plot_group)
+        right.addWidget(plot_group)
 
+        cockpit.addWidget(right)
         cockpit.setStretchFactor(0, 1)
         cockpit.setStretchFactor(1, 2)
         layout.addWidget(cockpit, stretch=3)
@@ -180,6 +194,20 @@ class RunTab(QWidget):
         self._worker.finished.connect(self._thread.quit)
         self._thread.start()
 
+        # Live echem feedback (Python mode): poll the potentiostat's growing
+        # acq_data snapshot and redraw here on the GUI thread, throttled — this
+        # never touches the acquisition thread, so it can't affect timing.
+        self._current_segment = None
+        if python_mode:
+            self.live_canvas.show_message("Waiting for the first segment…")
+            self._live_timer = QTimer(self)
+            self._live_timer.setInterval(400)
+            self._live_timer.timeout.connect(self._update_live_echem)
+            self._live_timer.start()
+        else:
+            self.live_canvas.show_message(
+                "External mode — Gamry Framework shows the live echem data.")
+
         if python_mode:
             self.set_banner("▶ Running — Python is driving the Gamry", "#dfd")
         else:
@@ -219,6 +247,40 @@ class RunTab(QWidget):
         if row is not None:
             self.sequence_list.item(row).setText("●  " + label)
         self.set_banner(f"Collecting: {label}  ({index}/{total})", "#eef")
+        # Tell the live-echem timer which segment (CV → I-vs-E, chrono → I-vs-t).
+        self._current_segment = self.win.segments_by_label.get(label)
+        if self._live_timer is not None:
+            self.live_canvas.show_message(f"{label} — waiting for data…")
+
+    def _update_live_echem(self):
+        """Timer slot (GUI thread): draw the potentiostat's growing acq_data
+        snapshot. Python mode only; no-op until a segment is producing data."""
+        worker, seg = self._worker, self._current_segment
+        if worker is None or seg is None:
+            return
+        pot = worker.potentiostat
+        data = pot.live_data() if pot is not None else None
+        if data is None or len(data) == 0:
+            return
+        fields = data.dtype.names or ()
+        if "im" not in fields:
+            return
+        current = data["im"]
+        if seg.data_type == DATA_TYPE_CV and "vf" in fields:
+            self.live_canvas.show_live_echem(
+                data["vf"], current, "Potential (V)", "Current (A)",
+                title=f"{seg.label} — live")
+        elif "time" in fields:
+            t = data["time"]
+            t0 = t[0] if len(t) else 0.0
+            self.live_canvas.show_live_echem(
+                t - t0, current, "Time (s)", "Current (A)",
+                title=f"{seg.label} — live")
+
+    def _stop_live_timer(self):
+        if self._live_timer is not None:
+            self._live_timer.stop()
+            self._live_timer = None
 
     def on_segment_done(self, label, absorb_df):
         row = self._row_for_label.get(label)
@@ -229,6 +291,8 @@ class RunTab(QWidget):
         self.win.results_tab.refresh_segments()
 
     def on_finished(self, reason):
+        self._update_live_echem()   # draw the last segment's final curve
+        self._stop_live_timer()
         banners = {
             "done": ("Sequence complete", "#dfd"),
             "stopped": ("Stopped", "#eef"),
