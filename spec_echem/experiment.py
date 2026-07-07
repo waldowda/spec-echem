@@ -113,7 +113,8 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     if len(timestamps) > 1:
         d = np.diff(timestamps)
         get_run_logger().info(
-            "%s cadence: mean %.1f ms (target %.1f), min %.1f, max %.1f, jitter(sd) %.1f ms, n=%d",
+            "%s spectra cadence: mean %.1f ms (target %.1f), min %.1f, max %.1f, "
+            "jitter(sd) %.1f ms, n=%d",
             segment.label, d.mean() * 1000, segment.delta_time * 1000,
             d.min() * 1000, d.max() * 1000, d.std() * 1000, len(timestamps))
 

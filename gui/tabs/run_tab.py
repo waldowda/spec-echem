@@ -276,13 +276,13 @@ class RunTab(QWidget):
             return
         current = data["im"]
         if seg.data_type == DATA_TYPE_CV and "vf" in fields:
-            self.live_canvas.show_live_echem(
+            self.live_canvas.update_live_line(
                 data["vf"], current, "Potential (V)", "Current (A)",
                 title=f"{seg.label} — live")
         elif "time" in fields:
             t = data["time"]
             t0 = t[0] if len(t) else 0.0
-            self.live_canvas.show_live_echem(
+            self.live_canvas.update_live_line(
                 t - t0, current, "Time (s)", "Current (A)",
                 title=f"{seg.label} — live")
 

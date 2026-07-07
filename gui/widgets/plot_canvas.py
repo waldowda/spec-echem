@@ -20,12 +20,15 @@ class MplCanvas(FigureCanvasQTAgg):
         self.setParent(parent)
         self._xlabel = xlabel
         self._ylabel = ylabel
+        self._live_line = None   # persistent Line2D for the incremental live trace
         self.ax = self.fig.add_subplot(111)
         self._decorate()
 
     def _new_axes(self):
-        """Fresh axes on a cleared figure — also removes any prior colorbar."""
+        """Fresh axes on a cleared figure — also removes any prior colorbar. Drops
+        the live line so update_live_line() rebuilds it (e.g. on a new segment)."""
         self.fig.clear()
+        self._live_line = None
         self.ax = self.fig.add_subplot(111)
 
     def _decorate(self, title=None):
@@ -75,13 +78,22 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
-    def show_live_echem(self, x, y, xlabel, ylabel, title=None):
-        """Live echem trace mid-run (red = running). Generic x/y so the caller
+    def update_live_line(self, x, y, xlabel, ylabel, title=None):
+        """Incremental live echem trace mid-run (red = running). Reuses ONE Line2D
+        and just updates its data + rescales, instead of clearing and rebuilding the
+        whole figure each tick — a much lighter redraw, so it holds the GIL only
+        briefly and doesn't jitter the spectra cadence on the worker thread. The
+        line resets whenever the axes are cleared (_new_axes → _live_line=None),
+        e.g. show_message() at the start of each segment. Generic x/y so the caller
         picks I-vs-E (CV) or I-vs-t (chrono) from the acq_data fields."""
-        self._xlabel, self._ylabel = xlabel, ylabel
-        self._new_axes()
-        self.ax.plot(x, y, lw=1.0, color="#d62728")
-        self._decorate(title)
+        if self._live_line is None:
+            self._xlabel, self._ylabel = xlabel, ylabel
+            self._new_axes()
+            (self._live_line,) = self.ax.plot([], [], lw=1.0, color="#d62728")
+            self._decorate(title)
+        self._live_line.set_data(x, y)
+        self.ax.relim()
+        self.ax.autoscale_view()
         self.draw_idle()
 
     def show_message(self, text):
