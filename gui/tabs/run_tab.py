@@ -139,6 +139,10 @@ class RunTab(QWidget):
                 self.log("Start cancelled — folder already exists (rename it to keep the old data).")
                 return
 
+        # Fresh status log per run (mirrors the sequence-progress reset below); the
+        # full history is always preserved in each run's own .log file on disk.
+        self.status_log.clear()
+
         # Write the self-documenting run metadata and open the per-run log file
         write_run_metadata(settings, settings["data_root"], settings["data_folder"])
         _, log_path = configure_run_logging(run_folder, settings["data_folder"])
