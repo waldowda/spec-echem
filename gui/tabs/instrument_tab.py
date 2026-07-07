@@ -265,6 +265,17 @@ class InstrumentTab(QWidget):
             self.pstat_connect_btn.setEnabled(False)
         self._update_absorbance_enabled()
 
+    def lock_for_run(self, locked):
+        """Lock the spectrometer Connect + Simulated toggle while a run is active.
+        These are normally always live (so they're NOT in _set_actions_enabled, which
+        also runs at startup before connecting) — but mid-run a Connect would swap
+        win.spec out from under the running worker AND re-enable every locked control
+        via on_connect -> _set_actions_enabled(True). Locking them keeps both
+        instruments' Connect buttons disabled during a run and live otherwise.
+        Simulated stays force-disabled when avaspec is unavailable."""
+        self.connect_btn.setEnabled(not locked)
+        self.simulated_check.setEnabled(not locked and AvantesSpectrometer is not None)
+
     def _update_absorbance_enabled(self):
         ready = self.win.spec is not None and self.win.dark is not None and self.win.ref is not None
         self.test_absorb_btn.setEnabled(ready)

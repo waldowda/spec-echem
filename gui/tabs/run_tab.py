@@ -225,6 +225,7 @@ class RunTab(QWidget):
         self.stop_btn.setEnabled(True)
         self.abort_btn.setEnabled(True)
         self.win.instrument_tab._set_actions_enabled(False)  # avoid concurrent spec access
+        self.win.instrument_tab.lock_for_run(True)           # lock Connect/Simulated too
 
     def on_stop(self):
         if self._worker is not None:
@@ -313,6 +314,7 @@ class RunTab(QWidget):
         close_run_logging()
         self._reset_controls()
         self.win.instrument_tab._set_actions_enabled(True)
+        self.win.instrument_tab.lock_for_run(False)          # unlock Connect/Simulated
         self._worker = None
 
     def _reset_controls(self):
