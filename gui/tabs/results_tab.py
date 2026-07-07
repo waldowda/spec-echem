@@ -52,8 +52,10 @@ class ResultsTab(QWidget):
         ctrl_form.addRow("Wavelength range:", range_row)
         layout.addWidget(ctrl_group)
 
-        # --- plots: absorbance (optical) beside electrochemistry, side by side ---
-        plots = QSplitter(Qt.Horizontal)
+        # --- plots: absorbance (optical) above electrochemistry, stacked ---
+        # Vertical here (not side by side): with only two plots and the absorbance
+        # colorbar taking width, stacking gives wider, better-proportioned graphs.
+        plots = QSplitter(Qt.Vertical)
 
         abs_box = QGroupBox("Absorbance (optical)")
         abs_layout = QVBoxLayout(abs_box)
