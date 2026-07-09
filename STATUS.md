@@ -27,14 +27,25 @@ sample would give, but the **software plumbing is now proven on real data**:
   polarities, sensible film CV; `steps(0)` held +0.301 V with a proper charging-transient decay;
   every `.dta` CURVE-TABLE count == `.dta` rows == echem `.txt` rows. Chrono echem = 300 pts vs
   spectra 301 — **expected** (independent clocks; instruments share only the trigger).
+- **Correct spectroelectrochemistry observed (the real validation).** On the 0.7 V doping step Dean
+  saw the neutral **π→π\* band bleach and polaron absorption grow**, cleanly reversing on dedoping —
+  the textbook p-doping signature, correlated with the potential step. So the coupled system captured
+  genuine SEC behavior, not just well-formed files. Weak/late doping (little happened below ~0.7 V,
+  small doping current) is a *sample* story (aged, non-degassed → high/sluggish oxidation onset),
+  not an instrument story.
 
 **Nesting question resolved: benign.** Save location had been left on an old `…\specechem_data\20260703_test`
 folder, so the run nested one level deeper than canonical — not a double-nest, not a code bug (every
 writer joins the path once). Zero impact on analysis. Reinforces the pending parent-vs-subfolder tooltip TODO.
 
-**Remaining gate for `gui-dev → main`:** (1) run this folder through Raj's `OECT_processing` (Prompt B
-in `docs/inspect-run.md`), and (2) a scientifically-good (fresh/degassed) sample. See `docs/inspect-run.md`
-for the Win11 handoff.
+**Path to `gui-dev → main` (reframed 2026-07-09).** The two "gates" are separable:
+- **Software gate (can close this summer):** run this folder through Raj's `OECT_processing`
+  (Prompt B in `docs/inspect-run.md`) + the doc-hygiene fixes (requirements.txt GUI deps, DOI, dup
+  README). This dataset is format-valid AND shows real doping/dedoping structure, so it's sufficient
+  to prove analysis compatibility — **no fresh sample needed for the merge.**
+- **Scientific gold-standard demo (deferred):** a fresh/degassed strong-signal run is blocked by lab
+  renovations until **~Sept–Oct 2026**. This is a quality milestone, not a software blocker — slot it
+  in when the lab is back; it need not hold up shipping to `main`.
 
 ---
 
