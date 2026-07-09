@@ -4,7 +4,37 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-07-05_
+_Last updated: 2026-07-09_
+
+---
+
+## Latest milestone — first real-sample Python-mode run, validated end to end (2026-07-09)
+
+Dean ran a full **Python-mode** sequence (CV + pre-dedope + 3 doping/dedoping cycles) on a real —
+if aged, non-degassed — **P3HT/P3MEEMT** film (`20260709_P3HT_01`). Signal was weaker than a fresh
+sample would give, but the **software plumbing is now proven on real data**:
+
+- **File set complete and 1:1 paired** — every `*spectra*.txt` has its clean echem `.txt`
+  (`CV/steps/dedoping/prededoping`) and native `.dta` partner; metadata + log present; all colocated
+  in the run folder (a Claude session on the Win11 box verified contents, no files modified).
+- **Spectra timing is hardware-true** (`examples/plot_spectra_timing.py`): counts exact (CV 721,
+  chrono 301 each), every segment's `Corrected time` starts at 0.000, baseline 100–102 ms.
+  *Honest caveat:* a ~1.5% fixed per-interval overhead (mean ~101.5 ms) plus **isolated single-point
+  spikes of 110–124 ms scattered through the run** (not just warm-up). Non-cumulative, OS/GIL
+  scheduling hiccups; harmless because every spectrum carries its own Avantes timestamp. If ever
+  wanted gone: raise process priority or target an absolute schedule (not needed for the science).
+- **Echem contents verified** — `CV.txt` cols `[Potential, Current]`, sweep −0.498…+0.700 V, both
+  polarities, sensible film CV; `steps(0)` held +0.301 V with a proper charging-transient decay;
+  every `.dta` CURVE-TABLE count == `.dta` rows == echem `.txt` rows. Chrono echem = 300 pts vs
+  spectra 301 — **expected** (independent clocks; instruments share only the trigger).
+
+**Nesting question resolved: benign.** Save location had been left on an old `…\specechem_data\20260703_test`
+folder, so the run nested one level deeper than canonical — not a double-nest, not a code bug (every
+writer joins the path once). Zero impact on analysis. Reinforces the pending parent-vs-subfolder tooltip TODO.
+
+**Remaining gate for `gui-dev → main`:** (1) run this folder through Raj's `OECT_processing` (Prompt B
+in `docs/inspect-run.md`), and (2) a scientifically-good (fresh/degassed) sample. See `docs/inspect-run.md`
+for the Win11 handoff.
 
 ---
 
