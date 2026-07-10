@@ -4,7 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
-A Python library for synchronized spectroelectrochemistry experiments using Avantes spectrometers and Gamry potentiostats. Currently, the approach is to use Python as a Jupyter notebook to acquire spectra with the Avantes spectrometer and be set to wait from a trigger from the Gamry potentiostat. The Gamry is initially running using the sequence wizard but in a future release it will also be run using Python in a PyQt5 windowing environment. Additional information will be provided regarding the trigger wiring as well.
+A Python package **and PyQt5 GUI** for synchronized spectroelectrochemistry experiments using Avantes spectrometers and Gamry potentiostats. The Avantes acquisition waits for a hardware trigger from the Gamry (DIGOUT0 wired to the Avantes trigger input) so the optical and electrochemical measurements share a common start. The Gamry can be driven two ways:
+
+- **External mode** — you start a `.GSequence` in Gamry Framework; the app collects triggered spectra (Phase 1, the proven default).
+- **Python mode** — the app drives the Gamry directly via `EchemToolkitPy` and fires the trigger itself.
+
+Launch the GUI with `python -m gui`. The original Jupyter-notebook workflow also remains in `notebooks/`.
 
 ## ⚠️ Pre-Release Notice
 
@@ -52,6 +57,20 @@ This software is currently in **pre-release** (v0.1.0). The API and functionalit
    qtpy       # GUI only
    ```
 
+3. **Python environment — 32-bit vs 64-bit (important)**
+
+   Which Python you need depends on how you drive the Gamry:
+
+   | You want… | Python | Example env | Why |
+   |---|---|---|---|
+   | Spectrometer only, or **External** Gamry mode | **64-bit** | `SpecEchem` (3.13) | `avaspec` is 64-bit |
+   | **Python** Gamry control (`EchemToolkitPy`) | **32-bit** | `SpecEchem32` (3.7.x) | `EchemToolkitPy` is 32-bit only |
+
+   `EchemToolkitPy` is 32-bit-only until Gamry ships 64-bit support (targeted ~Sept 2026). Run the GUI in the
+   32-bit env when you want the app to drive the Gamry from Python; in a 64-bit env, Python mode is
+   automatically disabled and the app falls back to External mode. Vendor packages (`avaspec`,
+   `EchemToolkitPy`) are not pip-installable — they ship with the Avantes SDK / Gamry Framework.
+
 ## Installation
 
 ### 1. Clone the Repository
@@ -67,11 +86,18 @@ Follow the installation guide provided by Avantes for your specific spectrometer
 
 ### 3. Install the Package
 
-Activate your conda environment (e.g., `SpecEchem`), then install in development mode. This can be done before the Avantes SDK is installed — the package handles missing hardware dependencies gracefully.
+Activate your conda environment (see the 32-bit vs 64-bit note above), then install in development mode. This can be done before the Avantes SDK is installed — the package handles missing hardware dependencies gracefully.
 
 ```bash
 conda activate SpecEchem
-pip install -e .
+pip install -e .          # library only
+pip install -e .[gui]     # + the PyQt5 GUI dependencies
+```
+
+### 4. Launch the GUI
+
+```bash
+python -m gui
 ```
 
 ## Project Structure
