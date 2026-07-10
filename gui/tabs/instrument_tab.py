@@ -11,8 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
-    QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox,
-    QComboBox, QFileDialog,
+    QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
 )
 
 from spec_echem.fakes import FakeSpectrometer
@@ -20,10 +19,6 @@ from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_identity
 from spec_echem.settings import DEFAULT_SETTINGS
 from spec_echem.spectral_range import recommend_wavelength_range
 from gui.widgets.plot_canvas import MplCanvas
-
-# Aggressiveness presets → noise_mult for recommend_wavelength_range
-# (higher = more liberal / keeps more).
-_AGGRESSIVENESS = {"Conservative": 2.0, "Balanced": 3.0, "Liberal": 5.0}
 
 try:
     from spec_echem import AvantesSpectrometer
@@ -248,12 +243,17 @@ class InstrumentTab(QWidget):
         wl_row.addWidget(QLabel("to"))
         wl_row.addWidget(self.wl_max_spin)
         wl_row.addSpacing(16)
-        wl_row.addWidget(QLabel("Trim:"))
-        self.wl_aggr_combo = QComboBox()
-        self.wl_aggr_combo.addItems(list(_AGGRESSIVENESS.keys()))
-        self.wl_aggr_combo.setCurrentText("Balanced")
-        self.wl_aggr_combo.currentTextChanged.connect(self._on_aggressiveness_changed)
-        wl_row.addWidget(self.wl_aggr_combo)
+        wl_row.addWidget(QLabel("Max noise:"))
+        self.wl_maxnoise_spin = QDoubleSpinBox()
+        self.wl_maxnoise_spin.setRange(0.001, 0.5)
+        self.wl_maxnoise_spin.setDecimals(3)
+        self.wl_maxnoise_spin.setSingleStep(0.005)
+        self.wl_maxnoise_spin.setValue(0.010)
+        self.wl_maxnoise_spin.setSuffix(" OD")
+        self.wl_maxnoise_spin.setToolTip(
+            "Trim where the test-abs noise exceeds this (set it small vs your OD signal)")
+        self.wl_maxnoise_spin.valueChanged.connect(self._on_maxnoise_changed)
+        wl_row.addWidget(self.wl_maxnoise_spin)
         self.wl_suggest_btn = QPushButton("Suggest from test-abs")
         self.wl_suggest_btn.setToolTip("Recommend a range from the last test-absorbance")
         self.wl_suggest_btn.clicked.connect(self.on_wl_suggest)
@@ -380,12 +380,36 @@ class InstrumentTab(QWidget):
         self._set_pstat_status(f"● Connected — {who}", "#080")
 
     def _update_cal_plot(self):
-        if self.win.dark is not None:
-            self.dark_canvas.show_spectrum(self.win.wavelengths, self.win.dark,
-                                           title="Dark", ylabel="Intensity (counts)")
-        if self.win.ref is not None:
-            self.ref_canvas.show_spectrum(self.win.wavelengths, self.win.ref,
-                                          title="Reference (100%T)", ylabel="Intensity (counts)")
+        self._plot_if_matched(self.dark_canvas, self.win.dark,
+                              "Dark", "Intensity (counts)")
+        self._plot_if_matched(self.ref_canvas, self.win.ref,
+                              "Reference (100%T)", "Intensity (counts)")
+
+    def _plot_if_matched(self, canvas, data, title, ylabel, **kw):
+        """Plot data vs the current wavelength axis only if their lengths match;
+        otherwise show a note. Prevents length-mismatch crashes when a window has
+        been applied while dark/ref are from a different range."""
+        wl = self.win.wavelengths
+        if data is None:
+            return
+        if wl is None or len(wl) != len(data):
+            canvas.show_message(f"{title}: {len(data)} px doesn't match the "
+                                f"{0 if wl is None else len(wl)} px window.")
+            return
+        canvas.show_spectrum(wl, data, title=title, ylabel=ylabel, **kw)
+
+    def _reconcile_loaded(self, arr):
+        """Fit a loaded dark/ref to the current wavelength window: use as-is if it
+        already matches, slice a full-range file down to the active window, or
+        return None if it can't be matched."""
+        wl = self.win.wavelengths
+        if wl is None or len(arr) == len(wl):
+            return arr
+        full = getattr(self, "_full_wl", None)
+        if full is not None and len(arr) == len(full):
+            i0 = int(np.argmin(np.abs(np.asarray(full) - wl[0])))
+            return np.asarray(arr)[i0:i0 + len(wl)]
+        return None
 
     def on_connect(self):
         if self.simulated_check.isChecked() or AvantesSpectrometer is None:
@@ -400,6 +424,9 @@ class InstrumentTab(QWidget):
             return
         self.win.spec = spec
         _, self.win.wavelengths = spec.wavelengths()
+        # A fresh connection is at the full window; remember it so loaded (full-range)
+        # dark/ref files can be sliced to a narrower window later.
+        self._full_wl = np.asarray(self.win.wavelengths)
         # Seed the window spin boxes with the spectrometer's actual full range.
         if len(self.win.wavelengths):
             self.wl_min_spin.setValue(float(self.win.wavelengths[0]))
@@ -458,8 +485,15 @@ class InstrumentTab(QWidget):
             return
         try:
             data = np.loadtxt(path)
-            self.win.dark = data if data.ndim == 1 else data[:, -1]
-            self.dark_status.setText(f"Dark: loaded ({len(self.win.dark)} px)")
+            arr = data if data.ndim == 1 else data[:, -1]
+            fitted = self._reconcile_loaded(arr)
+            if fitted is None:
+                self.dark_status.setText(
+                    f"Dark: loaded {len(arr)} px doesn't fit the current window — "
+                    "reset to full range or load a matching file.")
+                return
+            self.win.dark = fitted
+            self.dark_status.setText(f"Dark: loaded ({len(fitted)} px)")
             self._update_cal_plot()
             self._update_absorbance_enabled()
         except Exception as exc:  # noqa: BLE001
@@ -499,8 +533,15 @@ class InstrumentTab(QWidget):
             return
         try:
             data = np.loadtxt(path)
-            self.win.ref = data if data.ndim == 1 else data[:, -1]
-            self.ref_status.setText(f"Reference: loaded ({len(self.win.ref)} px)")
+            arr = data if data.ndim == 1 else data[:, -1]
+            fitted = self._reconcile_loaded(arr)
+            if fitted is None:
+                self.ref_status.setText(
+                    f"Reference: loaded {len(arr)} px doesn't fit the current window — "
+                    "reset to full range or load a matching file.")
+                return
+            self.win.ref = fitted
+            self.ref_status.setText(f"Reference: loaded ({len(fitted)} px)")
             self._update_cal_plot()
             self._update_absorbance_enabled()
         except Exception as exc:  # noqa: BLE001
@@ -512,20 +553,23 @@ class InstrumentTab(QWidget):
         _, spectrum = self.win.spec.measure()
         self.counts_label.setText(
             f"Counts: {len(spectrum)} px, min={spectrum.min():.0f}  max={spectrum.max():.0f}")
-        self.counts_canvas.show_spectrum(self.win.wavelengths, spectrum,
-                                         title="Test (counts)", ylabel="Intensity (counts)",
-                                         mark_max=True)
+        self._plot_if_matched(self.counts_canvas, spectrum,
+                              "Test (counts)", "Intensity (counts)", mark_max=True)
 
     def on_test_absorbance(self):
         if self.win.spec is None or self.win.dark is None or self.win.ref is None:
             return
         _, spectrum = self.win.spec.measure()
+        if not (len(spectrum) == len(self.win.dark) == len(self.win.ref)):
+            self.absorb_label.setText(
+                "Dark/reference don't match the current window — re-collect them at this range.")
+            return
         with np.errstate(divide="ignore", invalid="ignore"):
             transmittance = (spectrum - self.win.dark) / (self.win.ref - self.win.dark)
             absorbance = -np.log10(transmittance)
         self.absorb_label.setText("A = −log₁₀((sample − dark) / (ref − dark))")
-        self.absorb_canvas.show_spectrum(self.win.wavelengths, absorbance,
-                                         title="Test (absorbance)", ylabel="Absorbance")
+        self._plot_if_matched(self.absorb_canvas, absorbance,
+                              "Test (absorbance)", "Absorbance")
         self._last_test_abs = np.asarray(absorbance)
         self._update_suggest_enabled()
 
@@ -538,21 +582,23 @@ class InstrumentTab(QWidget):
 
     # --- usable wavelength window ---
 
-    def _noise_mult(self):
-        return _AGGRESSIVENESS.get(self.wl_aggr_combo.currentText(), 3.0)
-
-    def _on_aggressiveness_changed(self, *_):
-        # Re-suggest live when the trim level changes (only if a suggestion is possible).
+    def _on_maxnoise_changed(self, *_):
+        # Re-suggest live when the tolerance changes (only if a suggestion is possible).
         if self.wl_suggest_btn.isEnabled():
             self.on_wl_suggest()
 
     def on_wl_suggest(self):
         if self._last_test_abs is None or self.win.wavelengths is None:
             return
+        # Guard against a stale test-abs that no longer matches the current axis.
+        if len(self._last_test_abs) != len(self.win.wavelengths):
+            self.wl_rationale.setText("Take a fresh test-absorbance at this range, then Suggest.")
+            return
         try:
             lo, hi, rationale = recommend_wavelength_range(
                 self.win.wavelengths, self._last_test_abs,
-                dark=self.win.dark, ref=self.win.ref, noise_mult=self._noise_mult())
+                dark=self.win.dark, ref=self.win.ref,
+                max_noise=self.wl_maxnoise_spin.value())
         except Exception as exc:  # noqa: BLE001 — surface a bad suggestion as a note
             self.wl_rationale.setText(f"Could not suggest a range: {exc}")
             return

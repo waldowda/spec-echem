@@ -140,9 +140,11 @@ class AvantesSpectrometer:
                 - trimmed_numpy_array: Numpy array for ~380-1100 nm range
         """
         wavelength = AVS_GetLambda(self.dev_handle)
-        # AVS_GetLambda returns the FULL calibration; slice to the configured
-        # window so it matches what measure() returns.
-        return wavelength, np.array(wavelength[self._start_px:self._stop_px + 1])
+        # Window it the same length-robust way as measure(): AVS_GetLambda may
+        # return the full detector OR (after a narrow window) already-windowed
+        # data — _window() slices only when it's longer than the window, so the
+        # returned wavelengths always match measure().
+        return wavelength, self._window(wavelength)
 
     def _window(self, spectral_data):
         """Return the configured pixel window from a raw AVS_GetScopeData result.

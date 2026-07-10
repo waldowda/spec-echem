@@ -5,6 +5,7 @@ settings carry the (default-None) keys.
 """
 import numpy as np
 
+from spec_echem.spectrometer import AvantesSpectrometer
 from spec_echem.fakes import FakeSpectrometer, N_POINTS
 from spec_echem.data import (
     compute_absorbance, write_spectra_file, read_spectra_absorbance, DATA_TYPE_DOPING,
@@ -52,6 +53,18 @@ def test_windowed_acquisition_roundtrips(tmp_path):
     assert got.shape[0] == len(wavelengths) < N_POINTS
     assert got.index.min() >= 500.0 and got.index.max() <= 900.0
     assert got.shape[1] == len(timestamps)
+
+
+def test_window_helper_handles_full_and_prewindowed():
+    # Root cause of the real-hardware crash: AVS_GetLambda/GetScopeData may return
+    # the full detector OR already-windowed data. _window() must be correct for both.
+    spec = AvantesSpectrometer.__new__(AvantesSpectrometer)
+    spec._start_px, spec._stop_px = 395, 1659            # default (1265-pt) window
+    assert len(spec._window(np.arange(2000))) == 1265     # full detector -> sliced
+    assert len(spec._window(np.arange(1265))) == 1265     # already windowed -> as-is
+    spec._start_px, spec._stop_px = 500, 700              # narrowed (201-pt) window
+    assert len(spec._window(np.arange(2000))) == 201       # full -> sliced to window
+    assert len(spec._window(np.arange(201))) == 201        # prewindowed -> as-is (the fix)
 
 
 def test_settings_carry_wavelength_window_keys(tmp_path):
