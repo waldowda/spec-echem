@@ -31,6 +31,9 @@ class FakeSpectrometer:
         self._rng = np.random.default_rng(seed=12345)
         # Synthetic tungsten-lamp intensity: smooth hump peaking in the NIR
         self._lamp = 5000.0 + 45000.0 * np.exp(-((self._wl - 750.0) ** 2) / (2 * 220.0 ** 2))
+        # Configurable wavelength window (indices into _wl); full by default.
+        self._start_idx = 0
+        self._stop_idx = N_POINTS - 1
 
     def init(self):
         """Mimic AVS init; returns (measconfig, serial_number)."""
@@ -41,8 +44,24 @@ class FakeSpectrometer:
         return self.measconfig, self.serial_number
 
     def wavelengths(self):
-        """Return (full_array, trimmed_array) — both the 1265-pt window here."""
-        return self._wl, np.array(self._wl)
+        """Return (full_array, windowed_array) — windowed to the configured range."""
+        return self._wl, self._window(self._wl)
+
+    def _window(self, arr):
+        """Slice an array to the configured wavelength window."""
+        return np.array(arr[self._start_idx:self._stop_idx + 1])
+
+    def set_wavelength_window(self, wl_min, wl_max, measconfig=None):
+        """Restrict returned spectra to [wl_min, wl_max] nm (None = full edge),
+        mirroring AvantesSpectrometer.set_wavelength_window for headless testing."""
+        n = N_POINTS
+        start = 0 if wl_min is None else int(np.searchsorted(self._wl, wl_min, side='left'))
+        stop = n - 1 if wl_max is None else int(np.searchsorted(self._wl, wl_max, side='right')) - 1
+        start = max(0, min(start, n - 1))
+        stop = max(0, min(stop, n - 1))
+        if stop < start:
+            raise ValueError(f"Empty wavelength window: {wl_min}-{wl_max} nm")
+        self._start_idx, self._stop_idx = start, stop
 
     def _synthetic_spectrum(self):
         """
@@ -64,13 +83,13 @@ class FakeSpectrometer:
         if on_armed is not None:
             on_armed()
         timestamp = time.perf_counter() * 1e5  # /1e5 -> seconds downstream
-        return timestamp, self._synthetic_spectrum()
+        return timestamp, self._window(self._synthetic_spectrum())
 
     def measure_timing(self, measconfig=None):
         """Returns (timestamp, spectrum, net_dif_ms, t_dif_s) like the real method."""
         t1 = time.perf_counter()
         timestamp = t1 * 1e5
-        spectrum = self._synthetic_spectrum()
+        spectrum = self._window(self._synthetic_spectrum())
         t_dif = time.perf_counter() - t1
         total_int_time = self._integration_time * self._scan_averages
         net_dif = (t_dif * 1000) - total_int_time

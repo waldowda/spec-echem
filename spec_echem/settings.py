@@ -10,6 +10,10 @@ DEFAULT_SETTINGS = {
     # --- Spectrometer ---
     "integration_time_ms": 0.022,
     "scan_averages": 200,
+    # Usable wavelength window (nm) — crops the noisy lamp edges from what is
+    # collected/written. None = full calibrated window (~380-1100 nm, no crop).
+    "wavelength_min": None,
+    "wavelength_max": None,
 
     # --- Data location ---
     "data_root": r"C:\Users\inst-chem\Documents\specechem_data",
