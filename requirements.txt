@@ -1,4 +1,12 @@
 numpy>=1.19.0
+scipy>=1.5.0
 matplotlib>=3.3.0
 pandas>=1.3.0
-# Note: avaspec must be obtained from Avantes
+
+# GUI (PyQt5 app in gui/, launched with `python -m gui`; qtpy abstracts the Qt binding)
+PyQt5
+qtpy
+
+# Proprietary vendor packages — NOT pip-installable; require the vendor hardware + SDK:
+#   avaspec        — Avantes SDK (spectrometer control)
+#   EchemToolkitPy — Gamry Framework (Python potentiostat control, 32-bit)
