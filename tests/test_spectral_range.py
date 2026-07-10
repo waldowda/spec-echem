@@ -22,21 +22,27 @@ def _test_abs(seed=0):
     return rng.normal(0.0, sigma)
 
 
-def test_trims_to_the_plateau():
-    lo, hi, r = recommend_wavelength_range(WL, _test_abs(), noise_mult=3.0)
-    # low edge (noisy < 420) and high edge (noisy > 1030) are trimmed off
+def test_trims_both_edges_at_a_tight_tolerance():
+    # max_noise between the plateau (0.001) and the high edge (0.005) trims both
+    lo, hi, r = recommend_wavelength_range(WL, _test_abs(), max_noise=0.003)
     assert 400.0 < lo < 445.0, lo
     assert 1000.0 < hi < 1060.0, hi
-    # plateau noise recovered to the right order of magnitude
     assert 0.0005 < r["plateau_sigma"] < 0.002, r["plateau_sigma"]
     assert r["wl_start"] == lo and r["wl_stop"] == hi
-    assert "Suggested" in r["summary"]
+    assert "Keeping" in r["summary"]
 
 
-def test_liberal_keeps_more_than_conservative():
-    lo_c, hi_c, _ = recommend_wavelength_range(WL, _test_abs(), noise_mult=2.0)
-    lo_l, hi_l, _ = recommend_wavelength_range(WL, _test_abs(), noise_mult=6.0)
-    # a more liberal (higher) multiplier keeps at least as wide a band
+def test_liberal_tolerance_keeps_the_low_noise_high_edge():
+    # high edge σ≈0.005 is kept when max_noise=0.01 but trimmed at 0.002
+    _, hi_tol, _ = recommend_wavelength_range(WL, _test_abs(), max_noise=0.01)
+    _, hi_tight, _ = recommend_wavelength_range(WL, _test_abs(), max_noise=0.002)
+    assert hi_tol > hi_tight
+    assert hi_tol > 1050.0     # 0.005 < 0.01 → the high edge survives
+
+
+def test_higher_tolerance_keeps_at_least_as_much():
+    lo_c, hi_c, _ = recommend_wavelength_range(WL, _test_abs(), max_noise=0.002)
+    lo_l, hi_l, _ = recommend_wavelength_range(WL, _test_abs(), max_noise=0.02)
     assert lo_l <= lo_c and hi_l >= hi_c
     assert (hi_l - lo_l) >= (hi_c - lo_c)
 
@@ -44,7 +50,7 @@ def test_liberal_keeps_more_than_conservative():
 def test_quiet_spectrum_keeps_full_range():
     rng = np.random.default_rng(1)
     quiet = rng.normal(0.0, 0.001, WL.size)   # uniformly quiet, no bad edges
-    lo, hi, _ = recommend_wavelength_range(WL, quiet, noise_mult=3.0)
+    lo, hi, _ = recommend_wavelength_range(WL, quiet, max_noise=0.01)
     assert lo <= 385.0 and hi >= 1095.0
 
 
