@@ -32,7 +32,7 @@ def _rolling_std(y, win):
 
 
 def recommend_wavelength_range(wavelengths, test_abs, dark=None, ref=None,
-                               noise_mult=3.0, win=15, ref_frac=0.05):
+                               max_noise=0.01, win=15, ref_frac=0.05):
     """
     Suggest a usable [wl_start, wl_stop] (nm) from a test-absorbance spectrum.
 
@@ -42,8 +42,10 @@ def recommend_wavelength_range(wavelengths, test_abs, dark=None, ref=None,
             deviation from zero is noise).
         dark, ref: optional raw dark/reference spectra for a lamp-brightness
             corroboration (where ref-net drops below ref_frac of its peak).
-        noise_mult: the conservative<->liberal knob. Keep wavelengths whose local
-            noise <= noise_mult * the plateau noise. Higher keeps more (trims less).
+        max_noise: the tolerance knob, in ABSOLUTE OD (rolling-σ). Keep the
+            contiguous band where the absorbance noise <= max_noise. Set it small
+            relative to your expected signal (OD ~0.2-0.8), e.g. 0.01 keeps
+            anything under 0.01 OD noise. Higher keeps more (trims less).
         win: rolling-std window in samples.
         ref_frac: reference-net threshold as a fraction of its peak (corroboration).
 
@@ -58,30 +60,30 @@ def recommend_wavelength_range(wavelengths, test_abs, dark=None, ref=None,
         raise ValueError("empty wavelength array")
 
     sigma = _rolling_std(a, win)
-    # Plateau noise = the quiet central region; a low percentile is robust to the
-    # noisy edges dominating a plain mean/min.
     positive = sigma[sigma > 0]
     plateau = float(np.percentile(sigma, 10)) if n > 1 else float(sigma[0])
     if plateau <= 0:
         plateau = float(positive.min()) if positive.size else 0.0
-    threshold = noise_mult * plateau
 
-    # Grow outward from the quietest point while under threshold — the contiguous
-    # low-noise band around the plateau.
+    # Grow outward from the quietest point while the local noise stays within the
+    # absolute OD tolerance — the contiguous band you'd trust for OD-scale signals.
     center = int(np.argmin(sigma))
-    lo = center
-    while lo - 1 >= 0 and sigma[lo - 1] <= threshold:
-        lo -= 1
-    hi = center
-    while hi + 1 < n and sigma[hi + 1] <= threshold:
-        hi += 1
+    if sigma[center] > max_noise:
+        # Nothing meets the tolerance — don't trim; keep the full range.
+        lo, hi = 0, n - 1
+    else:
+        lo = center
+        while lo - 1 >= 0 and sigma[lo - 1] <= max_noise:
+            lo -= 1
+        hi = center
+        while hi + 1 < n and sigma[hi + 1] <= max_noise:
+            hi += 1
 
     wl_start, wl_stop = float(wl[lo]), float(wl[hi])
 
     rationale = {
         "plateau_sigma": plateau,
-        "noise_mult": float(noise_mult),
-        "threshold_sigma": threshold,
+        "max_noise": float(max_noise),
         "wl_start": wl_start,
         "wl_stop": wl_stop,
         "sigma_low_edge": float(sigma[0]),
@@ -90,7 +92,8 @@ def recommend_wavelength_range(wavelengths, test_abs, dark=None, ref=None,
     }
 
     # Optional lamp-brightness corroboration (the physical cause of the edge noise).
-    if dark is not None and ref is not None:
+    if (dark is not None and ref is not None
+            and len(dark) == len(ref) == n):
         net = np.asarray(ref, float) - np.asarray(dark, float)
         peak = float(np.max(net)) if net.size else 0.0
         if peak > 0:
@@ -100,13 +103,12 @@ def recommend_wavelength_range(wavelengths, test_abs, dark=None, ref=None,
         rationale["ref_frac"] = ref_frac
         rationale["ref_peak"] = peak
 
-    summary = (f"Noise floor σ≈{plateau:.4f}. Suggested {wl_start:.0f}–{wl_stop:.0f} nm "
-               f"(within {noise_mult:g}× the floor; the current edges reach "
+    summary = (f"Noise floor σ≈{plateau:.4f} OD. Keeping where noise ≤ {max_noise:g} OD "
+               f"→ {wl_start:.0f}–{wl_stop:.0f} nm (the current edges reach "
                f"σ≈{sigma[0]:.3f} / {sigma[-1]:.3f}).")
     if rationale["ref_edges"] is not None:
         lo_e, hi_e = rationale["ref_edges"]
-        summary += (f" Reference lamp ≥{ref_frac:.0%} of peak over "
-                    f"{lo_e:.0f}–{hi_e:.0f} nm — consistent.")
+        summary += (f" Lamp ≥{ref_frac:.0%} of peak over {lo_e:.0f}–{hi_e:.0f} nm.")
     rationale["summary"] = summary
 
     return wl_start, wl_stop, rationale
