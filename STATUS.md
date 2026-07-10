@@ -38,6 +38,13 @@ sample would give, but the **software plumbing is now proven on real data**:
 folder, so the run nested one level deeper than canonical — not a double-nest, not a code bug (every
 writer joins the path once). Zero impact on analysis. Reinforces the pending parent-vs-subfolder tooltip TODO.
 
+**Also landed 2026-07-09 (Results-tab review, on `gui-dev`, 106 tests):**
+- **"Load Run…"** — open a saved run folder and view its spectra + echem without re-running (the tab
+  used to only show the current session's run). Reconstructs the absorbance matrices + segment map from
+  disk (`read_spectra_absorbance` / `discover_run_segments` in `spec_echem/data.py`); guarded mid-run.
+- **Absorbance y-autoscale** — the y-axis now rescales to the selected wavelength range, so zooming into
+  the weaker polaron region no longer leaves the traces squished under the π→π* peak.
+
 **Path to `gui-dev → main` (reframed 2026-07-09).** The two "gates" are separable:
 - **Software gate (can close this summer):** run this folder through Raj's `OECT_processing`
   (Prompt B in `docs/inspect-run.md`) + the doc-hygiene fixes (requirements.txt GUI deps, DOI, dup
