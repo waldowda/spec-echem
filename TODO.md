@@ -12,6 +12,18 @@ and/or roll our own raw-`.DTA` parser, address:
 - [ ] **Pre-dedoping is skipped.** The converter ignores `prededope*` files. For consistency, add
       `prededope_#N.dta → prededoping(N).txt` (pairs with `prededopingspectra(N).txt`), even though
       it's an optional/low-value step.
+- [ ] **Move pre-dedoping output to a subfolder (Dean, 2026-07-10) — maybe make it the default.**
+      Pre-dedoping is a precautionary baseline (confirm the film starts un-doped), NOT part of the
+      doping/dedoping analysis series — always `run_number` 0, one set per run. Idea: write the
+      pre-dedoping set (`prededopingspectra(0).txt` + `prededoping(0).txt` + its `.dta`) into a
+      subfolder (e.g. `prededoping/`) rather than the main run folder. Benefits: (1) the main folder
+      then holds only the analysis series (CV + doping + dedoping); (2) it sidesteps the
+      `OECT_processing` mis-sort where `prededoping*` matches the `dedoping*` substring test and gets
+      folded in as a spurious 4th dedoping cycle — a spec-echem-side fix, independent of Raj repairing
+      his reader. Touches: `data.py` write path, GUI `discover_run_segments` + Results/Load-Run (still
+      let you review it), and the timing tooling. Decide default-vs-opt-in, and confirm nothing
+      downstream expects pre-dedoping in the main folder (coordinate with Raj alongside the
+      "combined 2026 format" discussion — see [[reference-oect-processing]] in memory).
 - [ ] **`+100` magic offset on the chrono `Time (s)` column.** The converter sets
       `Time = Corrected + 100`. Likely vestigial (downstream keys off `Corrected time`, which starts
       at 0). Confirm nothing depends on it, then drop or document.
