@@ -1,6 +1,6 @@
 # spec-echem
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14758064.svg)](https://doi.org/10.5281/zenodo.14758064)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17221314.svg)](https://doi.org/10.5281/zenodo.17221314)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
@@ -42,12 +42,14 @@ This software is currently in **pre-release** (v0.1.0). The API and functionalit
    - Install the `avaspec` Python module (provided with SDK)
    - Configure USB drivers for your spectrometer
 
-2. **Python Dependencies**
+2. **Python Dependencies** (see `requirements.txt`)
    ```bash
    numpy>=1.19.0
+   scipy>=1.5.0
    matplotlib>=3.3.0
    pandas>=1.3.0
-   scipy>=1.5.0
+   PyQt5      # GUI only
+   qtpy       # GUI only
    ```
 
 ## Installation
@@ -145,9 +147,28 @@ When you start a run in the GUI, files are written to **`‹Save location›\‹
 4. **Run Experiment**: Start Gamry sequence and collect triggered spectra
 5. **Process Data**: Analyze synchronized electrochemical and spectroscopic data
 
+## Data Format
+
+**The authoritative output-format spec is [`docs/data-format.md`](docs/data-format.md).** All output is
+tab-separated. Per run folder (`‹Save location›\‹Data folder name›\`):
+
+- **Spectra files** — 8 columns (wavelength, absorbance, dark, reference, raw counts, spectrum number,
+  time, corrected time), one per segment: `CVspectra.txt`, `spectra(N).txt` (doping),
+  `dedopingspectra(N).txt`, `prededopingspectra(N).txt`. (Parentheses in filenames are literal.)
+- **Electrochemistry files** (Python/EchemToolkitPy mode) — the Gamry potential/current per segment:
+  `CV.txt` (potential, current) and `steps(N).txt` / `dedoping(N).txt` / `prededoping(N).txt`
+  (time, corrected time, `WE(1).Potential (V)`, `WE(1).Current (A)`, index). Native Gamry `.dta`
+  files are also written to a `dta/` subfolder.
+
+The potential is recorded in the **step** files (not the spectra files). These names and the column
+layout are relied on by downstream analysis (Rajiv Giridharagopal's
+[`OECT_processing`](https://github.com/rajgiriUW/OECT_processing)), so **do not change them without
+coordination.**
+
 ## Documentation
 
 Detailed documentation is in development. For now:
+- See [`docs/data-format.md`](docs/data-format.md) for the output file format
 - See `notebooks/` for example workflows
 - Check `gamry/` for Gamry sequence templates
 - Review source code docstrings for API details
@@ -171,7 +192,7 @@ If you use this software in your research, please cite:
   year         = {2025},
   publisher    = {GitHub},
   version      = {0.1.0},
-  doi          = {10.5281/zenodo.14758064},
+  doi          = {10.5281/zenodo.17221314},
   url          = {https://github.com/waldowda/spec-echem}
 }
 ```
