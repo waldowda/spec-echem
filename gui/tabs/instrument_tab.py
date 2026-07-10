@@ -11,13 +11,19 @@ from datetime import datetime
 from pathlib import Path
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
-    QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
+    QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox,
+    QComboBox, QFileDialog,
 )
 
 from spec_echem.fakes import FakeSpectrometer
 from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_identity
 from spec_echem.settings import DEFAULT_SETTINGS
+from spec_echem.spectral_range import recommend_wavelength_range
 from gui.widgets.plot_canvas import MplCanvas
+
+# Aggressiveness presets → noise_mult for recommend_wavelength_range
+# (higher = more liberal / keeps more).
+_AGGRESSIVENESS = {"Conservative": 2.0, "Balanced": 3.0, "Liberal": 5.0}
 
 try:
     from spec_echem import AvantesSpectrometer
@@ -40,6 +46,7 @@ class InstrumentTab(QWidget):
         super().__init__()
         self.win = main_window
         self._pstat_connected = False   # last Connect-Potentiostat verify succeeded
+        self._last_test_abs = None      # most recent test-absorbance, for Suggest
         self._build()
 
     def _build(self):
@@ -224,6 +231,46 @@ class InstrumentTab(QWidget):
         test_row.addWidget(absorb_box, stretch=1)
         layout.addLayout(test_row)
 
+        # --- Usable wavelength window (crop the noisy lamp edges) ---
+        wl_box = QGroupBox("Usable wavelength window (crops noisy lamp edges from what's collected)")
+        wl_col = QVBoxLayout(wl_box)
+        wl_row = QHBoxLayout()
+        wl_row.addWidget(QLabel("Range:"))
+        self.wl_min_spin = QDoubleSpinBox()
+        self.wl_min_spin.setRange(0.0, 5000.0)
+        self.wl_min_spin.setSuffix(" nm")
+        self.wl_min_spin.setValue(380.0)
+        self.wl_max_spin = QDoubleSpinBox()
+        self.wl_max_spin.setRange(0.0, 5000.0)
+        self.wl_max_spin.setSuffix(" nm")
+        self.wl_max_spin.setValue(1100.0)
+        wl_row.addWidget(self.wl_min_spin)
+        wl_row.addWidget(QLabel("to"))
+        wl_row.addWidget(self.wl_max_spin)
+        wl_row.addSpacing(16)
+        wl_row.addWidget(QLabel("Trim:"))
+        self.wl_aggr_combo = QComboBox()
+        self.wl_aggr_combo.addItems(list(_AGGRESSIVENESS.keys()))
+        self.wl_aggr_combo.setCurrentText("Balanced")
+        self.wl_aggr_combo.currentTextChanged.connect(self._on_aggressiveness_changed)
+        wl_row.addWidget(self.wl_aggr_combo)
+        self.wl_suggest_btn = QPushButton("Suggest from test-abs")
+        self.wl_suggest_btn.setToolTip("Recommend a range from the last test-absorbance")
+        self.wl_suggest_btn.clicked.connect(self.on_wl_suggest)
+        self.wl_apply_btn = QPushButton("Apply range")
+        self.wl_apply_btn.setToolTip("Restrict the spectrometer (and this run's output) to this range")
+        self.wl_apply_btn.clicked.connect(self.on_wl_apply)
+        wl_row.addWidget(self.wl_suggest_btn)
+        wl_row.addWidget(self.wl_apply_btn)
+        wl_row.addStretch()
+        self.wl_rationale = QLabel("Full range by default. Take dark + reference + a test-absorbance, "
+                                   "then Suggest to trim the noisy edges (you can override).")
+        self.wl_rationale.setStyleSheet("color: #888;")
+        self.wl_rationale.setWordWrap(True)
+        wl_col.addLayout(wl_row)
+        wl_col.addWidget(self.wl_rationale)
+        layout.addWidget(wl_box)
+
         self._set_actions_enabled(False)
 
     def _wrap(self, inner_layout):
@@ -236,6 +283,11 @@ class InstrumentTab(QWidget):
     def populate_from(self, settings):
         self.integration_spin.setValue(settings["integration_time_ms"])
         self.averages_spin.setValue(settings["scan_averages"])
+        wl_min, wl_max = settings.get("wavelength_min"), settings.get("wavelength_max")
+        if wl_min is not None:
+            self.wl_min_spin.setValue(wl_min)
+        if wl_max is not None:
+            self.wl_max_spin.setValue(wl_max)
         mode = settings.get("potentiostat_mode", "external")
         if mode == "python" and self.pstat_python_radio.isEnabled():
             self.pstat_python_radio.setChecked(True)
@@ -246,6 +298,14 @@ class InstrumentTab(QWidget):
     def collect_into(self, settings):
         settings["integration_time_ms"] = self.integration_spin.value()
         settings["scan_averages"] = self.averages_spin.value()
+        # Record the window actually in effect (what the run will use), so the run
+        # metadata is accurate; fall back to the spin values before connecting.
+        if self.win.wavelengths is not None and len(self.win.wavelengths):
+            settings["wavelength_min"] = float(self.win.wavelengths[0])
+            settings["wavelength_max"] = float(self.win.wavelengths[-1])
+        else:
+            settings["wavelength_min"] = self.wl_min_spin.value()
+            settings["wavelength_max"] = self.wl_max_spin.value()
         settings["potentiostat_mode"] = (
             "python" if self.pstat_python_radio.isChecked() else "external")
         settings["save_dta"] = self.save_dta_check.isChecked()
@@ -253,8 +313,9 @@ class InstrumentTab(QWidget):
     # --- actions ---
 
     def _set_actions_enabled(self, enabled):
+        self._actions_enabled = enabled
         for w in (self.apply_btn, self.collect_dark_btn, self.collect_ref_btn,
-                  self.test_counts_btn, self.timing_btn):
+                  self.test_counts_btn, self.timing_btn, self.wl_apply_btn):
             w.setEnabled(enabled)
         # Connect re-inits toolkitpy; forbid it during a run so it can't collide
         # with a Python-mode run driving the Gamry. Restore its normal (python +
@@ -282,6 +343,13 @@ class InstrumentTab(QWidget):
         # Can only save a dark/ref once one has been collected or loaded.
         self.save_dark_btn.setEnabled(self.win.dark is not None)
         self.save_ref_btn.setEnabled(self.win.ref is not None)
+        self._update_suggest_enabled()
+
+    def _update_suggest_enabled(self):
+        """Suggest needs a test-absorbance and the tab's actions live (connected,
+        not mid-run)."""
+        self.wl_suggest_btn.setEnabled(
+            getattr(self, "_actions_enabled", False) and self._last_test_abs is not None)
 
     def _set_pstat_status(self, text, color):
         self.pstat_status.setText(text)
@@ -332,6 +400,10 @@ class InstrumentTab(QWidget):
             return
         self.win.spec = spec
         _, self.win.wavelengths = spec.wavelengths()
+        # Seed the window spin boxes with the spectrometer's actual full range.
+        if len(self.win.wavelengths):
+            self.wl_min_spin.setValue(float(self.win.wavelengths[0]))
+            self.wl_max_spin.setValue(float(self.win.wavelengths[-1]))
         self.spec_status.setText(f"● Connected ({serial})")
         self.spec_status.setStyleSheet("color: #080;")
         self._set_actions_enabled(True)
@@ -454,6 +526,8 @@ class InstrumentTab(QWidget):
         self.absorb_label.setText("A = −log₁₀((sample − dark) / (ref − dark))")
         self.absorb_canvas.show_spectrum(self.win.wavelengths, absorbance,
                                          title="Test (absorbance)", ylabel="Absorbance")
+        self._last_test_abs = np.asarray(absorbance)
+        self._update_suggest_enabled()
 
     def on_timing_test(self):
         if self.win.spec is None:
@@ -461,3 +535,75 @@ class InstrumentTab(QWidget):
         _, _, net_dif, t_dif = self.win.spec.measure_timing()
         self.timing_result.setText(
             f"total {t_dif * 1000:.1f} ms  (overhead {net_dif:.1f} ms)")
+
+    # --- usable wavelength window ---
+
+    def _noise_mult(self):
+        return _AGGRESSIVENESS.get(self.wl_aggr_combo.currentText(), 3.0)
+
+    def _on_aggressiveness_changed(self, *_):
+        # Re-suggest live when the trim level changes (only if a suggestion is possible).
+        if self.wl_suggest_btn.isEnabled():
+            self.on_wl_suggest()
+
+    def on_wl_suggest(self):
+        if self._last_test_abs is None or self.win.wavelengths is None:
+            return
+        try:
+            lo, hi, rationale = recommend_wavelength_range(
+                self.win.wavelengths, self._last_test_abs,
+                dark=self.win.dark, ref=self.win.ref, noise_mult=self._noise_mult())
+        except Exception as exc:  # noqa: BLE001 — surface a bad suggestion as a note
+            self.wl_rationale.setText(f"Could not suggest a range: {exc}")
+            return
+        self.wl_min_spin.setValue(lo)
+        self.wl_max_spin.setValue(hi)
+        self.wl_rationale.setText(rationale["summary"])
+
+    def on_wl_apply(self):
+        if self.win.spec is None:
+            return
+        wl_min, wl_max = self.wl_min_spin.value(), self.wl_max_spin.value()
+        if wl_max <= wl_min:
+            self.wl_rationale.setText("Range invalid: max must be greater than min.")
+            return
+        old_wl = np.asarray(self.win.wavelengths) if self.win.wavelengths is not None else None
+        try:
+            self.win.spec.set_wavelength_window(wl_min, wl_max)
+        except Exception as exc:  # noqa: BLE001
+            self.wl_rationale.setText(f"Apply failed: {exc}")
+            return
+        _, self.win.wavelengths = self.win.spec.wavelengths()
+        new_wl = np.asarray(self.win.wavelengths)
+        had_cal = self.win.dark is not None or self.win.ref is not None
+        self._reslice_cal(old_wl, new_wl)   # keep dark/ref aligned; clear on a widen
+        now_cal = self.win.dark is not None
+        self._update_cal_plot()
+        self._update_absorbance_enabled()
+        msg = f"Applied {new_wl[0]:.0f}–{new_wl[-1]:.0f} nm ({len(new_wl)} px)."
+        if had_cal and now_cal:
+            msg += " Dark/reference re-sliced to match."
+        elif had_cal and not now_cal:
+            msg += " Dark/reference cleared — re-collect at this range."
+        self.wl_rationale.setText(msg)
+
+    def _reslice_cal(self, old_wl, new_wl):
+        """After the window narrows, slice dark/ref (aligned with old_wl) down to
+        new_wl so they stay matched to the run data — no re-collect. If new_wl isn't
+        a sub-range of old_wl (a widen beyond what was collected), clear them."""
+        if old_wl is None or (self.win.dark is None and self.win.ref is None):
+            return
+        contained = (len(new_wl) <= len(old_wl)
+                     and new_wl[0] >= old_wl[0] - 1e-6
+                     and new_wl[-1] <= old_wl[-1] + 1e-6)
+        if contained:
+            i0 = int(np.argmin(np.abs(old_wl - new_wl[0])))
+            sl = slice(i0, i0 + len(new_wl))
+            if self.win.dark is not None and len(self.win.dark) == len(old_wl):
+                self.win.dark = np.asarray(self.win.dark)[sl]
+            if self.win.ref is not None and len(self.win.ref) == len(old_wl):
+                self.win.ref = np.asarray(self.win.ref)[sl]
+        else:
+            self.win.dark = None
+            self.win.ref = None
+            self._last_test_abs = None
