@@ -3,6 +3,7 @@ Absorbance computation and file writing.
 No Qt imports. No vendor SDK imports.
 """
 import json
+import re
 from datetime import datetime
 import numpy as np
 import pandas as pd
@@ -56,6 +57,79 @@ def _filename_for(data_type, run_number):
         DATA_TYPE_DEDOPING:    f'dedopingspectra({run_number}).txt',
         DATA_TYPE_PREDEDOPING: f'prededopingspectra({run_number}).txt',
     }[data_type]
+
+
+# Reverse of _filename_for: recognize a saved spectra filename → (data_type, label base).
+# Used to reload a past run for review (see discover_run_segments).
+_SPECTRA_FILE_PATTERNS = [
+    (re.compile(r'^CVspectra\.txt$'),                  DATA_TYPE_CV,          "CV"),
+    (re.compile(r'^spectra\((\d+)\)\.txt$'),           DATA_TYPE_DOPING,      "Doping"),
+    (re.compile(r'^dedopingspectra\((\d+)\)\.txt$'),   DATA_TYPE_DEDOPING,    "Dedoping"),
+    (re.compile(r'^prededopingspectra\((\d+)\)\.txt$'), DATA_TYPE_PREDEDOPING, "Pre-dedoping"),
+]
+
+
+def read_spectra_absorbance(path):
+    """Reconstruct the absorbance matrix from a saved 8-column spectra .txt.
+
+    Inverse of the layout written by write_spectra_file: the file stacks one
+    n-wavelength block per time point, with the already-computed Absorbance in
+    column 2 and that block's elapsed time in 'Corrected time (s)'. Returns a
+    DataFrame shaped exactly like compute_absorbance's absorb7 — wavelength index,
+    corrected-time columns — so show_absorbance can plot a past run unchanged.
+    No recomputation: the saved absorbance is used as-is.
+    """
+    df = pd.read_csv(path, sep='\t')
+    n = df['Wavelength (nm)'].nunique()          # wavelengths per time block
+    if n == 0:
+        raise ValueError(f"{Path(path).name}: no wavelength data")
+    n_times = len(df) // n
+    if n_times == 0:
+        raise ValueError(f"{Path(path).name}: fewer than one full "
+                         f"{n}-wavelength block — not a spec-echem spectra file?")
+    # Use only complete blocks; a truncated/aborted file may end mid-block, and a
+    # partial trailing block is dropped rather than refusing the whole run.
+    full = n_times * n
+    wavelengths = df['Wavelength (nm)'].to_numpy()[:n]
+    absorb = df['Absorbance'].to_numpy()[:full].reshape(n_times, n).T   # (n_wl, n_times)
+    # First row of each block carries a non-NaN corrected time (only the last row
+    # of a block is NaN), so column 0 of the reshaped time gives per-block times.
+    corr = df['Corrected time (s)'].to_numpy()[:full].reshape(n_times, n)[:, 0]
+    return pd.DataFrame(absorb, index=wavelengths, columns=corr)
+
+
+def discover_run_segments(run_folder):
+    """Scan a run folder for saved spectra files and return, in run order,
+    (label, data_type, run_number, path) tuples — the inverse of _filename_for.
+
+    Lets the GUI reload a completed run for review without re-running it. Only
+    files directly in the folder are considered (not the dta/ subfolder).
+    """
+    folder = Path(run_folder)
+    found = []
+    for p in sorted(folder.iterdir()):
+        if not p.is_file():
+            continue
+        for rx, data_type, base in _SPECTRA_FILE_PATTERNS:
+            m = rx.match(p.name)
+            if not m:
+                continue
+            run_number = int(m.group(1)) if m.groups() else 0
+            label = f"{base} {run_number}" if m.groups() else base
+            found.append((label, data_type, run_number, p))
+            break
+
+    def sort_key(item):
+        _, data_type, run_number, _ = item
+        if data_type == DATA_TYPE_CV:
+            return (0, 0, 0)
+        if data_type == DATA_TYPE_PREDEDOPING:
+            return (1, run_number, 0)
+        sub = 0 if data_type == DATA_TYPE_DOPING else 1   # doping before dedoping
+        return (2, run_number, sub)
+
+    found.sort(key=sort_key)
+    return found
 
 
 def write_spectra_file(absorb7, spectra, dark, ref, wavelengths, timestamps,
