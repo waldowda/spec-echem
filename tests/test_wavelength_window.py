@@ -5,7 +5,7 @@ settings carry the (default-None) keys.
 """
 import numpy as np
 
-from spec_echem.spectrometer import AvantesSpectrometer
+from spec_echem.spectrometer import AvantesSpectrometer, CAL_WINDOW_LEN
 from spec_echem.fakes import FakeSpectrometer, N_POINTS
 from spec_echem.data import (
     compute_absorbance, write_spectra_file, read_spectra_absorbance, DATA_TYPE_DOPING,
@@ -55,16 +55,18 @@ def test_windowed_acquisition_roundtrips(tmp_path):
     assert got.shape[1] == len(timestamps)
 
 
-def test_window_helper_handles_full_and_prewindowed():
-    # Root cause of the real-hardware crash: AVS_GetLambda/GetScopeData may return
-    # the full detector OR already-windowed data. _window() must be correct for both.
+def test_crop_takes_calibrated_window_then_user_crop():
+    # _crop() is a pure software crop: the calibrated [395:1660] window, then the
+    # user index crop — no dependence on how the SDK returns pixels.
     spec = AvantesSpectrometer.__new__(AvantesSpectrometer)
-    spec._start_px, spec._stop_px = 395, 1659            # default (1265-pt) window
-    assert len(spec._window(np.arange(2000))) == 1265     # full detector -> sliced
-    assert len(spec._window(np.arange(1265))) == 1265     # already windowed -> as-is
-    spec._start_px, spec._stop_px = 500, 700              # narrowed (201-pt) window
-    assert len(spec._window(np.arange(2000))) == 201       # full -> sliced to window
-    assert len(spec._window(np.arange(201))) == 201        # prewindowed -> as-is (the fix)
+    full = np.arange(2000)
+    spec._lo_i, spec._hi_i = 0, CAL_WINDOW_LEN - 1        # full window
+    assert len(spec._crop(full)) == CAL_WINDOW_LEN         # 1265 calibrated pixels
+    cal = full[395:1660]
+    spec._lo_i, spec._hi_i = 100, 600                     # a user crop within it
+    cropped = spec._crop(full)
+    assert len(cropped) == 501
+    assert cropped[0] == cal[100] and cropped[-1] == cal[600]
 
 
 def test_settings_carry_wavelength_window_keys(tmp_path):
