@@ -45,11 +45,22 @@ writer joins the path once). Zero impact on analysis. Reinforces the pending par
 - **Absorbance y-autoscale** — the y-axis now rescales to the selected wavelength range, so zooming into
   the weaker polaron region no longer leaves the traces squished under the π→π* peak.
 
-**Path to `gui-dev → main` (reframed 2026-07-09).** The two "gates" are separable:
-- **Software gate (can close this summer):** run this folder through Raj's `OECT_processing`
-  (Prompt B in `docs/inspect-run.md`) + the doc-hygiene fixes (requirements.txt GUI deps, DOI, dup
-  README). This dataset is format-valid AND shows real doping/dedoping structure, so it's sufficient
-  to prove analysis compatibility — **no fresh sample needed for the merge.**
+**🎯 OECT_processing TRIAL PASSED (2026-07-10) — the software gate is met.** Ran Raj Giri's
+`OECT_processing` doping pipeline on the real `20260709_P3HT_01` data (Mac Mini, dedicated `oect`
+conda env). `read_files` → `UVVis.time_dep_spectra` → `current_vs_time` all run **clean end to end**:
+correct potentials (0.3/0.5/0.7 V), full 301×1265 spectra-vs-time per step, and doping currents
+24/53/**278 µA** — matching the raw CV and the observed "little doping until 0.7 V." **spec-echem's
+output format is confirmed compatible; no output change needed for the merge.** The only fix was in
+Raj's reader (a May-2026 `specfiles`→`stepfiles` regression — the potential lives in the step files;
+applied in our local clone, for Raj to fix upstream). Second reader nit for Raj: `prededoping*` files
+mis-sort into the dedoping lists (substring match). Raj (Slack) will make his reader dual-format
+(his newer single-file design vs our two-file output), so nothing forces a spec-echem change.
+
+**Path to `gui-dev → main` (reframed 2026-07-09; updated 2026-07-10).** With the OECT_processing trial
+passed, the **software gate is DONE** — remaining items are doc hygiene + the (deferred) fresh-sample demo:
+- **Software gate — ✅ OECT_processing compatibility PROVEN (2026-07-10, see milestone above).**
+  Remaining: only the **doc-hygiene fixes** (requirements.txt GUI deps, DOI mismatch, dup README).
+  Once those land, `gui-dev → main` is ready — no fresh sample needed for the merge.
 - **Scientific gold-standard demo (deferred):** a fresh/degassed strong-signal run is blocked by lab
   renovations until **~Sept–Oct 2026**. This is a quality milestone, not a software blocker — slot it
   in when the lab is back; it need not hold up shipping to `main`.
