@@ -121,6 +121,16 @@ DIGOUT0 handshake confirmed. Remaining items:
       showed the current session's run ("run a sequence first" on a cold launch). Guarded against loading
       mid-run. ("Open Data Folder" is unchanged — it opens the folder in Explorer, a filesystem shortcut,
       not an in-GUI viewer.)
+- [x] **Configurable wavelength window — crop noisy lamp edges — DONE (2026-07-10).** Opt-in,
+      driver-level (`m_StartPixel`/`m_StopPixel`); default = full window (output unchanged). Instrument
+      tab: wl_min/max + Conservative/Balanced/Liberal + "Suggest from test-abs" + "Apply". Recommendation
+      in `spec_echem/spectral_range.py` (rolling-σ of the test-abs, ref-net corroboration). Two open items:
+      **(a) HARDWARE-VERIFY on the box** whether `AVS_GetScopeData` returns full-length vs already-windowed
+      under a narrowed pixel range — `spectrometer._window()` handles both but it's unconfirmed on real
+      hardware; **(b)** re-run `OECT_processing` on a *cropped* run to confirm the narrower axis reads.
+- [ ] **Expose the other hard-coded `measconfig` fields (future, Dean 2026-07-10).** Now that the window
+      is config-driven, `_create_measurement_config` could expose smoothing, **saturation detection**
+      (ties to the linearity-check item below), and the averaging model instead of hard-coding them.
 - [ ] **Linearity check on the raw-counts test (future):** flag when the peak test counts approach the
       detector's saturation ceiling, so the user confirms they're in the linear regime before collecting
       dark/reference/data. (The test-counts graph already annotates the peak value.)
