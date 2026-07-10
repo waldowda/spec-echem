@@ -14,7 +14,10 @@ from qtpy.QtWidgets import (
     QComboBox, QDoubleSpinBox, QPushButton, QFileDialog, QSplitter, QMessageBox,
 )
 
-from spec_echem.data import echem_txt_path, DATA_TYPE_CV
+from spec_echem.data import (
+    echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV,
+)
+from spec_echem.experiment import Segment
 from spec_echem.gamry_data import read_cv, read_chrono
 from gui.widgets.plot_canvas import MplCanvas
 
@@ -78,10 +81,15 @@ class ResultsTab(QWidget):
 
         # --- actions ---
         btn_row = QHBoxLayout()
+        self.load_run_btn = QPushButton("Load Run…")
+        self.load_run_btn.setToolTip(
+            "Open a previously saved run folder and view its spectra + echem here.")
+        self.load_run_btn.clicked.connect(self.on_load_run)
         self.save_plot_btn = QPushButton("Save Plots")
         self.save_plot_btn.clicked.connect(self.on_save_plot)
         self.open_folder_btn = QPushButton("Open Data Folder")
         self.open_folder_btn.clicked.connect(self.on_open_folder)
+        btn_row.addWidget(self.load_run_btn)
         btn_row.addWidget(self.save_plot_btn)
         btn_row.addWidget(self.open_folder_btn)
         btn_row.addStretch()
@@ -160,6 +168,63 @@ class ResultsTab(QWidget):
         folder = self.win.run_folder
         if folder is None or not Path(folder).exists():
             QMessageBox.information(self, "No data folder",
-                                   "No run folder yet — run a sequence first.")
+                                   "No run folder yet — run a sequence or Load Run… first.")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def on_load_run(self):
+        """Open a previously saved run folder and load its spectra + echem into the
+        Results view — so past data can be reviewed without re-running a sequence.
+        Reconstructs the absorbance matrices and segment map from the files on disk.
+        """
+        # Don't clobber a live run's in-memory results.
+        if getattr(self.win.run_tab, "_worker", None) is not None:
+            QMessageBox.information(self, "Run in progress",
+                "A sequence is running — wait for it to finish before loading a past run.")
+            return
+
+        start = str(self.win.run_folder) if self.win.run_folder else self._default_start_dir()
+        folder = QFileDialog.getExistingDirectory(self, "Open a previous run folder", start)
+        if not folder:
+            return
+
+        segs = discover_run_segments(folder)
+        if not segs:
+            QMessageBox.warning(self, "No run data",
+                "No spectra files found there.\n\n"
+                "Choose a run folder containing CVspectra.txt / spectra(N).txt / etc.")
+            return
+
+        results, segments_by_label, errors = {}, {}, []
+        for label, data_type, run_number, path in segs:
+            try:
+                results[label] = read_spectra_absorbance(path)
+            except Exception as exc:  # noqa: BLE001 — skip a bad file, report it, keep the rest
+                errors.append(f"{path.name}: {exc}")
+                continue
+            segments_by_label[label] = Segment(
+                label=label, data_type=data_type, run_number=run_number,
+                num_points=0, delta_time=0.0, trigger=False)
+
+        if not results:
+            QMessageBox.warning(self, "Could not read run",
+                                "\n".join(errors) or "No readable spectra files.")
+            return
+
+        self.win.results = results
+        self.win.segments_by_label = segments_by_label
+        self.win.run_folder = Path(folder)
+        self.refresh_segments()
+
+        msg = f"Loaded {len(results)} segment(s) from:\n{folder}"
+        if errors:
+            msg += "\n\nSkipped:\n" + "\n".join(errors)
+        QMessageBox.information(self, "Run loaded", msg)
+
+    def _default_start_dir(self):
+        """Where the Load Run… dialog opens — the configured data root if we can
+        read it, else the dialog's default."""
+        try:
+            return self.win.parameters_tab._widgets["data_root"].text() or ""
+        except Exception:  # noqa: BLE001 — best-effort convenience only
+            return ""
