@@ -122,6 +122,16 @@ class MplCanvas(FigureCanvasQTAgg):
             self.ax.plot(wl, absorb_df[col].values, lw=0.8, color=cmap(norm(t)))
         if wl_min is not None and wl_max is not None:
             self.ax.set_xlim(wl_min, wl_max)
+            # Rescale y to the data inside the window — otherwise the y-axis stays
+            # fixed to the full-spectrum range (dominated by the pi-pi* peak) and a
+            # zoom into the weaker polaron region looks squished.
+            mask = (wl >= wl_min) & (wl <= wl_max)
+            windowed = absorb_df.to_numpy()[mask]
+            finite = windowed[np.isfinite(windowed)]
+            if finite.size:
+                lo, hi = float(finite.min()), float(finite.max())
+                pad = (hi - lo) * 0.05 or 0.01   # small margin; guard flat data
+                self.ax.set_ylim(lo - pad, hi + pad)
         self._decorate(title)
         sm = ScalarMappable(norm=norm, cmap=cmap)
         sm.set_array([])
