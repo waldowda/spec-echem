@@ -24,7 +24,13 @@ try:
 except ImportError:
     AVASPEC_AVAILABLE = False
 
-from . import globals
+
+# Calibrated usable pixel window (~380-1100 nm, 1265 pts) — the fixed slice this
+# code has always applied. It is now the DEFAULT of a configurable window; a
+# narrower user window (set_wavelength_window) restricts within it.
+CAL_START_PX = 395
+CAL_STOP_PX = 1659   # inclusive; the old slice was [395:1660]
+CAL_WINDOW_LEN = CAL_STOP_PX - CAL_START_PX + 1   # 1265 calibrated pixels
 
 
 class AvantesSpectrometer:
@@ -35,7 +41,13 @@ class AvantesSpectrometer:
     optimized for spectroelectrochemistry measurements with wavelength
     range approximately 380 to 1100 nm.
     """
-    
+
+    # User wavelength crop, as indices into the calibrated [395:1660] window
+    # (a pure software crop). Full window by default → output identical to before.
+    # Class-level so it's defined even if an instance is built without __init__.
+    _lo_i = 0
+    _hi_i = CAL_WINDOW_LEN - 1
+
     def __init__(self):
         """Initialize the Avantes spectrometer instance."""
         self.dev_handle = None
@@ -43,7 +55,10 @@ class AvantesSpectrometer:
         self.wavelength = None
         self.serial_number = None
         self.measconfig = None
-        
+        # Wavelength crop (indices into the calibrated window); full by default.
+        self._lo_i = 0
+        self._hi_i = CAL_WINDOW_LEN - 1
+
     def init(self):
         """
         Initialize and configure the Avantes spectrometer.
@@ -58,25 +73,24 @@ class AvantesSpectrometer:
         # Get number of devices
         ret = AVS_GetNrOfDevices()
         print(f"AVS_GetNrOfDevices returned: {ret}")
-        
+        if ret < 1:
+            raise RuntimeError("Invalid index (forget to plug in the spectrometer?)")
+
         # Get device list and activate first device
         mylist = AVS_GetList(1)
         self.serial_number = str(mylist[0].SerialNumber.decode("utf-8"))
         print(f"Found Serial number: {self.serial_number}")
         
         # Activate device
-        globals.dev_handle = AVS_Activate(mylist[0])
-        self.dev_handle = globals.dev_handle
+        self.dev_handle = AVS_Activate(mylist[0])
         print(f"AVS_Activate returned: {self.dev_handle}")
-        
+
         # Get device configuration
         devcon = AVS_GetParameter(self.dev_handle, 63484)
-        globals.pixels = devcon.m_Detector_m_NrPixels
-        self.pixels = globals.pixels
-        
+        self.pixels = devcon.m_Detector_m_NrPixels
+
         # Get wavelength calibration
-        globals.wavelength = AVS_GetLambda(self.dev_handle)
-        self.wavelength = globals.wavelength
+        self.wavelength = AVS_GetLambda(self.dev_handle)
         
         # Enable high resolution ADC
         ret = AVS_UseHighResAdc(self.dev_handle, True)
@@ -126,8 +140,37 @@ class AvantesSpectrometer:
                 - trimmed_numpy_array: Numpy array for ~380-1100 nm range
         """
         wavelength = AVS_GetLambda(self.dev_handle)
-        return wavelength, np.array(wavelength[395:1660])
-    
+        # Calibrated [395:1660] window (the proven slice), then the user crop.
+        return wavelength, self._crop(wavelength)
+
+    def _crop(self, spectral_data):
+        """Take the calibrated ~380-1100 nm window ([395:1660], the historical
+        slice) from a raw AVS array, then apply the user wavelength crop. Pure
+        software — no dependence on how the SDK windows pixels, so wavelengths()
+        and measure() always agree. Full crop by default = the historical output.
+        """
+        cal = np.array(spectral_data[CAL_START_PX:CAL_STOP_PX + 1])
+        return cal[self._lo_i:self._hi_i + 1]
+
+    def set_wavelength_window(self, wl_min, wl_max):
+        """Restrict the returned spectrum to [wl_min, wl_max] nm.
+
+        A pure software crop of the calibrated ~380-1100 nm window — it does NOT
+        touch the hardware measconfig, so it is independent of how the SDK returns
+        pixels. Stores indices into the calibrated window; pass wl_min=None and/or
+        wl_max=None to reset that edge to the full window.
+        """
+        cal_wl = np.asarray(self.wavelength, float)[CAL_START_PX:CAL_STOP_PX + 1]
+        n = len(cal_wl)
+        lo = 0 if wl_min is None else int(np.searchsorted(cal_wl, wl_min, side='left'))
+        hi = n - 1 if wl_max is None else int(np.searchsorted(cal_wl, wl_max, side='right')) - 1
+        lo = max(0, min(lo, n - 1))
+        hi = max(0, min(hi, n - 1))
+        if hi < lo:
+            raise ValueError(f"Empty wavelength window: {wl_min}-{wl_max} nm")
+        self._lo_i, self._hi_i = lo, hi
+        print(f"Wavelength window: {cal_wl[lo]:.1f}-{cal_wl[hi]:.1f} nm ({hi - lo + 1} px)")
+
     def measure_timing(self, measconfig=None):
         """
         Perform a timed measurement to assess acquisition timing.
@@ -170,35 +213,54 @@ class AvantesSpectrometer:
             
             timestamp = ret[0]
             spectral_data = ret[1]
-            
+
             # Calculate timing difference
             total_int_time = measconfig.m_IntegrationTime * measconfig.m_NrAverages
             net_dif = (t_dif * 1000) - total_int_time
-            
-        return timestamp, np.array(spectral_data[395:1660]), net_dif, t_dif
+
+        return timestamp, self._crop(spectral_data), net_dif, t_dif
     
-    def measure(self):
+    def measure(self, abort_event=None, on_armed=None):
         """
         Perform a single measurement and return spectral data.
-        
+
+        Args:
+            abort_event: optional threading.Event — if set while waiting for the
+                trigger / data, the measurement is abandoned and None is returned.
+            on_armed: optional callable invoked right after AVS_Measure() has
+                armed the device and before polling. Python-mode co-acquisition
+                raises DIGOUT0 / starts the Gamry here, so the trigger edge lands
+                while the device is armed and waiting.
+
         Returns:
-            tuple: (timestamp, spectral_data_array)
+            tuple (timestamp, spectral_data_array), or None if aborted.
         """
-        # Start measurement
+        # Start measurement (in trigger mode this arms the device to wait for the edge)
         ret = AVS_Measure(self.dev_handle, 0, 1)
-        
+        if ret < 0:
+            # Arm failed: do NOT fire the trigger — otherwise the Gamry would run
+            # while the spectrometer captures nothing (a silent time-zero desync).
+            raise RuntimeError(
+                f"AVS_Measure failed (code {ret}); spectrometer not armed — trigger not fired.")
+
+        # Device is now armed and waiting; fire the trigger here if asked.
+        if on_armed is not None:
+            on_armed()
+
         # Wait for data ready
         dataready = False
         while not dataready:
+            if abort_event is not None and abort_event.is_set():
+                return None
             dataready = AVS_PollScan(self.dev_handle)
             time.sleep(0.001)
-        
+
         # Get spectral data
         ret = AVS_GetScopeData(self.dev_handle)
         timestamp = ret[0]
         spectral_data = ret[1]
-        
-        return timestamp, np.array(spectral_data[395:1660])
+
+        return timestamp, self._crop(spectral_data)
     
     def plot_data(self, wavelength, spectral_data):
         """
