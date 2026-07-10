@@ -4,11 +4,38 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-07-09_
+_Last updated: 2026-07-10_
 
 ---
 
-## Latest milestone — first real-sample Python-mode run, validated end to end (2026-07-09)
+## 🎉 RELEASED: gui-dev → main (2026-07-10)
+
+The GUI development line is **merged to `main` at v0.1.0** (`--no-ff` merge `3dd623a`, pushed).
+`main` was the old notebook-era version; it now carries the full GUI: 4-tab PyQt5 app, modular
+package, External + Python (EchemToolkitPy) Gamry with the DIGOUT0→Avantes trigger sync, Phase 2.5
+echem capture, Results / Load-Run / live-echem, and the opt-in wavelength window. **`gui-dev` stays
+the working branch.** Version stays 0.1.0 (pre-release); a citable Zenodo 0.2.0 can be tagged later.
+
+**Merge gate met:** output validated end-to-end through Raj Giri's `OECT_processing`, including a
+**cropped run** (2026-07-10, salt blank) — the narrower wavelength axis reads cleanly downstream.
+
+Landed this cycle:
+- **Configurable wavelength window** — opt-in *software* crop of the noisy lamp edges, with a
+  data-driven, override-able recommendation (absolute "Max noise (OD)" knob). Default = full window →
+  output byte-identical to before. `spec_echem/spectral_range.py` + `set_wavelength_window`.
+  (The `m_StartPixel/m_StopPixel` hardware approach was abandoned — it mis-mapped on real hardware.)
+- **Results "Load Run…"** + absorbance y-autoscale.
+- **Doc hygiene + README refresh** — deps/DOI/README, `docs/data-format.md`; the README now presents
+  the GUI as the workflow with the 32-bit (Python Gamry) vs 64-bit env note.
+
+**Deferred (no rush):** fresh/degassed real-sample scientific demo (~Sept–Oct 2026, lab reno);
+a citable Zenodo 0.2.0 tag; a fuller "Analysis with OECT_processing" README section once Raj fixes his
+reader upstream (`specfiles`→`stepfiles` + `prededoping` mis-sort); the pre-dedoping-subfolder idea;
+exposing other `measconfig` fields.
+
+---
+
+## (prior) Milestone — first real-sample Python-mode run, validated end to end (2026-07-09)
 
 Dean ran a full **Python-mode** sequence (CV + pre-dedope + 3 doping/dedoping cycles) on a real —
 if aged, non-degassed — **P3HT/P3MEEMT** film (`20260709_P3HT_01`). Signal was weaker than a fresh
@@ -56,14 +83,10 @@ applied in our local clone, for Raj to fix upstream). Second reader nit for Raj:
 mis-sort into the dedoping lists (substring match). Raj (Slack) will make his reader dual-format
 (his newer single-file design vs our two-file output), so nothing forces a spec-echem change.
 
-**Path to `gui-dev → main` (reframed 2026-07-09; updated 2026-07-10).** With the OECT_processing trial
-passed, the **software gate is DONE** — remaining items are doc hygiene + the (deferred) fresh-sample demo:
-- **Software gate — ✅ OECT_processing compatibility PROVEN (2026-07-10, see milestone above).**
-  Remaining: only the **doc-hygiene fixes** (requirements.txt GUI deps, DOI mismatch, dup README).
-  Once those land, `gui-dev → main` is ready — no fresh sample needed for the merge.
-- **Scientific gold-standard demo (deferred):** a fresh/degassed strong-signal run is blocked by lab
-  renovations until **~Sept–Oct 2026**. This is a quality milestone, not a software blocker — slot it
-  in when the lab is back; it need not hold up shipping to `main`.
+**`gui-dev → main`: ✅ DONE (merged 2026-07-10** — see the release section at the top). Both gates
+were met: OECT_processing compatibility proven (incl. a cropped run) + doc hygiene done. The
+fresh/degassed scientific gold-standard demo remains deferred (~Sept–Oct 2026, lab reno) — a quality
+milestone, not a blocker, and it did not hold up the release.
 
 ---
 
