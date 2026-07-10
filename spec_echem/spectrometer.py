@@ -30,6 +30,7 @@ except ImportError:
 # narrower user window (set_wavelength_window) restricts within it.
 CAL_START_PX = 395
 CAL_STOP_PX = 1659   # inclusive; the old slice was [395:1660]
+CAL_WINDOW_LEN = CAL_STOP_PX - CAL_START_PX + 1   # 1265 calibrated pixels
 
 
 class AvantesSpectrometer:
@@ -41,10 +42,11 @@ class AvantesSpectrometer:
     range approximately 380 to 1100 nm.
     """
 
-    # Class-level defaults so the window is defined even if an instance is built
-    # without __init__ (e.g. some tests); __init__ re-sets them per instance.
-    _start_px = CAL_START_PX
-    _stop_px = CAL_STOP_PX
+    # User wavelength crop, as indices into the calibrated [395:1660] window
+    # (a pure software crop). Full window by default → output identical to before.
+    # Class-level so it's defined even if an instance is built without __init__.
+    _lo_i = 0
+    _hi_i = CAL_WINDOW_LEN - 1
 
     def __init__(self):
         """Initialize the Avantes spectrometer instance."""
@@ -53,11 +55,9 @@ class AvantesSpectrometer:
         self.wavelength = None
         self.serial_number = None
         self.measconfig = None
-        # Configurable wavelength window (absolute detector pixel indices);
-        # defaults to the full calibrated window, so behavior is unchanged
-        # until set_wavelength_window() narrows it.
-        self._start_px = CAL_START_PX
-        self._stop_px = CAL_STOP_PX
+        # Wavelength crop (indices into the calibrated window); full by default.
+        self._lo_i = 0
+        self._hi_i = CAL_WINDOW_LEN - 1
 
     def init(self):
         """
@@ -140,61 +140,36 @@ class AvantesSpectrometer:
                 - trimmed_numpy_array: Numpy array for ~380-1100 nm range
         """
         wavelength = AVS_GetLambda(self.dev_handle)
-        # Window it the same length-robust way as measure(): AVS_GetLambda may
-        # return the full detector OR (after a narrow window) already-windowed
-        # data — _window() slices only when it's longer than the window, so the
-        # returned wavelengths always match measure().
-        return wavelength, self._window(wavelength)
+        # Calibrated [395:1660] window (the proven slice), then the user crop.
+        return wavelength, self._crop(wavelength)
 
-    def _window(self, spectral_data):
-        """Return the configured pixel window from a raw AVS_GetScopeData result.
-
-        HARDWARE NOTE (verify on the instrument box): it is not certain whether
-        AVS_GetScopeData returns the full detector or only m_StartPixel..m_StopPixel.
-        This handles both: if the array is longer than the configured window it is
-        the full detector → slice by absolute pixel index; otherwise the SDK already
-        windowed it → use as-is. When no narrowing has been applied this reproduces
-        the historical [395:1660] slice exactly.
+    def _crop(self, spectral_data):
+        """Take the calibrated ~380-1100 nm window ([395:1660], the historical
+        slice) from a raw AVS array, then apply the user wavelength crop. Pure
+        software — no dependence on how the SDK windows pixels, so wavelengths()
+        and measure() always agree. Full crop by default = the historical output.
         """
-        data = np.array(spectral_data)
-        window_len = self._stop_px - self._start_px + 1
-        if len(data) > window_len:
-            data = data[self._start_px:self._stop_px + 1]
-        return data
+        cal = np.array(spectral_data[CAL_START_PX:CAL_STOP_PX + 1])
+        return cal[self._lo_i:self._hi_i + 1]
 
-    def set_wavelength_window(self, wl_min, wl_max, measconfig=None):
+    def set_wavelength_window(self, wl_min, wl_max):
         """Restrict the returned spectrum to [wl_min, wl_max] nm.
 
-        Maps the requested nm bounds to detector pixels (via the calibration),
-        clamps them within the calibrated usable window (CAL_START_PX..CAL_STOP_PX),
-        stores them, sets m_StartPixel/m_StopPixel, and re-prepares — mirroring
-        set_integration_time / set_scan_averages. Pass wl_min=None and/or
-        wl_max=None to reset that edge to the full calibrated window.
+        A pure software crop of the calibrated ~380-1100 nm window — it does NOT
+        touch the hardware measconfig, so it is independent of how the SDK returns
+        pixels. Stores indices into the calibrated window; pass wl_min=None and/or
+        wl_max=None to reset that edge to the full window.
         """
-        if measconfig is None:
-            measconfig = self.measconfig
-        wl = np.asarray(self.wavelength, float)
-
-        if wl_min is None:
-            start = CAL_START_PX
-        else:
-            start = int(np.searchsorted(wl, wl_min, side='left'))
-        if wl_max is None:
-            stop = CAL_STOP_PX
-        else:
-            stop = int(np.searchsorted(wl, wl_max, side='right')) - 1
-
-        start = max(CAL_START_PX, min(start, CAL_STOP_PX))
-        stop = max(CAL_START_PX, min(stop, CAL_STOP_PX))
-        if stop < start:
+        cal_wl = np.asarray(self.wavelength, float)[CAL_START_PX:CAL_STOP_PX + 1]
+        n = len(cal_wl)
+        lo = 0 if wl_min is None else int(np.searchsorted(cal_wl, wl_min, side='left'))
+        hi = n - 1 if wl_max is None else int(np.searchsorted(cal_wl, wl_max, side='right')) - 1
+        lo = max(0, min(lo, n - 1))
+        hi = max(0, min(hi, n - 1))
+        if hi < lo:
             raise ValueError(f"Empty wavelength window: {wl_min}-{wl_max} nm")
-
-        self._start_px, self._stop_px = start, stop
-        measconfig.m_StartPixel = start
-        measconfig.m_StopPixel = stop
-        AVS_PrepareMeasure(self.dev_handle, measconfig)
-        print(f"Wavelength window set to pixels {start}-{stop} "
-              f"({wl[start]:.1f}-{wl[stop]:.1f} nm)")
+        self._lo_i, self._hi_i = lo, hi
+        print(f"Wavelength window: {cal_wl[lo]:.1f}-{cal_wl[hi]:.1f} nm ({hi - lo + 1} px)")
 
     def measure_timing(self, measconfig=None):
         """
@@ -243,7 +218,7 @@ class AvantesSpectrometer:
             total_int_time = measconfig.m_IntegrationTime * measconfig.m_NrAverages
             net_dif = (t_dif * 1000) - total_int_time
 
-        return timestamp, self._window(spectral_data), net_dif, t_dif
+        return timestamp, self._crop(spectral_data), net_dif, t_dif
     
     def measure(self, abort_event=None, on_armed=None):
         """
@@ -285,7 +260,7 @@ class AvantesSpectrometer:
         timestamp = ret[0]
         spectral_data = ret[1]
 
-        return timestamp, self._window(spectral_data)
+        return timestamp, self._crop(spectral_data)
     
     def plot_data(self, wavelength, spectral_data):
         """
