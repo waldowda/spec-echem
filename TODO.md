@@ -124,10 +124,11 @@ DIGOUT0 handshake confirmed. Remaining items:
 - [x] **Configurable wavelength window — crop noisy lamp edges — DONE (2026-07-10).** Opt-in,
       driver-level (`m_StartPixel`/`m_StopPixel`); default = full window (output unchanged). Instrument
       tab: wl_min/max + Conservative/Balanced/Liberal + "Suggest from test-abs" + "Apply". Recommendation
-      in `spec_echem/spectral_range.py` (rolling-σ of the test-abs, ref-net corroboration). Two open items:
-      **(a) HARDWARE-VERIFY on the box** whether `AVS_GetScopeData` returns full-length vs already-windowed
-      under a narrowed pixel range — `spectrometer._window()` handles both but it's unconfirmed on real
-      hardware; **(b)** re-run `OECT_processing` on a *cropped* run to confirm the narrower axis reads.
+      in `spec_echem/spectral_range.py` (rolling-σ of the test-abs, ref-net corroboration; knob is an
+      absolute **Max noise (OD)**, default 0.010). Hardware behavior now KNOWN (2026-07-10): the Avantes
+      **windows natively** (`AVS_GetLambda` returned already-windowed data — fixed the resulting crash;
+      `_window()` handles both cases). Instrument-tab plots/loads made crash-proof. Remaining: **re-run
+      `OECT_processing` on a *cropped* run** to confirm the narrower axis reads downstream.
 - [ ] **Expose the other hard-coded `measconfig` fields (future, Dean 2026-07-10).** Now that the window
       is config-driven, `_create_measurement_config` could expose smoothing, **saturation detection**
       (ties to the linearity-check item below), and the averaging model instead of hard-coding them.
