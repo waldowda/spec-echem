@@ -102,6 +102,13 @@ DIGOUT0 handshake confirmed. Remaining items:
       redraw interval is a one-line knob (make it tunable). Possible follow-ups: live *absorbance* too
       (needs per-spectrum emit from the worker); drop the now-purposeful `acq_data()` poll into the
       two-thread review.
+- [x] **Review a past run without re-running — DONE (2026-07-09).** Results tab gained a "Load Run…"
+      button: pick a saved run folder → `discover_run_segments` reverse-maps the filenames and
+      `read_spectra_absorbance` rebuilds each absorbance matrix from disk (both in `spec_echem/data.py`),
+      populating the Results view (absorbance + echem) exactly as a live run does. Previously the tab only
+      showed the current session's run ("run a sequence first" on a cold launch). Guarded against loading
+      mid-run. ("Open Data Folder" is unchanged — it opens the folder in Explorer, a filesystem shortcut,
+      not an in-GUI viewer.)
 - [ ] **Linearity check on the raw-counts test (future):** flag when the peak test counts approach the
       detector's saturation ceiling, so the user confirms they're in the linear regime before collecting
       dark/reference/data. (The test-counts graph already annotates the peak value.)
