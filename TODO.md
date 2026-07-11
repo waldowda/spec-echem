@@ -129,7 +129,8 @@ DIGOUT0 handshake confirmed. Remaining items:
       the `m_StartPixel/m_StopPixel` hardware approach was abandoned (mis-mapped on real hardware — axis
       jumped to ~1050-1160 nm, graphs blank); `set_wavelength_window` now crops the calibrated `[395:1660]`
       window by index (`_crop`), never touching measconfig. Instrument-tab plots/loads crash-proofed.
-      Remaining: **re-run `OECT_processing` on a *cropped* run** to confirm the narrower axis reads downstream.
+      Downstream confirmed 2026-07-10: a **cropped run** (400.5–1049.7 nm, salt blank) reads cleanly
+      through `OECT_processing`. **DONE + RELEASED to main.**
 - [ ] **Expose the other hard-coded `measconfig` fields (future, Dean 2026-07-10).** Now that the window
       is config-driven, `_create_measurement_config` could expose smoothing, **saturation detection**
       (ties to the linearity-check item below), and the averaging model instead of hard-coding them.
