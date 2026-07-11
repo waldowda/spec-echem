@@ -1,0 +1,6 @@
+# Language-stats tuning for GitHub Linguist.
+# The example notebooks carry large embedded plot outputs (~4.4 MB), which
+# otherwise dominate the repo language bar (96% "Jupyter Notebook"). Mark them
+# as documentation so the bar reflects the actual Python codebase. This does not
+# change or hide the notebooks — they still render normally on GitHub.
+notebooks/*.ipynb linguist-documentation
