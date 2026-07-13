@@ -134,11 +134,16 @@ DIGOUT0 handshake confirmed. Remaining items:
 - [ ] **Expose the other hard-coded `measconfig` fields (future, Dean 2026-07-10).** Now that the window
       is config-driven, `_create_measurement_config` could expose smoothing, **saturation detection**
       (ties to the linearity-check item below), and the averaging model instead of hard-coding them.
-- [x] **Linearity check — DONE (2026-07-13).** Instrument tab now has a `Linearity Check` box beside
-      Spectrometer Settings: ramps integration time, tracks one fixed peak pixel, fits the linear region
-      (with intercept), and recommends a time 5% below the limit of linearity. Manual Start/Stop/Steps +
-      a tolerance knob (default 2%), a "Find saturation" helper that brackets by doubling, and a
-      "Use recommended" button. `spec_echem/linearity.py`; run with the reference in place.
+- [x] **Linearity check — DONE + hardware-validated (2026-07-13).** Instrument tab has a `Linearity Check`
+      box beside Spectrometer Settings: ramps integration time, tracks one fixed peak pixel, fits the linear
+      region (with intercept), and recommends a working integration time. Manual Start/Stop/Steps, a
+      "Find saturation" helper (bisects to the real threshold), and "Use recommended".
+      `spec_echem/linearity.py`; run with the reference in place.
+      **Key finding from the real run:** the detector tracks the fit to within ~1% right up to the hard ADC
+      clip, so a deviation-only criterion never fires and puts the working point at ~94% of full scale. The
+      recommendation therefore takes the **tighter of two constraints** — 5% below the limit of linearity,
+      or peak counts ≤ a **max-fill** fraction of full scale. Defaults **85% fill / 2% tolerance** confirmed
+      good by Dean on hardware (halogen + ND: saturates ~0.11 ms → recommends ~0.0885 ms).
 - [ ] **Linearity: per-source ramp defaults (Dean, 2026-07-13).** Saturation depends strongly on the
       light source — Dean has a halogen+ND (saturates ~0.11 ms) and an Avantes **AvaLight**. Start/Stop are
       manual and "Find saturation" auto-adapts, so switching sources already works; only the *default*
