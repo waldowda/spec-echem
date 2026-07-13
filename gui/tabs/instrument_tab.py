@@ -13,7 +13,7 @@ from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
     QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
-    QApplication, QMessageBox,
+    QApplication, QMessageBox, QTabWidget,
 )
 
 from spec_echem.fakes import FakeSpectrometer
@@ -146,12 +146,13 @@ class InstrumentTab(QWidget):
         # --- Linearity check (sits beside Spectrometer Settings, which it feeds) ---
         lin_group = QGroupBox("Linearity Check")
         lin_col = QVBoxLayout(lin_group)
-        lin_note = QLabel(
-            "Run with the reference solution in place and the lamp on. "
-            "Ramps integration time to saturation, fits the linear region, and "
-            "recommends a time 5% below the limit of linearity.")
+        lin_note = QLabel("Run with the reference solution in place and the lamp on.")
         lin_note.setWordWrap(True)
         lin_note.setStyleSheet("color: #555;")
+        lin_note.setToolTip(
+            "Ramps integration time to saturation, fits the linear region, and recommends "
+            "a working integration time — the tighter of 5% below the limit of linearity "
+            "or the Max fill fraction of ADC full scale.")
         lin_col.addWidget(lin_note)
 
         lin_form = QHBoxLayout()
@@ -219,21 +220,18 @@ class InstrumentTab(QWidget):
         self.lin_canvas.setMinimumHeight(180)
         lin_col.addWidget(self.lin_canvas)
 
-        # Top row: Spectrometer Connection | Potentiostat side by side (half width
-        # each); Spectrometer Settings | Linearity Check likewise beneath.
+        # Top row: Spectrometer Connection | Potentiostat side by side (half width each).
         top_row = QHBoxLayout()
         top_row.addWidget(conn_group, stretch=1)
         top_row.addWidget(pstat_group, stretch=1)
         layout.addLayout(top_row)
-        settings_row = QHBoxLayout()
-        settings_row.addWidget(settings_group, stretch=1)
-        settings_row.addWidget(lin_group, stretch=1)
-        layout.addLayout(settings_row)
 
-        # --- Dark / Reference: two graphs side by side, controls above each ---
-        cal_row = QHBoxLayout()
+        # --- Dark / Reference: TABBED, so only one plot is shown at a time. Stacking
+        # them made this tab enormous; you inspect them one at a time anyway, and the
+        # single plot balances the height of the (tall) Settings+Linearity column beside it.
+        cal_tabs = QTabWidget()
 
-        dark_box = QGroupBox("Dark")
+        dark_box = QWidget()
         dark_col = QVBoxLayout(dark_box)
         dark_btns = QHBoxLayout()
         self.collect_dark_btn = QPushButton("Collect New")
@@ -248,13 +246,14 @@ class InstrumentTab(QWidget):
         dark_btns.addStretch()
         self.dark_status = QLabel("Dark: none")
         self.dark_canvas = MplCanvas(ylabel="Intensity (counts)")
-        self.dark_canvas.setMinimumHeight(180)
+        self.dark_canvas.setMinimumHeight(260)
         dark_col.addLayout(dark_btns)
         dark_col.addWidget(self.dark_status)
-        dark_col.addWidget(self.dark_canvas)
-        cal_row.addWidget(dark_box, stretch=1)
+        # All spare height goes to the plot, not into gaps between the controls.
+        dark_col.addWidget(self.dark_canvas, stretch=1)
+        cal_tabs.addTab(dark_box, "Dark")
 
-        ref_box = QGroupBox("Reference (100%T)")
+        ref_box = QWidget()
         ref_col = QVBoxLayout(ref_box)
         ref_btns = QHBoxLayout()
         self.collect_ref_btn = QPushButton("Collect New")
@@ -269,12 +268,28 @@ class InstrumentTab(QWidget):
         ref_btns.addStretch()
         self.ref_status = QLabel("Reference: none")
         self.ref_canvas = MplCanvas(ylabel="Intensity (counts)")
-        self.ref_canvas.setMinimumHeight(180)
+        self.ref_canvas.setMinimumHeight(260)
         ref_col.addLayout(ref_btns)
         ref_col.addWidget(self.ref_status)
-        ref_col.addWidget(self.ref_canvas)
-        cal_row.addWidget(ref_box, stretch=1)
-        layout.addLayout(cal_row)
+        ref_col.addWidget(self.ref_canvas, stretch=1)
+        cal_tabs.addTab(ref_box, "Reference (100%T)")
+
+        cal_box = QGroupBox("Dark / Reference")
+        cal_box_col = QVBoxLayout(cal_box)
+        cal_box_col.addWidget(cal_tabs)
+
+        # Main row: [Spectrometer Settings over Linearity Check] | [tabbed Dark/Reference].
+        # The left column is tall (it owns the linearity plot), so tabbing dark/reference
+        # into a single plot on the right keeps the two columns the same height — no
+        # stretched-out empty group boxes.
+        main_row = QHBoxLayout()
+        left_col = QVBoxLayout()
+        left_col.addWidget(settings_group)
+        left_col.addWidget(lin_group)
+        left_col.addStretch()
+        main_row.addLayout(left_col, stretch=1)
+        main_row.addWidget(cal_box, stretch=1)
+        layout.addLayout(main_row)
 
         # --- Test measurement: counts and absorbance, side by side ---
         test_row = QHBoxLayout()
