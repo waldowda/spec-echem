@@ -35,19 +35,44 @@ def test_perfectly_linear_reports_no_limit():
     assert "increase stop" in result["summary"].lower()
 
 
-def test_knee_is_found_and_recommendation_is_five_percent_below():
+def test_knee_is_found_and_recommendation_takes_the_tighter_constraint():
     times = np.linspace(0.02, 0.16, 20)
     counts = _linear_then_knee(times, knee_t=0.10)
     result = analyze_linearity(times, counts, tolerance_pct=2.0)
 
     assert result["limit_found"] is True
     # The limit is the last still-linear point, so it must sit at/just below the knee.
-    assert result["t_limit"] <= 0.105
-    assert result["t_limit"] >= 0.08
-    assert result["t_recommended"] == pytest.approx(0.95 * result["t_limit"], rel=1e-3)
+    assert 0.08 <= result["t_limit"] <= 0.105
+    # Whichever of (5% below the limit) / (max fill) is tighter wins.
+    assert result["t_recommended"] == pytest.approx(
+        min(0.95 * result["t_limit"], result["t_fill"]), rel=1e-3)
     # The fit recovered the true linear region, not the compressed part.
     assert result["slope"] == pytest.approx(600000.0, rel=0.05)
     assert result["offset"] == pytest.approx(300.0, abs=500.0)
+
+
+def test_fill_cap_binds_when_the_detector_stays_linear_to_the_clip():
+    """Dean's real hardware (2026-07-13): the response tracks the fit to within ~1%
+    right up to the hard ADC clip, so the deviation test never fires. Linearity alone
+    would put the working point at ~94% of full scale — the fill cap is the only thing
+    providing headroom. Regression guard for that."""
+    slope, offset = 605771.0, 2120.0          # measured fit from the real run
+    times = np.linspace(0.022, 0.1112, 12)
+    counts = np.minimum(offset + slope * times, FULL_SCALE_COUNTS)
+
+    result = analyze_linearity(times, counts, tolerance_pct=2.0, max_fill_frac=0.85)
+
+    # The ramp ended at the clip, not at a deviation.
+    assert result["saturated"] is True
+    assert result["bound_by"] == "fill"
+
+    expected_t = (0.85 * FULL_SCALE_COUNTS - offset) / slope     # ~0.0885 ms
+    assert result["t_recommended"] == pytest.approx(expected_t, rel=0.02)
+    assert result["counts_recommended"] == pytest.approx(0.85 * FULL_SCALE_COUNTS, rel=0.02)
+
+    # And it is genuinely more conservative than the linearity-only answer.
+    assert result["t_recommended"] < 0.95 * result["t_limit"]
+    assert result["counts_recommended"] < 0.90 * FULL_SCALE_COUNTS
 
 
 def test_tighter_tolerance_finds_the_knee_earlier():
@@ -107,16 +132,29 @@ def test_ramp_against_the_fake_tracks_one_pixel_and_stops_at_saturation():
     assert result["t_recommended"] < result["t_limit"]
 
 
-def test_find_saturation_time_brackets_by_doubling():
+def test_find_saturation_time_bisects_to_a_tight_bracket():
     spec = FakeSpectrometer()
     spec.init()
 
-    t_sat = find_saturation_time(spec, start=0.005)
+    sat = find_saturation_time(spec, start=0.005)
 
-    assert t_sat > 0.005
-    # It is a doubling of the start value.
-    assert np.log2(t_sat / 0.005) == pytest.approx(round(np.log2(t_sat / 0.005)), abs=1e-9)
-    # And it really does saturate there.
-    spec.set_integration_time(t_sat)
+    # Saturates above t_sat, does not below it — and the bracket is tight, which is
+    # the whole point: plain doubling could only ever report a power-of-two multiple.
+    assert sat["t_below"] < sat["t_sat"]
+    assert (sat["t_sat"] - sat["t_below"]) / sat["t_sat"] < 0.05
+    assert sat["counts_below"] < FULL_SCALE_COUNTS * 0.99
+
+    spec.set_integration_time(sat["t_sat"])
     _, spectrum = spec.measure()
     assert spectrum.max() >= FULL_SCALE_COUNTS * 0.99
+
+    spec.set_integration_time(sat["t_below"])
+    _, spectrum = spec.measure()
+    assert spectrum.max() < FULL_SCALE_COUNTS * 0.99
+
+
+def test_find_saturation_time_rejects_a_saturated_start():
+    spec = FakeSpectrometer()
+    spec.init()
+    with pytest.raises(LinearityError, match="Already saturated at Start"):
+        find_saturation_time(spec, start=5.0)

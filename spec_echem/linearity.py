@@ -22,6 +22,7 @@ import numpy as np
 FULL_SCALE_COUNTS = 65535   # 16-bit ADC
 SATURATION_FRAC = 0.99      # counts at/above this fraction of full scale = saturated
 MIN_FIT_POINTS = 4          # lowest-t points assumed linear, used to seed the fit
+MAX_FILL_FRAC = 0.85        # keep the working peak at/below this fraction of full scale
 
 
 class LinearityError(Exception):
@@ -73,7 +74,7 @@ def measure_linearity_series(spec, times, full_scale=FULL_SCALE_COUNTS,
     return np.array(used), np.array(counts), peak_pixel
 
 
-def analyze_linearity(times, counts, tolerance_pct=2.0,
+def analyze_linearity(times, counts, tolerance_pct=2.0, max_fill_frac=MAX_FILL_FRAC,
                       full_scale=FULL_SCALE_COUNTS, min_fit_points=MIN_FIT_POINTS):
     """
     Fit the linear region and find where the response departs from it.
@@ -84,11 +85,24 @@ def analyze_linearity(times, counts, tolerance_pct=2.0,
     goes. The limit is the first point that falls more than `tolerance_pct` BELOW
     the fitted line (compression is always downward) or that saturates.
 
+    TWO constraints set the recommendation, and the tighter one wins:
+
+      1. 5% below the limit of linearity, and
+      2. peak counts no higher than `max_fill_frac` of ADC full scale.
+
+    The second is not redundant. On real hardware the detector can stay linear to
+    within ~1% right up until it hard-clips, so the deviation test alone puts the
+    "limit" at ~98% of full scale and leaves no headroom for lamp drift. The
+    fill cap is what keeps the working point off the ceiling.
+
     Returns a dict:
         slope, offset        fitted counts = offset + slope * t
         t_limit              last integration time still linear (None if never departed)
         counts_limit         counts there
-        t_recommended        0.95 * t_limit  (5% below the limit of linearity)
+        t_recommended        the tighter of the two constraints above
+        counts_recommended   predicted peak counts there
+        bound_by             "linearity" or "fill" — which constraint decided
+        t_fill               integration time that reaches max_fill_frac of full scale
         saturated            whether the ramp reached the ADC clip
         limit_found          whether a departure from linearity was actually seen
         n_fit                points included in the final linear fit
@@ -143,67 +157,134 @@ def analyze_linearity(times, counts, tolerance_pct=2.0,
         n_fit = i + 1
         slope, offset = np.polyfit(times[:n_fit], counts[:n_fit], 1)
 
-    if limit_idx is None:
-        # Never departed: the whole tested range is linear.
-        t_limit = float(times[-1])
-        return {
-            "slope": float(slope), "offset": float(offset),
-            "t_limit": None, "counts_limit": float(counts[-1]),
-            "t_recommended": round(0.95 * t_limit, 6),
-            "saturated": saturated, "limit_found": False, "n_fit": n_fit,
-            "summary": (
-                f"Linear across the whole tested range (up to {t_limit:.4g} ms, "
-                f"{counts[-1]:.0f} counts) — no departure > {tolerance_pct:.1f}% found. "
-                f"Increase Stop to find the actual limit. "
-                f"Recommended for now: {0.95 * t_limit:.4g} ms."),
-        }
+    # --- The two constraints on a safe working integration time ---
+    # (1) 5% below the limit of linearity. If no departure was seen, the highest
+    #     time we actually tested is the best evidence we have.
+    limit_found = limit_idx is not None
+    t_last_linear = float(times[limit_idx - 1]) if limit_found else float(times[-1])
+    t_from_linearity = 0.95 * t_last_linear
 
-    # The last point still linear is the one before the departure.
-    t_limit = float(times[limit_idx - 1])
-    counts_limit = float(counts[limit_idx - 1])
-    t_recommended = round(0.95 * t_limit, 6)
-    why = ("saturated" if counts[limit_idx] >= sat_level
-           else f"fell {abs((counts[limit_idx] - (offset + slope * times[limit_idx])) / (offset + slope * times[limit_idx])) * 100:.1f}% below the fit")
+    # (2) Keep the peak below max_fill_frac of full scale. Extrapolated from the fit,
+    #     which is the *linear* response — exactly what we want the working point on.
+    fill_counts = max_fill_frac * full_scale
+    t_fill = (fill_counts - offset) / slope if slope > 0 else float("inf")
 
-    return {
+    if t_fill < t_from_linearity:
+        t_recommended, bound_by = t_fill, "fill"
+    else:
+        t_recommended, bound_by = t_from_linearity, "linearity"
+
+    if t_recommended <= 0:
+        raise LinearityError(
+            "Cannot recommend an integration time — the fitted response is degenerate.")
+
+    counts_recommended = offset + slope * t_recommended
+    t_recommended = round(t_recommended, 6)
+
+    if bound_by == "fill":
+        why_rec = (f"held to {max_fill_frac * 100:.0f}% of full scale "
+                   f"({counts_recommended:.0f} counts) — the detector stays linear "
+                   f"nearly to the clip, so fill is the binding constraint, not linearity")
+    else:
+        why_rec = (f"5% below the limit of linearity ({counts_recommended:.0f} counts, "
+                   f"{counts_recommended / full_scale * 100:.0f}% of full scale)")
+
+    common = {
         "slope": float(slope), "offset": float(offset),
-        "t_limit": t_limit, "counts_limit": counts_limit,
         "t_recommended": t_recommended,
-        "saturated": saturated, "limit_found": True, "n_fit": n_fit,
-        "summary": (
-            f"Linear to {t_limit:.4g} ms ({counts_limit:.0f} counts); at "
-            f"{times[limit_idx]:.4g} ms the response {why}. "
-            f"Fit: counts = {offset:.0f} + {slope:.0f}·t (over {n_fit} points). "
-            f"Recommended: {t_recommended:.4g} ms (5% below the limit)."),
+        "counts_recommended": float(counts_recommended),
+        "bound_by": bound_by,
+        "t_fill": float(t_fill),
+        "saturated": saturated, "n_fit": n_fit,
     }
 
+    if not limit_found:
+        common.update({
+            "t_limit": None, "counts_limit": float(counts[-1]), "limit_found": False,
+            "summary": (
+                f"Linear across the whole tested range (up to {t_last_linear:.4g} ms, "
+                f"{counts[-1]:.0f} counts) — no departure > {tolerance_pct:.1f}% found; "
+                f"increase Stop to find the true limit. "
+                f"Fit: counts = {offset:.0f} + {slope:.0f}·t (over {n_fit} points). "
+                f"Recommended: {t_recommended:.4g} ms — {why_rec}."),
+        })
+        return common
 
-def find_saturation_time(spec, start, max_time=10000.0,
-                         full_scale=FULL_SCALE_COUNTS, max_steps=20):
+    counts_limit = float(counts[limit_idx - 1])
+    predicted_at_limit = offset + slope * times[limit_idx]
+    why_limit = ("saturated" if counts[limit_idx] >= sat_level else
+                 f"fell {abs((counts[limit_idx] - predicted_at_limit) / predicted_at_limit) * 100:.1f}% "
+                 "below the fit")
+    common.update({
+        "t_limit": t_last_linear, "counts_limit": counts_limit, "limit_found": True,
+        "summary": (
+            f"Linear to {t_last_linear:.4g} ms ({counts_limit:.0f} counts, "
+            f"{counts_limit / full_scale * 100:.0f}% of full scale); at "
+            f"{times[limit_idx]:.4g} ms the response {why_limit}. "
+            f"Fit: counts = {offset:.0f} + {slope:.0f}·t (over {n_fit} points). "
+            f"Recommended: {t_recommended:.4g} ms — {why_rec}."),
+    })
+    return common
+
+
+def find_saturation_time(spec, start, max_time=10000.0, full_scale=FULL_SCALE_COUNTS,
+                         max_steps=20, bisect_steps=6):
     """
-    Bracket saturation by doubling the integration time from `start`.
+    Find where the detector saturates: double the integration time until it clips,
+    then bisect the bracket to pin the threshold.
 
-    Returns the first integration time whose spectrum saturates — a sensible
-    upper bound (Stop) for the ramp. Raises if saturation is never reached by
-    `max_time`, or if `start` already saturates.
+    Doubling alone overshoots badly — it can only ever report a power-of-two
+    multiple of `start`, which says little about where saturation actually is
+    (e.g. it reports 0.176 ms when the true threshold is 0.111 ms). The bisection
+    is what makes the answer meaningful.
+
+    Returns a dict: t_sat (lowest time seen to saturate), t_below (highest time
+    seen NOT to saturate), counts_below (peak counts there).
     """
     sat_level = full_scale * SATURATION_FRAC
-    t = float(start)
-    if t <= 0:
-        raise LinearityError("Start integration time must be > 0.")
 
-    for _ in range(max_steps):
+    def peak_at(t):
         spec.set_integration_time(t)
         result = spec.measure()
         if result is None:
             raise LinearityError("Measurement aborted.")
         _, spectrum = result
-        if float(np.asarray(spectrum, float).max()) >= sat_level:
-            return t
+        return float(np.asarray(spectrum, float).max())
+
+    t = float(start)
+    if t <= 0:
+        raise LinearityError("Start integration time must be > 0.")
+
+    peak = peak_at(t)
+    if peak >= sat_level:
+        raise LinearityError(
+            f"Already saturated at Start ({t:.4g} ms, {peak:.0f} counts). "
+            "Lower Start, or attenuate the light.")
+
+    # Double until it clips, keeping the last unsaturated time as the lower bracket.
+    lo, counts_lo, hi = t, peak, None
+    for _ in range(max_steps):
         if t >= max_time:
             break
         t = min(t * 2.0, max_time)
+        peak = peak_at(t)
+        if peak >= sat_level:
+            hi = t
+            break
+        lo, counts_lo = t, peak
 
-    raise LinearityError(
-        f"No saturation up to {t:.4g} ms. The light may be too dim — remove "
-        "attenuation, or set Stop by hand.")
+    if hi is None:
+        raise LinearityError(
+            f"No saturation up to {t:.4g} ms. The light may be too dim — remove "
+            "attenuation, or set Stop by hand.")
+
+    # Bisect the [lo, hi] bracket to pin the threshold.
+    for _ in range(bisect_steps):
+        mid = 0.5 * (lo + hi)
+        peak = peak_at(mid)
+        if peak >= sat_level:
+            hi = mid
+        else:
+            lo, counts_lo = mid, peak
+
+    return {"t_sat": float(hi), "t_below": float(lo), "counts_below": float(counts_lo)}
