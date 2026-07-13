@@ -134,9 +134,16 @@ DIGOUT0 handshake confirmed. Remaining items:
 - [ ] **Expose the other hard-coded `measconfig` fields (future, Dean 2026-07-10).** Now that the window
       is config-driven, `_create_measurement_config` could expose smoothing, **saturation detection**
       (ties to the linearity-check item below), and the averaging model instead of hard-coding them.
-- [ ] **Linearity check on the raw-counts test (future):** flag when the peak test counts approach the
-      detector's saturation ceiling, so the user confirms they're in the linear regime before collecting
-      dark/reference/data. (The test-counts graph already annotates the peak value.)
+- [x] **Linearity check — DONE (2026-07-13).** Instrument tab now has a `Linearity Check` box beside
+      Spectrometer Settings: ramps integration time, tracks one fixed peak pixel, fits the linear region
+      (with intercept), and recommends a time 5% below the limit of linearity. Manual Start/Stop/Steps +
+      a tolerance knob (default 2%), a "Find saturation" helper that brackets by doubling, and a
+      "Use recommended" button. `spec_echem/linearity.py`; run with the reference in place.
+- [ ] **Linearity: per-source ramp defaults (Dean, 2026-07-13).** Saturation depends strongly on the
+      light source — Dean has a halogen+ND (saturates ~0.11 ms) and an Avantes **AvaLight**. Start/Stop are
+      manual and "Find saturation" auto-adapts, so switching sources already works; only the *default*
+      Stop (0.15 ms) is tuned to the halogen. If source-swapping becomes routine, remember the last-used
+      Start/Stop per source in settings rather than shipping one default.
 
 ## GUI UX — Instrument tab potentiostat controls (Dean, 2026-07-05)
 
