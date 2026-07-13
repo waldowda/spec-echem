@@ -13,6 +13,15 @@ N_POINTS = 1265
 WL_MIN = 380.0
 WL_MAX = 1100.0
 
+# Detector response model (for the linearity check). Counts scale with integration
+# time and compress near the ADC ceiling. NOMINAL_INTEGRATION_MS is the default
+# integration time: at exactly that value the scale factor is 1.0 and the knee is
+# not engaged, so spectra are identical to what this fake produced before the
+# response model existed (golden tests stay valid).
+FULL_SCALE = 65535.0
+SATURATION_KNEE = 0.90 * FULL_SCALE   # soft roll-off begins here
+NOMINAL_INTEGRATION_MS = 0.022
+
 
 class FakeSpectrometer:
     """Drop-in stand-in for AvantesSpectrometer with synthetic spectra."""
@@ -63,18 +72,33 @@ class FakeSpectrometer:
             raise ValueError(f"Empty wavelength window: {wl_min}-{wl_max} nm")
         self._start_idx, self._stop_idx = start, stop
 
+    def _saturate(self, spectrum):
+        """Soft compression near the ADC ceiling, then a hard clip — so a
+        linearity ramp sees a realistic knee instead of a straight line."""
+        out = np.array(spectrum, float)
+        hot = out > SATURATION_KNEE
+        headroom = FULL_SCALE - SATURATION_KNEE
+        out[hot] = SATURATION_KNEE + headroom * (
+            1.0 - np.exp(-(out[hot] - SATURATION_KNEE) / headroom))
+        return np.clip(out, 0.0, FULL_SCALE)
+
     def _synthetic_spectrum(self):
         """
         Lamp intensity attenuated by an absorption band near 620 nm whose depth
         slowly drifts over successive calls — so absorbance-vs-time plots look
         dynamic during a fake doping/dedoping run.
+
+        Counts scale with integration time and compress near full scale. At the
+        nominal integration time the scale is 1.0 and the knee is not reached, so
+        the output matches the pre-response-model fake exactly.
         """
         drift = 0.5 + 0.4 * np.sin(self._call_count / 15.0)
         band = drift * np.exp(-((self._wl - 620.0) ** 2) / (2 * 40.0 ** 2))
         noise = self._rng.normal(0.0, 6.0, N_POINTS)
-        spectrum = self._lamp * (1.0 - 0.6 * band) + noise
+        scale = self._integration_time / NOMINAL_INTEGRATION_MS
+        spectrum = self._lamp * (1.0 - 0.6 * band) * scale + noise
         self._call_count += 1
-        return np.clip(spectrum, 0.0, None)
+        return self._saturate(spectrum)
 
     def measure(self, abort_event=None, on_armed=None):
         """Single acquisition; returns (timestamp, spectrum), or None if aborted."""
