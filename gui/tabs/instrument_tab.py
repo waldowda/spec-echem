@@ -11,10 +11,15 @@ from datetime import datetime
 from pathlib import Path
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea, QGridLayout,
     QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
     QApplication, QMessageBox, QTabWidget,
 )
+
+# Cap spin boxes so the left column's minimum width stays small — Qt satisfies
+# minimum widths before it applies stretch, so a wide left column would starve the
+# plot beside it regardless of the stretch factors.
+SPIN_W = 110
 
 from spec_echem.fakes import FakeSpectrometer
 from spec_echem.linearity import (
@@ -88,8 +93,10 @@ class InstrumentTab(QWidget):
         # would round the linearity recommendation to ~2 significant figures.
         self.integration_spin.setDecimals(4)
         self.integration_spin.setSuffix(" ms")
+        self.integration_spin.setMaximumWidth(SPIN_W)
         self.averages_spin = QSpinBox()
         self.averages_spin.setRange(1, 100000)
+        self.averages_spin.setMaximumWidth(SPIN_W)
         self.apply_btn = QPushButton("Apply to Spectrometer")
         self.apply_btn.clicked.connect(self.on_apply)
         form.addRow("Integration time:", self.integration_spin)
@@ -187,12 +194,23 @@ class InstrumentTab(QWidget):
             "Keep the peak at/below this fraction of ADC full scale. The detector can "
             "stay linear almost to the clip, so this — not linearity — usually sets the "
             "working point, and leaves headroom for lamp drift.")
-        for label, widget in (("Start:", self.lin_start_spin), ("Stop:", self.lin_stop_spin),
-                              ("Steps:", self.lin_steps_spin), ("Tol:", self.lin_tol_spin),
-                              ("Max fill:", self.lin_fill_spin)):
-            lin_form.addWidget(QLabel(label))
-            lin_form.addWidget(widget)
-        lin_form.addStretch()
+        # Two compact rows, not one long one: a single row of five label+spin pairs gave
+        # the left column a large MINIMUM width, and Qt honours minimums before it
+        # applies stretch — so the left box hogged the width and squeezed the plot on
+        # the right into a tall, skinny strip.
+        lin_form = QGridLayout()
+        for col, (label, widget) in enumerate((
+                ("Start:", self.lin_start_spin), ("Stop:", self.lin_stop_spin),
+                ("Steps:", self.lin_steps_spin))):
+            widget.setMaximumWidth(SPIN_W)
+            lin_form.addWidget(QLabel(label), 0, col * 2)
+            lin_form.addWidget(widget, 0, col * 2 + 1)
+        for col, (label, widget) in enumerate((
+                ("Tol:", self.lin_tol_spin), ("Max fill:", self.lin_fill_spin))):
+            widget.setMaximumWidth(SPIN_W)
+            lin_form.addWidget(QLabel(label), 1, col * 2)
+            lin_form.addWidget(widget, 1, col * 2 + 1)
+        lin_form.setColumnStretch(6, 1)
         lin_col.addLayout(lin_form)
 
         lin_btns = QHBoxLayout()
