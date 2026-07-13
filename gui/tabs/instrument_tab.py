@@ -177,8 +177,18 @@ class InstrumentTab(QWidget):
         self.lin_tol_spin.setSuffix(" %")
         self.lin_tol_spin.setToolTip(
             "Call the limit where the response falls this far below the fitted line")
+        self.lin_fill_spin = QDoubleSpinBox()
+        self.lin_fill_spin.setRange(10.0, 99.0)
+        self.lin_fill_spin.setDecimals(0)
+        self.lin_fill_spin.setValue(85.0)
+        self.lin_fill_spin.setSuffix(" %")
+        self.lin_fill_spin.setToolTip(
+            "Keep the peak at/below this fraction of ADC full scale. The detector can "
+            "stay linear almost to the clip, so this — not linearity — usually sets the "
+            "working point, and leaves headroom for lamp drift.")
         for label, widget in (("Start:", self.lin_start_spin), ("Stop:", self.lin_stop_spin),
-                              ("Steps:", self.lin_steps_spin), ("Tol:", self.lin_tol_spin)):
+                              ("Steps:", self.lin_steps_spin), ("Tol:", self.lin_tol_spin),
+                              ("Max fill:", self.lin_fill_spin)):
             lin_form.addWidget(QLabel(label))
             lin_form.addWidget(widget)
         lin_form.addStretch()
@@ -674,7 +684,7 @@ class InstrumentTab(QWidget):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             self.win.spec.set_scan_averages(1)
-            t_sat = find_saturation_time(self.win.spec, self.lin_start_spin.value())
+            sat = find_saturation_time(self.win.spec, self.lin_start_spin.value())
         except LinearityError as exc:
             self.lin_result.setText(str(exc))
             return
@@ -684,9 +694,14 @@ class InstrumentTab(QWidget):
         finally:
             self._restore_spectrometer_settings()
             QApplication.restoreOverrideCursor()
-        self.lin_stop_spin.setValue(t_sat)
+        # Stop just past saturation: enough to show the clip, without wasting most
+        # of the ramp above it.
+        stop = sat["t_sat"] * 1.05
+        self.lin_stop_spin.setValue(stop)
         self.lin_result.setText(
-            f"Saturates at ~{t_sat:.4g} ms — Stop set there. Now run the check.")
+            f"Saturates at {sat['t_sat']:.4g} ms. Highest clean point: "
+            f"{sat['t_below']:.4g} ms ({sat['counts_below']:.0f} counts). "
+            f"Stop set to {stop:.4g} ms — now run the check.")
 
     def on_linearity_check(self):
         if self.win.spec is None:
@@ -718,7 +733,10 @@ class InstrumentTab(QWidget):
             # Averaging doesn't change saturation, only speed — force 1 for the ramp.
             self.win.spec.set_scan_averages(1)
             used, counts, peak_px = measure_linearity_series(self.win.spec, times)
-            result = analyze_linearity(used, counts, tolerance_pct=self.lin_tol_spin.value())
+            result = analyze_linearity(
+                used, counts,
+                tolerance_pct=self.lin_tol_spin.value(),
+                max_fill_frac=self.lin_fill_spin.value() / 100.0)
         except LinearityError as exc:
             self.lin_canvas.show_message(str(exc))
             self.lin_result.setText(str(exc))

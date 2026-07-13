@@ -117,6 +117,15 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax.annotate("ADC full scale", xy=(times[0], full_scale), xytext=(2, -10),
                          textcoords="offset points", fontsize=7, color="#888")
 
+        # The fill cap usually decides the working point (the detector stays linear
+        # nearly to the clip), so show it — otherwise the recommendation looks arbitrary.
+        counts_rec = result.get("counts_recommended")
+        if counts_rec is not None and result.get("bound_by") == "fill":
+            self.ax.axhline(counts_rec, ls=":", lw=1.0, color="#ff7f0e")
+            self.ax.annotate(f"max fill ({counts_rec / full_scale * 100:.0f}% FS)",
+                             xy=(times[0], counts_rec), xytext=(2, -10),
+                             textcoords="offset points", fontsize=7, color="#ff7f0e")
+
         if result.get("t_limit") is not None:
             self.ax.axvline(result["t_limit"], ls="-", lw=1.0, color="#d62728", alpha=0.7)
             self.ax.annotate(f"limit {result['t_limit']:.4g} ms",
