@@ -96,6 +96,46 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax.autoscale_view()
         self.draw_idle()
 
+    def show_linearity(self, times, counts, result, full_scale=65535, title=None):
+        """
+        Detector response vs integration time: measured points, the fitted linear
+        region, the ADC ceiling, and the linearity limit / recommended time.
+        `result` is a dict from spec_echem.linearity.analyze_linearity.
+        """
+        self._xlabel, self._ylabel = "Integration time (ms)", "Counts (peak pixel)"
+        self._new_axes()
+
+        times = np.asarray(times, float)
+        self.ax.plot(times, counts, "o", ms=4, color="#1f77b4", label="measured", zorder=3)
+
+        # The fitted linear region, extrapolated across the full ramp so the
+        # departure from linearity is visible as the gap between line and points.
+        fit = result["offset"] + result["slope"] * times
+        self.ax.plot(times, fit, "--", lw=1.0, color="#2ca02c", label="linear fit", zorder=2)
+
+        self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888")
+        self.ax.annotate("ADC full scale", xy=(times[0], full_scale), xytext=(2, -10),
+                         textcoords="offset points", fontsize=7, color="#888")
+
+        if result.get("t_limit") is not None:
+            self.ax.axvline(result["t_limit"], ls="-", lw=1.0, color="#d62728", alpha=0.7)
+            self.ax.annotate(f"limit {result['t_limit']:.4g} ms",
+                             xy=(result["t_limit"], result["counts_limit"]),
+                             xytext=(4, 6), textcoords="offset points",
+                             fontsize=8, color="#d62728")
+        t_rec = result.get("t_recommended")
+        if t_rec is not None:
+            self.ax.axvline(t_rec, ls="-", lw=1.4, color="#ff7f0e", alpha=0.9)
+            self.ax.annotate(f"recommended {t_rec:.4g} ms", xy=(t_rec, counts[0]),
+                             xytext=(-4, 4), textcoords="offset points",
+                             fontsize=8, color="#ff7f0e", ha="right")
+
+        self.ax.set_ylim(0, full_scale * 1.08)
+        # Lower right: upper-left collides with the ADC full-scale label.
+        self.ax.legend(fontsize=7, loc="lower right")
+        self._decorate(title)
+        self.draw_idle()
+
     def show_message(self, text):
         """Clear the canvas and show a centered note (e.g. 'no echem data yet')."""
         self._new_axes()

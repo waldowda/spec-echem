@@ -9,12 +9,17 @@ counts or absorbance.
 import numpy as np
 from datetime import datetime
 from pathlib import Path
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
     QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
+    QApplication, QMessageBox,
 )
 
 from spec_echem.fakes import FakeSpectrometer
+from spec_echem.linearity import (
+    LinearityError, analyze_linearity, find_saturation_time, measure_linearity_series,
+)
 from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_identity
 from spec_echem.settings import DEFAULT_SETTINGS
 from spec_echem.spectral_range import recommend_wavelength_range
@@ -42,6 +47,7 @@ class InstrumentTab(QWidget):
         self.win = main_window
         self._pstat_connected = False   # last Connect-Potentiostat verify succeeded
         self._last_test_abs = None      # most recent test-absorbance, for Suggest
+        self._lin_recommended = None    # integration time from the last linearity check
         self._build()
 
     def _build(self):
@@ -77,8 +83,10 @@ class InstrumentTab(QWidget):
         settings_group = QGroupBox("Spectrometer Settings")
         form = QFormLayout(settings_group)
         self.integration_spin = QDoubleSpinBox()
-        self.integration_spin.setRange(0.001, 10000.0)
-        self.integration_spin.setDecimals(3)
+        self.integration_spin.setRange(0.0001, 10000.0)
+        # 4 decimals: working integration times are ~0.02-0.11 ms, so 3 decimals
+        # would round the linearity recommendation to ~2 significant figures.
+        self.integration_spin.setDecimals(4)
         self.integration_spin.setSuffix(" ms")
         self.averages_spin = QSpinBox()
         self.averages_spin.setRange(1, 100000)
@@ -135,13 +143,82 @@ class InstrumentTab(QWidget):
         self.pstat_external_radio.toggled.connect(self._update_pstat_controls)
         self._update_pstat_controls()
 
+        # --- Linearity check (sits beside Spectrometer Settings, which it feeds) ---
+        lin_group = QGroupBox("Linearity Check")
+        lin_col = QVBoxLayout(lin_group)
+        lin_note = QLabel(
+            "Run with the reference solution in place and the lamp on. "
+            "Ramps integration time to saturation, fits the linear region, and "
+            "recommends a time 5% below the limit of linearity.")
+        lin_note.setWordWrap(True)
+        lin_note.setStyleSheet("color: #555;")
+        lin_col.addWidget(lin_note)
+
+        lin_form = QHBoxLayout()
+        self.lin_start_spin = QDoubleSpinBox()
+        self.lin_start_spin.setRange(0.0001, 10000.0)
+        self.lin_start_spin.setDecimals(4)
+        self.lin_start_spin.setSuffix(" ms")
+        self.lin_start_spin.setToolTip("Lowest integration time in the ramp — must be safely linear")
+        self.lin_stop_spin = QDoubleSpinBox()
+        self.lin_stop_spin.setRange(0.0001, 10000.0)
+        self.lin_stop_spin.setDecimals(4)
+        self.lin_stop_spin.setSuffix(" ms")
+        self.lin_stop_spin.setValue(0.150)
+        self.lin_stop_spin.setToolTip("Highest integration time — should reach saturation")
+        self.lin_steps_spin = QSpinBox()
+        self.lin_steps_spin.setRange(5, 200)
+        self.lin_steps_spin.setValue(20)
+        self.lin_tol_spin = QDoubleSpinBox()
+        self.lin_tol_spin.setRange(0.1, 25.0)
+        self.lin_tol_spin.setDecimals(1)
+        self.lin_tol_spin.setSingleStep(0.5)
+        self.lin_tol_spin.setValue(2.0)
+        self.lin_tol_spin.setSuffix(" %")
+        self.lin_tol_spin.setToolTip(
+            "Call the limit where the response falls this far below the fitted line")
+        for label, widget in (("Start:", self.lin_start_spin), ("Stop:", self.lin_stop_spin),
+                              ("Steps:", self.lin_steps_spin), ("Tol:", self.lin_tol_spin)):
+            lin_form.addWidget(QLabel(label))
+            lin_form.addWidget(widget)
+        lin_form.addStretch()
+        lin_col.addLayout(lin_form)
+
+        lin_btns = QHBoxLayout()
+        self.lin_find_sat_btn = QPushButton("Find saturation")
+        self.lin_find_sat_btn.setToolTip(
+            "Double the integration time until the detector saturates, and put that in Stop")
+        self.lin_find_sat_btn.clicked.connect(self.on_find_saturation)
+        self.lin_run_btn = QPushButton("Run Linearity Check")
+        self.lin_run_btn.clicked.connect(self.on_linearity_check)
+        self.lin_use_btn = QPushButton("Use recommended")
+        self.lin_use_btn.setToolTip("Copy the recommended integration time into Spectrometer Settings")
+        self.lin_use_btn.clicked.connect(self.on_use_recommended)
+        self.lin_use_btn.setEnabled(False)
+        lin_btns.addWidget(self.lin_find_sat_btn)
+        lin_btns.addWidget(self.lin_run_btn)
+        lin_btns.addWidget(self.lin_use_btn)
+        lin_btns.addStretch()
+        lin_col.addLayout(lin_btns)
+
+        self.lin_result = QLabel("Connect, then run the check.")
+        self.lin_result.setWordWrap(True)
+        self.lin_result.setStyleSheet("color: #888;")
+        lin_col.addWidget(self.lin_result)
+        self.lin_canvas = MplCanvas(xlabel="Integration time (ms)", ylabel="Counts (peak pixel)")
+        self.lin_canvas.setMinimumHeight(180)
+        lin_col.addWidget(self.lin_canvas)
+
         # Top row: Spectrometer Connection | Potentiostat side by side (half width
-        # each); Spectrometer Settings full width beneath.
+        # each); Spectrometer Settings | Linearity Check likewise beneath.
         top_row = QHBoxLayout()
         top_row.addWidget(conn_group, stretch=1)
         top_row.addWidget(pstat_group, stretch=1)
         layout.addLayout(top_row)
-        layout.addWidget(settings_group)
+        settings_row = QHBoxLayout()
+        settings_row.addWidget(settings_group, stretch=1)
+        settings_row.addWidget(lin_group, stretch=1)
+        layout.addLayout(settings_row)
 
         # --- Dark / Reference: two graphs side by side, controls above each ---
         cal_row = QHBoxLayout()
@@ -283,6 +360,8 @@ class InstrumentTab(QWidget):
     def populate_from(self, settings):
         self.integration_spin.setValue(settings["integration_time_ms"])
         self.averages_spin.setValue(settings["scan_averages"])
+        # The linearity ramp starts from the working integration time.
+        self.lin_start_spin.setValue(settings["integration_time_ms"])
         wl_min, wl_max = settings.get("wavelength_min"), settings.get("wavelength_max")
         if wl_min is not None:
             self.wl_min_spin.setValue(wl_min)
@@ -579,6 +658,94 @@ class InstrumentTab(QWidget):
         _, _, net_dif, t_dif = self.win.spec.measure_timing()
         self.timing_result.setText(
             f"total {t_dif * 1000:.1f} ms  (overhead {net_dif:.1f} ms)")
+
+    # --- linearity check ---
+
+    def _restore_spectrometer_settings(self):
+        """Put the user's integration time / averages back after a ramp."""
+        self.win.spec.set_integration_time(self.integration_spin.value())
+        self.win.spec.set_scan_averages(self.averages_spin.value())
+
+    def on_find_saturation(self):
+        """Double the integration time until saturation, and use that as Stop."""
+        if self.win.spec is None:
+            return
+        self.lin_result.setText("Finding saturation…")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.win.spec.set_scan_averages(1)
+            t_sat = find_saturation_time(self.win.spec, self.lin_start_spin.value())
+        except LinearityError as exc:
+            self.lin_result.setText(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 — surface hardware errors as a note
+            self.lin_result.setText(f"Find saturation failed: {exc}")
+            return
+        finally:
+            self._restore_spectrometer_settings()
+            QApplication.restoreOverrideCursor()
+        self.lin_stop_spin.setValue(t_sat)
+        self.lin_result.setText(
+            f"Saturates at ~{t_sat:.4g} ms — Stop set there. Now run the check.")
+
+    def on_linearity_check(self):
+        if self.win.spec is None:
+            return
+        start, stop = self.lin_start_spin.value(), self.lin_stop_spin.value()
+        steps = self.lin_steps_spin.value()
+        if stop <= start:
+            self.lin_result.setText("Stop must be greater than Start.")
+            return
+        times = np.linspace(start, stop, steps)
+
+        # The ramp runs on the GUI thread: at sub-ms integration times with averaging
+        # forced to 1 it finishes in well under a second. The spin allows up to 10 s
+        # though, so warn before freezing the UI for a genuinely long one.
+        projected_s = float(times.sum()) / 1000.0 + steps * 0.05
+        if projected_s > 5.0:
+            reply = QMessageBox.question(
+                self, "Long linearity ramp",
+                f"This ramp will take roughly {projected_s:.0f} s, and the window will "
+                "be unresponsive until it finishes.\n\nContinue?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+
+        self.lin_result.setText("Running…")
+        self.lin_use_btn.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            # Averaging doesn't change saturation, only speed — force 1 for the ramp.
+            self.win.spec.set_scan_averages(1)
+            used, counts, peak_px = measure_linearity_series(self.win.spec, times)
+            result = analyze_linearity(used, counts, tolerance_pct=self.lin_tol_spin.value())
+        except LinearityError as exc:
+            self.lin_canvas.show_message(str(exc))
+            self.lin_result.setText(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001
+            self.lin_result.setText(f"Linearity check failed: {exc}")
+            return
+        finally:
+            self._restore_spectrometer_settings()
+            QApplication.restoreOverrideCursor()
+
+        title = f"Peak pixel {peak_px}"
+        wl = self.win.wavelengths
+        if wl is not None and peak_px < len(wl):
+            title += f" ({wl[peak_px]:.0f} nm)"
+        self.lin_canvas.show_linearity(used, counts, result, title=title)
+        self.lin_result.setText(result["summary"])
+        self._lin_recommended = result["t_recommended"]
+        self.lin_use_btn.setEnabled(True)
+
+    def on_use_recommended(self):
+        if self._lin_recommended is None:
+            return
+        self.integration_spin.setValue(self._lin_recommended)
+        self.on_apply()
+        self.lin_result.setText(
+            f"Integration time set to {self.integration_spin.value():.4g} ms and applied.")
 
     # --- usable wavelength window ---
 
