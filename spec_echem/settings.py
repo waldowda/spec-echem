@@ -15,6 +15,14 @@ DEFAULT_SETTINGS = {
     "wavelength_min": None,
     "wavelength_max": None,
 
+    # --- Linearity check ramp (bench defaults; see spec_echem/bench.py) ---
+    # Lamp-dependent, so these are overridden per rig rather than hard-coded here.
+    "lin_start_ms": 0.022,
+    "lin_stop_ms": 0.15,
+    "lin_steps": 20,
+    "lin_tolerance_pct": 2.0,
+    "lin_max_fill_pct": 85.0,
+
     # --- Data location ---
     "data_root": r"C:\Users\inst-chem\Documents\specechem_data",
     "data_folder": "",          # format: YYYYMMDD_Description
@@ -49,6 +57,7 @@ DEFAULT_SETTINGS = {
     "prededoping_enabled": True,
     "prededoping_potential": 0.0,   # V — placeholder for EchemToolkitPy
     "prededoping_time": 30.0,       # s
+    "prededoping_discard": False,   # run the step to condition the film, write no files
 
     # --- Doping / dedoping cycles ---
     "doping_enabled": True,
