@@ -2,7 +2,7 @@
 
 ## What This Project Is
 
-`spec-echem` synchronizes electrochemical measurements (Gamry Ref-600+ potentiostat) with
+`spec-echem` synchronizes electrochemical measurements (Gamry Ref-600 potentiostat) with
 UV-Vis spectroscopy (Avantes spectrometers) for spectroelectrochemistry experiments. The system
 performs combined measurements during cyclic voltammetry and doping/dedoping cycles, enabling
 simultaneous analysis of electrochemical and optical properties — primarily conjugated polymers
@@ -56,7 +56,7 @@ New Python modules go in `spec_echem/`. Notebooks go in `notebooks/`. Gamry file
 
 Three coordinated components:
 
-1. **Gamry Ref-600+ Potentiostat** — Applies potentials, measures current. Runs sequences defined
+1. **Gamry Ref-600 Potentiostat** — Applies potentials, measures current. Runs sequences defined
    in `.GSequence` files. Uses DIGOUT0 (digital output pin) to send trigger pulses.
 
 2. **Avantes Spectrometer** — Collects UV-Vis spectra. Controlled via the proprietary `avaspec`
