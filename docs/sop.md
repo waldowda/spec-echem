@@ -10,10 +10,15 @@
 
 This system runs spectroelectrochemistry experiments by coordinating two instruments:
 
-- **Gamry Ref-600+ potentiostat** — applies potentials and measures current; raises a hardware
+- **Gamry Reference 600+ potentiostat** — applies potentials and measures current; raises a hardware
   trigger (DIGOUT0) at the start of each electrochemical step
-- **Avantes spectrometer** — collects UV-Vis spectra (~380–1100 nm); receives that trigger and
-  begins acquiring
+- **Avantes AvaSpec-VRS2048CL-EVO spectrometer** — collects UV-Vis spectra; receives that trigger and
+  begins acquiring. 2048 pixels, optical configuration **300–1100 nm** with a 50 µm slit
+
+> The code isn't tied to these models — the pixel count and wavelength calibration are read from the
+> device on connect, and any Gamry that `EchemToolkitPy` supports (e.g. the Interface 1010 series)
+> should work in Python mode. But the Reference 600+ and the VRS2048CL-EVO are what it has actually
+> been run on.
 
 They are synchronized by a **wire**, not by software timing: the Gamry's digital output is
 connected to the Avantes trigger input, so the optical and electrochemical data share one start.
@@ -46,7 +51,7 @@ Complete this once per machine. Skip to Part 2 if the instrument PC is already s
 ### 1.1 Prerequisites
 
 - [ ] Windows 11 PC with the Avantes spectrometer connected via USB
-- [ ] Gamry Ref-600+ connected via USB, Gamry Framework installed
+- [ ] Gamry Reference 600+ connected via USB, Gamry Framework installed
 - [ ] Anaconda installed — **verify the install path** (§1.2)
 - [ ] Avantes SDK files (from Avantes; the 64-bit version is `AvaSpecX64-DLL_9.14.0.0`)
 - [ ] Access to the spec-echem GitHub repository (ask Dr. Waldow)
@@ -256,6 +261,13 @@ Re-run this whenever you change the lamp, the ND filter, or the cell.
 
 The lamp fades into noise below ~400 nm and above ~1050 nm, and those pixels are written into every
 data file. Setting a **Wavelength range** crops them, giving smaller files and cleaner data.
+
+> **Why the edges are junk.** The SDK will happily report a wavelength for every one of the 2048
+> detector pixels — roughly 144 to 1308 nm on this unit. But the instrument's *optics* are only specified
+> from **300 to 1100 nm**, and the halogen lamp doesn't usefully reach either end of even that. So the
+> outer pixels aren't measuring anything meaningful; they're just noise being written to disk. The app
+> already restricts itself to a calibrated window (~380–1100 nm); this setting narrows it further to
+> the range your lamp actually illuminates.
 
 Set **min** / **max** and click **Apply Range**; **Reset** returns to the spectrometer's full range.
 Leave it alone and you get the full range — this is opt-in and off by default.
