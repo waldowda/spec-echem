@@ -57,6 +57,7 @@ DEFAULT_SETTINGS = {
     "prededoping_enabled": True,
     "prededoping_potential": 0.0,   # V — placeholder for EchemToolkitPy
     "prededoping_time": 30.0,       # s
+    "prededoping_discard": False,   # run the step to condition the film, write no files
 
     # --- Doping / dedoping cycles ---
     "doping_enabled": True,

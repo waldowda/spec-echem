@@ -25,6 +25,7 @@ class Segment:
     num_points: int     # number of spectra to collect
     delta_time: float   # seconds between spectra
     trigger: bool       # wait for Gamry trigger on the first spectrum
+    save: bool = True   # False: run the segment normally but write no files
 
 
 def n_doping_cycles(settings):
@@ -61,8 +62,11 @@ def build_segments(settings):
     chrono_delta = settings["chrono_delta_time"]
 
     if settings["prededoping_enabled"]:
+        # The pre-dedoping step conditions the film; its data is often just a
+        # baseline you don't want cluttering the folder. Discard = run it, keep nothing.
         segments.append(Segment("Pre-dedoping", DATA_TYPE_PREDEDOPING, 0,
-                                 chrono_points, chrono_delta, trigger))
+                                 chrono_points, chrono_delta, trigger,
+                                 save=not settings.get("prededoping_discard", False)))
 
     if settings["doping_enabled"]:
         for run in range(n_doping_cycles(settings)):
@@ -85,7 +89,8 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     (or None) makes this a no-op, preserving the manual two-step behaviour exactly.
 
     Returns (absorbance_df, path), or None if aborted (no file is written for a
-    partial/aborted segment).
+    partial/aborted segment). `path` is None when segment.save is False — the
+    segment ran and its absorbance is returned for plotting, but nothing is written.
     """
     on_armed = None
     on_tick = None
@@ -119,6 +124,15 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
             d.min() * 1000, d.max() * 1000, d.std() * 1000, len(timestamps))
 
     absorb_df = compute_absorbance(spectra, dark, ref, wavelengths, timestamps)
+
+    # A discarded segment still ran, still gets plotted — it just leaves no files
+    # behind (no spectra .txt, no echem .txt; the native .dta is skipped in
+    # ToolkitPotentiostat._write_dta, which is the only other writer).
+    if not segment.save:
+        get_run_logger().info("%s: data discarded by request — no files written.",
+                              segment.label)
+        return absorb_df, None
+
     path = write_spectra_file(
         absorb_df, spectra, dark, ref, wavelengths, timestamps,
         segment.data_type, segment.run_number, data_root, added_path,
