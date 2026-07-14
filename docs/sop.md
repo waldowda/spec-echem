@@ -10,14 +10,14 @@
 
 This system runs spectroelectrochemistry experiments by coordinating two instruments:
 
-- **Gamry Reference 600+ potentiostat** — applies potentials and measures current; raises a hardware
+- **Gamry Reference 600 potentiostat** — applies potentials and measures current; raises a hardware
   trigger (DIGOUT0) at the start of each electrochemical step
 - **Avantes AvaSpec-VRS2048CL-EVO spectrometer** — collects UV-Vis spectra; receives that trigger and
   begins acquiring. 2048 pixels, optical configuration **300–1100 nm** with a 50 µm slit
 
 > The code isn't tied to these models — the pixel count and wavelength calibration are read from the
 > device on connect, and any Gamry that `EchemToolkitPy` supports (e.g. the Interface 1010 series)
-> should work in Python mode. But the Reference 600+ and the VRS2048CL-EVO are what it has actually
+> should work in Python mode. But the Reference 600 and the VRS2048CL-EVO are what it has actually
 > been run on.
 
 They are synchronized by a **wire**, not by software timing: the Gamry's digital output is
@@ -51,7 +51,7 @@ Complete this once per machine. Skip to Part 2 if the instrument PC is already s
 ### 1.1 Prerequisites
 
 - [ ] Windows 11 PC with the Avantes spectrometer connected via USB
-- [ ] Gamry Reference 600+ connected via USB, Gamry Framework installed
+- [ ] Gamry Reference 600 connected via USB, Gamry Framework installed
 - [ ] Anaconda installed — **verify the install path** (§1.2)
 - [ ] Avantes SDK files (from Avantes; the 64-bit version is `AvaSpecX64-DLL_9.14.0.0`)
 - [ ] Access to the spec-echem GitHub repository (ask Dr. Waldow)
@@ -170,7 +170,7 @@ through the whole app without instruments — useful for learning the layout.
 
 ### 2.1 Trigger Wiring
 
-| Gamry Ref-600+ | Avantes DB26 connector |
+| Gamry Ref-600 | Avantes DB26 connector |
 |---|---|
 | DIGOUT0 | Pin 6 (hardware trigger input) |
 
