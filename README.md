@@ -52,7 +52,7 @@ This software is currently in **pre-release** (v0.2.0). The API and functionalit
 | | Model | Details |
 |---|---|---|
 | Spectrometer | **Avantes AvaSpec-VRS2048CL-EVO** | 2048 pixels; optical configuration 300–1100 nm, 50 µm slit |
-| Potentiostat | **Gamry Reference 600+** | DIGOUT0 wired to the Avantes hardware trigger input |
+| Potentiostat | **Gamry Reference 600** | DIGOUT0 wired to the Avantes hardware trigger input |
 | Light source | Halogen + neutral-density filter | An Avantes AvaLight source is also in use; integration times differ substantially between the two |
 
 **Should also work with** — but has not been exercised:
@@ -64,7 +64,7 @@ This software is currently in **pre-release** (v0.2.0). The API and functionalit
   edges. See the wavelength-window feature.
 - **Other Gamry potentiostats**, including the Interface 1010 series — anything `EchemToolkitPy`
   supports in **Python** mode, and in **External** mode anything that can run a `.GSequence` and
-  raise a digital output. Only the Reference 600+ has actually been run.
+  raise a digital output. Only the Reference 600 has actually been run.
 
 To see what's attached to your own rig: `python examples/identify_hardware.py`. (The Avantes SDK does
 not report a model string — pair the serial number it prints with the label on the unit. The Gamry's

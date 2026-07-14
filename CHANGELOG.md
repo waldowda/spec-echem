@@ -15,7 +15,7 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 - `examples/identify_hardware.py` — read-only script that prints the attached instruments' identity.
 - README and SOP now name the **exact tested hardware**: Avantes AvaSpec-VRS2048CL-EVO
-  (2048 px, 300–1100 nm optical configuration, 50 µm slit) and a Gamry Reference 600+ — with an
+  (2048 px, 300–1100 nm optical configuration, 50 µm slit) and a Gamry Reference 600 — with an
   explicit note on what else *should* work (any Gamry `EchemToolkitPy` supports, e.g. the Interface
   1010 series) but has not been exercised. Models only; no serial numbers.
 
