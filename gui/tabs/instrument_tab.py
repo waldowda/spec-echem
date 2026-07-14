@@ -235,7 +235,11 @@ class InstrumentTab(QWidget):
         self.lin_result.setStyleSheet("color: #888;")
         lin_col.addWidget(self.lin_result)
         self.lin_canvas = MplCanvas(xlabel="Integration time (ms)", ylabel="Counts (peak pixel)")
-        self.lin_canvas.setMinimumHeight(180)
+        # Capped: a matplotlib canvas expands without limit, so on a large screen it
+        # balloons and drags the whole tab with it. This cap also sets the height of
+        # the row — the dark/reference plot opposite fills to match it.
+        self.lin_canvas.setMinimumHeight(200)
+        self.lin_canvas.setMaximumHeight(260)
         lin_col.addWidget(self.lin_canvas)
 
         # Top row: Spectrometer Connection | Potentiostat side by side (half width each).
@@ -264,7 +268,7 @@ class InstrumentTab(QWidget):
         dark_btns.addStretch()
         self.dark_status = QLabel("Dark: none")
         self.dark_canvas = MplCanvas(ylabel="Intensity (counts)")
-        self.dark_canvas.setMinimumHeight(260)
+        self.dark_canvas.setMinimumHeight(240)
         dark_col.addLayout(dark_btns)
         dark_col.addWidget(self.dark_status)
         # All spare height goes to the plot, not into gaps between the controls.
@@ -286,7 +290,7 @@ class InstrumentTab(QWidget):
         ref_btns.addStretch()
         self.ref_status = QLabel("Reference: none")
         self.ref_canvas = MplCanvas(ylabel="Intensity (counts)")
-        self.ref_canvas.setMinimumHeight(260)
+        self.ref_canvas.setMinimumHeight(240)
         ref_col.addLayout(ref_btns)
         ref_col.addWidget(self.ref_status)
         ref_col.addWidget(self.ref_canvas, stretch=1)
@@ -323,6 +327,7 @@ class InstrumentTab(QWidget):
         self.counts_label.setStyleSheet("color: #888;")
         self.counts_canvas = MplCanvas(ylabel="Intensity (counts)")
         self.counts_canvas.setMinimumHeight(180)
+        self.counts_canvas.setMaximumHeight(260)
         counts_col.addLayout(counts_btns)
         counts_col.addWidget(self.counts_label)
         counts_col.addWidget(self.counts_canvas)
@@ -340,6 +345,7 @@ class InstrumentTab(QWidget):
         self.absorb_label.setStyleSheet("color: #888;")
         self.absorb_canvas = MplCanvas(ylabel="Absorbance")
         self.absorb_canvas.setMinimumHeight(180)
+        self.absorb_canvas.setMaximumHeight(260)
         absorb_col.addLayout(absorb_btns)
         absorb_col.addWidget(self.absorb_label)
         absorb_col.addWidget(self.absorb_canvas)
@@ -390,6 +396,8 @@ class InstrumentTab(QWidget):
         wl_col.addLayout(wl_row)
         wl_col.addWidget(self.wl_rationale)
         layout.addWidget(wl_box)
+        # Spare height goes here, not into the plots.
+        layout.addStretch(1)
 
         self._set_actions_enabled(False)
 
