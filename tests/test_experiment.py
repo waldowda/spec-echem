@@ -175,6 +175,51 @@ def test_run_one_segment_no_potentiostat_writes_no_echem(tmp_path):
     assert not (folder / "steps(0).txt").exists()
 
 
+def test_discarded_segment_still_runs_but_writes_nothing(tmp_path):
+    """The whole point of 'discard': the electrochemistry HAPPENS (the film is
+    conditioned, the potentiostat fires and is pumped, the spectra come back for
+    plotting) — only the files are withheld."""
+    spec = FakeSpectrometer()
+    spec.init()
+    _, wl = spec.wavelengths()
+    dark = np.full(len(wl), 100.0)
+    _, ref = spec.measure()
+    seg = Segment("Pre-dedoping", DATA_TYPE_PREDEDOPING, 0, num_points=5,
+                  delta_time=0.01, trigger=False, save=False)
+    pstat = FakePotentiostat(_chrono_acq(5))
+
+    absorb_df, path = run_one_segment(spec, seg, dark, ref, wl, tmp_path,
+                                      "20250715_Test", potentiostat=pstat)
+
+    assert path is None                        # nothing written...
+    assert absorb_df.shape == (len(wl), 5)     # ...but the data came back for the plot
+    assert pstat.fired                         # and the segment genuinely ran
+    assert pstat.pumps == seg.num_points
+    folder = tmp_path / "20250715_Test"
+    assert not (folder / "prededopingspectra(0).txt").exists()
+    assert not (folder / "prededoping(0).txt").exists()
+
+
+def test_prededoping_discard_flag_drives_the_segment(tmp_path):
+    s = settings(cv_enabled=False, prededoping_enabled=True, doping_enabled=False)
+
+    assert build_segments(s)[0].save is True           # default: save it, as before
+
+    s["prededoping_discard"] = True
+    assert build_segments(s)[0].save is False
+
+
+def test_discard_does_not_leak_into_doping_segments():
+    """Discard is scoped to pre-dedoping — the cycles you actually care about
+    must keep saving no matter what."""
+    s = settings(cv_enabled=True, prededoping_enabled=True, doping_enabled=True,
+                 prededoping_discard=True)
+    saved = {seg.label: seg.save for seg in build_segments(s)}
+
+    assert saved["Pre-dedoping"] is False
+    assert all(v for k, v in saved.items() if k != "Pre-dedoping")
+
+
 def test_run_one_segment_aborts_without_writing(tmp_path):
     import threading
     spec = FakeSpectrometer()

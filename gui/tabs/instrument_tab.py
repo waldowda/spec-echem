@@ -9,12 +9,26 @@ counts or absorbance.
 import numpy as np
 from datetime import datetime
 from pathlib import Path
+from qtpy.QtCore import Qt, QUrl
+from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea, QGridLayout,
     QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
+    QApplication, QMessageBox, QTabWidget,
 )
 
+# Cap spin boxes so the left column's minimum width stays small — Qt satisfies
+# minimum widths before it applies stretch, so a wide left column would starve the
+# plot beside it regardless of the stretch factors.
+SPIN_W = 110
+
+from spec_echem.bench import (
+    apply_bench_defaults, load_bench_defaults, save_bench_defaults, user_bench_path,
+)
 from spec_echem.fakes import FakeSpectrometer
+from spec_echem.linearity import (
+    LinearityError, analyze_linearity, find_saturation_time, measure_linearity_series,
+)
 from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_identity
 from spec_echem.settings import DEFAULT_SETTINGS
 from spec_echem.spectral_range import recommend_wavelength_range
@@ -41,7 +55,9 @@ class InstrumentTab(QWidget):
         super().__init__()
         self.win = main_window
         self._pstat_connected = False   # last Connect-Potentiostat verify succeeded
-        self._last_test_abs = None      # most recent test-absorbance, for Suggest
+        self._last_test_spectrum = None  # most recent Test scan, RAW counts (transient)
+        self._last_test_abs = None       # same scan as absorbance, for Suggest
+        self._lin_recommended = None    # integration time from the last linearity check
         self._build()
 
     def _build(self):
@@ -77,11 +93,15 @@ class InstrumentTab(QWidget):
         settings_group = QGroupBox("Spectrometer Settings")
         form = QFormLayout(settings_group)
         self.integration_spin = QDoubleSpinBox()
-        self.integration_spin.setRange(0.001, 10000.0)
-        self.integration_spin.setDecimals(3)
+        self.integration_spin.setRange(0.0001, 10000.0)
+        # 4 decimals: working integration times are ~0.02-0.11 ms, so 3 decimals
+        # would round the linearity recommendation to ~2 significant figures.
+        self.integration_spin.setDecimals(4)
         self.integration_spin.setSuffix(" ms")
+        self.integration_spin.setMaximumWidth(SPIN_W)
         self.averages_spin = QSpinBox()
         self.averages_spin.setRange(1, 100000)
+        self.averages_spin.setMaximumWidth(SPIN_W)
         self.apply_btn = QPushButton("Apply to Spectrometer")
         self.apply_btn.clicked.connect(self.on_apply)
         form.addRow("Integration time:", self.integration_spin)
@@ -96,6 +116,46 @@ class InstrumentTab(QWidget):
         timing_row.addWidget(self.timing_result)
         timing_row.addStretch()
         form.addRow("Timing:", self._wrap(timing_row))
+
+        # Wavelength range: a spectrometer setting like the two above. Normally set BY EYE
+        # once per lamp/ND combo, during setup and BEFORE dark/ref — so dark, reference and
+        # the run are all collected at the same cropped length. (The Test-absorbance tab can
+        # suggest values into these boxes, but that's the rare path, not the normal one.)
+        wl_range_row = QHBoxLayout()
+        self.wl_min_spin = QDoubleSpinBox()
+        self.wl_min_spin.setRange(0.0, 5000.0)
+        self.wl_min_spin.setSuffix(" nm")
+        self.wl_min_spin.setMaximumWidth(SPIN_W)
+        self.wl_max_spin = QDoubleSpinBox()
+        self.wl_max_spin.setRange(0.0, 5000.0)
+        self.wl_max_spin.setSuffix(" nm")
+        self.wl_max_spin.setMaximumWidth(SPIN_W)
+        self.wl_min_spin.setValue(DEFAULT_SETTINGS["wavelength_min"] or 380.0)
+        self.wl_max_spin.setValue(DEFAULT_SETTINGS["wavelength_max"] or 1100.0)
+        wl_range_row.addWidget(self.wl_min_spin)
+        wl_range_row.addWidget(QLabel("to"))
+        wl_range_row.addWidget(self.wl_max_spin)
+        wl_range_row.addStretch()
+        form.addRow("Wavelength range:", self._wrap(wl_range_row))
+
+        wl_btn_row = QHBoxLayout()
+        self.wl_apply_btn = QPushButton("Apply range")
+        self.wl_apply_btn.setToolTip(
+            "Restrict the spectrometer (and this run's output) to this range. "
+            "Re-slices an existing dark/reference to match; clears them if you widen "
+            "beyond what they cover.")
+        self.wl_apply_btn.clicked.connect(self.on_wl_apply)
+        self.wl_reset_btn = QPushButton("Reset")
+        self.wl_reset_btn.setToolTip("Back to the spectrometer's full range (no crop)")
+        self.wl_reset_btn.clicked.connect(self.on_wl_reset)
+        wl_btn_row.addWidget(self.wl_apply_btn)
+        wl_btn_row.addWidget(self.wl_reset_btn)
+        wl_btn_row.addStretch()
+        form.addRow("", self._wrap(wl_btn_row))
+        self.wl_status = QLabel("Full range.")
+        self.wl_status.setStyleSheet("color: #888;")
+        self.wl_status.setWordWrap(True)
+        form.addRow("", self.wl_status)
 
         # --- Potentiostat control mode ---
         pstat_group = QGroupBox("Potentiostat")
@@ -135,18 +195,110 @@ class InstrumentTab(QWidget):
         self.pstat_external_radio.toggled.connect(self._update_pstat_controls)
         self._update_pstat_controls()
 
-        # Top row: Spectrometer Connection | Potentiostat side by side (half width
-        # each); Spectrometer Settings full width beneath.
+        # --- Linearity check (sits beside Spectrometer Settings, which it feeds) ---
+        lin_group = QGroupBox("Linearity Check")
+        lin_col = QVBoxLayout(lin_group)
+        lin_note = QLabel("Run with the reference solution in place and the lamp on.")
+        lin_note.setWordWrap(True)
+        lin_note.setStyleSheet("color: #555;")
+        lin_note.setToolTip(
+            "Ramps integration time to saturation, fits the linear region, and recommends "
+            "a working integration time — the tighter of 5% below the limit of linearity "
+            "or the Max fill fraction of ADC full scale.")
+        lin_col.addWidget(lin_note)
+
+        lin_form = QHBoxLayout()
+        self.lin_start_spin = QDoubleSpinBox()
+        self.lin_start_spin.setRange(0.0001, 10000.0)
+        self.lin_start_spin.setDecimals(4)
+        self.lin_start_spin.setSuffix(" ms")
+        self.lin_start_spin.setToolTip("Lowest integration time in the ramp — must be safely linear")
+        self.lin_stop_spin = QDoubleSpinBox()
+        self.lin_stop_spin.setRange(0.0001, 10000.0)
+        self.lin_stop_spin.setDecimals(4)
+        self.lin_stop_spin.setSuffix(" ms")
+        self.lin_stop_spin.setValue(0.150)
+        self.lin_stop_spin.setToolTip("Highest integration time — should reach saturation")
+        self.lin_steps_spin = QSpinBox()
+        self.lin_steps_spin.setRange(5, 200)
+        self.lin_steps_spin.setValue(20)
+        self.lin_tol_spin = QDoubleSpinBox()
+        self.lin_tol_spin.setRange(0.1, 25.0)
+        self.lin_tol_spin.setDecimals(1)
+        self.lin_tol_spin.setSingleStep(0.5)
+        self.lin_tol_spin.setValue(2.0)
+        self.lin_tol_spin.setSuffix(" %")
+        self.lin_tol_spin.setToolTip(
+            "Call the limit where the response falls this far below the fitted line")
+        self.lin_fill_spin = QDoubleSpinBox()
+        self.lin_fill_spin.setRange(10.0, 99.0)
+        self.lin_fill_spin.setDecimals(0)
+        self.lin_fill_spin.setValue(85.0)
+        self.lin_fill_spin.setSuffix(" %")
+        self.lin_fill_spin.setToolTip(
+            "Keep the peak at/below this fraction of ADC full scale. The detector can "
+            "stay linear almost to the clip, so this — not linearity — usually sets the "
+            "working point, and leaves headroom for lamp drift.")
+        # Two compact rows, not one long one: a single row of five label+spin pairs gave
+        # the left column a large MINIMUM width, and Qt honours minimums before it
+        # applies stretch — so the left box hogged the width and squeezed the plot on
+        # the right into a tall, skinny strip.
+        lin_form = QGridLayout()
+        for col, (label, widget) in enumerate((
+                ("Start:", self.lin_start_spin), ("Stop:", self.lin_stop_spin),
+                ("Steps:", self.lin_steps_spin))):
+            widget.setMaximumWidth(SPIN_W)
+            lin_form.addWidget(QLabel(label), 0, col * 2)
+            lin_form.addWidget(widget, 0, col * 2 + 1)
+        for col, (label, widget) in enumerate((
+                ("Tol:", self.lin_tol_spin), ("Max fill:", self.lin_fill_spin))):
+            widget.setMaximumWidth(SPIN_W)
+            lin_form.addWidget(QLabel(label), 1, col * 2)
+            lin_form.addWidget(widget, 1, col * 2 + 1)
+        lin_form.setColumnStretch(6, 1)
+        lin_col.addLayout(lin_form)
+
+        lin_btns = QHBoxLayout()
+        self.lin_find_sat_btn = QPushButton("Find saturation")
+        self.lin_find_sat_btn.setToolTip(
+            "Double the integration time until the detector saturates, and put that in Stop")
+        self.lin_find_sat_btn.clicked.connect(self.on_find_saturation)
+        self.lin_run_btn = QPushButton("Run Linearity Check")
+        self.lin_run_btn.clicked.connect(self.on_linearity_check)
+        self.lin_use_btn = QPushButton("Use recommended")
+        self.lin_use_btn.setToolTip("Copy the recommended integration time into Spectrometer Settings")
+        self.lin_use_btn.clicked.connect(self.on_use_recommended)
+        self.lin_use_btn.setEnabled(False)
+        lin_btns.addWidget(self.lin_find_sat_btn)
+        lin_btns.addWidget(self.lin_run_btn)
+        lin_btns.addWidget(self.lin_use_btn)
+        lin_btns.addStretch()
+        lin_col.addLayout(lin_btns)
+
+        self.lin_result = QLabel("Connect, then run the check.")
+        self.lin_result.setWordWrap(True)
+        self.lin_result.setStyleSheet("color: #888;")
+        lin_col.addWidget(self.lin_result)
+        self.lin_canvas = MplCanvas(xlabel="Integration time (ms)", ylabel="Counts (peak pixel)")
+        # Capped: a matplotlib canvas expands without limit, so on a large screen it
+        # balloons and drags the whole tab with it. This cap also sets the height of
+        # the row — the dark/reference plot opposite fills to match it.
+        self.lin_canvas.setMinimumHeight(200)
+        self.lin_canvas.setMaximumHeight(260)
+        lin_col.addWidget(self.lin_canvas)
+
+        # Top row: Spectrometer Connection | Potentiostat side by side (half width each).
         top_row = QHBoxLayout()
         top_row.addWidget(conn_group, stretch=1)
         top_row.addWidget(pstat_group, stretch=1)
         layout.addLayout(top_row)
-        layout.addWidget(settings_group)
 
-        # --- Dark / Reference: two graphs side by side, controls above each ---
-        cal_row = QHBoxLayout()
+        # --- Dark / Reference: TABBED, so only one plot is shown at a time. Stacking
+        # them made this tab enormous; you inspect them one at a time anyway, and the
+        # single plot balances the height of the (tall) Settings+Linearity column beside it.
+        cal_tabs = QTabWidget()
 
-        dark_box = QGroupBox("Dark")
+        dark_box = QWidget()
         dark_col = QVBoxLayout(dark_box)
         dark_btns = QHBoxLayout()
         self.collect_dark_btn = QPushButton("Collect New")
@@ -161,13 +313,14 @@ class InstrumentTab(QWidget):
         dark_btns.addStretch()
         self.dark_status = QLabel("Dark: none")
         self.dark_canvas = MplCanvas(ylabel="Intensity (counts)")
-        self.dark_canvas.setMinimumHeight(180)
+        self.dark_canvas.setMinimumHeight(240)
         dark_col.addLayout(dark_btns)
         dark_col.addWidget(self.dark_status)
-        dark_col.addWidget(self.dark_canvas)
-        cal_row.addWidget(dark_box, stretch=1)
+        # All spare height goes to the plot, not into gaps between the controls.
+        dark_col.addWidget(self.dark_canvas, stretch=1)
+        cal_tabs.addTab(dark_box, "Dark")
 
-        ref_box = QGroupBox("Reference (100%T)")
+        ref_box = QWidget()
         ref_col = QVBoxLayout(ref_box)
         ref_btns = QHBoxLayout()
         self.collect_ref_btn = QPushButton("Collect New")
@@ -182,96 +335,193 @@ class InstrumentTab(QWidget):
         ref_btns.addStretch()
         self.ref_status = QLabel("Reference: none")
         self.ref_canvas = MplCanvas(ylabel="Intensity (counts)")
-        self.ref_canvas.setMinimumHeight(180)
+        self.ref_canvas.setMinimumHeight(240)
         ref_col.addLayout(ref_btns)
         ref_col.addWidget(self.ref_status)
-        ref_col.addWidget(self.ref_canvas)
-        cal_row.addWidget(ref_box, stretch=1)
-        layout.addLayout(cal_row)
+        ref_col.addWidget(self.ref_canvas, stretch=1)
+        cal_tabs.addTab(ref_box, "Reference (100%T)")
 
-        # --- Test measurement: counts and absorbance, side by side ---
-        test_row = QHBoxLayout()
-
-        counts_box = QGroupBox("Test (counts)")
-        counts_col = QVBoxLayout(counts_box)
-        counts_btns = QHBoxLayout()
-        self.test_counts_btn = QPushButton("Measure counts")
-        self.test_counts_btn.clicked.connect(self.on_test_counts)
-        counts_btns.addWidget(self.test_counts_btn)
-        counts_btns.addStretch()
-        self.counts_label = QLabel("Connect, then measure to preview.")
-        self.counts_label.setStyleSheet("color: #888;")
-        self.counts_canvas = MplCanvas(ylabel="Intensity (counts)")
-        self.counts_canvas.setMinimumHeight(180)
-        counts_col.addLayout(counts_btns)
-        counts_col.addWidget(self.counts_label)
-        counts_col.addWidget(self.counts_canvas)
-        test_row.addWidget(counts_box, stretch=1)
-
-        absorb_box = QGroupBox("Test (absorbance)")
+        # --- Test (sample): measure whatever is in the beam RIGHT NOW, non-destructively.
+        # This never writes win.ref — which is the whole point. The reference is collected
+        # with a blank FTO insert; then the blank comes out, the sample goes in, and the
+        # electrodes get hooked up. You need to check the beam AFTER that swap, and
+        # "just re-collect the reference" would record the SAMPLE as the reference.
+        # One Measure takes one spectrum; the view toggle re-renders that same scan as raw
+        # counts (saturation / lamp check, works with no dark/ref) or as absorbance.
+        absorb_box = QWidget()
         absorb_col = QVBoxLayout(absorb_box)
         absorb_btns = QHBoxLayout()
-        self.test_absorb_btn = QPushButton("Measure absorbance")
-        self.test_absorb_btn.clicked.connect(self.on_test_absorbance)
-        self.test_absorb_btn.setToolTip("Needs a dark and a reference first")
-        absorb_btns.addWidget(self.test_absorb_btn)
+        self.test_btn = QPushButton("Measure")
+        self.test_btn.clicked.connect(self.on_measure_test)
+        self.test_btn.setToolTip(
+            "Measure what's in the beam now. Does NOT overwrite the dark or reference.")
+        absorb_btns.addWidget(self.test_btn)
+        absorb_btns.addSpacing(12)
+        absorb_btns.addWidget(QLabel("View:"))
+        self.view_counts_radio = QRadioButton("Counts")
+        self.view_abs_radio = QRadioButton("Absorbance")
+        self.view_counts_radio.setChecked(True)
+        self.view_abs_radio.setToolTip("Needs a dark and a reference")
+        self.view_counts_radio.toggled.connect(self._render_test_view)
+        absorb_btns.addWidget(self.view_counts_radio)
+        absorb_btns.addWidget(self.view_abs_radio)
         absorb_btns.addStretch()
-        self.absorb_label = QLabel("Needs a dark and a reference first.")
-        self.absorb_label.setStyleSheet("color: #888;")
-        self.absorb_canvas = MplCanvas(ylabel="Absorbance")
-        self.absorb_canvas.setMinimumHeight(180)
+        self.test_label = QLabel(
+            "Measure the beam as it is now — does not overwrite the reference.")
+        self.test_label.setStyleSheet("color: #888;")
+        self.test_canvas = MplCanvas(ylabel="Intensity (counts)")
+        self.test_canvas.setMinimumHeight(200)
         absorb_col.addLayout(absorb_btns)
-        absorb_col.addWidget(self.absorb_label)
-        absorb_col.addWidget(self.absorb_canvas)
-        test_row.addWidget(absorb_box, stretch=1)
-        layout.addLayout(test_row)
+        absorb_col.addWidget(self.test_label)
+        absorb_col.addWidget(self.test_canvas, stretch=1)
 
-        # --- Usable wavelength window (crop the noisy lamp edges) ---
-        wl_box = QGroupBox("Usable wavelength window (crops noisy lamp edges from what's collected)")
-        wl_col = QVBoxLayout(wl_box)
-        wl_row = QHBoxLayout()
-        wl_row.addWidget(QLabel("Range:"))
-        self.wl_min_spin = QDoubleSpinBox()
-        self.wl_min_spin.setRange(0.0, 5000.0)
-        self.wl_min_spin.setSuffix(" nm")
-        self.wl_min_spin.setValue(380.0)
-        self.wl_max_spin = QDoubleSpinBox()
-        self.wl_max_spin.setRange(0.0, 5000.0)
-        self.wl_max_spin.setSuffix(" nm")
-        self.wl_max_spin.setValue(1100.0)
-        wl_row.addWidget(self.wl_min_spin)
-        wl_row.addWidget(QLabel("to"))
-        wl_row.addWidget(self.wl_max_spin)
-        wl_row.addSpacing(16)
-        wl_row.addWidget(QLabel("Max noise:"))
+        suggest_row = QHBoxLayout()
+        suggest_row.addWidget(QLabel("Max noise:"))
         self.wl_maxnoise_spin = QDoubleSpinBox()
         self.wl_maxnoise_spin.setRange(0.001, 0.5)
         self.wl_maxnoise_spin.setDecimals(3)
         self.wl_maxnoise_spin.setSingleStep(0.005)
         self.wl_maxnoise_spin.setValue(0.010)
         self.wl_maxnoise_spin.setSuffix(" OD")
+        self.wl_maxnoise_spin.setMaximumWidth(SPIN_W)
         self.wl_maxnoise_spin.setToolTip(
             "Trim where the test-abs noise exceeds this (set it small vs your OD signal)")
         self.wl_maxnoise_spin.valueChanged.connect(self._on_maxnoise_changed)
-        wl_row.addWidget(self.wl_maxnoise_spin)
-        self.wl_suggest_btn = QPushButton("Suggest from test-abs")
-        self.wl_suggest_btn.setToolTip("Recommend a range from the last test-absorbance")
+        suggest_row.addWidget(self.wl_maxnoise_spin)
+        self.wl_suggest_btn = QPushButton("Suggest range from this")
+        self.wl_suggest_btn.setToolTip(
+            "Fill the Range boxes in Spectrometer Settings from this test-absorbance's "
+            "noise — then click Apply range there")
         self.wl_suggest_btn.clicked.connect(self.on_wl_suggest)
-        self.wl_apply_btn = QPushButton("Apply range")
-        self.wl_apply_btn.setToolTip("Restrict the spectrometer (and this run's output) to this range")
-        self.wl_apply_btn.clicked.connect(self.on_wl_apply)
-        wl_row.addWidget(self.wl_suggest_btn)
-        wl_row.addWidget(self.wl_apply_btn)
-        wl_row.addStretch()
-        self.wl_rationale = QLabel("Full range by default. Take dark + reference + a test-absorbance, "
-                                   "then Suggest to trim the noisy edges (you can override).")
+        suggest_row.addWidget(self.wl_suggest_btn)
+        suggest_row.addStretch()
+        absorb_col.addLayout(suggest_row)
+        self.wl_rationale = QLabel(
+            "Optional: suggests a wavelength range from the noise in this spectrum.")
         self.wl_rationale.setStyleSheet("color: #888;")
         self.wl_rationale.setWordWrap(True)
-        wl_col.addLayout(wl_row)
-        wl_col.addWidget(self.wl_rationale)
-        layout.addWidget(wl_box)
+        absorb_col.addWidget(self.wl_rationale)
+        cal_tabs.addTab(absorb_box, "Test (sample)")
+
+        cal_box = QGroupBox("Spectra")
+        cal_box_col = QVBoxLayout(cal_box)
+        cal_box_col.addWidget(cal_tabs)
+
+        # Main row: [Spectrometer Settings over Linearity Check] | [tabbed spectra].
+        # The left column is tall (it owns the linearity plot), so showing one spectrum
+        # at a time on the right keeps the two columns the same height — no stretched-out
+        # empty group boxes.
+        main_row = QHBoxLayout()
+        left_col = QVBoxLayout()
+        left_col.addWidget(settings_group)
+        left_col.addWidget(lin_group)
+        left_col.addStretch()
+        main_row.addLayout(left_col, stretch=1)
+        main_row.addWidget(cal_box, stretch=1)
+        layout.addLayout(main_row)
+
+        # --- Bench defaults: the settings that describe THIS RIG (lamp, ND filter, data
+        # root, Gamry mode), not this experiment. Saved explicitly — never automatically,
+        # or a one-off tweak for an odd sample would silently become the rig's default.
+        bench_group = QGroupBox("Bench defaults (this rig — not the experiment)")
+        bench_col = QVBoxLayout(bench_group)
+        bench_btns = QHBoxLayout()
+        self.bench_save_btn = QPushButton("Save as defaults")
+        self.bench_save_btn.setToolTip(
+            "Remember the current wavelength range, integration time, scan averages, "
+            "linearity ramp, data root and Gamry mode as this machine's defaults. "
+            "Sample/folder/CV parameters are NOT saved — those belong to an experiment.")
+        self.bench_save_btn.clicked.connect(self.on_bench_save)
+        self.bench_restore_btn = QPushButton("Restore factory defaults")
+        self.bench_restore_btn.setToolTip(
+            "Discard this machine's bench file and fall back to the lab defaults "
+            "(config/defaults.ini). Does not touch experiment settings.")
+        self.bench_restore_btn.clicked.connect(self.on_bench_restore)
+        self.bench_open_btn = QPushButton("Open folder")
+        self.bench_open_btn.setToolTip(
+            "Open the config folder — bench.ini (this rig) sits beside defaults.ini "
+            "(the lab-wide defaults). Both are plain text; edit with the app closed.")
+        self.bench_open_btn.clicked.connect(self.on_bench_open)
+        bench_btns.addWidget(self.bench_save_btn)
+        bench_btns.addWidget(self.bench_restore_btn)
+        bench_btns.addWidget(self.bench_open_btn)
+        bench_btns.addStretch()
+        bench_col.addLayout(bench_btns)
+        self.bench_status = QLabel("")
+        self.bench_status.setStyleSheet("color: #888;")
+        self.bench_status.setWordWrap(True)
+        bench_col.addWidget(self.bench_status)
+        layout.addWidget(bench_group)
+        self._report_bench_state()
+        # Spare height goes here, not into the plots.
+        layout.addStretch(1)
 
         self._set_actions_enabled(False)
+        self._update_cal_plot()   # placeholders, not empty 0-1 axes
+
+    # --- bench defaults ---
+
+    def _report_bench_state(self):
+        """Say what was loaded and from where. A config file nobody can find is just a
+        registry with extra steps — and a hand-editable file WILL eventually contain a
+        typo, so any warnings must be visible rather than swallowed."""
+        path = user_bench_path()
+        warnings = getattr(self.win, "bench_warnings", [])
+        loaded = getattr(self.win, "bench_loaded", [])
+        if warnings:
+            self.bench_status.setText("⚠ " + "  ".join(warnings) + f"\nFile: {path}")
+            self.bench_status.setStyleSheet("color: #b00;")
+            return
+        self.bench_status.setStyleSheet("color: #888;")
+        if path.exists():
+            self.bench_status.setText(f"Loaded {len(loaded)} settings for this rig.\nFile: {path}")
+        else:
+            self.bench_status.setText(
+                f"Using the lab defaults (config/defaults.ini) — no bench file yet.\n"
+                f"Save as defaults writes: {path}")
+
+    def on_bench_open(self):
+        """Open the config folder in the file manager — a hand-editable file you can't
+        find is no better than a registry key."""
+        folder = user_bench_path().parent
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def on_bench_save(self):
+        settings = self.win.collect_settings()   # every tab's widgets -> the settings dict
+        try:
+            path = save_bench_defaults(settings)
+        except OSError as exc:
+            self.bench_status.setText(f"Could not save bench defaults: {exc}")
+            self.bench_status.setStyleSheet("color: #b00;")
+            return
+        self.bench_status.setStyleSheet("color: #080;")
+        self.bench_status.setText(f"Saved as this rig's defaults.\nFile: {path}")
+
+    def on_bench_restore(self):
+        path = user_bench_path()
+        if path.exists():
+            reply = QMessageBox.question(
+                self, "Restore factory defaults",
+                f"Delete this machine's bench file and fall back to the lab defaults?\n\n"
+                f"{path}\n\nExperiment settings are not affected.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+            try:
+                path.unlink()
+            except OSError as exc:
+                self.bench_status.setText(f"Could not remove the bench file: {exc}")
+                self.bench_status.setStyleSheet("color: #b00;")
+                return
+        # Re-derive from code defaults + the repo lab defaults, and push into the widgets.
+        settings = DEFAULT_SETTINGS.copy()
+        values, warnings = load_bench_defaults()
+        apply_bench_defaults(settings, values)
+        self.win.bench_warnings = warnings
+        self.win.bench_loaded = sorted(values)
+        self.win.apply_settings(settings)
+        self._report_bench_state()
 
     def _wrap(self, inner_layout):
         box = QWidget()
@@ -283,6 +533,12 @@ class InstrumentTab(QWidget):
     def populate_from(self, settings):
         self.integration_spin.setValue(settings["integration_time_ms"])
         self.averages_spin.setValue(settings["scan_averages"])
+        # The linearity ramp is lamp-dependent, so it comes from the bench defaults.
+        self.lin_start_spin.setValue(settings.get("lin_start_ms", settings["integration_time_ms"]))
+        self.lin_stop_spin.setValue(settings.get("lin_stop_ms", 0.15))
+        self.lin_steps_spin.setValue(int(settings.get("lin_steps", 20)))
+        self.lin_tol_spin.setValue(settings.get("lin_tolerance_pct", 2.0))
+        self.lin_fill_spin.setValue(settings.get("lin_max_fill_pct", 85.0))
         wl_min, wl_max = settings.get("wavelength_min"), settings.get("wavelength_max")
         if wl_min is not None:
             self.wl_min_spin.setValue(wl_min)
@@ -309,13 +565,24 @@ class InstrumentTab(QWidget):
         settings["potentiostat_mode"] = (
             "python" if self.pstat_python_radio.isChecked() else "external")
         settings["save_dta"] = self.save_dta_check.isChecked()
+        settings["lin_start_ms"] = self.lin_start_spin.value()
+        settings["lin_stop_ms"] = self.lin_stop_spin.value()
+        settings["lin_steps"] = self.lin_steps_spin.value()
+        settings["lin_tolerance_pct"] = self.lin_tol_spin.value()
+        settings["lin_max_fill_pct"] = self.lin_fill_spin.value()
 
     # --- actions ---
 
     def _set_actions_enabled(self, enabled):
         self._actions_enabled = enabled
+        # Load belongs here too: a dark/ref is only meaningful against the connected
+        # spectrometer's wavelength axis. Left ungated, Load "succeeded" with no axis
+        # and the plot then reported a nonsense "0 px window".
         for w in (self.apply_btn, self.collect_dark_btn, self.collect_ref_btn,
-                  self.test_counts_btn, self.timing_btn, self.wl_apply_btn):
+                  self.load_dark_btn, self.load_ref_btn,
+                  self.timing_btn, self.wl_apply_btn, self.wl_reset_btn,
+                  self.test_btn,
+                  self.lin_run_btn, self.lin_find_sat_btn):
             w.setEnabled(enabled)
         # Connect re-inits toolkitpy; forbid it during a run so it can't collide
         # with a Python-mode run driving the Gamry. Restore its normal (python +
@@ -338,8 +605,13 @@ class InstrumentTab(QWidget):
         self.simulated_check.setEnabled(not locked and AvantesSpectrometer is not None)
 
     def _update_absorbance_enabled(self):
+        # Measure itself only needs a spectrometer — raw counts are exactly what you want
+        # BEFORE a dark/ref exist (optics alignment) and AFTER the sample swap. It's the
+        # absorbance VIEW that needs a dark and a reference.
         ready = self.win.spec is not None and self.win.dark is not None and self.win.ref is not None
-        self.test_absorb_btn.setEnabled(ready)
+        self.view_abs_radio.setEnabled(ready)
+        if not ready and self.view_abs_radio.isChecked():
+            self.view_counts_radio.setChecked(True)   # fall back rather than show nothing
         # Can only save a dark/ref once one has been collected or loaded.
         self.save_dark_btn.setEnabled(self.win.dark is not None)
         self.save_ref_btn.setEnabled(self.win.ref is not None)
@@ -380,17 +652,25 @@ class InstrumentTab(QWidget):
         self._set_pstat_status(f"● Connected — {who}", "#080")
 
     def _update_cal_plot(self):
+        # Dark is unannotated on purpose: it is detector noise / stray light, so its
+        # "peak" means nothing. The reference peak IS meaningful (it's the counts test),
+        # so it gets the max-counts annotation that Test (counts) used to provide.
         self._plot_if_matched(self.dark_canvas, self.win.dark,
                               "Dark", "Intensity (counts)")
         self._plot_if_matched(self.ref_canvas, self.win.ref,
-                              "Reference (100%T)", "Intensity (counts)")
+                              "Reference (100%T)", "Intensity (counts)", mark_max=True)
+        # The Test scan lives on the same wavelength axis, so it must be redrawn with the
+        # others — applying a window used to leave it stale at the old width, which is
+        # exactly the plot you're looking at when you click Apply after Suggest.
+        self._render_test_view()
 
-    def _plot_if_matched(self, canvas, data, title, ylabel, **kw):
+    def _plot_if_matched(self, canvas, data, title, ylabel, empty_msg=None, **kw):
         """Plot data vs the current wavelength axis only if their lengths match;
         otherwise show a note. Prevents length-mismatch crashes when a window has
         been applied while dark/ref are from a different range."""
         wl = self.win.wavelengths
         if data is None:
+            canvas.show_message(empty_msg or f"{title}: none yet — Collect New or Load.")
             return
         if wl is None or len(wl) != len(data):
             canvas.show_message(f"{title}: {len(data)} px doesn't match the "
@@ -403,7 +683,9 @@ class InstrumentTab(QWidget):
         already matches, slice a full-range file down to the active window, or
         return None if it can't be matched."""
         wl = self.win.wavelengths
-        if wl is None or len(arr) == len(wl):
+        if wl is None:
+            return None          # no axis yet — nothing to reconcile against
+        if len(arr) == len(wl):
             return arr
         full = getattr(self, "_full_wl", None)
         if full is not None and len(arr) == len(full):
@@ -427,14 +709,26 @@ class InstrumentTab(QWidget):
         # A fresh connection is at the full window; remember it so loaded (full-range)
         # dark/ref files can be sliced to a narrower window later.
         self._full_wl = np.asarray(self.win.wavelengths)
-        # Seed the window spin boxes with the spectrometer's actual full range.
-        if len(self.win.wavelengths):
-            self.wl_min_spin.setValue(float(self.win.wavelengths[0]))
-            self.wl_max_spin.setValue(float(self.win.wavelengths[-1]))
         self.spec_status.setText(f"● Connected ({serial})")
         self.spec_status.setStyleSheet("color: #080;")
         self._set_actions_enabled(True)
         self.on_apply()
+
+        # Apply this rig's saved wavelength range automatically — otherwise "it comes up
+        # the way I left it" wouldn't hold: the bench default would sit in the spin boxes
+        # while the spectrometer quietly ran at full range.
+        wl_min = self.win.settings.get("wavelength_min")
+        wl_max = self.win.settings.get("wavelength_max")
+        if wl_min is not None and wl_max is not None:
+            self.wl_min_spin.setValue(float(wl_min))
+            self.wl_max_spin.setValue(float(wl_max))
+            self._apply_window(float(wl_min), float(wl_max))
+        elif len(self.win.wavelengths):
+            self.wl_min_spin.setValue(float(self.win.wavelengths[0]))
+            self.wl_max_spin.setValue(float(self.win.wavelengths[-1]))
+            self.wl_status.setText(
+                f"Full range: {self._full_wl[0]:.0f}–{self._full_wl[-1]:.0f} nm "
+                f"({len(self._full_wl)} px). Set your lamp's usable range, then Apply.")
 
     def on_apply(self):
         if self.win.spec is None:
@@ -479,6 +773,9 @@ class InstrumentTab(QWidget):
             self.dark_status.setText(f"Dark: save failed ({exc})")
 
     def on_load_dark(self):
+        if self.win.spec is None:
+            self.dark_status.setText("Dark: connect the spectrometer first.")
+            return
         start = str(Path(self._data_root()) / "darks")
         path, _ = QFileDialog.getOpenFileName(self, "Load Dark Spectrum", start, "Text files (*.txt *.csv)")
         if not path:
@@ -527,6 +824,9 @@ class InstrumentTab(QWidget):
             self.ref_status.setText(f"Reference: save failed ({exc})")
 
     def on_load_ref(self):
+        if self.win.spec is None:
+            self.ref_status.setText("Reference: connect the spectrometer first.")
+            return
         start = str(Path(self._data_root()) / "refs")
         path, _ = QFileDialog.getOpenFileName(self, "Load Reference Spectrum", start, "Text files (*.txt *.csv)")
         if not path:
@@ -547,30 +847,48 @@ class InstrumentTab(QWidget):
         except Exception as exc:  # noqa: BLE001
             self.ref_status.setText(f"Reference: load failed ({exc})")
 
-    def on_test_counts(self):
+    def on_measure_test(self):
+        """One spectrum of whatever is in the beam now. Stored transiently — never
+        written to win.dark / win.ref, so it is safe to run after the blank FTO has been
+        swapped for the sample."""
         if self.win.spec is None:
             return
         _, spectrum = self.win.spec.measure()
-        self.counts_label.setText(
-            f"Counts: {len(spectrum)} px, min={spectrum.min():.0f}  max={spectrum.max():.0f}")
-        self._plot_if_matched(self.counts_canvas, spectrum,
-                              "Test (counts)", "Intensity (counts)", mark_max=True)
+        self._last_test_spectrum = np.asarray(spectrum)
+        self._last_test_abs = self._absorbance_of(self._last_test_spectrum)
+        self._update_absorbance_enabled()
+        self._render_test_view()
 
-    def on_test_absorbance(self):
-        if self.win.spec is None or self.win.dark is None or self.win.ref is None:
-            return
-        _, spectrum = self.win.spec.measure()
-        if not (len(spectrum) == len(self.win.dark) == len(self.win.ref)):
-            self.absorb_label.setText(
-                "Dark/reference don't match the current window — re-collect them at this range.")
-            return
+    def _absorbance_of(self, spectrum):
+        """A = -log10((sample - dark) / (ref - dark)), or None if dark/ref aren't usable."""
+        dark, ref = self.win.dark, self.win.ref
+        if dark is None or ref is None:
+            return None
+        if not (len(spectrum) == len(dark) == len(ref)):
+            return None
         with np.errstate(divide="ignore", invalid="ignore"):
-            transmittance = (spectrum - self.win.dark) / (self.win.ref - self.win.dark)
-            absorbance = -np.log10(transmittance)
-        self.absorb_label.setText("A = −log₁₀((sample − dark) / (ref − dark))")
-        self._plot_if_matched(self.absorb_canvas, absorbance,
-                              "Test (absorbance)", "Absorbance")
-        self._last_test_abs = np.asarray(absorbance)
+            return np.asarray(-np.log10((spectrum - dark) / (ref - dark)))
+
+    def _render_test_view(self, *_):
+        """Re-render the LAST scan in the selected view — no re-measurement, so counts and
+        absorbance always describe the same spectrum."""
+        if self.view_abs_radio.isChecked():
+            self._plot_if_matched(
+                self.test_canvas, self._last_test_abs, "Test (absorbance)", "Absorbance",
+                empty_msg="Absorbance needs a dark and a reference — collect them, then Measure.")
+            self.test_label.setText("A = −log₁₀((sample − dark) / (ref − dark))")
+        else:
+            spectrum = self._last_test_spectrum
+            self._plot_if_matched(
+                self.test_canvas, spectrum, "Test (counts)", "Intensity (counts)",
+                mark_max=True, empty_msg="Test: none yet — press Measure.")
+            if spectrum is None:
+                self.test_label.setText(
+                    "Measure the beam as it is now — does not overwrite the reference.")
+            else:
+                self.test_label.setText(
+                    f"Counts: {len(spectrum)} px, min={spectrum.min():.0f}  "
+                    f"max={spectrum.max():.0f}")
         self._update_suggest_enabled()
 
     def on_timing_test(self):
@@ -579,6 +897,102 @@ class InstrumentTab(QWidget):
         _, _, net_dif, t_dif = self.win.spec.measure_timing()
         self.timing_result.setText(
             f"total {t_dif * 1000:.1f} ms  (overhead {net_dif:.1f} ms)")
+
+    # --- linearity check ---
+
+    def _restore_spectrometer_settings(self):
+        """Put the user's integration time / averages back after a ramp."""
+        self.win.spec.set_integration_time(self.integration_spin.value())
+        self.win.spec.set_scan_averages(self.averages_spin.value())
+
+    def on_find_saturation(self):
+        """Double the integration time until saturation, and use that as Stop."""
+        if self.win.spec is None:
+            return
+        self.lin_result.setText("Finding saturation…")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.win.spec.set_scan_averages(1)
+            sat = find_saturation_time(self.win.spec, self.lin_start_spin.value())
+        except LinearityError as exc:
+            self.lin_result.setText(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 — surface hardware errors as a note
+            self.lin_result.setText(f"Find saturation failed: {exc}")
+            return
+        finally:
+            self._restore_spectrometer_settings()
+            QApplication.restoreOverrideCursor()
+        # Stop just past saturation: enough to show the clip, without wasting most
+        # of the ramp above it.
+        stop = sat["t_sat"] * 1.05
+        self.lin_stop_spin.setValue(stop)
+        self.lin_result.setText(
+            f"Saturates at {sat['t_sat']:.4g} ms. Highest clean point: "
+            f"{sat['t_below']:.4g} ms ({sat['counts_below']:.0f} counts). "
+            f"Stop set to {stop:.4g} ms — now run the check.")
+
+    def on_linearity_check(self):
+        if self.win.spec is None:
+            return
+        start, stop = self.lin_start_spin.value(), self.lin_stop_spin.value()
+        steps = self.lin_steps_spin.value()
+        if stop <= start:
+            self.lin_result.setText("Stop must be greater than Start.")
+            return
+        times = np.linspace(start, stop, steps)
+
+        # The ramp runs on the GUI thread: at sub-ms integration times with averaging
+        # forced to 1 it finishes in well under a second. The spin allows up to 10 s
+        # though, so warn before freezing the UI for a genuinely long one.
+        projected_s = float(times.sum()) / 1000.0 + steps * 0.05
+        if projected_s > 5.0:
+            reply = QMessageBox.question(
+                self, "Long linearity ramp",
+                f"This ramp will take roughly {projected_s:.0f} s, and the window will "
+                "be unresponsive until it finishes.\n\nContinue?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+
+        self.lin_result.setText("Running…")
+        self.lin_use_btn.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            # Averaging doesn't change saturation, only speed — force 1 for the ramp.
+            self.win.spec.set_scan_averages(1)
+            used, counts, peak_px = measure_linearity_series(self.win.spec, times)
+            result = analyze_linearity(
+                used, counts,
+                tolerance_pct=self.lin_tol_spin.value(),
+                max_fill_frac=self.lin_fill_spin.value() / 100.0)
+        except LinearityError as exc:
+            self.lin_canvas.show_message(str(exc))
+            self.lin_result.setText(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001
+            self.lin_result.setText(f"Linearity check failed: {exc}")
+            return
+        finally:
+            self._restore_spectrometer_settings()
+            QApplication.restoreOverrideCursor()
+
+        title = f"Peak pixel {peak_px}"
+        wl = self.win.wavelengths
+        if wl is not None and peak_px < len(wl):
+            title += f" ({wl[peak_px]:.0f} nm)"
+        self.lin_canvas.show_linearity(used, counts, result, title=title)
+        self.lin_result.setText(result["summary"])
+        self._lin_recommended = result["t_recommended"]
+        self.lin_use_btn.setEnabled(True)
+
+    def on_use_recommended(self):
+        if self._lin_recommended is None:
+            return
+        self.integration_spin.setValue(self._lin_recommended)
+        self.on_apply()
+        self.lin_result.setText(
+            f"Integration time set to {self.integration_spin.value():.4g} ms and applied.")
 
     # --- usable wavelength window ---
 
@@ -602,6 +1016,13 @@ class InstrumentTab(QWidget):
         except Exception as exc:  # noqa: BLE001 — surface a bad suggestion as a note
             self.wl_rationale.setText(f"Could not suggest a range: {exc}")
             return
+        # A degenerate absorbance (e.g. a dark that isn't really dark, so ref-dark ~ 0)
+        # yields NaN noise and a zero-width band. Don't push that into the Range boxes.
+        if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo:
+            self.wl_rationale.setText(
+                "Couldn't read a usable noise floor from this test-absorbance — check the "
+                "dark (lamp blocked) and reference (blank, lamp on), or set the range by eye.")
+            return
         self.wl_min_spin.setValue(lo)
         self.wl_max_spin.setValue(hi)
         self.wl_rationale.setText(rationale["summary"])
@@ -611,13 +1032,27 @@ class InstrumentTab(QWidget):
             return
         wl_min, wl_max = self.wl_min_spin.value(), self.wl_max_spin.value()
         if wl_max <= wl_min:
-            self.wl_rationale.setText("Range invalid: max must be greater than min.")
+            self.wl_status.setText("Range invalid: max must be greater than min.")
             return
+        self._apply_window(wl_min, wl_max)
+
+    def on_wl_reset(self):
+        """Back to the spectrometer's full calibrated range (undo the crop)."""
+        if self.win.spec is None:
+            return
+        full = getattr(self, "_full_wl", None)
+        self._apply_window(None, None)
+        if full is not None and len(full):
+            self.wl_min_spin.setValue(float(full[0]))
+            self.wl_max_spin.setValue(float(full[-1]))
+
+    def _apply_window(self, wl_min, wl_max):
+        """Set the spectrometer's window (None,None = full) and keep dark/ref aligned."""
         old_wl = np.asarray(self.win.wavelengths) if self.win.wavelengths is not None else None
         try:
             self.win.spec.set_wavelength_window(wl_min, wl_max)
         except Exception as exc:  # noqa: BLE001
-            self.wl_rationale.setText(f"Apply failed: {exc}")
+            self.wl_status.setText(f"Apply failed: {exc}")
             return
         _, self.win.wavelengths = self.win.spec.wavelengths()
         new_wl = np.asarray(self.win.wavelengths)
@@ -625,31 +1060,54 @@ class InstrumentTab(QWidget):
         self._reslice_cal(old_wl, new_wl)   # keep dark/ref aligned; clear on a widen
         now_cal = self.win.dark is not None
         self._update_cal_plot()
+        self._refresh_cal_status()          # the labels must not out-live the data
         self._update_absorbance_enabled()
-        msg = f"Applied {new_wl[0]:.0f}–{new_wl[-1]:.0f} nm ({len(new_wl)} px)."
+        msg = f"{new_wl[0]:.0f}–{new_wl[-1]:.0f} nm ({len(new_wl)} px)."
         if had_cal and now_cal:
             msg += " Dark/reference re-sliced to match."
         elif had_cal and not now_cal:
             msg += " Dark/reference cleared — re-collect at this range."
-        self.wl_rationale.setText(msg)
+        self.wl_status.setText(msg)
+
+    def _refresh_cal_status(self):
+        """Rewrite the dark/ref labels from the ACTUAL stored data after a window change.
+        Otherwise they keep claiming 'collected (702 px)' after a widen cleared them, or
+        keep the pre-slice pixel count after a narrow — a label that outlives its data."""
+        for arr, label, name in ((self.win.dark, self.dark_status, "Dark"),
+                                 (self.win.ref, self.ref_status, "Reference")):
+            if arr is None:
+                label.setText(f"{name}: cleared — re-collect at this range.")
+            else:
+                label.setText(f"{name}: ready ({len(arr)} px)")
 
     def _reslice_cal(self, old_wl, new_wl):
-        """After the window narrows, slice dark/ref (aligned with old_wl) down to
-        new_wl so they stay matched to the run data — no re-collect. If new_wl isn't
-        a sub-range of old_wl (a widen beyond what was collected), clear them."""
-        if old_wl is None or (self.win.dark is None and self.win.ref is None):
+        """After the window narrows, slice dark/ref/test-abs (aligned with old_wl) down
+        to new_wl so they stay matched to the run data — no re-collect. If new_wl isn't
+        a sub-range of old_wl (a widen beyond what was collected), clear them.
+
+        The test-absorbance belongs here too: A(lambda) doesn't change when you crop, so
+        slicing it is exact, and leaving it out stranded it at the old width."""
+        if old_wl is None:
             return
         contained = (len(new_wl) <= len(old_wl)
                      and new_wl[0] >= old_wl[0] - 1e-6
                      and new_wl[-1] <= old_wl[-1] + 1e-6)
-        if contained:
-            i0 = int(np.argmin(np.abs(old_wl - new_wl[0])))
-            sl = slice(i0, i0 + len(new_wl))
-            if self.win.dark is not None and len(self.win.dark) == len(old_wl):
-                self.win.dark = np.asarray(self.win.dark)[sl]
-            if self.win.ref is not None and len(self.win.ref) == len(old_wl):
-                self.win.ref = np.asarray(self.win.ref)[sl]
-        else:
-            self.win.dark = None
-            self.win.ref = None
-            self._last_test_abs = None
+        i0 = int(np.argmin(np.abs(old_wl - new_wl[0]))) if contained else 0
+        sl = slice(i0, i0 + len(new_wl))
+
+        def fit(arr):
+            """Put arr on the new axis, or drop it. Never leave it stale: a stored array
+            whose length no longer matches the axis can't be plotted or used, and silently
+            keeping it is what made Apply look like it did nothing."""
+            if arr is None:
+                return None
+            if len(arr) == len(new_wl):
+                return arr                                  # already on the new axis
+            if contained and len(arr) == len(old_wl):
+                return np.asarray(arr)[sl]                  # narrowed: slice it down
+            return None                                     # widened / unrelated: drop it
+
+        self.win.dark = fit(self.win.dark)
+        self.win.ref = fit(self.win.ref)
+        self._last_test_spectrum = fit(self._last_test_spectrum)
+        self._last_test_abs = fit(self._last_test_abs)
