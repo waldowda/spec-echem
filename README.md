@@ -13,7 +13,7 @@ Launch the GUI with `python -m gui`. The original Jupyter-notebook workflow also
 
 ## ⚠️ Pre-Release Notice
 
-This software is currently in **pre-release** (v0.1.0). The API and functionality are subject to change. Use in production environments at your own risk.
+This software is currently in **pre-release** (v0.2.0). The API and functionality are subject to change. Use in production environments at your own risk. See [`CHANGELOG.md`](CHANGELOG.md) for what changed.
 
 ## Overview
 
@@ -32,6 +32,16 @@ This software is currently in **pre-release** (v0.1.0). The API and functionalit
 - 🔄 Support for complex electrochemical sequences (CV, chronoamperometry, stepping protocols)
 - 💾 Synchronized data storage with timestamps
 - 📈 Built-in visualization tools for spectroelectrochemical data
+
+**Instrument setup (v0.2.0):**
+
+- 📏 **Linearity check** — ramps the integration time against the reference, fits the linear region,
+  and recommends a working integration time with headroom below saturation
+- ✂️ **Wavelength window** (opt-in) — crop the noisy lamp edges so they aren't written to every file
+- 🧪 **Test (sample)** — take a spectrum of whatever is in the beam *without* overwriting your
+  dark or reference
+- ⚙️ **Bench defaults** — a hand-editable INI for the settings that describe your rig, separate from
+  per-experiment settings (see [`config/README.md`](config/README.md))
 
 ## System Requirements
 
@@ -104,18 +114,28 @@ python -m gui
 
 ```
 spec-echem/
-├── spec_echem/              # Main package
-│   ├── __init__.py         # Package initialization
-│   ├── spectrometer.py     # Avantes spectrometer control class
-│   └── globals.py          # Global variables for SDK
-├── notebooks/               # Jupyter notebooks
-│   └── SpecEchem Avantes 0.996-20250717.ipynb  # Main experimental workflow
-├── gamry/                   # Gamry sequence files
-│   └── Spec_Echem_20250714.GSequence  # Example sequence with triggers
-├── examples/                # Example scripts (coming soon)
-├── docs/                    # Documentation (in development)
-├── tests/                   # Unit tests (in development)
-└── data/                    # Sample data directory
+├── spec_echem/              # Core package — no Qt, no hardware imports
+│   ├── spectrometer.py     # Avantes control (AvantesSpectrometer)
+│   ├── potentiostat.py     # Gamry control — External + Python (EchemToolkitPy)
+│   ├── acquisition.py      # Triggered spectrum acquisition for one segment
+│   ├── experiment.py       # Segment list + the acquire → absorbance → write pipeline
+│   ├── data.py             # Spectra + echem writers/readers (the fixed output format)
+│   ├── linearity.py        # Integration-time linearity fit and recommendation
+│   ├── spectral_range.py   # Wavelength-window recommendation
+│   ├── settings.py         # Experiment settings dict
+│   ├── bench.py            # Bench (per-rig) defaults, config/*.ini
+│   └── fakes.py            # Hardware fakes — the whole suite runs with no instruments
+├── gui/                     # PyQt5 GUI — python -m gui
+│   ├── main_window.py      # 4 tabs, shared state
+│   ├── workers.py          # Acquisition thread
+│   └── tabs/               # instrument / parameters / run / results
+├── config/                  # Bench defaults (defaults.ini tracked, bench.ini per-rig)
+├── notebooks/               # Legacy Jupyter workflow (still functional)
+├── gamry/                   # .GSequence files with digital-output triggers
+├── docs/                    # sop.md, data-format.md, inspect-run.md
+├── examples/                # Bench/validation scripts (trigger timing, co-acquisition)
+├── tests/                   # 143 tests — no hardware required
+└── data/                    # Sample data
 ```
 
 ## Quick Start
@@ -193,11 +213,12 @@ coordination.**
 
 ## Documentation
 
-Detailed documentation is in development. For now:
-- See [`docs/data-format.md`](docs/data-format.md) for the output file format
-- See `notebooks/` for example workflows
-- Check `gamry/` for Gamry sequence templates
-- Review source code docstrings for API details
+- **[`docs/sop.md`](docs/sop.md) — start here.** The full standard operating procedure: installation,
+  trigger wiring, and a step-by-step run through the GUI. The legacy notebook workflow is an appendix.
+- [`docs/data-format.md`](docs/data-format.md) — the authoritative output file format
+- [`config/README.md`](config/README.md) — bench defaults vs experiment settings
+- [`CHANGELOG.md`](CHANGELOG.md) — what changed between versions
+- `notebooks/` for the legacy workflow, `gamry/` for sequence templates, and source docstrings for API details
 
 ## Contributing
 
@@ -217,7 +238,7 @@ If you use this software in your research, please cite:
   title        = {spec-echem: Synchronized Spectroelectrochemistry with Avantes and Gamry},
   year         = {2025},
   publisher    = {GitHub},
-  version      = {0.1.0},
+  version      = {0.2.0},
   doi          = {10.5281/zenodo.17221314},
   url          = {https://github.com/waldowda/spec-echem}
 }
@@ -241,11 +262,17 @@ Pacific Lutheran University
 
 ## Roadmap
 
-### Planned Features (v0.2.0)
+### Done in v0.2.0
+- [x] Move code to a unified Python package with a PyQt5 GUI
+- [x] Automated calibration routine — spectrometer linearity check / integration-time recommendation
+
+### Planned
+- [ ] Document the trigger cable build (connector, pinout, shielding) so it can be rebuilt
 - [ ] Eliminate global variables dependency
-- [ ] Add automated calibration routines
-- [ ] Implement data export to common formats (CSV, HDF5)
-- [ ] Move code to a unified Python package using PyQt5 as a windowing environment.
+- [ ] Data export to common formats (CSV, HDF5)
+- [ ] Automated tests for the GUI layer
+- [ ] Multi-vendor hardware support (Metrohm potentiostat, Ocean Optics spectrometer) — the driver
+      seams exist; the open question is trigger semantics
 
 ## Support
 

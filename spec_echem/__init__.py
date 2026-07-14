@@ -22,7 +22,7 @@ from .data import (
     DATA_TYPE_PREDEDOPING,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Dean Waldow"
 
 __all__ = [

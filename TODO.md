@@ -2,6 +2,22 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Document the trigger cable build (Dean, 2026-07-14)
+
+`docs/sop.md` §2.1 gives the trigger *endpoints* (Gamry DIGOUT0 → Avantes DB26 pin 6) but not how
+the cable is **made**: Gamry-side connector and which conductor carries DIGOUT0, DB26 shell and pin-6
+termination, ground/shield, cable length. That knowledge currently exists only in Dean's head and in
+the single cable on the bench — if it's damaged, or a second rig is built, there's nothing to work
+from. A placeholder marks the spot in the SOP. **Needs Dean's bench notes / photos.**
+
+## Automated tests for the GUI layer
+
+The `gui/` package has zero test coverage while `spec_echem/` has 143 tests. Every bug in the
+0.2.0 cycle (stale absorbance after a wavelength re-slice, status labels outliving their data,
+load-before-connect, a discarded segment still reaching the Results tab) lived in **GUI wiring**,
+and the core suite passed through all of them. Deliberate trade for now — adding Qt to the test deps
+means it must also install in the 32-bit `SpecEchem32` env — but this is where the bugs are.
+
 ## Gamry DTA converter — cleanups for when we own the parser
 
 The conversion (raw `.DTA` → clean `.txt`) currently runs as a manual post-collection step in
