@@ -88,13 +88,33 @@ _FLAT = {key: (section, parse)
 BENCH_KEYS = tuple(_FLAT)
 
 
-def user_bench_path():
-    """Per-user bench file for THIS machine. Not in the repo — it holds machine paths."""
+def _os_config_path():
+    """The conventional per-user config location — used only as a fallback."""
     if os.name == "nt":
         base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     return base / APP_NAME / "bench.ini"
+
+
+def user_bench_path():
+    """
+    This machine's bench file: `config/bench.ini`, right beside the tracked
+    `config/defaults.ini` (and gitignored, because it holds machine paths).
+
+    The conventional spot would be %APPDATA% / ~/.config, but that convention exists for
+    multi-user machines and read-only installs in Program Files. Neither applies to a lab
+    instrument running from a writable checkout on a shared account — and %APPDATA% is a
+    HIDDEN folder, which makes a file you're meant to hand-edit, back up, and email
+    needlessly hard to find. So: keep it with the code, where you already are.
+
+    Falls back to the OS config dir only if the install directory isn't writable (e.g. a
+    non-editable pip install into site-packages).
+    """
+    config_dir = REPO_DEFAULTS.parent
+    if os.access(config_dir if config_dir.exists() else config_dir.parent, os.W_OK):
+        return config_dir / "bench.ini"
+    return _os_config_path()
 
 
 def read_bench_file(path):

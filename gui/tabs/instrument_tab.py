@@ -9,7 +9,8 @@ counts or absorbance.
 import numpy as np
 from datetime import datetime
 from pathlib import Path
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QUrl
+from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea, QGridLayout,
     QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
@@ -436,8 +437,14 @@ class InstrumentTab(QWidget):
             "Discard this machine's bench file and fall back to the lab defaults "
             "(config/defaults.ini). Does not touch experiment settings.")
         self.bench_restore_btn.clicked.connect(self.on_bench_restore)
+        self.bench_open_btn = QPushButton("Open folder")
+        self.bench_open_btn.setToolTip(
+            "Open the config folder — bench.ini (this rig) sits beside defaults.ini "
+            "(the lab-wide defaults). Both are plain text; edit with the app closed.")
+        self.bench_open_btn.clicked.connect(self.on_bench_open)
         bench_btns.addWidget(self.bench_save_btn)
         bench_btns.addWidget(self.bench_restore_btn)
+        bench_btns.addWidget(self.bench_open_btn)
         bench_btns.addStretch()
         bench_col.addLayout(bench_btns)
         self.bench_status = QLabel("")
@@ -472,6 +479,13 @@ class InstrumentTab(QWidget):
             self.bench_status.setText(
                 f"Using the lab defaults (config/defaults.ini) — no bench file yet.\n"
                 f"Save as defaults writes: {path}")
+
+    def on_bench_open(self):
+        """Open the config folder in the file manager — a hand-editable file you can't
+        find is no better than a registry key."""
+        folder = user_bench_path().parent
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def on_bench_save(self):
         settings = self.win.collect_settings()   # every tab's widgets -> the settings dict
