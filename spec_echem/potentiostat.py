@@ -356,6 +356,8 @@ class ToolkitPotentiostat(Potentiostat):
     def _write_dta(self, curve, pstat, segment):
         """Optionally emit a native Gamry .dta via the toolkit (dta/ subfolder).
         Opt-out via settings['save_dta']; a failure must not sink the run."""
+        if not getattr(segment, "save", True):
+            return          # discarded segment: it ran, but it leaves nothing behind
         if not self.settings.get("save_dta", True):
             return
         if not hasattr(tkp, "print_default_dta_file"):
