@@ -6,3 +6,7 @@ __pycache__/
 
 # user-saved GUI settings files ("Save Settings File")
 settings_*.json
+
+# Per-machine bench defaults (holds this rig's data_root, lamp range, etc.).
+# The lab-wide defaults in config/defaults.ini ARE tracked; this one is not.
+config/bench.ini

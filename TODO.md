@@ -2,6 +2,22 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Document the trigger cable build (Dean, 2026-07-14)
+
+`docs/sop.md` §2.1 gives the trigger *endpoints* (Gamry DIGOUT0 → Avantes DB26 pin 6) but not how
+the cable is **made**: Gamry-side connector and which conductor carries DIGOUT0, DB26 shell and pin-6
+termination, ground/shield, cable length. That knowledge currently exists only in Dean's head and in
+the single cable on the bench — if it's damaged, or a second rig is built, there's nothing to work
+from. A placeholder marks the spot in the SOP. **Needs Dean's bench notes / photos.**
+
+## Automated tests for the GUI layer
+
+The `gui/` package has zero test coverage while `spec_echem/` has 143 tests. Every bug in the
+0.2.0 cycle (stale absorbance after a wavelength re-slice, status labels outliving their data,
+load-before-connect, a discarded segment still reaching the Results tab) lived in **GUI wiring**,
+and the core suite passed through all of them. Deliberate trade for now — adding Qt to the test deps
+means it must also install in the 32-bit `SpecEchem32` env — but this is where the bugs are.
+
 ## Gamry DTA converter — cleanups for when we own the parser
 
 The conversion (raw `.DTA` → clean `.txt`) currently runs as a manual post-collection step in
@@ -134,9 +150,21 @@ DIGOUT0 handshake confirmed. Remaining items:
 - [ ] **Expose the other hard-coded `measconfig` fields (future, Dean 2026-07-10).** Now that the window
       is config-driven, `_create_measurement_config` could expose smoothing, **saturation detection**
       (ties to the linearity-check item below), and the averaging model instead of hard-coding them.
-- [ ] **Linearity check on the raw-counts test (future):** flag when the peak test counts approach the
-      detector's saturation ceiling, so the user confirms they're in the linear regime before collecting
-      dark/reference/data. (The test-counts graph already annotates the peak value.)
+- [x] **Linearity check — DONE + hardware-validated (2026-07-13).** Instrument tab has a `Linearity Check`
+      box beside Spectrometer Settings: ramps integration time, tracks one fixed peak pixel, fits the linear
+      region (with intercept), and recommends a working integration time. Manual Start/Stop/Steps, a
+      "Find saturation" helper (bisects to the real threshold), and "Use recommended".
+      `spec_echem/linearity.py`; run with the reference in place.
+      **Key finding from the real run:** the detector tracks the fit to within ~1% right up to the hard ADC
+      clip, so a deviation-only criterion never fires and puts the working point at ~94% of full scale. The
+      recommendation therefore takes the **tighter of two constraints** — 5% below the limit of linearity,
+      or peak counts ≤ a **max-fill** fraction of full scale. Defaults **85% fill / 2% tolerance** confirmed
+      good by Dean on hardware (halogen + ND: saturates ~0.11 ms → recommends ~0.0885 ms).
+- [ ] **Linearity: per-source ramp defaults (Dean, 2026-07-13).** Saturation depends strongly on the
+      light source — Dean has a halogen+ND (saturates ~0.11 ms) and an Avantes **AvaLight**. Start/Stop are
+      manual and "Find saturation" auto-adapts, so switching sources already works; only the *default*
+      Stop (0.15 ms) is tuned to the halogen. If source-swapping becomes routine, remember the last-used
+      Start/Stop per source in settings rather than shipping one default.
 
 ## GUI UX — Instrument tab potentiostat controls (Dean, 2026-07-05)
 

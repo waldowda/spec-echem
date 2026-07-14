@@ -96,7 +96,8 @@ class AcquisitionWorker(QObject):
 
                 absorb_df, path = result
                 self.segment_done.emit(seg.label, absorb_df)
-                logger.info("%s complete → %s", seg.label, path.name)
+                logger.info("%s complete → %s", seg.label,
+                            path.name if path is not None else "discarded (not saved)")
         except Exception:  # noqa: BLE001 — surface any failure to the log + UI
             logger.exception("Acquisition error")
             reason = "error"

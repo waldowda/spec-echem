@@ -4,7 +4,51 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-07-10_
+_Last updated: 2026-07-14_
+
+---
+
+## 📦 STAGED FOR RELEASE: v0.2.0 on `gui-dev` (2026-07-14)
+
+Version bumped to **0.2.0** (`setup.py` + `spec_echem/__init__.py`), [`CHANGELOG.md`](CHANGELOG.md)
+written, [`docs/sop.md`](docs/sop.md) rewritten GUI-first (the notebook workflow is now an appendix,
+and the Gamry Sequence Wizard is Appendix B, for External mode). 143 tests.
+
+**The 0.2.0 theme is instrument setup:** 0.1.0 could run an experiment; 0.2.0 helps you set the
+instrument up correctly first, and remembers how your rig is configured. Linearity check, wavelength
+window, non-destructive Test (sample), bench defaults (`config/*.ini`), and the pre-dedoping
+"run it, but discard the data" option.
+
+**One gate before merging to `main`:** the discard has only been exercised in **External** mode. The
+code path that suppresses the native Gamry `.DTA` lives in `ToolkitPotentiostat._write_dta` and only
+runs in **Python** mode on the 32-bit box — it has never actually executed. Check on `SpecEchem32`
+that a discarded pre-dedoping leaves no `prededopingspectra(0).txt`, no `prededoping(0).txt`, and no
+`dta/prededoping(0).dta`, and that the doping/dedoping segments after it are unaffected.
+
+**Also open:** the trigger cable's *build* (connector, pinout, shielding) is undocumented — see
+`TODO.md`. And `gui/` still has no test coverage, which is where every 0.2.0 bug lived.
+
+---
+
+## Landed since the release: spectrometer linearity check (2026-07-13, `gui-dev`)
+
+The Instrument tab has a **`Linearity Check`** box beside Spectrometer Settings (which is now half
+width). Run it with the reference solution in place: it ramps integration time, tracks one fixed peak
+pixel, fits the linear region, and recommends a working integration time you can accept or override.
+**Hardware-validated on the Win11 box the same day.** 126 tests.
+
+**The scientific lesson (worth keeping):** the detector stays linear to within ~1% *right up until it
+hard-clips*. So a "deviation from the fitted line" criterion never fires — the ramp just ends at the
+clip, and "5% below the limit of linearity" lands at **94% of full scale**, with no headroom for lamp
+drift. Tightening the tolerance cannot fix this (the real deviation there was 0.95%). The recommendation
+therefore takes the **tighter of two constraints**: 5% below the linearity limit, *or* peak counts at or
+below a **max-fill** fraction of full scale. Defaults **85% fill / 2% tolerance**, both confirmed good by
+Dean on hardware. `Find saturation` bisects to the true threshold (plain doubling could only report a
+power-of-two multiple — it said 0.176 ms when saturation was really ~0.111 ms).
+
+Saturation is strongly source-dependent (halogen+ND saturates ~0.11 ms; the AvaLight will differ), so
+Start/Stop/Steps stay manual and `Find saturation` re-adapts on a source swap. See `TODO.md` for the
+per-source-defaults follow-up.
 
 ---
 

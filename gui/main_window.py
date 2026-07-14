@@ -9,6 +9,9 @@ The Qt-free orchestration (Experiment class) is added when the Run tab is wired.
 """
 from qtpy.QtWidgets import QMainWindow, QTabWidget
 
+from spec_echem.bench import (
+    apply_bench_defaults, load_bench_defaults, user_bench_path,
+)
 from spec_echem.settings import DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import InstrumentTab
 from gui.tabs.parameters_tab import ParametersTab
@@ -23,7 +26,12 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
 
         # --- shared state ---
+        # Code defaults, then the repo-tracked lab defaults, then THIS machine's bench
+        # file. An experiment settings JSON (loaded explicitly) still overrides all of it.
         self.settings = DEFAULT_SETTINGS.copy()
+        bench_values, self.bench_warnings = load_bench_defaults()
+        apply_bench_defaults(self.settings, bench_values)
+        self.bench_loaded = sorted(bench_values)
         self.spec = None
         self.dark = None
         self.ref = None
