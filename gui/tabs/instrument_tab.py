@@ -400,6 +400,7 @@ class InstrumentTab(QWidget):
         layout.addStretch(1)
 
         self._set_actions_enabled(False)
+        self._update_cal_plot()   # placeholders, not empty 0-1 axes
 
     def _wrap(self, inner_layout):
         box = QWidget()
@@ -444,8 +445,13 @@ class InstrumentTab(QWidget):
 
     def _set_actions_enabled(self, enabled):
         self._actions_enabled = enabled
+        # Load belongs here too: a dark/ref is only meaningful against the connected
+        # spectrometer's wavelength axis. Left ungated, Load "succeeded" with no axis
+        # and the plot then reported a nonsense "0 px window".
         for w in (self.apply_btn, self.collect_dark_btn, self.collect_ref_btn,
-                  self.test_counts_btn, self.timing_btn, self.wl_apply_btn):
+                  self.load_dark_btn, self.load_ref_btn,
+                  self.test_counts_btn, self.timing_btn, self.wl_apply_btn,
+                  self.lin_run_btn, self.lin_find_sat_btn):
             w.setEnabled(enabled)
         # Connect re-inits toolkitpy; forbid it during a run so it can't collide
         # with a Python-mode run driving the Gamry. Restore its normal (python +
@@ -521,6 +527,7 @@ class InstrumentTab(QWidget):
         been applied while dark/ref are from a different range."""
         wl = self.win.wavelengths
         if data is None:
+            canvas.show_message(f"{title}: none yet — Collect New or Load.")
             return
         if wl is None or len(wl) != len(data):
             canvas.show_message(f"{title}: {len(data)} px doesn't match the "
@@ -533,7 +540,9 @@ class InstrumentTab(QWidget):
         already matches, slice a full-range file down to the active window, or
         return None if it can't be matched."""
         wl = self.win.wavelengths
-        if wl is None or len(arr) == len(wl):
+        if wl is None:
+            return None          # no axis yet — nothing to reconcile against
+        if len(arr) == len(wl):
             return arr
         full = getattr(self, "_full_wl", None)
         if full is not None and len(arr) == len(full):
@@ -609,6 +618,9 @@ class InstrumentTab(QWidget):
             self.dark_status.setText(f"Dark: save failed ({exc})")
 
     def on_load_dark(self):
+        if self.win.spec is None:
+            self.dark_status.setText("Dark: connect the spectrometer first.")
+            return
         start = str(Path(self._data_root()) / "darks")
         path, _ = QFileDialog.getOpenFileName(self, "Load Dark Spectrum", start, "Text files (*.txt *.csv)")
         if not path:
@@ -657,6 +669,9 @@ class InstrumentTab(QWidget):
             self.ref_status.setText(f"Reference: save failed ({exc})")
 
     def on_load_ref(self):
+        if self.win.spec is None:
+            self.ref_status.setText("Reference: connect the spectrometer first.")
+            return
         start = str(Path(self._data_root()) / "refs")
         path, _ = QFileDialog.getOpenFileName(self, "Load Reference Spectrum", start, "Text files (*.txt *.csv)")
         if not path:
