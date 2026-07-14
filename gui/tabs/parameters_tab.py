@@ -158,12 +158,17 @@ class ParametersTab(QWidget):
         # --- Pre-dedoping ---
         pre_group = QGroupBox("Pre-dedoping Baseline" + POTENTIAL_NOTE)
         pre_form = QFormLayout(pre_group)
-        pre_form.addRow(self._check("prededoping_enabled", "Include pre-dedoping"))
+        include_pre = self._check("prededoping_enabled", "Include pre-dedoping")
+        pre_form.addRow(include_pre)
         discard = self._check("prededoping_discard", "Run it, but discard the data")
         discard.setToolTip(
             "The pre-dedoping step still runs exactly as usual (the film is conditioned) "
             "but no files are written for it — no spectra .txt, no echem .txt, no .dta.\n"
             "Leave unchecked to save it as before.")
+        # Discard only means anything if the step runs at all. Grey it out otherwise —
+        # its checked state is kept, so re-enabling pre-dedoping restores the choice.
+        discard.setEnabled(include_pre.isChecked())
+        include_pre.toggled.connect(discard.setEnabled)
         pre_form.addRow(discard)
         pre_form.addRow("Potential (vs Vref):",
                         self._dspin("prededoping_potential", -10.0, 10.0, 3, 0.05, " V"))
