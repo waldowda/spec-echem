@@ -293,11 +293,22 @@ class RunTab(QWidget):
             self._live_timer = None
 
     def on_segment_done(self, label, absorb_df):
+        seg = self.win.segments_by_label.get(label)
+        discarded = seg is not None and not seg.save
+
         row = self._row_for_label.get(label)
         if row is not None:
-            self.sequence_list.item(row).setText("✓  " + label)
-        self.win.results[label] = absorb_df
+            self.sequence_list.item(row).setText(
+                ("✓  " + label + "  (data discarded)") if discarded else ("✓  " + label))
+
+        # A discarded segment is shown live here as it happens — you still want to watch
+        # it run — but it never enters win.results, which is the "data you have" view
+        # behind the Results tab. Nothing was written; nothing should be reviewable.
         self.show_segment(absorb_df, label)
+        if discarded:
+            self.log(f"{label} complete — data discarded, nothing saved.")
+            return
+        self.win.results[label] = absorb_df
         self.win.results_tab.refresh_segments()
 
     def on_finished(self, reason):
