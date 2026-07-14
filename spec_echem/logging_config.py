@@ -10,6 +10,8 @@ START — not at import time — and close_run_logging() when the run ends.
 import logging
 from pathlib import Path
 
+from spec_echem.build_info import build_id
+
 RUN_LOGGER_NAME = "spec_echem.run"
 
 
@@ -35,6 +37,10 @@ def configure_run_logging(run_folder, name):
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-7s %(message)s"))
     logger.addHandler(handler)
+
+    # First line of every run log: the code that produced it. The log is appended to, so
+    # this also marks where each run begins in a folder that gets re-run.
+    logger.info("spec-echem %s", build_id())
     return logger, path
 
 
