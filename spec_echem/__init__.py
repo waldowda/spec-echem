@@ -6,6 +6,7 @@ try:
 except ImportError:
     pass
 
+from .build_info import __version__, build_id
 from .acquisition import acquire_segment
 from .potentiostat import (
     Potentiostat, ExternalPotentiostat, ToolkitPotentiostat, TOOLKITPY_AVAILABLE,
@@ -22,10 +23,11 @@ from .data import (
     DATA_TYPE_PREDEDOPING,
 )
 
-__version__ = "0.2.0"
 __author__ = "Dean Waldow"
 
 __all__ = [
+    "__version__",
+    "build_id",
     "AvantesSpectrometer",
     "acquire_segment",
     "Potentiostat",
