@@ -51,7 +51,8 @@ class InstrumentTab(QWidget):
         super().__init__()
         self.win = main_window
         self._pstat_connected = False   # last Connect-Potentiostat verify succeeded
-        self._last_test_abs = None      # most recent test-absorbance, for Suggest
+        self._last_test_spectrum = None  # most recent Test scan, RAW counts (transient)
+        self._last_test_abs = None       # same scan as absorbance, for Suggest
         self._lin_recommended = None    # integration time from the last linearity check
         self._build()
 
@@ -336,25 +337,39 @@ class InstrumentTab(QWidget):
         ref_col.addWidget(self.ref_canvas, stretch=1)
         cal_tabs.addTab(ref_box, "Reference (100%T)")
 
-        # --- Test (absorbance): the plot AND the wavelength-window refinement it feeds.
-        # "Suggest from test-abs" reads this very spectrum, so it lives beside it; the
-        # Range boxes it fills (and Apply/Reset) live in Spectrometer Settings, because
-        # the range is normally set BY EYE during setup, before dark/ref/test.
+        # --- Test (sample): measure whatever is in the beam RIGHT NOW, non-destructively.
+        # This never writes win.ref — which is the whole point. The reference is collected
+        # with a blank FTO insert; then the blank comes out, the sample goes in, and the
+        # electrodes get hooked up. You need to check the beam AFTER that swap, and
+        # "just re-collect the reference" would record the SAMPLE as the reference.
+        # One Measure takes one spectrum; the view toggle re-renders that same scan as raw
+        # counts (saturation / lamp check, works with no dark/ref) or as absorbance.
         absorb_box = QWidget()
         absorb_col = QVBoxLayout(absorb_box)
         absorb_btns = QHBoxLayout()
-        self.test_absorb_btn = QPushButton("Measure absorbance")
-        self.test_absorb_btn.clicked.connect(self.on_test_absorbance)
-        self.test_absorb_btn.setToolTip("Needs a dark and a reference first")
-        absorb_btns.addWidget(self.test_absorb_btn)
+        self.test_btn = QPushButton("Measure")
+        self.test_btn.clicked.connect(self.on_measure_test)
+        self.test_btn.setToolTip(
+            "Measure what's in the beam now. Does NOT overwrite the dark or reference.")
+        absorb_btns.addWidget(self.test_btn)
+        absorb_btns.addSpacing(12)
+        absorb_btns.addWidget(QLabel("View:"))
+        self.view_counts_radio = QRadioButton("Counts")
+        self.view_abs_radio = QRadioButton("Absorbance")
+        self.view_counts_radio.setChecked(True)
+        self.view_abs_radio.setToolTip("Needs a dark and a reference")
+        self.view_counts_radio.toggled.connect(self._render_test_view)
+        absorb_btns.addWidget(self.view_counts_radio)
+        absorb_btns.addWidget(self.view_abs_radio)
         absorb_btns.addStretch()
-        self.absorb_label = QLabel("Needs a dark and a reference first.")
-        self.absorb_label.setStyleSheet("color: #888;")
-        self.absorb_canvas = MplCanvas(ylabel="Absorbance")
-        self.absorb_canvas.setMinimumHeight(200)
+        self.test_label = QLabel(
+            "Measure the beam as it is now — does not overwrite the reference.")
+        self.test_label.setStyleSheet("color: #888;")
+        self.test_canvas = MplCanvas(ylabel="Intensity (counts)")
+        self.test_canvas.setMinimumHeight(200)
         absorb_col.addLayout(absorb_btns)
-        absorb_col.addWidget(self.absorb_label)
-        absorb_col.addWidget(self.absorb_canvas, stretch=1)
+        absorb_col.addWidget(self.test_label)
+        absorb_col.addWidget(self.test_canvas, stretch=1)
 
         suggest_row = QHBoxLayout()
         suggest_row.addWidget(QLabel("Max noise:"))
@@ -382,7 +397,7 @@ class InstrumentTab(QWidget):
         self.wl_rationale.setStyleSheet("color: #888;")
         self.wl_rationale.setWordWrap(True)
         absorb_col.addWidget(self.wl_rationale)
-        cal_tabs.addTab(absorb_box, "Test (absorbance)")
+        cal_tabs.addTab(absorb_box, "Test (sample)")
 
         cal_box = QGroupBox("Spectra")
         cal_box_col = QVBoxLayout(cal_box)
@@ -455,6 +470,7 @@ class InstrumentTab(QWidget):
         for w in (self.apply_btn, self.collect_dark_btn, self.collect_ref_btn,
                   self.load_dark_btn, self.load_ref_btn,
                   self.timing_btn, self.wl_apply_btn, self.wl_reset_btn,
+                  self.test_btn,
                   self.lin_run_btn, self.lin_find_sat_btn):
             w.setEnabled(enabled)
         # Connect re-inits toolkitpy; forbid it during a run so it can't collide
@@ -478,8 +494,13 @@ class InstrumentTab(QWidget):
         self.simulated_check.setEnabled(not locked and AvantesSpectrometer is not None)
 
     def _update_absorbance_enabled(self):
+        # Measure itself only needs a spectrometer — raw counts are exactly what you want
+        # BEFORE a dark/ref exist (optics alignment) and AFTER the sample swap. It's the
+        # absorbance VIEW that needs a dark and a reference.
         ready = self.win.spec is not None and self.win.dark is not None and self.win.ref is not None
-        self.test_absorb_btn.setEnabled(ready)
+        self.view_abs_radio.setEnabled(ready)
+        if not ready and self.view_abs_radio.isChecked():
+            self.view_counts_radio.setChecked(True)   # fall back rather than show nothing
         # Can only save a dark/ref once one has been collected or loaded.
         self.save_dark_btn.setEnabled(self.win.dark is not None)
         self.save_ref_btn.setEnabled(self.win.ref is not None)
@@ -527,12 +548,10 @@ class InstrumentTab(QWidget):
                               "Dark", "Intensity (counts)")
         self._plot_if_matched(self.ref_canvas, self.win.ref,
                               "Reference (100%T)", "Intensity (counts)", mark_max=True)
-        # The test-absorbance is on the same wavelength axis, so it must be redrawn with
-        # the others — applying a window used to leave it stale at the old width, which is
+        # The Test scan lives on the same wavelength axis, so it must be redrawn with the
+        # others — applying a window used to leave it stale at the old width, which is
         # exactly the plot you're looking at when you click Apply after Suggest.
-        self._plot_if_matched(self.absorb_canvas, self._last_test_abs,
-                              "Test (absorbance)", "Absorbance",
-                              empty_msg="Test (absorbance): none yet — Measure absorbance.")
+        self._render_test_view()
 
     def _plot_if_matched(self, canvas, data, title, ylabel, empty_msg=None, **kw):
         """Plot data vs the current wavelength axis only if their lengths match;
@@ -708,21 +727,48 @@ class InstrumentTab(QWidget):
         except Exception as exc:  # noqa: BLE001
             self.ref_status.setText(f"Reference: load failed ({exc})")
 
-    def on_test_absorbance(self):
-        if self.win.spec is None or self.win.dark is None or self.win.ref is None:
+    def on_measure_test(self):
+        """One spectrum of whatever is in the beam now. Stored transiently — never
+        written to win.dark / win.ref, so it is safe to run after the blank FTO has been
+        swapped for the sample."""
+        if self.win.spec is None:
             return
         _, spectrum = self.win.spec.measure()
-        if not (len(spectrum) == len(self.win.dark) == len(self.win.ref)):
-            self.absorb_label.setText(
-                "Dark/reference don't match the current window — re-collect them at this range.")
-            return
+        self._last_test_spectrum = np.asarray(spectrum)
+        self._last_test_abs = self._absorbance_of(self._last_test_spectrum)
+        self._update_absorbance_enabled()
+        self._render_test_view()
+
+    def _absorbance_of(self, spectrum):
+        """A = -log10((sample - dark) / (ref - dark)), or None if dark/ref aren't usable."""
+        dark, ref = self.win.dark, self.win.ref
+        if dark is None or ref is None:
+            return None
+        if not (len(spectrum) == len(dark) == len(ref)):
+            return None
         with np.errstate(divide="ignore", invalid="ignore"):
-            transmittance = (spectrum - self.win.dark) / (self.win.ref - self.win.dark)
-            absorbance = -np.log10(transmittance)
-        self.absorb_label.setText("A = −log₁₀((sample − dark) / (ref − dark))")
-        self._plot_if_matched(self.absorb_canvas, absorbance,
-                              "Test (absorbance)", "Absorbance")
-        self._last_test_abs = np.asarray(absorbance)
+            return np.asarray(-np.log10((spectrum - dark) / (ref - dark)))
+
+    def _render_test_view(self, *_):
+        """Re-render the LAST scan in the selected view — no re-measurement, so counts and
+        absorbance always describe the same spectrum."""
+        if self.view_abs_radio.isChecked():
+            self._plot_if_matched(
+                self.test_canvas, self._last_test_abs, "Test (absorbance)", "Absorbance",
+                empty_msg="Absorbance needs a dark and a reference — collect them, then Measure.")
+            self.test_label.setText("A = −log₁₀((sample − dark) / (ref − dark))")
+        else:
+            spectrum = self._last_test_spectrum
+            self._plot_if_matched(
+                self.test_canvas, spectrum, "Test (counts)", "Intensity (counts)",
+                mark_max=True, empty_msg="Test: none yet — press Measure.")
+            if spectrum is None:
+                self.test_label.setText(
+                    "Measure the beam as it is now — does not overwrite the reference.")
+            else:
+                self.test_label.setText(
+                    f"Counts: {len(spectrum)} px, min={spectrum.min():.0f}  "
+                    f"max={spectrum.max():.0f}")
         self._update_suggest_enabled()
 
     def on_timing_test(self):
@@ -943,4 +989,5 @@ class InstrumentTab(QWidget):
 
         self.win.dark = fit(self.win.dark)
         self.win.ref = fit(self.win.ref)
+        self._last_test_spectrum = fit(self._last_test_spectrum)
         self._last_test_abs = fit(self._last_test_abs)
