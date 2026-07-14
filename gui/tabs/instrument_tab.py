@@ -21,6 +21,9 @@ from qtpy.QtWidgets import (
 # plot beside it regardless of the stretch factors.
 SPIN_W = 110
 
+from spec_echem.bench import (
+    apply_bench_defaults, load_bench_defaults, save_bench_defaults, user_bench_path,
+)
 from spec_echem.fakes import FakeSpectrometer
 from spec_echem.linearity import (
     LinearityError, analyze_linearity, find_saturation_time, measure_linearity_series,
@@ -415,11 +418,96 @@ class InstrumentTab(QWidget):
         main_row.addLayout(left_col, stretch=1)
         main_row.addWidget(cal_box, stretch=1)
         layout.addLayout(main_row)
+
+        # --- Bench defaults: the settings that describe THIS RIG (lamp, ND filter, data
+        # root, Gamry mode), not this experiment. Saved explicitly — never automatically,
+        # or a one-off tweak for an odd sample would silently become the rig's default.
+        bench_group = QGroupBox("Bench defaults (this rig — not the experiment)")
+        bench_col = QVBoxLayout(bench_group)
+        bench_btns = QHBoxLayout()
+        self.bench_save_btn = QPushButton("Save as defaults")
+        self.bench_save_btn.setToolTip(
+            "Remember the current wavelength range, integration time, scan averages, "
+            "linearity ramp, data root and Gamry mode as this machine's defaults. "
+            "Sample/folder/CV parameters are NOT saved — those belong to an experiment.")
+        self.bench_save_btn.clicked.connect(self.on_bench_save)
+        self.bench_restore_btn = QPushButton("Restore factory defaults")
+        self.bench_restore_btn.setToolTip(
+            "Discard this machine's bench file and fall back to the lab defaults "
+            "(config/defaults.ini). Does not touch experiment settings.")
+        self.bench_restore_btn.clicked.connect(self.on_bench_restore)
+        bench_btns.addWidget(self.bench_save_btn)
+        bench_btns.addWidget(self.bench_restore_btn)
+        bench_btns.addStretch()
+        bench_col.addLayout(bench_btns)
+        self.bench_status = QLabel("")
+        self.bench_status.setStyleSheet("color: #888;")
+        self.bench_status.setWordWrap(True)
+        bench_col.addWidget(self.bench_status)
+        layout.addWidget(bench_group)
+        self._report_bench_state()
         # Spare height goes here, not into the plots.
         layout.addStretch(1)
 
         self._set_actions_enabled(False)
         self._update_cal_plot()   # placeholders, not empty 0-1 axes
+
+    # --- bench defaults ---
+
+    def _report_bench_state(self):
+        """Say what was loaded and from where. A config file nobody can find is just a
+        registry with extra steps — and a hand-editable file WILL eventually contain a
+        typo, so any warnings must be visible rather than swallowed."""
+        path = user_bench_path()
+        warnings = getattr(self.win, "bench_warnings", [])
+        loaded = getattr(self.win, "bench_loaded", [])
+        if warnings:
+            self.bench_status.setText("⚠ " + "  ".join(warnings) + f"\nFile: {path}")
+            self.bench_status.setStyleSheet("color: #b00;")
+            return
+        self.bench_status.setStyleSheet("color: #888;")
+        if path.exists():
+            self.bench_status.setText(f"Loaded {len(loaded)} settings for this rig.\nFile: {path}")
+        else:
+            self.bench_status.setText(
+                f"Using the lab defaults (config/defaults.ini) — no bench file yet.\n"
+                f"Save as defaults writes: {path}")
+
+    def on_bench_save(self):
+        settings = self.win.collect_settings()   # every tab's widgets -> the settings dict
+        try:
+            path = save_bench_defaults(settings)
+        except OSError as exc:
+            self.bench_status.setText(f"Could not save bench defaults: {exc}")
+            self.bench_status.setStyleSheet("color: #b00;")
+            return
+        self.bench_status.setStyleSheet("color: #080;")
+        self.bench_status.setText(f"Saved as this rig's defaults.\nFile: {path}")
+
+    def on_bench_restore(self):
+        path = user_bench_path()
+        if path.exists():
+            reply = QMessageBox.question(
+                self, "Restore factory defaults",
+                f"Delete this machine's bench file and fall back to the lab defaults?\n\n"
+                f"{path}\n\nExperiment settings are not affected.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+            try:
+                path.unlink()
+            except OSError as exc:
+                self.bench_status.setText(f"Could not remove the bench file: {exc}")
+                self.bench_status.setStyleSheet("color: #b00;")
+                return
+        # Re-derive from code defaults + the repo lab defaults, and push into the widgets.
+        settings = DEFAULT_SETTINGS.copy()
+        values, warnings = load_bench_defaults()
+        apply_bench_defaults(settings, values)
+        self.win.bench_warnings = warnings
+        self.win.bench_loaded = sorted(values)
+        self.win.apply_settings(settings)
+        self._report_bench_state()
 
     def _wrap(self, inner_layout):
         box = QWidget()
@@ -431,8 +519,12 @@ class InstrumentTab(QWidget):
     def populate_from(self, settings):
         self.integration_spin.setValue(settings["integration_time_ms"])
         self.averages_spin.setValue(settings["scan_averages"])
-        # The linearity ramp starts from the working integration time.
-        self.lin_start_spin.setValue(settings["integration_time_ms"])
+        # The linearity ramp is lamp-dependent, so it comes from the bench defaults.
+        self.lin_start_spin.setValue(settings.get("lin_start_ms", settings["integration_time_ms"]))
+        self.lin_stop_spin.setValue(settings.get("lin_stop_ms", 0.15))
+        self.lin_steps_spin.setValue(int(settings.get("lin_steps", 20)))
+        self.lin_tol_spin.setValue(settings.get("lin_tolerance_pct", 2.0))
+        self.lin_fill_spin.setValue(settings.get("lin_max_fill_pct", 85.0))
         wl_min, wl_max = settings.get("wavelength_min"), settings.get("wavelength_max")
         if wl_min is not None:
             self.wl_min_spin.setValue(wl_min)
@@ -459,6 +551,11 @@ class InstrumentTab(QWidget):
         settings["potentiostat_mode"] = (
             "python" if self.pstat_python_radio.isChecked() else "external")
         settings["save_dta"] = self.save_dta_check.isChecked()
+        settings["lin_start_ms"] = self.lin_start_spin.value()
+        settings["lin_stop_ms"] = self.lin_stop_spin.value()
+        settings["lin_steps"] = self.lin_steps_spin.value()
+        settings["lin_tolerance_pct"] = self.lin_tol_spin.value()
+        settings["lin_max_fill_pct"] = self.lin_fill_spin.value()
 
     # --- actions ---
 
@@ -598,17 +695,26 @@ class InstrumentTab(QWidget):
         # A fresh connection is at the full window; remember it so loaded (full-range)
         # dark/ref files can be sliced to a narrower window later.
         self._full_wl = np.asarray(self.win.wavelengths)
-        # Seed the window spin boxes with the spectrometer's actual full range.
-        if len(self.win.wavelengths):
+        self.spec_status.setText(f"● Connected ({serial})")
+        self.spec_status.setStyleSheet("color: #080;")
+        self._set_actions_enabled(True)
+        self.on_apply()
+
+        # Apply this rig's saved wavelength range automatically — otherwise "it comes up
+        # the way I left it" wouldn't hold: the bench default would sit in the spin boxes
+        # while the spectrometer quietly ran at full range.
+        wl_min = self.win.settings.get("wavelength_min")
+        wl_max = self.win.settings.get("wavelength_max")
+        if wl_min is not None and wl_max is not None:
+            self.wl_min_spin.setValue(float(wl_min))
+            self.wl_max_spin.setValue(float(wl_max))
+            self._apply_window(float(wl_min), float(wl_max))
+        elif len(self.win.wavelengths):
             self.wl_min_spin.setValue(float(self.win.wavelengths[0]))
             self.wl_max_spin.setValue(float(self.win.wavelengths[-1]))
             self.wl_status.setText(
                 f"Full range: {self._full_wl[0]:.0f}–{self._full_wl[-1]:.0f} nm "
                 f"({len(self._full_wl)} px). Set your lamp's usable range, then Apply.")
-        self.spec_status.setText(f"● Connected ({serial})")
-        self.spec_status.setStyleSheet("color: #080;")
-        self._set_actions_enabled(True)
-        self.on_apply()
 
     def on_apply(self):
         if self.win.spec is None:
