@@ -4,7 +4,29 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-07-13_
+_Last updated: 2026-07-14_
+
+---
+
+## 📦 STAGED FOR RELEASE: v0.2.0 on `gui-dev` (2026-07-14)
+
+Version bumped to **0.2.0** (`setup.py` + `spec_echem/__init__.py`), [`CHANGELOG.md`](CHANGELOG.md)
+written, [`docs/sop.md`](docs/sop.md) rewritten GUI-first (the notebook workflow is now an appendix,
+and the Gamry Sequence Wizard is Appendix B, for External mode). 143 tests.
+
+**The 0.2.0 theme is instrument setup:** 0.1.0 could run an experiment; 0.2.0 helps you set the
+instrument up correctly first, and remembers how your rig is configured. Linearity check, wavelength
+window, non-destructive Test (sample), bench defaults (`config/*.ini`), and the pre-dedoping
+"run it, but discard the data" option.
+
+**One gate before merging to `main`:** the discard has only been exercised in **External** mode. The
+code path that suppresses the native Gamry `.DTA` lives in `ToolkitPotentiostat._write_dta` and only
+runs in **Python** mode on the 32-bit box — it has never actually executed. Check on `SpecEchem32`
+that a discarded pre-dedoping leaves no `prededopingspectra(0).txt`, no `prededoping(0).txt`, and no
+`dta/prededoping(0).dta`, and that the doping/dedoping segments after it are unaffected.
+
+**Also open:** the trigger cable's *build* (connector, pinout, shielding) is undocumented — see
+`TODO.md`. And `gui/` still has no test coverage, which is where every 0.2.0 bug lived.
 
 ---
 
