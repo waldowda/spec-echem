@@ -112,6 +112,46 @@ class InstrumentTab(QWidget):
         timing_row.addStretch()
         form.addRow("Timing:", self._wrap(timing_row))
 
+        # Wavelength range: a spectrometer setting like the two above. Normally set BY EYE
+        # once per lamp/ND combo, during setup and BEFORE dark/ref — so dark, reference and
+        # the run are all collected at the same cropped length. (The Test-absorbance tab can
+        # suggest values into these boxes, but that's the rare path, not the normal one.)
+        wl_range_row = QHBoxLayout()
+        self.wl_min_spin = QDoubleSpinBox()
+        self.wl_min_spin.setRange(0.0, 5000.0)
+        self.wl_min_spin.setSuffix(" nm")
+        self.wl_min_spin.setMaximumWidth(SPIN_W)
+        self.wl_max_spin = QDoubleSpinBox()
+        self.wl_max_spin.setRange(0.0, 5000.0)
+        self.wl_max_spin.setSuffix(" nm")
+        self.wl_max_spin.setMaximumWidth(SPIN_W)
+        self.wl_min_spin.setValue(DEFAULT_SETTINGS["wavelength_min"] or 380.0)
+        self.wl_max_spin.setValue(DEFAULT_SETTINGS["wavelength_max"] or 1100.0)
+        wl_range_row.addWidget(self.wl_min_spin)
+        wl_range_row.addWidget(QLabel("to"))
+        wl_range_row.addWidget(self.wl_max_spin)
+        wl_range_row.addStretch()
+        form.addRow("Wavelength range:", self._wrap(wl_range_row))
+
+        wl_btn_row = QHBoxLayout()
+        self.wl_apply_btn = QPushButton("Apply range")
+        self.wl_apply_btn.setToolTip(
+            "Restrict the spectrometer (and this run's output) to this range. "
+            "Re-slices an existing dark/reference to match; clears them if you widen "
+            "beyond what they cover.")
+        self.wl_apply_btn.clicked.connect(self.on_wl_apply)
+        self.wl_reset_btn = QPushButton("Reset")
+        self.wl_reset_btn.setToolTip("Back to the spectrometer's full range (no crop)")
+        self.wl_reset_btn.clicked.connect(self.on_wl_reset)
+        wl_btn_row.addWidget(self.wl_apply_btn)
+        wl_btn_row.addWidget(self.wl_reset_btn)
+        wl_btn_row.addStretch()
+        form.addRow("", self._wrap(wl_btn_row))
+        self.wl_status = QLabel("Full range.")
+        self.wl_status.setStyleSheet("color: #888;")
+        self.wl_status.setWordWrap(True)
+        form.addRow("", self.wl_status)
+
         # --- Potentiostat control mode ---
         pstat_group = QGroupBox("Potentiostat")
         pstat_layout = QVBoxLayout(pstat_group)
@@ -296,44 +336,11 @@ class InstrumentTab(QWidget):
         ref_col.addWidget(self.ref_canvas, stretch=1)
         cal_tabs.addTab(ref_box, "Reference (100%T)")
 
-        cal_box = QGroupBox("Dark / Reference")
-        cal_box_col = QVBoxLayout(cal_box)
-        cal_box_col.addWidget(cal_tabs)
-
-        # Main row: [Spectrometer Settings over Linearity Check] | [tabbed Dark/Reference].
-        # The left column is tall (it owns the linearity plot), so tabbing dark/reference
-        # into a single plot on the right keeps the two columns the same height — no
-        # stretched-out empty group boxes.
-        main_row = QHBoxLayout()
-        left_col = QVBoxLayout()
-        left_col.addWidget(settings_group)
-        left_col.addWidget(lin_group)
-        left_col.addStretch()
-        main_row.addLayout(left_col, stretch=1)
-        main_row.addWidget(cal_box, stretch=1)
-        layout.addLayout(main_row)
-
-        # --- Test measurement: counts and absorbance, side by side ---
-        test_row = QHBoxLayout()
-
-        counts_box = QGroupBox("Test (counts)")
-        counts_col = QVBoxLayout(counts_box)
-        counts_btns = QHBoxLayout()
-        self.test_counts_btn = QPushButton("Measure counts")
-        self.test_counts_btn.clicked.connect(self.on_test_counts)
-        counts_btns.addWidget(self.test_counts_btn)
-        counts_btns.addStretch()
-        self.counts_label = QLabel("Connect, then measure to preview.")
-        self.counts_label.setStyleSheet("color: #888;")
-        self.counts_canvas = MplCanvas(ylabel="Intensity (counts)")
-        self.counts_canvas.setMinimumHeight(180)
-        self.counts_canvas.setMaximumHeight(260)
-        counts_col.addLayout(counts_btns)
-        counts_col.addWidget(self.counts_label)
-        counts_col.addWidget(self.counts_canvas)
-        test_row.addWidget(counts_box, stretch=1)
-
-        absorb_box = QGroupBox("Test (absorbance)")
+        # --- Test (absorbance): the plot AND the wavelength-window refinement it feeds.
+        # "Suggest from test-abs" reads this very spectrum, so it lives beside it; the
+        # Range boxes it fills (and Apply/Reset) live in Spectrometer Settings, because
+        # the range is normally set BY EYE during setup, before dark/ref/test.
+        absorb_box = QWidget()
         absorb_col = QVBoxLayout(absorb_box)
         absorb_btns = QHBoxLayout()
         self.test_absorb_btn = QPushButton("Measure absorbance")
@@ -344,58 +351,55 @@ class InstrumentTab(QWidget):
         self.absorb_label = QLabel("Needs a dark and a reference first.")
         self.absorb_label.setStyleSheet("color: #888;")
         self.absorb_canvas = MplCanvas(ylabel="Absorbance")
-        self.absorb_canvas.setMinimumHeight(180)
-        self.absorb_canvas.setMaximumHeight(260)
+        self.absorb_canvas.setMinimumHeight(200)
         absorb_col.addLayout(absorb_btns)
         absorb_col.addWidget(self.absorb_label)
-        absorb_col.addWidget(self.absorb_canvas)
-        test_row.addWidget(absorb_box, stretch=1)
-        layout.addLayout(test_row)
+        absorb_col.addWidget(self.absorb_canvas, stretch=1)
 
-        # --- Usable wavelength window (crop the noisy lamp edges) ---
-        wl_box = QGroupBox("Usable wavelength window (crops noisy lamp edges from what's collected)")
-        wl_col = QVBoxLayout(wl_box)
-        wl_row = QHBoxLayout()
-        wl_row.addWidget(QLabel("Range:"))
-        self.wl_min_spin = QDoubleSpinBox()
-        self.wl_min_spin.setRange(0.0, 5000.0)
-        self.wl_min_spin.setSuffix(" nm")
-        self.wl_min_spin.setValue(380.0)
-        self.wl_max_spin = QDoubleSpinBox()
-        self.wl_max_spin.setRange(0.0, 5000.0)
-        self.wl_max_spin.setSuffix(" nm")
-        self.wl_max_spin.setValue(1100.0)
-        wl_row.addWidget(self.wl_min_spin)
-        wl_row.addWidget(QLabel("to"))
-        wl_row.addWidget(self.wl_max_spin)
-        wl_row.addSpacing(16)
-        wl_row.addWidget(QLabel("Max noise:"))
+        suggest_row = QHBoxLayout()
+        suggest_row.addWidget(QLabel("Max noise:"))
         self.wl_maxnoise_spin = QDoubleSpinBox()
         self.wl_maxnoise_spin.setRange(0.001, 0.5)
         self.wl_maxnoise_spin.setDecimals(3)
         self.wl_maxnoise_spin.setSingleStep(0.005)
         self.wl_maxnoise_spin.setValue(0.010)
         self.wl_maxnoise_spin.setSuffix(" OD")
+        self.wl_maxnoise_spin.setMaximumWidth(SPIN_W)
         self.wl_maxnoise_spin.setToolTip(
             "Trim where the test-abs noise exceeds this (set it small vs your OD signal)")
         self.wl_maxnoise_spin.valueChanged.connect(self._on_maxnoise_changed)
-        wl_row.addWidget(self.wl_maxnoise_spin)
-        self.wl_suggest_btn = QPushButton("Suggest from test-abs")
-        self.wl_suggest_btn.setToolTip("Recommend a range from the last test-absorbance")
+        suggest_row.addWidget(self.wl_maxnoise_spin)
+        self.wl_suggest_btn = QPushButton("Suggest range from this")
+        self.wl_suggest_btn.setToolTip(
+            "Fill the Range boxes in Spectrometer Settings from this test-absorbance's "
+            "noise — then click Apply range there")
         self.wl_suggest_btn.clicked.connect(self.on_wl_suggest)
-        self.wl_apply_btn = QPushButton("Apply range")
-        self.wl_apply_btn.setToolTip("Restrict the spectrometer (and this run's output) to this range")
-        self.wl_apply_btn.clicked.connect(self.on_wl_apply)
-        wl_row.addWidget(self.wl_suggest_btn)
-        wl_row.addWidget(self.wl_apply_btn)
-        wl_row.addStretch()
-        self.wl_rationale = QLabel("Full range by default. Take dark + reference + a test-absorbance, "
-                                   "then Suggest to trim the noisy edges (you can override).")
+        suggest_row.addWidget(self.wl_suggest_btn)
+        suggest_row.addStretch()
+        absorb_col.addLayout(suggest_row)
+        self.wl_rationale = QLabel(
+            "Optional: suggests a wavelength range from the noise in this spectrum.")
         self.wl_rationale.setStyleSheet("color: #888;")
         self.wl_rationale.setWordWrap(True)
-        wl_col.addLayout(wl_row)
-        wl_col.addWidget(self.wl_rationale)
-        layout.addWidget(wl_box)
+        absorb_col.addWidget(self.wl_rationale)
+        cal_tabs.addTab(absorb_box, "Test (absorbance)")
+
+        cal_box = QGroupBox("Spectra")
+        cal_box_col = QVBoxLayout(cal_box)
+        cal_box_col.addWidget(cal_tabs)
+
+        # Main row: [Spectrometer Settings over Linearity Check] | [tabbed spectra].
+        # The left column is tall (it owns the linearity plot), so showing one spectrum
+        # at a time on the right keeps the two columns the same height — no stretched-out
+        # empty group boxes.
+        main_row = QHBoxLayout()
+        left_col = QVBoxLayout()
+        left_col.addWidget(settings_group)
+        left_col.addWidget(lin_group)
+        left_col.addStretch()
+        main_row.addLayout(left_col, stretch=1)
+        main_row.addWidget(cal_box, stretch=1)
+        layout.addLayout(main_row)
         # Spare height goes here, not into the plots.
         layout.addStretch(1)
 
@@ -450,7 +454,7 @@ class InstrumentTab(QWidget):
         # and the plot then reported a nonsense "0 px window".
         for w in (self.apply_btn, self.collect_dark_btn, self.collect_ref_btn,
                   self.load_dark_btn, self.load_ref_btn,
-                  self.test_counts_btn, self.timing_btn, self.wl_apply_btn,
+                  self.timing_btn, self.wl_apply_btn, self.wl_reset_btn,
                   self.lin_run_btn, self.lin_find_sat_btn):
             w.setEnabled(enabled)
         # Connect re-inits toolkitpy; forbid it during a run so it can't collide
@@ -516,10 +520,13 @@ class InstrumentTab(QWidget):
         self._set_pstat_status(f"● Connected — {who}", "#080")
 
     def _update_cal_plot(self):
+        # Dark is unannotated on purpose: it is detector noise / stray light, so its
+        # "peak" means nothing. The reference peak IS meaningful (it's the counts test),
+        # so it gets the max-counts annotation that Test (counts) used to provide.
         self._plot_if_matched(self.dark_canvas, self.win.dark,
                               "Dark", "Intensity (counts)")
         self._plot_if_matched(self.ref_canvas, self.win.ref,
-                              "Reference (100%T)", "Intensity (counts)")
+                              "Reference (100%T)", "Intensity (counts)", mark_max=True)
 
     def _plot_if_matched(self, canvas, data, title, ylabel, **kw):
         """Plot data vs the current wavelength axis only if their lengths match;
@@ -570,6 +577,9 @@ class InstrumentTab(QWidget):
         if len(self.win.wavelengths):
             self.wl_min_spin.setValue(float(self.win.wavelengths[0]))
             self.wl_max_spin.setValue(float(self.win.wavelengths[-1]))
+            self.wl_status.setText(
+                f"Full range: {self._full_wl[0]:.0f}–{self._full_wl[-1]:.0f} nm "
+                f"({len(self._full_wl)} px). Set your lamp's usable range, then Apply.")
         self.spec_status.setText(f"● Connected ({serial})")
         self.spec_status.setStyleSheet("color: #080;")
         self._set_actions_enabled(True)
@@ -691,15 +701,6 @@ class InstrumentTab(QWidget):
             self._update_absorbance_enabled()
         except Exception as exc:  # noqa: BLE001
             self.ref_status.setText(f"Reference: load failed ({exc})")
-
-    def on_test_counts(self):
-        if self.win.spec is None:
-            return
-        _, spectrum = self.win.spec.measure()
-        self.counts_label.setText(
-            f"Counts: {len(spectrum)} px, min={spectrum.min():.0f}  max={spectrum.max():.0f}")
-        self._plot_if_matched(self.counts_canvas, spectrum,
-                              "Test (counts)", "Intensity (counts)", mark_max=True)
 
     def on_test_absorbance(self):
         if self.win.spec is None or self.win.dark is None or self.win.ref is None:
@@ -843,6 +844,13 @@ class InstrumentTab(QWidget):
         except Exception as exc:  # noqa: BLE001 — surface a bad suggestion as a note
             self.wl_rationale.setText(f"Could not suggest a range: {exc}")
             return
+        # A degenerate absorbance (e.g. a dark that isn't really dark, so ref-dark ~ 0)
+        # yields NaN noise and a zero-width band. Don't push that into the Range boxes.
+        if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo:
+            self.wl_rationale.setText(
+                "Couldn't read a usable noise floor from this test-absorbance — check the "
+                "dark (lamp blocked) and reference (blank, lamp on), or set the range by eye.")
+            return
         self.wl_min_spin.setValue(lo)
         self.wl_max_spin.setValue(hi)
         self.wl_rationale.setText(rationale["summary"])
@@ -852,13 +860,27 @@ class InstrumentTab(QWidget):
             return
         wl_min, wl_max = self.wl_min_spin.value(), self.wl_max_spin.value()
         if wl_max <= wl_min:
-            self.wl_rationale.setText("Range invalid: max must be greater than min.")
+            self.wl_status.setText("Range invalid: max must be greater than min.")
             return
+        self._apply_window(wl_min, wl_max)
+
+    def on_wl_reset(self):
+        """Back to the spectrometer's full calibrated range (undo the crop)."""
+        if self.win.spec is None:
+            return
+        full = getattr(self, "_full_wl", None)
+        self._apply_window(None, None)
+        if full is not None and len(full):
+            self.wl_min_spin.setValue(float(full[0]))
+            self.wl_max_spin.setValue(float(full[-1]))
+
+    def _apply_window(self, wl_min, wl_max):
+        """Set the spectrometer's window (None,None = full) and keep dark/ref aligned."""
         old_wl = np.asarray(self.win.wavelengths) if self.win.wavelengths is not None else None
         try:
             self.win.spec.set_wavelength_window(wl_min, wl_max)
         except Exception as exc:  # noqa: BLE001
-            self.wl_rationale.setText(f"Apply failed: {exc}")
+            self.wl_status.setText(f"Apply failed: {exc}")
             return
         _, self.win.wavelengths = self.win.spec.wavelengths()
         new_wl = np.asarray(self.win.wavelengths)
@@ -867,12 +889,12 @@ class InstrumentTab(QWidget):
         now_cal = self.win.dark is not None
         self._update_cal_plot()
         self._update_absorbance_enabled()
-        msg = f"Applied {new_wl[0]:.0f}–{new_wl[-1]:.0f} nm ({len(new_wl)} px)."
+        msg = f"{new_wl[0]:.0f}–{new_wl[-1]:.0f} nm ({len(new_wl)} px)."
         if had_cal and now_cal:
             msg += " Dark/reference re-sliced to match."
         elif had_cal and not now_cal:
             msg += " Dark/reference cleared — re-collect at this range."
-        self.wl_rationale.setText(msg)
+        self.wl_status.setText(msg)
 
     def _reslice_cal(self, old_wl, new_wl):
         """After the window narrows, slice dark/ref (aligned with old_wl) down to
