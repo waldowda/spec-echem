@@ -62,9 +62,18 @@ This software is currently in **pre-release** (v0.2.0). The API and functionalit
   detector* span (~144–1308 nm on this unit), which is much wider than the optics are actually
   specified for — this is why the usable window is cropped, and why the lamp fades into noise at the
   edges. See the wavelength-window feature.
-- **Other Gamry potentiostats**, including the Interface 1010 series — anything `EchemToolkitPy`
-  supports in **Python** mode, and in **External** mode anything that can run a `.GSequence` and
-  raise a digital output. Only the Reference 600 has actually been run.
+- **Other Gamry potentiostats.** The trigger depends on one call, `Pstat.set_digital_out(bits, mask)`,
+  which Gamry documents on the generic `Pstat` class — it is **not model-specific**, and operates on
+  "the lowest 4 bits" (4 digital outputs, 4 inputs). ToolkitPy's `MODELNO` enum covers the Reference
+  600 / 600+ / 620 / 3000, the Interface 1000 / 1010 / 5000, the EISBox 1010 / 5000, and legacy PCI4
+  and Series G hardware. So Python mode *should* work across that range.
+
+  ⚠️ But "ToolkitPy can talk to it" is not the same as "it exposes the digital outputs on a connector
+  you can wire to the spectrometer." That's a hardware question the software docs don't answer, and
+  it is the thing to confirm before counting on a different box. In **External** mode the requirement
+  is the same and simpler: anything that can run a `.GSequence` and raise a digital output.
+
+  **Only the Reference 600 has actually been run.**
 
 To see what's attached to your own rig: `python examples/identify_hardware.py`. (The Avantes SDK does
 not report a model string — pair the serial number it prints with the label on the unit. The Gamry's
