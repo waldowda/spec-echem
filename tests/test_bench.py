@@ -156,11 +156,28 @@ def test_the_shipped_lab_defaults_parse_cleanly():
     assert warnings == []
     assert values["wavelength_min"] == 400.0
     assert values["lin_max_fill_pct"] == 85.0
+    # Lab-wide Gamry preferences belong here: they're the same on every rig.
+    assert values["save_dta"] is True
+    assert values["trigger"] is True
 
 
-def test_lab_defaults_carry_no_machine_specific_paths():
-    """data_root differs between the Windows rig and a dev Mac. If it were committed,
-    every pull would be a conflict — so it must live only in the per-machine file."""
+def test_lab_defaults_exclude_machine_specific_settings():
+    """These two differ between the Windows instrument box and a dev Mac:
+      data_root         — a machine path; committing it makes every pull a conflict.
+      potentiostat_mode — "python" needs 32-bit EchemToolkitPy; a 64-bit env can only
+                          do "external", so asserting either would be false somewhere.
+    They live only in each rig's own config/bench.ini."""
     from spec_echem.bench import REPO_DEFAULTS
     values, _ = read_bench_file(REPO_DEFAULTS)
     assert "data_root" not in values
+    assert "potentiostat_mode" not in values
+
+
+def test_the_repo_defaults_cover_every_machine_independent_key():
+    """A key that's in the schema but nowhere in the lab defaults is easy to forget —
+    which is exactly how save_dta and trigger got left out the first time."""
+    from spec_echem.bench import REPO_DEFAULTS
+    machine_specific = {"data_root", "potentiostat_mode"}
+    values, _ = read_bench_file(REPO_DEFAULTS)
+    missing = set(BENCH_KEYS) - machine_specific - set(values)
+    assert missing == set(), f"not in config/defaults.ini: {sorted(missing)}"
