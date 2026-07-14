@@ -1,7 +1,7 @@
 # spec-echem Standard Operating Procedure
 
-**Version:** 0.1 (matches notebook v0.996, July 2025)  
-**Audience:** Waldow Lab students, first-time users  
+**Version:** 0.2.0
+**Audience:** Waldow Lab students, first-time users
 **System:** Windows 11 instrument PC (`inst-chem` account)
 
 ---
@@ -10,105 +10,130 @@
 
 This system runs spectroelectrochemistry experiments by coordinating two instruments:
 
-- **Gamry Ref-600+ potentiostat** — applies potentials and measures current; sends a hardware trigger signal at the start of each electrochemical step
-- **Avantes spectrometer** — collects UV-Vis spectra (~380–1100 nm); receives the trigger and begins acquiring spectra
+- **Gamry Ref-600+ potentiostat** — applies potentials and measures current; raises a hardware
+  trigger (DIGOUT0) at the start of each electrochemical step
+- **Avantes spectrometer** — collects UV-Vis spectra (~380–1100 nm); receives that trigger and
+  begins acquiring
 
-You control the Gamry through its own **Sequence Wizard** software. You control the spectrometer from a **Jupyter notebook** running in Python. The two are synchronized by a hardware wire connecting the Gamry's digital output to the Avantes trigger input.
+They are synchronized by a **wire**, not by software timing: the Gamry's digital output is
+connected to the Avantes trigger input, so the optical and electrochemical data share one start.
+
+**You drive the whole experiment from the GUI** (`python -m gui`) — a four-tab app:
+
+| Tab | What you do there |
+|---|---|
+| **1. Instrument** | Connect, set integration time / averaging, run the linearity check, collect dark + reference |
+| **2. Parameters** | Sample info, data folder, CV and doping/dedoping settings |
+| **3. Run** | Start the run and watch it |
+| **4. Results** | Review each segment; reload an old run |
+
+The Gamry can be driven two ways, chosen on the Instrument tab:
+
+- **External mode** — you start a `.GSequence` in Gamry Framework yourself. This is the proven
+  default and works in a 64-bit environment. See [Appendix B](#appendix-b--gamry-sequence-wizard-external-mode).
+- **Python mode** — the app drives the Gamry directly and fires the trigger itself. Requires a
+  **32-bit** Python (see §1.3), because Gamry's `EchemToolkitPy` is 32-bit only.
+
+> The original Jupyter-notebook workflow still works and is preserved in
+> [Appendix A](#appendix-a--legacy-jupyter-notebook-workflow). New users should use the GUI.
 
 ---
 
 ## Part 1 — Installation (One-Time Setup)
 
-Complete this section once per machine. Skip to Part 2 if the instrument PC is already set up.
+Complete this once per machine. Skip to Part 2 if the instrument PC is already set up.
 
 ### 1.1 Prerequisites
 
-Before starting, confirm you have:
+- [ ] Windows 11 PC with the Avantes spectrometer connected via USB
+- [ ] Gamry Ref-600+ connected via USB, Gamry Framework installed
+- [ ] Anaconda installed — **verify the install path** (§1.2)
+- [ ] Avantes SDK files (from Avantes; the 64-bit version is `AvaSpecX64-DLL_9.14.0.0`)
+- [ ] Access to the spec-echem GitHub repository (ask Dr. Waldow)
 
-- [ ] Windows 11 PC with Avantes spectrometer connected via USB
-- [ ] Gamry Ref-600+ connected via USB, Gamry Framework software installed
-- [ ] Anaconda (individual edition) installed — **verify the install path** before proceeding (see Step 1.2)
-- [ ] Avantes SDK files (obtain from Avantes; the 64-bit version is `AvaSpecX64-DLL_9.14.0.0`)
-- [ ] Access to the spec-echem GitHub repository (ask Dr. Waldow for access)
+### 1.2 Verify the Anaconda Install Path
 
-### 1.2 Verify Anaconda Install Path
-
-The Anaconda path on this machine is non-standard. Before doing anything else, open **Anaconda Prompt** and run:
+The Anaconda path on this machine is non-standard. In **Anaconda Prompt**:
 
 ```
 python -c "import sys; print(sys.executable)"
 ```
 
-You should see something like:
+You should see:
 
 ```
 C:\Users\inst-chem\AppData\Local\anaconda3\python.exe
 ```
 
-> **Note:** The path is `AppData\Local\anaconda3`, **not** `anaconda3` directly under the user folder. Use this path any time you need to locate site-packages (see Step 1.4).
+> **Note:** the path is `AppData\Local\anaconda3`, **not** `anaconda3` directly under the user
+> folder. You'll need it again in §1.4.
 
-### 1.3 Create the Conda Environment
+### 1.3 Create the Conda Environment — 64-bit or 32-bit?
 
-In **Anaconda Prompt**, run:
+**Which one you need depends on how you want to drive the Gamry.**
+
+| You want… | Python | Environment |
+|---|---|---|
+| Spectrometer only, or **External** Gamry mode | 64-bit | `SpecEchem` (3.13) |
+| **Python** Gamry control (`EchemToolkitPy`) | 32-bit | `SpecEchem32` (3.7.x) |
+
+`EchemToolkitPy` is 32-bit-only until Gamry ships 64-bit support (targeted ~Sept 2026). In a
+64-bit environment the app **automatically disables Python mode** and falls back to External —
+you don't have to do anything, but the Python radio button will be greyed out.
+
+**64-bit (`SpecEchem`):**
 
 ```
 conda create -n SpecEchem python=3.13
 conda activate SpecEchem
-pip install numpy matplotlib pandas scipy jupyter
+pip install numpy matplotlib pandas scipy jupyter PyQt5 qtpy
 ```
 
-Verify the environment is active — you should see `(SpecEchem)` at the start of the prompt.
+**32-bit (`SpecEchem32`)** — note the PyQt5 pin. Version 5.15.2 is the last release with a
+self-contained 32-bit Windows wheel; anything newer pulls `PyQt5-Qt5`, which has no 32-bit build
+and will fail to install.
+
+```
+set CONDA_FORCE_32BIT=1
+conda create -n SpecEchem32 python=3.7
+conda activate SpecEchem32
+pip install --only-binary=:all: "PyQt5==5.15.2" "PyQt5-sip==12.11.0"
+pip install numpy matplotlib pandas scipy qtpy
+```
 
 ### 1.4 Install avaspec.py (Avantes Python Bindings)
 
-The Avantes SDK includes a Python file (`avaspec.py`) that is **not pip-installable** — it must be copied manually to your Python environment and edited.
+The Avantes SDK includes `avaspec.py`, which is **not pip-installable** — copy it into your
+environment and edit it.
 
-**Step A — Find site-packages:**
-
-With the `SpecEchem` environment active, run:
+**Step A — find site-packages** (with the environment active):
 
 ```
 python -c "import site; print(site.getsitepackages())"
 ```
 
-The path will be something like:
-
-```
-C:\Users\inst-chem\AppData\Local\anaconda3\envs\SpecEchem\Lib\site-packages
-```
-
-**Step B — Copy the file:**
-
-Copy `avaspec.py` from the SDK examples folder to site-packages:
+**Step B — copy the file:**
 
 ```
 Source:      C:\AvaSpecX64-DLL_9.14.0.0\examples\PyQt5_simple\avaspec.py
-Destination: C:\Users\inst-chem\AppData\Local\anaconda3\envs\SpecEchem\Lib\site-packages\avaspec.py
+Destination: …\envs\SpecEchem\Lib\site-packages\avaspec.py
 ```
 
-**Step C — Apply three required edits** (open the destination file in Notepad or VS Code):
+**Step C — apply three required edits:**
 
-1. **Comment out the `import globals` line** near the top:
-   ```python
-   # import globals
-   ```
-
-2. **Comment out the `from PyQt5.QtCore import *` line** near the top:
-   ```python
-   # from PyQt5.QtCore import *
-   ```
-
-3. **Fix the DLL loading block.** Find the section that loads `avaspecx64.dll` and replace it so it reads:
+1. Comment out `import globals`
+2. Comment out `from PyQt5.QtCore import *`
+3. Fix the DLL loading block so it reads:
    ```python
    import os
    os.add_dll_directory(r"C:\AvaSpecX64-DLL_9.14.0.0")
    lib = WinDLL("avaspecx64.dll")
    ```
-   The original code uses a relative path that fails when running from Jupyter.
+   The original uses a relative path that fails when the app isn't launched from the SDK folder.
 
-> **Important:** Do not overwrite this file with a fresh copy from the SDK without reapplying these three edits.
+> **Important:** do not overwrite this file with a fresh SDK copy without reapplying all three edits.
 
-**Step D — Verify:**
+**Step D — verify:**
 
 ```
 python -c "import avaspec; print('avaspec OK')"
@@ -116,24 +141,23 @@ python -c "import avaspec; print('avaspec OK')"
 
 ### 1.5 Clone and Install spec-echem
 
-In **Anaconda Prompt** with `SpecEchem` active:
-
 ```
 cd C:\Users\inst-chem\Documents
 git clone https://github.com/waldowda/spec-echem.git
 cd spec-echem
-pip install -e .
+pip install -e .[gui]
 ```
 
-### 1.6 Verify the Installation
+### 1.6 Verify
 
-With the spectrometer **not yet connected**, run:
+With no hardware connected, this should still succeed:
 
 ```
 python -c "from spec_echem import AvantesSpectrometer; print('Package import OK')"
 ```
 
-This should succeed even without hardware. If it fails, check that `pip install -e .` completed without errors.
+You can also launch the GUI with **Simulated (no hardware)** ticked on the Instrument tab to click
+through the whole app without instruments — useful for learning the layout.
 
 ---
 
@@ -141,230 +165,195 @@ This should succeed even without hardware. If it fails, check that `pip install 
 
 ### 2.1 Trigger Wiring
 
-The Gamry and Avantes are synchronized by a direct wire connection:
-
 | Gamry Ref-600+ | Avantes DB26 connector |
-|----------------|------------------------|
+|---|---|
 | DIGOUT0 | Pin 6 (hardware trigger input) |
 
-This wire should already be in place on the instrument PC. If it has been disconnected, ask Dr. Waldow before reconnecting.
+This wire should already be in place. If it has been disconnected, ask Dr. Waldow before
+reconnecting.
+
+> **TODO — cable preparation.** How this trigger cable is actually *built* (the Gamry-side
+> connector and which conductor carries DIGOUT0, the DB26 shell and pin 6 termination, ground /
+> shield, and cable length) is not yet written down. It lives only in Dr. Waldow's head and in the
+> one cable on the bench — so if it is ever damaged or a second rig is set up, this section is what
+> would be needed to rebuild it. **To be added.**
 
 ### 2.2 Power-On Order
 
 1. Turn on the Avantes spectrometer (USB to PC)
 2. Turn on the Gamry potentiostat (USB to PC)
-3. Log in to Windows, open Anaconda Prompt
-
-The spectrometer must be powered and connected before launching Jupyter.
+3. **Turn on the light source and let it warm up ~15 minutes.** Do not set the integration time or
+   collect a reference before it has stabilized — the lamp drifts while warming, and everything
+   downstream depends on the reference.
+4. Log in to Windows, open Anaconda Prompt
 
 ---
 
-## Part 3 — Running an Experiment
+## Part 3 — Running an Experiment (GUI)
 
-### 3.1 Before You Start
-
-- [ ] Spectrometer and Gamry are both powered and connected
-- [ ] Light source is on and warmed up (allow ~15 min)
-- [ ] Electrochemical cell is prepared and installed
-- [ ] You know your experiment parameters (see Section 3.3)
-
-### 3.2 Launch Jupyter
-
-In **Anaconda Prompt** with `SpecEchem` active:
+### 3.0 Launch
 
 ```
+conda activate SpecEchem        (or SpecEchem32 for Python Gamry mode)
 cd C:\Users\inst-chem\Documents\spec-echem
-jupyter notebook
+python -m gui
 ```
 
-Open the notebook: `notebooks/SpecEchem Avantes 0.996-20250717.ipynb`
+### 3.1 Instrument Tab — Connect
 
-### 3.3 Notebook Initialization (Run Once Per Session)
+Click **Connect Spectrometer**. The serial number appears when it's found.
 
-Run the following cells **in order at the start of every session**. These define all the functions and classes the notebook uses.
+Under **Potentiostat**, choose:
 
-> The notebook already contains descriptive markdown headers above most sections — read those as you go.
+- **External — start the Gamry sequence in Gamry Framework** (default), or
+- **Python — drive the Gamry from here (EchemToolkitPy)** — only selectable in the 32-bit env.
+  In Python mode, tick **Also save Gamry .DTA files (dta/ subfolder)** if you want native Gamry
+  files for Echem Analyst alongside the clean `.txt` files. In External mode this does nothing —
+  Gamry Framework writes its own `.DTA` files.
 
-**Cell 1 — Standard imports**
-Run this cell first. It imports numpy, pandas, matplotlib, and other standard libraries.
+### 3.2 Instrument Tab — Integration Time and Averaging
 
-**Cell 2 — Avantes class definition**
-Defines the `Avantes` class used to control the spectrometer. This class is defined directly in the notebook (separate from the `spec_echem` package — this is intentional for now).
+Under **Spectrometer Settings**:
 
-**Cells 3–5 — Function definitions**
-These define:
-- `setup()` — collects dark and reference spectra
-- `get_spectra()` — the main data acquisition function
-- `plot_data()` — plots absorbance data after an experiment
+**Integration time (ms)** — how long the detector collects light per scan. It is entirely
+dependent on your light source; a halogen + neutral-density filter saturates around 0.11 ms, and a
+different lamp (e.g. AvaLight) will differ by a lot. Don't guess — use the Linearity Check (§3.3).
 
-Run all three.
+**Scan averages** — more averaging means less noise but slower acquisition. The time to acquire one
+averaged spectrum **must be less than the "Time between spectra"** you set on the Parameters tab
+(default 100 ms), or you'll fall behind the Gamry.
 
-**Cell 7 — Instantiate the spectrometer**
-```python
-spec = Avantes()
-```
+Click **Apply to Spectrometer** after changing either, then **Run Timing Test** — it reports the
+actual time per measurement. 200 averages typically lands ~78–85 ms, comfortably under 100 ms.
 
-**Cell 8 — Initialize and connect**
-```python
-measconfig, serial_number = spec.init()
-```
-If the spectrometer is connected and powered, you will see the serial number printed. If this fails, check the USB connection and that the Avantes SDK DLL path is correct (Section 1.4, Step C).
+### 3.3 Instrument Tab — Linearity Check ⚠️ *do this with the reference in the beam*
 
-Get the wavelength calibration (also in Cell 8):
-```python
-wavelength_old, wavelength = spec.wavelengths()
-```
+**Put the reference (blank FTO + electrolyte, 100 %T) in the light path before running this.** The
+check ramps the integration time upward and watches the peak until the detector saturates, so it
+must see the light you'll actually be measuring against.
 
-### 3.4 Set Integration Time
+The detector is a 16-bit ADC — it clips hard at 65535 counts. Real detectors stay linear almost all
+the way to that clip, so "where does it stop being linear" alone would leave you with almost no
+headroom. The check therefore recommends the **tighter** of two limits:
 
-The integration time controls how long the detector collects light per scan. Set it so the **reference spectrum peak is in the range of 50,000–60,000 counts**.
+- 5 % below where the response deviates from the fitted line by more than **Tol** (default 2 %), or
+- the integration time that fills at most **Max fill** of full scale (default **85 %**)
 
-Run the integration time cell (sets 0.05 ms as a starting point):
-```python
-spec.set_int_time(measconfig, 0.05)
-```
+In practice the fill cap is what binds, and that's the one that leaves room for lamp drift.
 
-Take a test measurement and plot it:
-```python
-test_timestamp, test = spec.measure()
-spec.plot_data(wavelength, test)
-```
+**Procedure:**
 
-Adjust `set_int_time` up or down until the reference spectrum peak is in the 50,000–60,000 range.
+1. Click **Find saturation** — it doubles the integration time until the detector clips, then
+   bisects to find the real saturation point and writes it into **Stop**.
+2. Check **Start** / **Steps** (defaults are fine), then click **Run Linearity Check**.
+3. Read the plot: measured points, the fitted line, ADC full scale, and the recommended point.
+4. Click **Use recommended** to load it into Integration time — or type your own. You are never
+   forced to take the recommendation.
 
-### 3.5 Set Scan Averages
+Re-run this whenever you change the lamp, the ND filter, or the cell.
 
-More averages = less noise, but slower acquisition. The scan average time must be **less than `deltaTime`** (the interval between spectra in `get_spectra()`). The default `deltaTime` is 100 ms.
+### 3.4 Instrument Tab — Wavelength Range (optional)
 
-Run the timing test to find a good number of averages:
-```python
-for i in range(1, 27, 1):
-    spec.set_scan_aves(measconfig, i*10)
-    a, b, c, d = spec.measure_timing(measconfig)
-    print(f"Timestamp: {a}, Ave Scans: {i*10}, transfer time = {c:.4g} ms, T_dif {d*1000:.4g} ms")
-```
+The lamp fades into noise below ~400 nm and above ~1050 nm, and those pixels are written into every
+data file. Setting a **Wavelength range** crops them, giving smaller files and cleaner data.
 
-Look at the `T_dif` column — choose a number of averages where `T_dif` is clearly below 100 ms. Typically **200 averages** works well (~78–85 ms).
+Set **min** / **max** and click **Apply Range**; **Reset** returns to the spectrometer's full range.
+Leave it alone and you get the full range — this is opt-in and off by default.
 
-Set the final value:
-```python
-spec.set_scan_aves(measconfig, 200)
-```
+> Narrowing the range re-slices your existing dark/reference. **Widening it discards them** — the
+> data simply isn't there — so you'll be asked to re-collect. Set the range *before* dark/reference
+> if you can.
 
-### 3.6 Collect Dark and Reference Spectra
+### 3.5 Instrument Tab — Dark, Reference, and Test
 
-**Dark spectrum:** Block the light beam completely, then run:
-```python
-dark, ref = setup(wavelength, file_prefix="YYYYMMDD_SampleName")
-```
-Follow the prompts — it will ask you to confirm before collecting.
+The three tabs under **Spectra**:
 
-**Reference spectrum:** Place the blank cell (water in 1 cm cell with blank FTO glass) in the light path, then follow the prompts in `setup()`.
+**Dark** — block the beam completely, then **Collect New**. This is detector noise and stray light;
+it's stable and rarely needs redoing.
 
-Both spectra are saved to disk automatically with the prefix you provide. To reload them in a later session:
-```python
-dark, ref = setup(wavelength, load_existing=True)
-```
+**Reference (100 %T)** — put the blank in the beam: electrolyte in the cell with a **blank FTO
+insert** (no sample). Click **Collect New**. Check that the peak lands near your target
+(~85 % of full scale ≈ 56 000 counts if you took the linearity recommendation).
 
-### 3.7 Set Up the Gamry Sequence
+**Test (sample)** — **this is the non-destructive one.** Click **Measure** to take a single spectrum
+of whatever is in the beam right now, *without* overwriting your dark or reference. Use it to:
 
-Open **Gamry Framework** and launch the **Sequence Wizard** from the menu. Click **Load Sequence** and open:
-```
-C:\Users\inst-chem\Documents\spec-echem\gamry\Spec_Echem_20250714.GSequence
-```
+- confirm blank-vs-blank reads ≈ 0 absorbance during setup, and
+- look at the actual sample spectrum after you swap the blank FTO for the real sample — the step
+  where a plain "Collect New" on the Reference tab would **destroy your reference** by recording the
+  sample as 100 %T.
 
-The right panel ("User Defined Sequence") shows the full experiment tree. **Double-click any `Define...` item to change its value** for your experiment. The editable items near the top of the tree are:
+Switch between **Counts** and **Absorbance** to view the stored scan either way (Absorbance needs a
+dark and a reference). **Suggest range from this** reads the noise floor of a blank test-absorbance
+and proposes a wavelength window.
 
-| Item in tree | What it controls | Typical value |
-|---|---|---|
-| `Define An Integer Number, [cvcycles]` | Number of CV cycles | 1 |
-| `Define A Potential (V), [CVScanLimit1]` | CV negative scan limit (V vs. ref) | −0.5 |
-| `Define A Potential (V), [CVScanLimit2]` | CV positive scan limit (V vs. ref) | +0.7 |
-| `Define A Potential (V), [DedopingPotential]` | Dedoping potential (V vs. ref) | −0.5 |
-| `Define A Potential (V), [DopingPotInitial]` | Starting doping potential (V vs. ref) | +0.1 |
-| `Define A Real Number, [DopingDurationsec]` | Duration of each doping/dedoping step (s) | 5 |
+Both dark and reference can be saved and reloaded with **Save** / **Load**.
 
-Also double-click **Group Data Files** to set the output directory name. In the dialog:
-- **Group By:** leave set to Directory
-- **Directory/Precursor:** enter your experiment folder name (e.g., `20250714-SampleName`)
-- **Show runtime dialog** is checked — Gamry will show this dialog again when the sequence starts, so you can confirm or change the name at that point
+### 3.6 Instrument Tab — Bench Defaults
 
-The directory name here should match the `data_folder` variable you set in the notebook (see Section 3.8).
+**Save as defaults** writes the current spectrometer/linearity/Gamry settings to
+`config/bench.ini` — this rig's settings, remembered next launch. These are *bench* settings (lamp,
+detector, machine), not experiment settings. **Restore factory defaults** deletes that file and
+falls back to the lab-wide `config/defaults.ini`. See [`config/README.md`](../config/README.md).
 
-**Doping/dedoping cycle count:** The loop at the bottom of the tree reads "Loop Until [DopingPotInitial] > 0.25". Starting at 0.1 V and incrementing by 0.1 V per cycle, the sequence runs **2 cycles** (at 0.1 V and 0.2 V) by default. To run more cycles, increase the loop threshold or lower `DopingPotInitial`.
+### 3.7 Parameters Tab
 
-#### Individual step dialogs (double-click to open, then click OK)
+**Sample Info** — sample name, electrolyte, notes; all of it is written into a metadata JSON in the
+run folder, so the data documents itself.
 
-The remaining items in the sequence tree each open a dialog when double-clicked. You generally do not need to change anything in these — all potentials and times are grayed out and controlled by the variables you already set above. Review the key fields below and click OK.
+**Data folder** — pre-filled with today's date; add a short description (e.g. `20260714_P3HT_KPF6`).
+Click **Today** if the app has been open past midnight. **Save location** is the *parent* folder
+(leave it at `…\Documents\specechem_data`); the run folder is created for you.
 
-**Cyclic Voltammetry** (`CV.DTA`):
-- Scan Limit 1, Scan Limit 2, Cycles — grayed out (set by variables above)
-- Fields you may adjust for your sample: **Scan Rate (mV/s)** (default 1000), **Step Size (mV)** (default 100), **Max Current (mA)** (default 0.3)
-- Initial E and Final E are 0 V vs Eref — leave unless your experiment requires otherwise
+> ⚠️ Don't browse *into* a folder you created yourself for the Save location, or you'll get a
+> doubled path like `…\20260714_test\20260714_test\`.
 
-**Set Digital Out** (appears multiple times in the tree, always in pairs):
-- Each electrochemical step is bracketed by two Set Digital Out calls: **High before** (trigger on, tells the spectrometer to start collecting) and **Low after** (trigger off, collection stops)
-- They are fully pre-configured — **do not edit them**. Click OK if one opens.
+**Wait for Gamry trigger** — leave this on. It's the hardware sync.
 
-**Chronoamperometry — Pre-dedoping** (`prededope.DTA`):
-- Runs before the doping/dedoping loop to ensure the sample starts in the fully dedoped state
-- All voltage and time fields grayed out (controlled by `DedopingPotential` and `DopingDurationsec`)
-- Click OK without changes
+**Cyclic Voltammetry**, **Pre-dedoping Baseline**, **Doping / Dedoping Cycles** — each group has an
+"Include…" checkbox, so you can run any subset.
 
-**Chronoamperometry — Doping** (`steps.DTA`, inside the loop):
-- Applies the doping potential (`DopingPotInitial`, incrementing each cycle)
-- All voltage and time fields grayed out
-- Click OK without changes
+> In **External** mode the potentials here are **documentation only** — the `.GSequence` holds the
+> real values, and these are just recorded with your data. In **Python** mode they *drive the run*.
+> Either way they must match what the Gamry is actually doing, or your metadata will lie.
 
-**Chronoamperometry — Dedoping** (`dedoping.DTA`, inside the loop):
-- Returns the sample to `DedopingPotential` after each doping step
-- All voltage and time fields grayed out
-- Click OK without changes
+**Run it, but discard the data** (under *Include pre-dedoping*) — the pre-dedoping step still runs
+normally, so the film is conditioned, but **no files are written for it**: no spectra, no echem, no
+`.DTA`. The segment won't appear in Results either. Use it when pre-dedoping is just conditioning
+and its data would only clutter the folder.
 
-When all dialogs are confirmed, click **Run Sequence** — but do not click it until the notebook is running and waiting (see Section 3.9).
+**Save Settings File** / **Load Settings File** store this whole tab as JSON, so you can reload an
+experiment's parameters exactly.
 
-### 3.8 Set the Data Folder in the Notebook
+### 3.8 Run Tab — Start
 
-In the Sequence Wizard cell of the notebook, set `data_folder` to the same name as the Gamry data directory:
-```python
-data_folder = 'YYYYMMDD_SampleName'
-```
+**In External mode this is a two-step start, and the order matters:**
 
-Data will be saved to:
-```
-C:\Users\inst-chem\Documents\specechem_data\YYYYMMDD_SampleName\
-```
+1. Click **Start** in the GUI *first*. The app arms the spectrometer and **waits** — the banner will
+   tell you it's armed.
+2. *Then* start the sequence in Gamry Framework (Appendix B). When the Gamry raises DIGOUT0, the
+   spectrometer fires and collection begins.
 
-### 3.9 Coordinated Experiment Run
+If you start the Gamry first, the trigger edge arrives before the spectrometer is armed and is
+simply **missed**.
 
-**The Python notebook always starts first and waits for the Gamry trigger.** Once the notebook cell is running and waiting, you start (or resume) the Gamry sequence. From that point the two instruments stay synchronized automatically via the hardware trigger.
+**In Python mode there is only one step:** click **Start**. The app arms the spectrometer, then
+fires the trigger and runs the Gamry itself, segment by segment.
 
-The Gamry sequence includes 15-second delay windows between steps — use those windows to get the next notebook cell running and waiting before the Gamry fires the next trigger.
+While it runs, the Run tab shows the sequence with a ✓ against each finished segment, the last
+completed segment's absorbance, the live echem curve (Python mode), and a status log.
 
-**Full sequence:**
+- **Stop** finishes the current segment cleanly, then halts.
+- **ABORT** stops immediately. A partial segment is **not** written.
 
-1. **In Notebook:** Run the `get_spectra()` call for the CV step. The notebook will start and wait for the hardware trigger:
-   ```python
-   data_type = 1  # CV
-   run_number = 0
-   spectra_data, absorb_data = get_spectra(measconfig, data_folder, dark, ref,
-                                            deltaTime=0.1, num_echem_points=301,
-                                            data_type=data_type, run_number=run_number,
-                                            trigger=True)
-   ```
+### 3.9 Results Tab
 
-2. **In Gamry:** Start the sequence and click through the prompts. When the Gamry sets DIGOUT0 HIGH at the start of the CV scan, the notebook begins collecting spectra automatically.
+Pick any completed segment from **Segment** to see its absorbance and, in Python mode, its
+electrochemistry. Narrow the plotted **Wavelength range** for a closer look (this only affects the
+plot, not the data). **Save Plots** exports images; **Open Data Folder** opens the run folder;
+**Load Run…** reopens a previous run from disk.
 
-3. **Gamry** completes the CV scan and sets DIGOUT0 LOW. The notebook finishes collecting and the cell completes. The Gamry then enters a **15-second delay**.
-
-4. **During the 15-second delay — In Notebook:** Run the next `get_spectra()` call (for the pre-dedoping step, `data_type = 4`). Get it running and waiting before the delay expires.
-
-5. **Repeat** for each subsequent step — always get the notebook cell running and waiting during the Gamry delay before the next electrochemical step begins:
-   - Pre-dedoping: `data_type = 4, run_number = 0`
-   - Doping cycles: `data_type = 2, run_number = 0, 1, 2, …`
-   - Dedoping cycles: `data_type = 3, run_number = 0, 1, 2, …`
-
-> **If you miss a window:** Pause the Gamry sequence before it moves past the delay and into the next step. Get the notebook cell running, then resume Gamry.
+> A segment you marked *discard* never appears here — nothing was saved, so there's nothing to review.
 
 ---
 
@@ -372,45 +361,165 @@ The Gamry sequence includes 15-second delay windows between steps — use those 
 
 ### 4.1 File Locations
 
-Gamry electrochemical data (`.DTA` files) is saved by the Gamry Framework to:
-```
-C:\Users\inst-chem\Documents\[GroupName]\
-```
-where `[GroupName]` is the directory name you set in the Gamry sequence.
+Spectra and (in Python mode) echem `.txt` files are written by the app to:
 
-Spectroscopic data (`.txt` files) is saved by the notebook to:
 ```
-C:\Users\inst-chem\Documents\specechem_data\[data_folder]\
+C:\Users\inst-chem\Documents\specechem_data\[data folder]\
 ```
+
+In **External** mode, Gamry Framework separately writes its own `.DTA` files to whatever directory
+you set in the Sequence Wizard. **Point it at the same run folder** — downstream analysis expects
+the Gamry step files and the spectra files to live together.
 
 ### 4.2 Output Files
 
 | Filename | Experiment step |
-|----------|----------------|
+|---|---|
 | `CVspectra.txt` | Cyclic voltammetry |
 | `prededopingspectra(0).txt` | Pre-dedoping baseline |
 | `spectra(0).txt`, `spectra(1).txt`, … | Doping cycles |
 | `dedopingspectra(0).txt`, `dedopingspectra(1).txt`, … | Dedoping cycles |
+| `[data folder]_metadata.json` | Sample, notes, and every setting used |
+| `[data folder].log` | Full run log |
 
-Each file is tab-separated with 8 columns: wavelength, absorbance, dark (first row only), reference (first row only), raw intensity, spectrum index, absolute timestamp, and corrected timestamp. This format is fixed — downstream analysis tools at UW depend on it.
+Each spectra file is tab-separated with 8 columns: wavelength, absorbance, dark (first block only),
+reference (first block only), raw intensity, spectrum number, absolute time, corrected time.
+
+**In Python mode** the Gamry data is written alongside as `CV.txt`, `steps(N).txt`,
+`dedoping(N).txt`, `prededoping(N).txt` (time, corrected time, potential, current, index), plus
+native `.DTA` files in a `dta/` subfolder if you enabled them.
+
+> This format is fixed — downstream analysis at UW
+> ([`OECT_processing`](https://github.com/rajgiriUW/OECT_processing)) depends on the exact column
+> names and filenames. See [`docs/data-format.md`](data-format.md). Don't change them.
 
 ---
 
 ## Troubleshooting
 
-**Spectrometer not found at init:**
-- Check USB connection
-- Verify spectrometer is powered on before launching Jupyter
-- Confirm `avaspec.py` is in site-packages and the DLL path edit was applied
+**Spectrometer not found on Connect**
+- Check USB; make sure it was powered on before launching the app
+- Confirm `avaspec.py` is in site-packages and the DLL path edit was applied (§1.4)
 
-**Wrong Anaconda path:**
-- Run `python -c "import sys; print(sys.executable)"` to verify you are in the `SpecEchem` environment
-- Always activate with `conda activate SpecEchem` before launching Jupyter
+**Python mode is greyed out**
+- You're in a 64-bit environment. `EchemToolkitPy` is 32-bit only — use `SpecEchem32`, or stay in
+  External mode.
 
-**Import errors in notebook:**
-- Make sure you ran all definition cells (Cells 1–5) before running experiment cells
-- The `Avantes` class used in the notebook is defined in Cell 2 — if you skipped it, `spec = Avantes()` will fail
+**The run starts but no spectra are collected (it just waits)**
+- In External mode: you probably started the Gamry *before* clicking Start. Abort, click Start
+  first, then run the Gamry sequence.
+- Check the DIGOUT0 → Pin 6 trigger wire.
 
-**Timing issues / spectra count mismatch:**
-- Ensure scan averages × integration time < `deltaTime`
-- Use the timing test loop (Section 3.5) to verify before running
+**Spectra count doesn't match the electrochemistry**
+- Scan averages × integration time must be **less** than "Time between spectra". Run the timing test
+  (§3.2). The run log also reports the actual measured cadence for every segment — check it there.
+
+**Reference peak is too low / saturated**
+- Re-run the Linearity Check (§3.3) with the reference in the beam. Lamp output drifts with age and
+  changes completely if you swap the source or the ND filter.
+
+**Absorbance looks like pure noise at the edges**
+- That's the lamp dying out below ~400 nm and above ~1050 nm. Set a wavelength range (§3.4).
+
+---
+
+## Appendix A — Legacy Jupyter Notebook Workflow
+
+> The notebook path still works and is kept for reference and for anything the GUI doesn't cover.
+> **New users should use the GUI (Part 3).** The notebook defines its own `Avantes` class,
+> separate from the `spec_echem` package.
+
+Launch Jupyter with the `SpecEchem` environment active and open
+`notebooks/SpecEchem Avantes 0.996-20250717.ipynb`.
+
+**Session setup:** run the definition cells in order — standard imports; the `Avantes` class;
+`setup()` (dark/reference), `get_spectra()` (acquisition), `plot_data()`. Then:
+
+```python
+spec = Avantes()
+measconfig, serial_number = spec.init()
+wavelength_old, wavelength = spec.wavelengths()
+spec.set_int_time(measconfig, 0.05)     # ms
+```
+
+Take a test spectrum and adjust until the reference peak is 50 000–60 000 counts:
+
+```python
+test_timestamp, test = spec.measure()
+spec.plot_data(wavelength, test)
+```
+
+Find a workable number of scan averages (`T_dif` must stay below `deltaTime`, default 100 ms):
+
+```python
+for i in range(1, 27):
+    spec.set_scan_aves(measconfig, i*10)
+    a, b, c, d = spec.measure_timing(measconfig)
+    print(f"Ave Scans: {i*10}, transfer = {c:.4g} ms, T_dif {d*1000:.4g} ms")
+spec.set_scan_aves(measconfig, 200)
+```
+
+Collect dark (beam blocked) and reference (blank cell in the beam):
+
+```python
+dark, ref = setup(wavelength, file_prefix="YYYYMMDD_SampleName")
+dark, ref = setup(wavelength, load_existing=True)   # to reload later
+```
+
+**Running the sequence.** The notebook cell always starts first and waits for the trigger; then you
+start (or resume) the Gamry. The Gamry sequence has 15-second delays between steps — use them to get
+the next cell running and waiting before the next trigger fires.
+
+```python
+data_type = 1   # 1 = CV, 2 = doping, 3 = dedoping, 4 = pre-dedoping
+run_number = 0
+spectra_data, absorb_data = get_spectra(measconfig, data_folder, dark, ref,
+                                        deltaTime=0.1, num_echem_points=301,
+                                        data_type=data_type, run_number=run_number,
+                                        trigger=True)
+```
+
+Repeat per step, incrementing `run_number` for each doping/dedoping cycle. If you miss a window,
+pause the Gamry before it enters the next step, get the cell running, then resume.
+
+---
+
+## Appendix B — Gamry Sequence Wizard (External Mode)
+
+Only needed in **External** mode. In Python mode the app builds the sequence itself and you can skip
+this entirely.
+
+Open **Gamry Framework**, launch the **Sequence Wizard**, click **Load Sequence** and open:
+
+```
+C:\Users\inst-chem\Documents\spec-echem\gamry\Spec_Echem_20250714.GSequence
+```
+
+The "User Defined Sequence" panel shows the experiment tree. **Double-click any `Define…` item to
+change its value:**
+
+| Item in tree | What it controls | Typical |
+|---|---|---|
+| `Define An Integer Number, [cvcycles]` | Number of CV cycles | 1 |
+| `Define A Potential (V), [CVScanLimit1]` | CV negative scan limit | −0.5 |
+| `Define A Potential (V), [CVScanLimit2]` | CV positive scan limit | +0.7 |
+| `Define A Potential (V), [DedopingPotential]` | Dedoping potential | −0.5 |
+| `Define A Potential (V), [DopingPotInitial]` | Starting doping potential | +0.1 |
+| `Define A Real Number, [DopingDurationsec]` | Duration of each step (s) | 5 |
+
+Double-click **Group Data Files** to set the output directory. Set **Directory/Precursor** to your
+run folder name — **make it match the Data folder name on the Parameters tab**, so the Gamry `.DTA`
+files land with the spectra.
+
+**Doping/dedoping cycle count:** the loop reads "Loop Until [DopingPotInitial] > 0.25". Starting at
+0.1 V and stepping 0.1 V, that's **2 cycles**. Raise the threshold for more.
+
+**Individual step dialogs** (double-click, then OK) — you generally change nothing here; the
+potentials and times are greyed out and driven by the variables above.
+
+- **Cyclic Voltammetry** (`CV.DTA`) — you *may* adjust **Scan Rate**, **Step Size**, **Max Current**
+- **Set Digital Out** — appears in pairs bracketing each step (HIGH before, LOW after). These *are*
+  the trigger. **Do not edit them.**
+- **Chronoamperometry — Pre-dedoping / Doping / Dedoping** — click OK without changes
+
+Click **Run Sequence** — but **not** until the GUI is running and armed (§3.8).
