@@ -894,6 +894,7 @@ class InstrumentTab(QWidget):
         self._reslice_cal(old_wl, new_wl)   # keep dark/ref aligned; clear on a widen
         now_cal = self.win.dark is not None
         self._update_cal_plot()
+        self._refresh_cal_status()          # the labels must not out-live the data
         self._update_absorbance_enabled()
         msg = f"{new_wl[0]:.0f}–{new_wl[-1]:.0f} nm ({len(new_wl)} px)."
         if had_cal and now_cal:
@@ -901,6 +902,17 @@ class InstrumentTab(QWidget):
         elif had_cal and not now_cal:
             msg += " Dark/reference cleared — re-collect at this range."
         self.wl_status.setText(msg)
+
+    def _refresh_cal_status(self):
+        """Rewrite the dark/ref labels from the ACTUAL stored data after a window change.
+        Otherwise they keep claiming 'collected (702 px)' after a widen cleared them, or
+        keep the pre-slice pixel count after a narrow — a label that outlives its data."""
+        for arr, label, name in ((self.win.dark, self.dark_status, "Dark"),
+                                 (self.win.ref, self.ref_status, "Reference")):
+            if arr is None:
+                label.setText(f"{name}: cleared — re-collect at this range.")
+            else:
+                label.setText(f"{name}: ready ({len(arr)} px)")
 
     def _reslice_cal(self, old_wl, new_wl):
         """After the window narrows, slice dark/ref/test-abs (aligned with old_wl) down
