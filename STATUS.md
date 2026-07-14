@@ -8,25 +8,50 @@ _Last updated: 2026-07-14_
 
 ---
 
-## 📦 STAGED FOR RELEASE: v0.2.0 on `gui-dev` (2026-07-14)
+## 🎉 RELEASED: v0.2.0 on `main`, tagged (2026-07-14) — START HERE
 
-Version bumped to **0.2.0** (`setup.py` + `spec_echem/__init__.py`), [`CHANGELOG.md`](CHANGELOG.md)
-written, [`docs/sop.md`](docs/sop.md) rewritten GUI-first (the notebook workflow is now an appendix,
-and the Gamry Sequence Wizard is Appendix B, for External mode). 143 tests.
+**v0.2.0 is merged to `main` (`--no-ff`) and tagged `v0.2.0`.** `gui-dev` stays the dev branch and is
+currently level with `main`. 150 tests.
 
-**The 0.2.0 theme is instrument setup:** 0.1.0 could run an experiment; 0.2.0 helps you set the
-instrument up correctly first, and remembers how your rig is configured. Linearity check, wavelength
-window, non-destructive Test (sample), bench defaults (`config/*.ini`), and the pre-dedoping
-"run it, but discard the data" option.
+**The 0.2.0 theme is instrument setup.** 0.1.0 could run an experiment; 0.2.0 helps you set the
+instrument up correctly first, and remembers how your rig is configured:
 
-**One gate before merging to `main`:** the discard has only been exercised in **External** mode. The
-code path that suppresses the native Gamry `.DTA` lives in `ToolkitPotentiostat._write_dta` and only
-runs in **Python** mode on the 32-bit box — it has never actually executed. Check on `SpecEchem32`
-that a discarded pre-dedoping leaves no `prededopingspectra(0).txt`, no `prededoping(0).txt`, and no
-`dta/prededoping(0).dta`, and that the doping/dedoping segments after it are unaffected.
+- **Linearity check** — hardware-validated. Key finding: the detector stays linear to ~1% right up to
+  the hard clip, so a deviation-only criterion gives no headroom (lands at 94% of full scale). The
+  recommendation takes the tighter of *5% below the linearity limit* or a **max-fill fraction**
+  (default **85% fill / 2% tol**, both confirmed by Dean). `Find saturation` bisects.
+- **Wavelength window** (opt-in) — crops the noisy lamp edges out of every file.
+- **Test (sample)** — read the beam without overwriting dark/ref. Closes a real hole: the reference is
+  taken with a blank FTO insert, and after swapping in the sample a plain "Collect New" would have
+  silently destroyed the reference by recording the sample as 100%T.
+- **Bench defaults** (`config/*.ini`) — per-rig settings, layered under per-experiment settings.
+- **Pre-dedoping "run it, but discard the data"** — conditions the film, writes nothing (no spectra,
+  no echem, no `.DTA`), stays out of Results. **Verified on hardware in Python mode 2026-07-14** —
+  that was the last merge gate, and the `.DTA` suppression path had never executed before it.
 
-**Also open:** the trigger cable's *build* (connector, pinout, shielding) is undocumented — see
-`TODO.md`. And `gui/` still has no test coverage, which is where every 0.2.0 bug lived.
+### Landed after the tag (on `main`, unreleased — see CHANGELOG `[Unreleased]`)
+
+- **Hardware is now named** in README/SOP: Avantes **AvaSpec-VRS2048CL-EVO** (2048 px, 300–1100 nm
+  optical config, 50 µm slit) and a Gamry **Reference 600** — *not* a 600+; that error had been in
+  `CLAUDE.md` since before the GUI existed. Everything else is "expected to function within its own
+  respective limits". Gamry compatibility is grounded in the vendor's ToolkitPy help:
+  `set_digital_out()` is on the **generic `Pstat` class**, not model-gated. New
+  `examples/identify_hardware.py`.
+- **Reading the spectrometer label explained the `[395:1660]` crop:** the SDK reports a wavelength for
+  all 2048 pixels (~144–1308 nm) but the *optics* are only specified 300–1100 nm.
+- **Build id** — `spec_echem.build_id()` → `0.2.0`, `0.2.0+7.g0f26a7a`, `.dirty` for an edited tree.
+  Written to the **run metadata JSON**, the **run log's first line**, and the **GUI title bar**, so a
+  data folder can name the code that produced it. `build_info.py` is now the single source of the
+  version (setup.py reads it by regex). Confirmed on the Win11 box.
+
+### Still open (neither blocking)
+
+- **The trigger cable's *build*** — connector, pinout, shielding — is undocumented; only its endpoints
+  are. It exists in Dean's head and in the one cable on the bench. See `TODO.md`.
+- **`gui/` has zero test coverage** while the core has 150 tests. *Every* bug in the 0.2.0 cycle lived
+  in GUI wiring — stale absorbance after a re-slice, labels outliving their data, load-before-connect,
+  a discarded segment still reaching the Results tab — and the core suite passed through all of them.
+  Deliberate trade (Qt would have to install in the 32-bit env too), but this is where the bugs are.
 
 ---
 

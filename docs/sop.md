@@ -391,11 +391,26 @@ the Gamry step files and the spectra files to live together.
 | `prededopingspectra(0).txt` | Pre-dedoping baseline |
 | `spectra(0).txt`, `spectra(1).txt`, … | Doping cycles |
 | `dedopingspectra(0).txt`, `dedopingspectra(1).txt`, … | Dedoping cycles |
-| `[data folder]_metadata.json` | Sample, notes, and every setting used |
-| `[data folder].log` | Full run log |
+| `[data folder]_metadata.json` | Build id, sample, notes, and every setting used |
+| `[data folder].log` | Full run log (build id on the first line) |
 
 Each spectra file is tab-separated with 8 columns: wavelength, absorbance, dark (first block only),
 reference (first block only), raw intensity, spectrum number, absolute time, corrected time.
+
+### 4.3 Which version produced this data?
+
+Every run records the exact code that wrote it, so you never have to guess later.
+
+- **The title bar** shows it while you work: `spec-echem 0.2.0+7.g0f26a7a`.
+- **`_metadata.json`** stores it as `spec_echem_version`.
+- **The run log's first line** repeats it.
+
+`0.2.0` means a tagged release. `0.2.0+7.g0f26a7a` means seven commits past that tag, at commit
+`0f26a7a` — which is normal, since most work happens between releases. A **`.dirty`** suffix means
+the code had uncommitted edits, so that run can't be reproduced from any commit. That's fine while
+you're developing; it's worth noticing on data you intend to publish.
+
+Quote this string in bug reports — it's the single most useful thing you can give.
 
 **In Python mode** the Gamry data is written alongside as `CV.txt`, `steps(N).txt`,
 `dedoping(N).txt`, `prededoping(N).txt` (time, corrected time, potential, current, index), plus
