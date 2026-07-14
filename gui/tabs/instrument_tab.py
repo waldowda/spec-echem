@@ -527,14 +527,20 @@ class InstrumentTab(QWidget):
                               "Dark", "Intensity (counts)")
         self._plot_if_matched(self.ref_canvas, self.win.ref,
                               "Reference (100%T)", "Intensity (counts)", mark_max=True)
+        # The test-absorbance is on the same wavelength axis, so it must be redrawn with
+        # the others — applying a window used to leave it stale at the old width, which is
+        # exactly the plot you're looking at when you click Apply after Suggest.
+        self._plot_if_matched(self.absorb_canvas, self._last_test_abs,
+                              "Test (absorbance)", "Absorbance",
+                              empty_msg="Test (absorbance): none yet — Measure absorbance.")
 
-    def _plot_if_matched(self, canvas, data, title, ylabel, **kw):
+    def _plot_if_matched(self, canvas, data, title, ylabel, empty_msg=None, **kw):
         """Plot data vs the current wavelength axis only if their lengths match;
         otherwise show a note. Prevents length-mismatch crashes when a window has
         been applied while dark/ref are from a different range."""
         wl = self.win.wavelengths
         if data is None:
-            canvas.show_message(f"{title}: none yet — Collect New or Load.")
+            canvas.show_message(empty_msg or f"{title}: none yet — Collect New or Load.")
             return
         if wl is None or len(wl) != len(data):
             canvas.show_message(f"{title}: {len(data)} px doesn't match the "
@@ -897,22 +903,32 @@ class InstrumentTab(QWidget):
         self.wl_status.setText(msg)
 
     def _reslice_cal(self, old_wl, new_wl):
-        """After the window narrows, slice dark/ref (aligned with old_wl) down to
-        new_wl so they stay matched to the run data — no re-collect. If new_wl isn't
-        a sub-range of old_wl (a widen beyond what was collected), clear them."""
-        if old_wl is None or (self.win.dark is None and self.win.ref is None):
+        """After the window narrows, slice dark/ref/test-abs (aligned with old_wl) down
+        to new_wl so they stay matched to the run data — no re-collect. If new_wl isn't
+        a sub-range of old_wl (a widen beyond what was collected), clear them.
+
+        The test-absorbance belongs here too: A(lambda) doesn't change when you crop, so
+        slicing it is exact, and leaving it out stranded it at the old width."""
+        if old_wl is None:
             return
         contained = (len(new_wl) <= len(old_wl)
                      and new_wl[0] >= old_wl[0] - 1e-6
                      and new_wl[-1] <= old_wl[-1] + 1e-6)
-        if contained:
-            i0 = int(np.argmin(np.abs(old_wl - new_wl[0])))
-            sl = slice(i0, i0 + len(new_wl))
-            if self.win.dark is not None and len(self.win.dark) == len(old_wl):
-                self.win.dark = np.asarray(self.win.dark)[sl]
-            if self.win.ref is not None and len(self.win.ref) == len(old_wl):
-                self.win.ref = np.asarray(self.win.ref)[sl]
-        else:
-            self.win.dark = None
-            self.win.ref = None
-            self._last_test_abs = None
+        i0 = int(np.argmin(np.abs(old_wl - new_wl[0]))) if contained else 0
+        sl = slice(i0, i0 + len(new_wl))
+
+        def fit(arr):
+            """Put arr on the new axis, or drop it. Never leave it stale: a stored array
+            whose length no longer matches the axis can't be plotted or used, and silently
+            keeping it is what made Apply look like it did nothing."""
+            if arr is None:
+                return None
+            if len(arr) == len(new_wl):
+                return arr                                  # already on the new axis
+            if contained and len(arr) == len(old_wl):
+                return np.asarray(arr)[sl]                  # narrowed: slice it down
+            return None                                     # widened / unrelated: drop it
+
+        self.win.dark = fit(self.win.dark)
+        self.win.ref = fit(self.win.ref)
+        self._last_test_abs = fit(self._last_test_abs)
