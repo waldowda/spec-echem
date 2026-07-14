@@ -154,6 +154,7 @@ spec-echem/
 │   ├── spectral_range.py   # Wavelength-window recommendation
 │   ├── settings.py         # Experiment settings dict
 │   ├── bench.py            # Bench (per-rig) defaults, config/*.ini
+│   ├── build_info.py       # __version__ + build_id() — single source of the version
 │   └── fakes.py            # Hardware fakes — the whole suite runs with no instruments
 ├── gui/                     # PyQt5 GUI — python -m gui
 │   ├── main_window.py      # 4 tabs, shared state
@@ -164,7 +165,7 @@ spec-echem/
 ├── gamry/                   # .GSequence files with digital-output triggers
 ├── docs/                    # sop.md, data-format.md, inspect-run.md
 ├── examples/                # Bench/validation scripts (trigger timing, co-acquisition)
-├── tests/                   # 143 tests — no hardware required
+├── tests/                   # 150 tests — no hardware required
 └── data/                    # Sample data
 ```
 
