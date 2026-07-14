@@ -21,29 +21,37 @@ via hardware triggering — the Gamry's DIGOUT0 output is wired directly to the 
 
 ```
 spec-echem/
-├── spec_echem/                      # Python package (import spec_echem)
+├── spec_echem/                      # Core package — NO Qt, NO hardware imports
 │   ├── __init__.py
 │   ├── spectrometer.py              # AvantesSpectrometer class
 │   ├── potentiostat.py              # Gamry control (External + Python/toolkitpy)
 │   ├── acquisition.py, experiment.py  # Segment acquisition + orchestration
 │   ├── data.py, gamry_data.py       # Spectra + echem file writers/readers
-│   ├── settings.py, fakes.py        # Settings dict; hardware fakes for testing
+│   ├── linearity.py                 # Integration-time linearity fit + recommendation
+│   ├── spectral_range.py            # Wavelength-window recommendation
+│   ├── settings.py                  # Experiment settings dict (per-run)
+│   ├── bench.py                     # Bench defaults (per-rig), reads config/*.ini
+│   ├── build_info.py                # __version__ + build_id() — SINGLE source of the version
+│   ├── logging_config.py            # Per-run log file
+│   ├── fakes.py                     # Hardware fakes — the suite runs with no instruments
 │   └── globals.py                   # Global variables for Avantes SDK
 ├── gui/                             # PyQt5 GUI (4 tabs); run via `python -m gui`
-├── notebooks/
-│   └── spec_echem_exp_*.ipynb       # Jupyter experimental workflows
+├── config/                          # defaults.ini (tracked, lab-wide) + bench.ini (per-rig, ignored)
+├── notebooks/                       # Legacy Jupyter workflow (still functional)
 ├── gamry/
 │   └── *.GSequence                  # Gamry sequence files with digital triggers
 ├── docs/
 │   ├── data-format.md               # Output file format specification (DO NOT CHANGE)
-│   └── sop.md                       # Standard operating procedure
-├── examples/                        # Bench/validation scripts
-├── tests/                           # Unit tests
+│   ├── sop.md                       # Standard operating procedure (GUI-first)
+│   └── inspect-run.md
+├── examples/                        # Bench/validation scripts + identify_hardware.py
+├── tests/                           # Unit tests (150) — no hardware required
 ├── data/                            # Sample data directory
+├── CHANGELOG.md                     # What changed between versions
 ├── STATUS.md                        # Human-readable project status + next steps
 ├── TODO.md                          # Task list / deferred cleanups
 ├── README.md
-├── setup.py
+├── setup.py                         # Reads the version out of build_info.py — don't hardcode it
 ├── requirements.txt
 └── .gitignore
 ```
@@ -107,32 +115,37 @@ Do NOT copy a fresh SDK file over this without reapplying these three edits.
 | `wavelengths()` | `(_, wavelength_array)` | Calibration wavelengths |
 | `plot_data(wavelength, spectrum)` | — | Quick visualization |
 
-### `get_spectra()` — Core data acquisition function
+### Acquisition pipeline (modularization DONE — the notebook `get_spectra()` is legacy)
 
-Currently lives in notebooks; being modularized into `spec_echem/`.
+An experiment is a list of `Segment`s, run one at a time:
 
 ```python
-get_spectra(
-    measconfig,           # Spectrometer config from init()
-    added_path,           # Output subfolder, format: YYYYMMDD_Description
-    dark=None,            # Dark spectrum — None preserves previously stored value
-    ref=None,             # Reference spectrum — None preserves previously stored value
-    deltaTime=0.100,      # Seconds between spectral acquisitions
-    num_echem_points=301, # Number of spectra to collect
-    data_type=1,          # See data type codes below
-    run_number=0,         # Cycle counter for file naming
-    trigger=False         # Whether to use GPIO triggering
-)
-# Returns: (spectra, absorb7)
+build_segments(settings) -> [Segment(label, data_type, run_number,
+                                     num_points, delta_time, trigger, save=True)]
+
+run_one_segment(spec, segment, dark, ref, wavelengths, data_root, added_path,
+                abort_event=None, potentiostat=None)
+    # -> (absorbance_df, path)  |  (absorbance_df, None) if segment.save is False
+    #    None if aborted (a partial segment is never written)
 ```
 
-### Sequence Wizard
+- `acquire_segment()` (`acquisition.py`) does the triggered collection. `measure()` must fire
+  `on_armed` **from inside itself, after arming** — an edge raised before the spectrometer is armed
+  is silently MISSED. Only spectrum 0 of a segment is hardware-triggered; the rest free-run.
+- `segment.save=False` means "run it, write nothing" (the pre-dedoping *discard* option). All three
+  writers honour it: the spectra `.txt`, the echem `.txt`, and `ToolkitPotentiostat._write_dta`.
+  Discarded segments also never reach `win.results`, so they don't appear in the Results tab.
+- The GUI's Run tab builds the segment list and hands it to a worker thread (`gui/workers.py`).
 
-Interactive script for a complete experiment:
-1. Collects user input (folder name, CV parameters, chrono parameters, number of cycles)
-2. Runs CV with synchronized spectra
-3. Runs pre-dedoping baseline
-4. Loops through N doping/dedoping cycles with incrementing potentials
+### Version / build identity
+
+`spec_echem.build_id()` → `"0.2.0"` at a tag, `"0.2.0+7.g0f26a7a"` between tags, `.dirty` suffix for
+an edited tree, bare version when there's no git. It is written to the **run metadata JSON**
+(`spec_echem_version`), the **first line of every run log**, and the **GUI title bar** — so a data
+folder can always name the code that produced it.
+
+`__version__` lives ONLY in `spec_echem/build_info.py`; `setup.py` reads it out by regex. Don't add
+a second copy.
 
 ---
 
@@ -269,11 +282,26 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   acquisition loop — otherwise Abort won't respond while blocked waiting for a trigger (the most
   common wait state). `threading.Event` is stdlib, so this doesn't violate the no-Qt-in-core rule.
 - **Run metadata:** `write_run_metadata()` writes `{folder}/{folder}_metadata.json` at run start —
-  sample name, electrolyte, notes, and full settings snapshot — making each data folder self-documenting.
+  `spec_echem_version` (the build id), sample name, electrolyte, notes, and a full settings snapshot,
+  making each data folder self-documenting.
 
-### Modularization
-- Move `get_spectra()` from notebooks into `spec_echem/` as a proper module function
-- Add unit tests that mock hardware dependencies
+### Modularization — DONE
+`get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
+`data.py`; hardware is faked (`fakes.py`) so all 150 tests run with no instruments attached.
+
+### Settings: two layers, don't confuse them
+- **Experiment settings** (`settings.py`, `DEFAULT_SETTINGS`) — *this run*: sample, folder, CV
+  vertices, potentials. Saved/loaded as JSON from the Parameters tab.
+- **Bench defaults** (`bench.py`, `config/*.ini`) — *this rig*: integration time, scan averages,
+  wavelength window, linearity ramp, `data_root`, `potentiostat_mode`. `config/defaults.ini` is
+  tracked and lab-wide; `config/bench.ini` is per-machine and gitignored ("Save as defaults").
+  Precedence: code defaults → lab defaults → this machine → an explicitly loaded experiment JSON.
+  `data_root` and `potentiostat_mode` are deliberately ABSENT from the tracked file (machine-specific).
+
+### Known gaps (see TODO.md)
+- **`gui/` has no test coverage** while `spec_echem/` has 150 tests. Every bug in the 0.2.0 cycle
+  lived in GUI wiring, and the core suite passed through all of them.
+- **The trigger cable's build** (connector, pinout, shielding) is undocumented — only its endpoints.
 
 ---
 
