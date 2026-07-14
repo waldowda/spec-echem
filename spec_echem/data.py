@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+from spec_echem.build_info import build_id
 from spec_echem.gamry_data import (
     POTENTIAL_COL, CURRENT_COL, CV_COLUMNS, CHRONO_COLUMNS,
 )
@@ -305,6 +306,9 @@ def write_run_metadata(settings, data_root, added_path):
     folder.mkdir(parents=True, exist_ok=True)
 
     metadata = {
+        # Which code wrote this folder. Settings alone don't say — and behaviour has
+        # changed across versions (the wavelength crop, for one).
+        "spec_echem_version": build_id(),
         "run_started": datetime.now().isoformat(timespec="seconds"),
         "data_folder": added_path,
         "sample_name": settings.get("sample_name", ""),

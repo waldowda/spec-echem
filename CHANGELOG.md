@@ -13,6 +13,17 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **Build identity.** `spec_echem.build_id()` reports `0.2.0` at a tag and `0.2.0+5.gaadf15a`
+  between tags (`.dirty` if the tree has uncommitted changes). It now appears in three places:
+  the **run metadata JSON** (`spec_echem_version`), the **first line of every run log**, and the
+  **GUI title bar**.
+
+  The gap it closes: a run folder recorded every *setting* it used but nothing about the code that
+  applied them — so two runs a release apart looked identical on disk even though one of them could
+  crop the wavelength axis and the other couldn't. Most runs happen on commits *between* tags, which
+  is why a bare version string wouldn't have been enough. `build_info.py` is also now the single
+  source of the version: `setup.py` reads it out rather than keeping a second copy that can drift.
+
 - `examples/identify_hardware.py` — read-only script that prints the attached instruments' identity.
 - README and SOP now name the **exact tested hardware**: Avantes AvaSpec-VRS2048CL-EVO
   (2048 px, 300–1100 nm optical configuration, 50 µm slit) and a Gamry Reference 600 — with an
