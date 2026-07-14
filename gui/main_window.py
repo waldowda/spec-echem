@@ -12,6 +12,7 @@ from qtpy.QtWidgets import QMainWindow, QTabWidget
 from spec_echem.bench import (
     apply_bench_defaults, load_bench_defaults, user_bench_path,
 )
+from spec_echem.build_info import build_id
 from spec_echem.settings import DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import InstrumentTab
 from gui.tabs.parameters_tab import ParametersTab
@@ -22,7 +23,9 @@ from gui.tabs.results_tab import ResultsTab
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("spec-echem — Spectroelectrochemistry Control")
+        # Build id in the title: a student sending a screenshot tells you their exact build.
+        self.setWindowTitle(
+            "spec-echem {} — Spectroelectrochemistry Control".format(build_id()))
         self.resize(1000, 700)
 
         # --- shared state ---
