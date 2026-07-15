@@ -98,10 +98,16 @@ class ResultsTab(QWidget):
     # --- segment selection / plotting ---
 
     def refresh_segments(self):
-        """Repopulate the dropdown from the main window's results store."""
+        """Repopulate the dropdown from the main window's results store, keeping the
+        current selection if it still exists — so a mid-run completion doesn't yank
+        the user back to the first segment while they're inspecting another."""
+        current = self.segment_combo.currentText()
         self.segment_combo.blockSignals(True)
         self.segment_combo.clear()
-        self.segment_combo.addItems(list(self.win.results.keys()))
+        labels = list(self.win.results.keys())
+        self.segment_combo.addItems(labels)
+        if current in labels:
+            self.segment_combo.setCurrentText(current)
         self.segment_combo.blockSignals(False)
         self.on_segment_changed()
 

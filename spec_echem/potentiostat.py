@@ -34,7 +34,6 @@ high, then run + clean poll loop), and ``finish()`` joins it and picks up the
 captured data. The spectrometer keeps its own thread, so their timing is
 independent; t=0 is still synced by the hardware trigger.
 """
-import logging
 import threading
 import time
 
@@ -42,8 +41,7 @@ from spec_echem.data import (
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
     _echem_dta_path,
 )
-
-logger = logging.getLogger(__name__)
+from spec_echem.logging_config import get_run_logger
 
 try:
     import toolkitpy as tkp
@@ -197,6 +195,7 @@ class ToolkitPotentiostat(Potentiostat):
         self._live_data = None            # acq_data() snapshot mid-run (for the live plot)
         self._thread = None               # the per-segment Gamry thread
         self._armed = threading.Event()   # set by fire() when the spectrometer is armed
+        self._fired = threading.Event()   # set by fire() — distinguishes a real start
         self._built = threading.Event()   # set by the thread once the signal is built
         self._abort = threading.Event()   # set to stop a segment early
         self._error = None                # exception from the Gamry thread, if any
@@ -226,6 +225,7 @@ class ToolkitPotentiostat(Potentiostat):
         survives only on a thread running an uninterrupted poll loop.
         """
         self._armed.clear()
+        self._fired.clear()
         self._built.clear()
         self._abort.clear()
         self._last_data = None
@@ -244,7 +244,21 @@ class ToolkitPotentiostat(Potentiostat):
         # CPU. Building under that load leaves the curve stillborn (it runs ~50 ms
         # then dies with zero data); a clear runway is what bench_gamry_thread's
         # sleep(0.2) gave it. Bounded so a hung open can't wedge the caller.
-        self._built.wait(timeout=30.0)
+        if not self._built.wait(timeout=30.0):
+            # Setup never finished. Do NOT return — the caller would arm the
+            # spectrometer for a trigger this dead/hung thread will never fire, and
+            # the run would hang forever with no error shown.
+            self._abort.set()
+            raise RuntimeError(
+                f"Gamry setup for '{segment.label}' did not complete within 30 s "
+                "— aborting before arming the spectrometer.")
+        if self._error is not None:
+            # The thread raised during open/build and already exited via its error
+            # path; surface it now rather than arming into a trigger that won't come.
+            err = self._error
+            self._join_thread()
+            raise RuntimeError(
+                f"Gamry setup for '{segment.label}' failed: {err}") from err
 
     def fire(self):
         """
@@ -253,17 +267,23 @@ class ToolkitPotentiostat(Potentiostat):
         Avantes catches) and runs the waveform. Returns immediately; the Gamry runs
         concurrently on its own thread.
         """
+        self._fired.set()   # record that the segment genuinely started (see finish)
         self._armed.set()
 
     def finish(self, aborted=False):
         """Wait for the Gamry thread to finish (or stop it on abort) and pick up the
-        data it captured. On abort no data is kept (mirrors the spectra rule)."""
-        if aborted:
+        data it captured. On abort no data is kept (mirrors the spectra rule).
+
+        If fire() never happened — an early failure (e.g. the spectrometer failed to
+        arm), not a normal finish — cancel the thread FIRST so that releasing it below
+        makes it return WITHOUT running the waveform blind on the sample."""
+        if aborted or not self._fired.is_set():
             self._abort.set()
-        self._armed.set()   # unblock the thread if fire() never happened
+        self._armed.set()   # unblock the thread; it now returns without running
         self._join_thread()
         if self._error is not None:
-            logger.warning("Gamry segment thread reported an error: %s", self._error)
+            get_run_logger().warning(
+                "Gamry segment thread reported an error: %s", self._error)
 
     def stop(self):
         self._abort.set()
@@ -339,7 +359,8 @@ class ToolkitPotentiostat(Potentiostat):
                 self._write_dta(curve, pstat, segment)
         except Exception as exc:  # noqa: BLE001 — surface via _error, never crash the thread
             self._error = exc
-            logger.exception("Gamry segment '%s' failed", getattr(segment, "label", "?"))
+            get_run_logger().exception(
+                "Gamry segment '%s' failed", getattr(segment, "label", "?"))
         finally:
             self._built.set()   # never leave prepare() blocked, even on a build error
             if pstat is not None:
@@ -361,7 +382,8 @@ class ToolkitPotentiostat(Potentiostat):
         if not self.settings.get("save_dta", True):
             return
         if not hasattr(tkp, "print_default_dta_file"):
-            logger.info("toolkitpy has no print_default_dta_file — skipping native .dta.")
+            get_run_logger().info(
+                "toolkitpy has no print_default_dta_file — skipping native .dta.")
             return
         kind = "CV" if segment.data_type == DATA_TYPE_CV else "CHRONOA"
         path = _echem_dta_path(segment.data_type, segment.run_number,
@@ -370,7 +392,8 @@ class ToolkitPotentiostat(Potentiostat):
             path.parent.mkdir(parents=True, exist_ok=True)
             tkp.print_default_dta_file(curve, pstat, str(path), kind)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Native .dta write failed for %s: %s", segment.label, exc)
+            get_run_logger().warning(
+                "Native .dta write failed for %s: %s", segment.label, exc)
 
     # --- signal building (runs on the Gamry thread) --------------------
 
@@ -395,9 +418,12 @@ class ToolkitPotentiostat(Potentiostat):
         # and step-2 times zeroed, i.e. a single hold at `potential` for chrono_time s.
         curve = tkp.ChronoCurve(pstat, MAX_CURVE_SIZE)
         potential = self._chrono_potential(segment)
+        # Pre-dedoping holds for its OWN duration; doping/dedoping use chrono_time.
+        hold = (s["prededoping_time"] if segment.data_type == DATA_TYPE_PREDEDOPING
+                else s["chrono_time"])
         signal = pstat.signal_d_step_new(
             potential, 0.0,                 # pre-step voltage, pre-step time
-            potential, s["chrono_time"],    # step-1 voltage, step-1 time (the hold)
+            potential, hold,                # step-1 voltage, step-1 time (the hold)
             potential, 0.0,                 # step-2 voltage, step-2 time
             segment.delta_time, tkp.PSTATMODE,
         )

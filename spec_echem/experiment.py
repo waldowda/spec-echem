@@ -53,19 +53,26 @@ def build_segments(settings):
         cv_path = (abs(settings["cv_initial_v"] - settings["cv_limit1_v"])
                    + abs(settings["cv_limit1_v"] - settings["cv_limit2_v"])
                    + abs(settings["cv_limit2_v"] - settings["cv_final_v"]))
-        cv_points = int(cv_path / settings["cv_step_size"]
-                        * 1000 * settings["cv_cycles"] + 1)
+        # round() not truncation: exact ratios land at N-epsilon in binary float
+        # (e.g. 1.4/10*1000 = 139.9999…), so int()+1 would drop a spectrum. round
+        # keeps the count matching the waveform's duration. (Clean ratios unchanged.)
+        cv_points = int(round(cv_path / settings["cv_step_size"]
+                              * 1000 * settings["cv_cycles"])) + 1
         cv_delta = settings["cv_step_size"] / settings["cv_scan_rate"]
         segments.append(Segment("CV", DATA_TYPE_CV, 0, cv_points, cv_delta, trigger))
 
-    chrono_points = int(settings["chrono_time"] / settings["chrono_delta_time"] + 1)
+    chrono_points = int(round(settings["chrono_time"] / settings["chrono_delta_time"])) + 1
     chrono_delta = settings["chrono_delta_time"]
 
     if settings["prededoping_enabled"]:
-        # The pre-dedoping step conditions the film; its data is often just a
-        # baseline you don't want cluttering the folder. Discard = run it, keep nothing.
+        # Pre-dedoping has its OWN duration (prededoping_time) — it is NOT the
+        # doping/dedoping step time; spectra are just spaced at the same chrono delta.
+        # The step conditions the film; its data is often just a baseline you don't
+        # want cluttering the folder, so discard = run it, keep nothing.
+        pre_points = int(round(settings["prededoping_time"]
+                               / settings["chrono_delta_time"])) + 1
         segments.append(Segment("Pre-dedoping", DATA_TYPE_PREDEDOPING, 0,
-                                 chrono_points, chrono_delta, trigger,
+                                 pre_points, chrono_delta, trigger,
                                  save=not settings.get("prededoping_discard", False)))
 
     if settings["doping_enabled"]:

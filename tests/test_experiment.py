@@ -88,7 +88,33 @@ def test_chrono_points_formula():
     s = settings(cv_enabled=False, prededoping_enabled=True, doping_enabled=False,
                  chrono_time=30.0, chrono_delta_time=0.1)
     pre = build_segments(s)[0]
-    assert pre.num_points == 301  # int(30/0.1 + 1)
+    assert pre.num_points == 301  # round(30/0.1) + 1
+
+
+def test_chrono_points_no_off_by_one():
+    # 1.2/0.1 = 11.9999… in binary float; truncation would give 12, not 13.
+    s = settings(cv_enabled=False, prededoping_enabled=False, doping_enabled=True,
+                 doping_potential_start=0.2, doping_potential_end=0.2,
+                 doping_potential_step=0.1, chrono_time=1.2, chrono_delta_time=0.1)
+    doping = build_segments(s)[0]
+    assert doping.num_points == 13
+
+
+def test_cv_points_no_off_by_one():
+    # path 1.4 V, 10 mV step: 1.4/10*1000 = 139.9999…; truncation gives 140, not 141.
+    s = settings(cv_enabled=True, prededoping_enabled=False, doping_enabled=False,
+                 cv_initial_v=0.0, cv_limit1_v=-0.2, cv_limit2_v=0.5, cv_final_v=0.0,
+                 cv_step_size=10.0, cv_scan_rate=100.0, cv_cycles=1)
+    cv = build_segments(s)[0]
+    assert cv.num_points == 141
+
+
+def test_prededoping_uses_its_own_duration():
+    # Pre-dedoping duration is prededoping_time, NOT the doping/dedoping chrono_time.
+    s = settings(cv_enabled=False, prededoping_enabled=True, doping_enabled=False,
+                 prededoping_time=10.0, chrono_time=30.0, chrono_delta_time=0.1)
+    pre = build_segments(s)[0]
+    assert pre.num_points == 101   # round(10/0.1) + 1, not 301
 
 
 # --- run_one_segment with the fake ---
