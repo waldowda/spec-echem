@@ -11,6 +11,7 @@ from qtpy.QtWidgets import (
     QPlainTextEdit, QPushButton, QMessageBox, QSplitter, QCheckBox,
 )
 
+import copy
 from pathlib import Path
 
 from spec_echem.experiment import build_segments
@@ -120,7 +121,12 @@ class RunTab(QWidget):
     # --- run control ---
 
     def on_start(self):
-        settings = self.win.collect_settings()
+        # Snapshot the settings for THIS run. collect_settings() returns the live
+        # canonical dict, and the potentiostat reads potentials/paths from it per
+        # segment — so without a copy a mid-run "Save Settings" (Parameters tab isn't
+        # locked) would change the potentials applied to the remaining segments and
+        # desync the run from its own metadata. Freeze it at Start.
+        settings = copy.deepcopy(self.win.collect_settings())
 
         # Normalize the folder name so stray whitespace can't pollute paths/filenames
         settings["data_folder"] = settings["data_folder"].strip()
@@ -174,6 +180,12 @@ class RunTab(QWidget):
         self.win.run_folder = run_folder
         self.win.segments_by_label = {seg.label: seg for seg in segments}
 
+        # Clear results from any previous run / loaded folder so the Results tab shows
+        # ONLY this run. Segment labels repeat between runs, so a longer prior run
+        # would otherwise leave stale extra segments (e.g. "Doping 6") mixed in.
+        self.win.results = {}
+        self.win.results_tab.refresh_segments()
+
         # Build the progress list
         self.sequence_list.clear()
         self._row_for_label = {}
@@ -199,6 +211,12 @@ class RunTab(QWidget):
         self._worker.status.connect(self.log)
         self._worker.finished.connect(self.on_finished)
         self._worker.finished.connect(self._thread.quit)
+        # Safe teardown: let the thread's own event loop delete the worker and itself
+        # once it has fully stopped, then drop our Python refs — never delete a QObject
+        # from the wrong thread, and never reuse/replace a still-running QThread.
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
+        self._thread.finished.connect(self._on_thread_finished)
         self._thread.start()
 
         # Live echem feedback (Python mode): poll the potentiostat's growing
@@ -233,7 +251,8 @@ class RunTab(QWidget):
         self.set_banner("Stopping after current segment…", "#eef")
         self.log("Stop requested — will finish current segment.")
         self.stop_btn.setEnabled(False)
-        self.abort_btn.setEnabled(False)
+        # Leave ABORT enabled: Stop only takes effect BETWEEN segments, so if the
+        # current segment is blocked waiting for a trigger, Abort is the only escape.
 
     def on_abort(self):
         reply = QMessageBox.question(
@@ -326,7 +345,17 @@ class RunTab(QWidget):
         self._reset_controls()
         self.win.instrument_tab._set_actions_enabled(True)
         self.win.instrument_tab.lock_for_run(False)          # unlock Connect/Simulated
-        self._worker = None
+        # Note: worker/thread refs are cleared in _on_thread_finished (after the
+        # thread's event loop has actually stopped), not here — on_finished runs on
+        # worker.finished, which is BEFORE the thread has finished.
+
+    def _on_thread_finished(self):
+        # Runs on QThread.finished, once the worker thread's event loop has stopped
+        # and deleteLater has been scheduled. Guard against a fast restart having
+        # already installed a new thread: only clear if this is still the active one.
+        if self.sender() is self._thread:
+            self._worker = None
+            self._thread = None
 
     def _reset_controls(self):
         self.start_btn.setEnabled(True)

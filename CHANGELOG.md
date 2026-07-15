@@ -25,10 +25,41 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   source of the version: `setup.py` reads it out rather than keeping a second copy that can drift.
 
 - `examples/identify_hardware.py` — read-only script that prints the attached instruments' identity.
+- `examples/query_avantes.py` + `query_avantes_setup.md` — standalone, zero-dependency "can this PC
+  talk to the Avantes from Python?" self-check (plus a read-only Metrohm/Autolab USB-presence scan),
+  for anyone setting up the repo on new hardware.
 - README and SOP now name the **exact tested hardware**: Avantes AvaSpec-VRS2048CL-EVO
   (2048 px, 300–1100 nm optical configuration, 50 µm slit) and a Gamry Reference 600 — with an
   explicit note on what else *should* work (any Gamry `EchemToolkitPy` supports, e.g. the Interface
   1010 series) but has not been exercised. Models only; no serial numbers.
+
+### Fixed
+
+A cross-model code review (GUI + concurrency) surfaced ten issues; all are fixed and, where
+possible, covered by new headless tests. Timing-critical paths (arm-then-fire ordering, the Gamry
+poll loop, the live-plot timer) were deliberately left untouched.
+
+- **Gamry no longer runs the waveform blind on the sample after a spectrometer failure.** If the
+  spectrometer failed to arm (or any early error occurred) in Python mode, `finish()` still released
+  the Gamry thread and it applied the full CV/hold with zero spectra collected. `finish()` now
+  cancels a segment that never fired. *(the headline; new test)*
+- **Setup failures surface instead of hanging.** A Gamry open/build failure now raises from
+  `prepare()` rather than arming the spectrometer for a trigger that never comes; and potentiostat
+  errors now go to the **run log + status pane** (they were logged to a sibling logger that no
+  handler watched, so they were silent). *(new test for the raise)*
+- **Stop no longer disables Abort** — pressing Stop while a segment waits for its trigger used to
+  strand the app with no way out; Abort now stays live.
+- **Pre-dedoping "Duration" now works.** The field was collected but ignored; pre-dedoping used the
+  doping/dedoping step time. It now drives the pre-dedoping duration (spectra count and Python-mode
+  hold). *(new test)*
+- **Spectra count off-by-one.** `int(x + 1)` truncated exact ratios that land at `N−ε` in binary
+  float (e.g. 1.2 s / 0.1 s → 12 instead of 13); now `round`. Clean ratios are unchanged. *(new test)*
+- **A run is frozen at Start** — the potentiostat read the live settings dict, so a mid-run "Save
+  Settings" could change the potentials applied to later segments; it now gets a snapshot.
+- **Results tab shows only the current run** — `win.results` is cleared on Start (stale segments from
+  a longer prior run no longer linger), and its segment selector keeps your selection across updates.
+- **Instrument-tab hygiene** — Connect can no longer be re-enabled mid-run by toggling the mode
+  radios; the acquisition worker/thread now tear down with the safe `deleteLater` pattern.
 
 ---
 

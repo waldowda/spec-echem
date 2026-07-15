@@ -18,6 +18,37 @@ load-before-connect, a discarded segment still reaching the Results tab) lived i
 and the core suite passed through all of them. Deliberate trade for now — adding Qt to the test deps
 means it must also install in the 32-bit `SpecEchem32` env — but this is where the bugs are.
 
+## "Test your setup" probes — Avantes done, Autolab connect probe to follow (Dean, 2026-07-14)
+
+Standalone, read-only "can this PC talk to the instrument from Python?" self-checks — useful for
+anyone adopting the repo (and prompted by a colleague with a Metrohm **Autolab PGSTAT302N** + an
+Avantes **AvaSpec-ULS2048i**-class spectrometer). Full plan: `~/.claude/plans/parallel-bubbling-hare.md`.
+Design findings live in the `hardware-portability` memory.
+
+- [x] **`examples/query_avantes.py` + `query_avantes_setup.md` — DONE (2026-07-14).** Opens the
+      Avantes via the AvaSpec-DLL, prints serial/name/pixels/wavelength span, closes. No `spec_echem`
+      import; hardened for a *different* model (`AVS_GetParameter` best-effort). Plus a Windows-only
+      Metrohm/Autolab **USB-presence** scan (PowerShell, no deps). Emailable to the colleague.
+- [ ] **GATE: don't build the Autolab half until the colleague confirms `query_avantes.py` runs**
+      on their box — validates the standalone approach on a non-Dean machine (their SDK/driver/bitness)
+      before we invest. None of the Autolab path is testable on the Mac.
+- [ ] **`examples/query_autolab.py` + `query_autolab_setup.md` (when the gate clears).** Read-only,
+      **cell-safe connect probe** via our own ~15 lines of `pythonnet`/`clr` (NOT a dependency on the
+      stale pyMetrohmAUTOLAB — credit it as reference). `clr.AddReference(SDK)` →
+      `from EcoChemie.Autolab.Sdk import Instrument` → set `Adk.x` + model `HardwareSetup*.xml` →
+      `Connect()` → report `IsConnected` → `Disconnect()` in `finally`. **Never** `set_CellOnOff` /
+      `Measure` / load a `.nox` (cell stays off — confirmed cell-safe from the reference source).
+      Editable `SDK`/`ADX`/`HDW` paths with PGSTAT302N defaults. Stays in `examples/`, off the
+      `potentiostat.py` seam.
+- **Findings that make an eventual Autolab *backend* look modest, not scary** (see memory): the SDK
+  is **procedure-based** — CV/CA are `.nox` procedure files you `LoadProcedure` + `Measure()`, which
+  mirrors your existing **External mode** (`.GSequence` holds the recipe; Python runs it). The thin
+  wrapper exposes CV only as a result-reading command id (`FHCyclicVoltammetry2`), **no CA**, and
+  **no digital I/O at all**. **The one real pivot to verify: the trigger.** Our sync is Gamry DIGOUT0
+  → Avantes hardware trigger; the wrapper has zero DIO, so confirm in Metrohm's SDK docs whether the
+  Autolab exposes a digital-out line (or a `.nox` can toggle one) to fire the Avantes trigger. If yes,
+  an Autolab backend is largely plumbing behind the existing seam.
+
 ## Gamry DTA converter — cleanups for when we own the parser
 
 The conversion (raw `.DTA` → clean `.txt`) currently runs as a manual post-collection step in
