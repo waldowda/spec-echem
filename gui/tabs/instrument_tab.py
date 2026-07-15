@@ -629,7 +629,11 @@ class InstrumentTab(QWidget):
 
     def _update_pstat_controls(self):
         python = self.pstat_python_radio.isChecked()
-        self.pstat_connect_btn.setEnabled(python and TOOLKITPY_AVAILABLE)
+        # Respect the run lock: toggling the mode radios during a run must NOT
+        # re-enable Connect, which would re-init toolkitpy and collide with the
+        # Gamry thread driving the live run. _actions_enabled is False during a run.
+        self.pstat_connect_btn.setEnabled(
+            python and TOOLKITPY_AVAILABLE and getattr(self, "_actions_enabled", True))
         # .DTA files only exist in Python mode (External writes its own via Framework)
         self.save_dta_check.setEnabled(python)
         if not python:
