@@ -29,17 +29,17 @@ Design findings live in the `hardware-portability` memory.
       Avantes via the AvaSpec-DLL, prints serial/name/pixels/wavelength span, closes. No `spec_echem`
       import; hardened for a *different* model (`AVS_GetParameter` best-effort). Plus a Windows-only
       Metrohm/Autolab **USB-presence** scan (PowerShell, no deps). Emailable to the colleague.
-- [ ] **GATE: don't build the Autolab half until the colleague confirms `query_avantes.py` runs**
-      on their box — validates the standalone approach on a non-Dean machine (their SDK/driver/bitness)
-      before we invest. None of the Autolab path is testable on the Mac.
-- [ ] **`examples/query_autolab.py` + `query_autolab_setup.md` (when the gate clears).** Read-only,
+- [x] **`examples/query_autolab.py` + `query_autolab_setup.md` — DONE (2026-07-22).** Read-only,
       **cell-safe connect probe** via our own ~15 lines of `pythonnet`/`clr` (NOT a dependency on the
-      stale pyMetrohmAUTOLAB — credit it as reference). `clr.AddReference(SDK)` →
+      stale pyMetrohmAUTOLAB — credited as reference). `clr.AddReference(SDK)` →
       `from EcoChemie.Autolab.Sdk import Instrument` → set `Adk.x` + model `HardwareSetup*.xml` →
       `Connect()` → report `IsConnected` → `Disconnect()` in `finally`. **Never** `set_CellOnOff` /
-      `Measure` / load a `.nox` (cell stays off — confirmed cell-safe from the reference source).
+      `Measure` / load a `.nox` (cell stays off — connect and cell power are separate in the SDK).
       Editable `SDK`/`ADX`/`HDW` paths with PGSTAT302N defaults. Stays in `examples/`, off the
-      `potentiostat.py` seam.
+      `potentiostat.py` seam. Graceful no-pythonnet path smoke-tested on the Mac (exit 0).
+      **Still needs the colleague's Win box to confirm:** (a) pythonnet/SDK **bitness** match,
+      (b) `Connect()` really leaves the cell off (verify on a dummy cell first). Built ahead of the
+      original "wait for the Avantes check" gate at Dean's direction (2026-07-22).
 - **Findings that make an eventual Autolab *backend* look modest, not scary** (see memory): the SDK
   is **procedure-based** — CV/CA are `.nox` procedure files you `LoadProcedure` + `Measure()`, which
   mirrors your existing **External mode** (`.GSequence` holds the recipe; Python runs it). The thin
