@@ -28,6 +28,9 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 - `examples/query_avantes.py` + `query_avantes_setup.md` — standalone, zero-dependency "can this PC
   talk to the Avantes from Python?" self-check (plus a read-only Metrohm/Autolab USB-presence scan),
   for anyone setting up the repo on new hardware.
+- `examples/query_autolab.py` + `query_autolab_setup.md` — the Metrohm counterpart: a standalone,
+  read-only, **cell-safe** Autolab connect probe (our own `pythonnet`/`clr`, not a dependency on the
+  stale pyMetrohmAUTOLAB). Connects, reports `IsConnected`, disconnects — never touches the cell.
 - README and SOP now name the **exact tested hardware**: Avantes AvaSpec-VRS2048CL-EVO
   (2048 px, 300–1100 nm optical configuration, 50 µm slit) and a Gamry Reference 600 — with an
   explicit note on what else *should* work (any Gamry `EchemToolkitPy` supports, e.g. the Interface
