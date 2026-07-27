@@ -312,6 +312,27 @@ class ToolkitPotentiostat(Potentiostat):
             t.join(timeout=self._max_wait + 5.0)
         self._thread = None
 
+    def _note_early_exit(self, pstat, segment, elapsed):
+        """Warn if the Gamry poll loop ended for any reason other than the waveform
+        finishing, so a truncated echem file is never written silently.
+
+        Runs AFTER the loop, on the Gamry thread — not in the per-spectrum path, so it
+        costs the acquisition timing nothing.
+        """
+        points = 0 if self._last_data is None else len(self._last_data)
+        if not tkp.pstat_is_valid(pstat):
+            get_run_logger().warning(
+                "%s: the Gamry stopped responding %.1f s into the step (cable, power, "
+                "or the instrument taken by other software). Its echem data is "
+                "TRUNCATED — %d points — while the spectra for this segment are "
+                "complete. Treat this segment's electrochemistry as partial.",
+                segment.label, elapsed, points)
+        elif elapsed >= self._max_wait:
+            get_run_logger().warning(
+                "%s: the Gamry was still running after %.0f s and was stopped at the "
+                "safety limit. Echem data may be truncated — %d points.",
+                segment.label, elapsed, points)
+
     def _run_segment(self, segment):
         """
         The ENTIRE toolkitpy lifecycle for one segment, alone on this thread: open a
@@ -347,7 +368,8 @@ class ToolkitPotentiostat(Potentiostat):
             pstat.set_digital_out(0x1, 0x1)  # DIGOUT0 HIGH -> armed Avantes fires
             curve.run(True)
 
-            deadline = time.time() + self._max_wait
+            started = time.time()
+            deadline = started + self._max_wait
             while (tkp.pstat_is_valid(pstat) and curve.running()
                    and not self._abort.is_set() and time.time() < deadline):
                 # Poll acq_data() during the run and stash it as the live snapshot so
@@ -356,6 +378,7 @@ class ToolkitPotentiostat(Potentiostat):
                 # purpose — still flagged for the two-thread simplification follow-up.)
                 self._live_data = curve.acq_data()
                 time.sleep(0.05)
+            elapsed = time.time() - started
             if curve.running():
                 try:
                     curve.stop()
@@ -365,6 +388,14 @@ class ToolkitPotentiostat(Potentiostat):
             if not self._abort.is_set():
                 self._last_data = curve.acq_data()
                 self._write_dta(curve, pstat, segment)
+                # WHY the poll loop ended matters, and used to be thrown away: leaving
+                # early because the instrument vanished looked exactly like finishing
+                # the step. The spectrometer runs its own loop and knows nothing of
+                # this, so the segment still completed with a full spectra file next to
+                # a truncated echem file, marked done, with nothing saying so. Bench-
+                # reproduced 2026-07-27 by pulling the Gamry USB mid-segment: the error
+                # only surfaced one segment later, and named the wrong segment.
+                self._note_early_exit(pstat, segment, elapsed)
         except Exception as exc:  # noqa: BLE001 — surface via _error, never crash the thread
             self._error = exc
             get_run_logger().exception(

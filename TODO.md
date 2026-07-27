@@ -10,25 +10,29 @@ termination, ground/shield, cable length. That knowledge currently exists only i
 the single cable on the bench — if it's damaged, or a second rig is built, there's nothing to work
 from. A placeholder marks the spot in the SOP. **Needs Dean's bench notes / photos.**
 
-## Pin down the mid-run Gamry USB pull (Dean, 2026-07-27)
+## Mid-run Gamry USB pull — DIAGNOSED 2026-07-27, warning added; one decision left
 
-Pulling the Gamry USB **during** a run stops the run, but the error banner appears to show up only
-on the *next* click of Start rather than at the moment of failure. Observed twice; Dean isn't certain
-he didn't miss a banner the second time, so treat it as unconfirmed rather than as a known bug.
+**What actually happens** (Dean pulled the cable during Pre-dedoping, Python mode):
+`tkp.pstat_is_valid()` in the Gamry poll loop *does* notice, so the loop exits and the echem data
+stops. But the thread then falls through to "capture data, write `.dta`, done" with `_error` still
+`None` — **an abnormal exit was indistinguishable from the step finishing.** The spectrometer runs
+its own loop and knows nothing about it, so the segment completed with a *full* spectra file beside a
+*truncated* echem file, was marked ✓, and the only error appeared one segment later
+(`Gamry setup for 'Doping 0' failed`) — naming the wrong segment.
 
-Decisive test, in Python mode with a dummy cell:
-1. Start a run and let CV get going (spectra ticking over in the status pane).
-2. Pull the Gamry USB. **Note the wall-clock time.**
-3. Without clicking anything, watch for ~30 s: does the banner turn to an error, or does the run
-   simply end as `done`?
-4. Then open the run `.log` and compare timestamps — the log is authoritative where memory isn't.
-   Check whether the final line is `Run finished: done.` or `Run finished: error.`, and whether the
-   echem `.txt` / `.dta` for the interrupted segment are short or empty.
+**Fixed (the silent part):** `_note_early_exit()` now logs a warning naming the segment, how far into
+the step the instrument stopped responding, and how many echem points were captured. Runs after the
+poll loop on the Gamry thread — no acquisition-timing cost. Covered by tests.
 
-The outcome decides the fix. If the run ends `done`, the poll loop can't tell a vanished device from
-an idle one and the segment needs a liveness check — the data-integrity risk is spectra that look
-fine sitting next to truncated echem data. If it ends `error` and only the *banner* lagged, it's a
-GUI wiring problem and much smaller.
+**Still to decide: should a lost potentiostat stop the run at that segment?** Today it warns, finishes
+the segment, and the run dies at the *next* segment's setup. Arguments:
+- **For failing fast:** the error would name the segment that actually failed; nothing further can
+  run without a potentiostat anyway; the film isn't put through more steps for nothing.
+- **Against:** `finish()` is called from a `finally`, so raising there risks masking a genuine
+  upstream exception, and the partial data captured so far is real and worth keeping.
+
+Leaning: keep writing the partial data, but have `finish()` raise afterwards so the run stops at the
+true point of failure. Needs care with the `finally` interaction, so not done unilaterally.
 
 ## Automated tests for the GUI layer
 
@@ -37,7 +41,7 @@ via `QT_QPA_PLATFORM=offscreen`, guarded with `pytest.importorskip("qtpy")` so t
 where Qt isn't installed. That resolves the "Qt in the 32-bit env" objection below — the tests skip
 rather than fail.
 
-Still only 4 of 168 tests touch `gui/`. Every bug in the 0.2.0 cycle (stale absorbance after a
+Still only 4 of 170 tests touch `gui/`. Every bug in the 0.2.0 cycle (stale absorbance after a
 wavelength re-slice, status labels outliving their data, load-before-connect, a discarded segment
 still reaching the Results tab) lived in **GUI wiring**, and the core suite passed through all of
 them. Highest-value targets next, all reachable with the same offscreen pattern:
