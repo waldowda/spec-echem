@@ -10,13 +10,41 @@ termination, ground/shield, cable length. That knowledge currently exists only i
 the single cable on the bench — if it's damaged, or a second rig is built, there's nothing to work
 from. A placeholder marks the spot in the SOP. **Needs Dean's bench notes / photos.**
 
+## Pin down the mid-run Gamry USB pull (Dean, 2026-07-27)
+
+Pulling the Gamry USB **during** a run stops the run, but the error banner appears to show up only
+on the *next* click of Start rather than at the moment of failure. Observed twice; Dean isn't certain
+he didn't miss a banner the second time, so treat it as unconfirmed rather than as a known bug.
+
+Decisive test, in Python mode with a dummy cell:
+1. Start a run and let CV get going (spectra ticking over in the status pane).
+2. Pull the Gamry USB. **Note the wall-clock time.**
+3. Without clicking anything, watch for ~30 s: does the banner turn to an error, or does the run
+   simply end as `done`?
+4. Then open the run `.log` and compare timestamps — the log is authoritative where memory isn't.
+   Check whether the final line is `Run finished: done.` or `Run finished: error.`, and whether the
+   echem `.txt` / `.dta` for the interrupted segment are short or empty.
+
+The outcome decides the fix. If the run ends `done`, the poll loop can't tell a vanished device from
+an idle one and the segment needs a liveness check — the data-integrity risk is spectra that look
+fine sitting next to truncated echem data. If it ends `error` and only the *banner* lagged, it's a
+GUI wiring problem and much smaller.
+
 ## Automated tests for the GUI layer
 
-The `gui/` package has zero test coverage while `spec_echem/` has 143 tests. Every bug in the
-0.2.0 cycle (stale absorbance after a wavelength re-slice, status labels outliving their data,
-load-before-connect, a discarded segment still reaching the Results tab) lived in **GUI wiring**,
-and the core suite passed through all of them. Deliberate trade for now — adding Qt to the test deps
-means it must also install in the 32-bit `SpecEchem32` env — but this is where the bugs are.
+**Started 2026-07-27** — `tests/test_gui_layout.py` is the first coverage of `gui/`: 4 tests, headless
+via `QT_QPA_PLATFORM=offscreen`, guarded with `pytest.importorskip("qtpy")` so the suite still runs
+where Qt isn't installed. That resolves the "Qt in the 32-bit env" objection below — the tests skip
+rather than fail.
+
+Still only 4 of 168 tests touch `gui/`. Every bug in the 0.2.0 cycle (stale absorbance after a
+wavelength re-slice, status labels outliving their data, load-before-connect, a discarded segment
+still reaching the Results tab) lived in **GUI wiring**, and the core suite passed through all of
+them. Highest-value targets next, all reachable with the same offscreen pattern:
+
+- Run-tab state machine: Start → finish → Start, Stop vs Abort button enablement.
+- Instrument-tab guards: load-before-connect, dark/ref dropped when the wavelength window widens.
+- Results tab: segment selector across refreshes; discarded segments staying out.
 
 ## "Test your setup" probes — Avantes done, Autolab connect probe to follow (Dean, 2026-07-14)
 

@@ -4,14 +4,14 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-07-14_
+_Last updated: 2026-07-27_
 
 ---
 
 ## 🎉 RELEASED: v0.2.0 on `main`, tagged (2026-07-14) — START HERE
 
 **v0.2.0 is merged to `main` (`--no-ff`) and tagged `v0.2.0`.** `gui-dev` stays the dev branch and is
-currently level with `main`. 150 tests.
+now **well ahead of `main`** with the post-tag work below. **168 tests** (150 at the tag).
 
 **The 0.2.0 theme is instrument setup.** 0.1.0 could run an experiment; 0.2.0 helps you set the
 instrument up correctly first, and remembers how your rig is configured:
@@ -44,14 +44,43 @@ instrument up correctly first, and remembers how your rig is configured:
   data folder can name the code that produced it. `build_info.py` is now the single source of the
   version (setup.py reads it by regex). Confirmed on the Win11 box.
 
-### Still open (neither blocking)
+### Cross-model review + hardening (2026-07-15 → 07-27, `gui-dev`, not yet merged to `main`)
+
+A **Fable** (different-model) review of `gui/` and the concurrency core returned 10 findings; all 10
+held up against the code and all are fixed. The headline: after a spectrometer arm-failure, `finish()`
+still released the Gamry thread, so **the instrument ran the full CV blind on the sample with zero
+spectra recorded**. Also: a silent hang on Gamry setup failure, potentiostat errors logged where no
+handler could see them, Stop disabling Abort, the pre-dedoping *Duration* field being collected but
+ignored, an `int(x+1)` off-by-one, and mid-run settings mutation.
+
+**All four bench items are now validated on the Win11 rig (2026-07-27) — the review is closed.**
+Unplugging the Avantes before Start produced `AVS_Measure failed (code -3)` and the Gamry correctly
+did **not** run the waveform; unplugging the Gamry made `prepare()` raise instead of hanging.
+
+Hardening that came out of the same sessions:
+
+- **App log** — logging now starts at **launch**, not at Start: `‹data root›\logs\spec-echem.log`,
+  rotated nightly, nothing deleted. Everything before a run (connecting, dark/ref, a *failed*
+  connect) used to go nowhere but the shell. Each launch banner records the build, the Python
+  env/bitness, and driver availability. The per-run log is unchanged and still travels with the data.
+- **Instrument provenance** — the run log and `_metadata.json` now name the spectrometer and
+  potentiostat that produced the data, not just the code and settings.
+- **The spectrometer no longer prints to the shell** — ten notebook-era `print()` calls became log
+  records. Confirmed silent through a full run on the instrument box.
+- **First `gui/` tests** (`tests/test_gui_layout.py`) — prompted by a real regression where a longer
+  error message dragged the window past its half-column layout, because a `QLabel` in a Qt layout
+  demands its full text width rather than clipping.
+
+### Still open (none blocking)
 
 - **The trigger cable's *build*** — connector, pinout, shielding — is undocumented; only its endpoints
   are. It exists in Dean's head and in the one cable on the bench. See `TODO.md`.
-- **`gui/` has zero test coverage** while the core has 150 tests. *Every* bug in the 0.2.0 cycle lived
-  in GUI wiring — stale absorbance after a re-slice, labels outliving their data, load-before-connect,
-  a discarded segment still reaching the Results tab — and the core suite passed through all of them.
-  Deliberate trade (Qt would have to install in the 32-bit env too), but this is where the bugs are.
+- **A mid-run Gamry USB pull surfaces late.** Pulling the cable during a run stops it, but the error
+  banner appears to arrive only on the *next* Start rather than at the moment of failure. Observed
+  twice, not yet pinned down. See `TODO.md` for the decisive test.
+- **`gui/` is still barely tested** — 4 of 168 tests touch it. *Every* bug in the 0.2.0 cycle lived in
+  GUI wiring and the core suite passed through all of them. The layout tests establish the pattern
+  (headless via `QT_QPA_PLATFORM=offscreen`, `importorskip("qtpy")` so no-Qt envs still run).
 
 ---
 

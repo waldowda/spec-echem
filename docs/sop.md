@@ -391,8 +391,11 @@ the Gamry step files and the spectra files to live together.
 | `prededopingspectra(0).txt` | Pre-dedoping baseline |
 | `spectra(0).txt`, `spectra(1).txt`, … | Doping cycles |
 | `dedopingspectra(0).txt`, `dedopingspectra(1).txt`, … | Dedoping cycles |
-| `[data folder]_metadata.json` | Build id, sample, notes, and every setting used |
+| `[data folder]_metadata.json` | Build id, instruments, sample, notes, and every setting used |
 | `[data folder].log` | Full run log (build id on the first line) |
+
+One more log lives **outside** the run folder, in `‹Save location›\logs\spec-echem.log` — see
+§4.4. Use it when something went wrong *before* you pressed Start.
 
 Each spectra file is tab-separated with 8 columns: wavelength, absorbance, dark (first block only),
 reference (first block only), raw intensity, spectrum number, absolute time, corrected time.
@@ -402,8 +405,9 @@ reference (first block only), raw intensity, spectrum number, absolute time, cor
 Every run records the exact code that wrote it, so you never have to guess later.
 
 - **The title bar** shows it while you work: `spec-echem 0.2.0+7.g0f26a7a`.
-- **`_metadata.json`** stores it as `spec_echem_version`.
-- **The run log's first line** repeats it.
+- **`_metadata.json`** stores it as `spec_echem_version`, next to an `instruments` entry naming the
+  spectrometer and potentiostat that produced the data — e.g. `Avantes serial 7513391SP`.
+- **The run log** repeats both, near the top.
 
 `0.2.0` means a tagged release. `0.2.0+7.g0f26a7a` means seven commits past that tag, at commit
 `0f26a7a` — which is normal, since most work happens between releases. A **`.dirty`** suffix means
@@ -411,6 +415,39 @@ the code had uncommitted edits, so that run can't be reproduced from any commit.
 you're developing; it's worth noticing on data you intend to publish.
 
 Quote this string in bug reports — it's the single most useful thing you can give.
+
+### 4.4 The day's log — when something went wrong *before* Start
+
+The run log only exists once a run begins. Anything earlier — connecting the spectrometer,
+collecting a dark, a connection that failed — goes to the **app log**:
+
+```
+‹Save location›\logs\spec-echem.log
+```
+
+**Open Log Folder** on the Run tab takes you there. It covers the whole day across every launch,
+rotates at midnight (`spec-echem.log.2026-07-26` is yesterday), and **nothing is ever deleted** —
+old logs are a record of the instrument, and pruning them is a manual decision.
+
+Each launch is marked by a banner you can find while scrolling:
+
+```
+============================================================
+==============  SPEC-ECHEM LAUNCHED  =======================
+============================================================
+  build   0.2.0+20.g7f796ad
+  python  3.7.13 (32-bit), env SpecEchem32
+  drivers avaspec: yes | toolkitpy: yes
+```
+
+Those last two lines settle the most common false alarm in this program. If **Python — drive the
+Gamry from here** is greyed out with *"toolkitpy not available"*, that is almost never a broken
+potentiostat — it's the wrong environment. `toolkitpy` is 32-bit only, so it cannot load in the
+64-bit `SpecEchem` env. Check the banner: `env SpecEchem32` and `toolkitpy: yes` means Python mode
+is available; anything else means `conda activate SpecEchem32` and relaunch.
+
+When asking for help, send this log rather than a description. It carries the build, the
+environment, and everything you did, timestamped.
 
 **In Python mode** the Gamry data is written alongside as `CV.txt`, `steps(N).txt`,
 `dedoping(N).txt`, `prededoping(N).txt` (time, corrected time, potential, current, index), plus
