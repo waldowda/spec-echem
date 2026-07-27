@@ -89,7 +89,10 @@ poll loop, the live-plot timer) were deliberately left untouched.
   scrolling past in a terminal nobody keeps. The per-segment trigger-mode line is `debug`, file-only.
 - **"Invalid index" is now a real error message** — `No Avantes spectrometer found. Check the USB
   cable, and close AvaSoft or any other program using the spectrometer.` The old text named an
-  internal condition, which tells a student nothing about what to do.
+  internal condition, which tells a student nothing about what to do. The connect-failure text now
+  lives in a **wrapping** label under the button rather than inline beside it: a `QLabel` in a layout
+  asks for its full text width and the layout grants it, so the longer message dragged the whole
+  window past its half-column width. This is also the **first automated test coverage of `gui/`**.
 - **The run log no longer claims a segment is armed before it is.** The line was written before the
   Gamry setup that precedes arming, so a setup failure read as though the spectrometer had already
   armed into a trigger that would never come.

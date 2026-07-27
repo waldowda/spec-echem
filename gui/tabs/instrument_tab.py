@@ -15,13 +15,29 @@ from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea, QGridLayout,
     QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
-    QApplication, QMessageBox, QTabWidget,
+    QApplication, QMessageBox, QTabWidget, QSizePolicy,
 )
 
 # Cap spin boxes so the left column's minimum width stays small — Qt satisfies
 # minimum widths before it applies stretch, so a wide left column would starve the
 # plot beside it regardless of the stretch factors.
 SPIN_W = 110
+
+
+def _detail_label():
+    """A wrapping label for text whose length we don't control — hardware error
+    messages, mostly.
+
+    A QLabel inside a layout asks for its full text width and the layout GRANTS it,
+    dragging the whole window wider; it does not clip. So any message that varies in
+    length needs its own wrapping label, and one that cannot drive the width at all
+    (Ignored) or it re-creates the problem at the wrapped width.
+    """
+    label = QLabel("")
+    label.setWordWrap(True)
+    label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
+    label.setStyleSheet("color: #b00;")
+    return label
 
 from spec_echem.bench import (
     apply_bench_defaults, load_bench_defaults, save_bench_defaults, user_bench_path,
@@ -91,8 +107,10 @@ class InstrumentTab(QWidget):
         row.addWidget(self.connect_btn)
         row.addWidget(self.spec_status)
         row.addStretch()
+        self.spec_detail = _detail_label()
         conn_layout.addWidget(self.simulated_check)
         conn_layout.addLayout(row)
+        conn_layout.addWidget(self.spec_detail)
 
         # --- Spectrometer settings (incl. timing test, which depends on these) ---
         settings_group = QGroupBox("Spectrometer Settings")
@@ -187,7 +205,9 @@ class InstrumentTab(QWidget):
         connect_row.addWidget(self.pstat_connect_btn)
         connect_row.addWidget(self.pstat_status)
         connect_row.addStretch()
+        self.pstat_detail = _detail_label()
         pstat_layout.addLayout(connect_row)
+        pstat_layout.addWidget(self.pstat_detail)
 
         # Python mode only: also save Gamry-native .DTA files alongside the clean .txt
         self.save_dta_check = QCheckBox("Also save Gamry .DTA files (dta/ subfolder)")
@@ -628,9 +648,12 @@ class InstrumentTab(QWidget):
         self.wl_suggest_btn.setEnabled(
             getattr(self, "_actions_enabled", False) and self._last_test_abs is not None)
 
-    def _set_pstat_status(self, text, color):
+    def _set_pstat_status(self, text, color, detail=""):
+        """`text` goes inline and must stay short; `detail` is for messages whose
+        length we don't control (toolkitpy errors) and gets the wrapping label."""
         self.pstat_status.setText(text)
         self.pstat_status.setStyleSheet(f"color: {color};")
+        self.pstat_detail.setText(detail)
 
     def _update_pstat_controls(self):
         python = self.pstat_python_radio.isChecked()
@@ -654,7 +677,7 @@ class InstrumentTab(QWidget):
         except Exception as exc:  # noqa: BLE001 — surface any toolkitpy/hardware failure
             self._pstat_connected = False
             logger.warning("Potentiostat connect failed: %s", exc)
-            self._set_pstat_status(f"● Connect failed: {exc}", "#b00")
+            self._set_pstat_status("● Connect failed", "#b00", detail=str(exc))
             return
         label = (label or "").strip()
         who = f"{label} (serial {serial})" if label else f"serial {serial}"
@@ -714,8 +737,11 @@ class InstrumentTab(QWidget):
             _, serial = spec.init()
         except Exception as exc:  # noqa: BLE001 — surface any hardware init failure to the user
             logger.warning("Spectrometer connect failed: %s", exc)
-            self.spec_status.setText(f"● Connect failed: {exc}")
+            # Short text inline, the variable-length message in the wrapping label —
+            # see _detail_label(): an unwrapped inline message widens the window.
+            self.spec_status.setText("● Connect failed")
             self.spec_status.setStyleSheet("color: #b00;")
+            self.spec_detail.setText(str(exc))
             return
         self.win.spec = spec
         _, self.win.wavelengths = spec.wavelengths()
@@ -726,6 +752,7 @@ class InstrumentTab(QWidget):
                                   if isinstance(spec, FakeSpectrometer)
                                   else f"Avantes serial {serial}")
         logger.info("Spectrometer connected: %s", self.win.spec_identity)
+        self.spec_detail.setText("")   # clear a previous failure
         self.spec_status.setText(f"● Connected ({serial})")
         self.spec_status.setStyleSheet("color: #080;")
         self._set_actions_enabled(True)
