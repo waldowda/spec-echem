@@ -5,7 +5,8 @@ Sequence progress, status log, run-state banner, and Start/Stop/Abort.
 Threaded acquisition (workers.py) is wired in the next increment — for now the
 buttons drive the banner so the two-step coordination UX can be reviewed.
 """
-from qtpy.QtCore import Qt, QThread, QTimer
+from qtpy.QtCore import Qt, QThread, QTimer, QUrl
+from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QListWidget,
     QPlainTextEdit, QPushButton, QMessageBox, QSplitter, QCheckBox,
@@ -17,7 +18,7 @@ from pathlib import Path
 from spec_echem.experiment import build_segments
 from spec_echem.data import write_run_metadata, DATA_TYPE_CV
 from spec_echem.logging_config import (configure_run_logging, close_run_logging,
-                                       get_run_logger)
+                                       get_run_logger, app_log_path)
 from spec_echem.potentiostat import ExternalPotentiostat, ToolkitPotentiostat
 from gui.widgets.plot_canvas import MplCanvas
 from gui.workers import AcquisitionWorker
@@ -99,12 +100,30 @@ class RunTab(QWidget):
         layout.addWidget(cockpit, stretch=3)
 
         # --- status log ---
+        # This pane shows THIS run only (it is cleared at Start). The full history —
+        # including everything before a run, like connecting the instruments — is in
+        # the app log on disk, which is what the button is for: a log nobody can find
+        # is a log nobody uses.
         log_group = QGroupBox("Status Log")
         log_layout = QVBoxLayout(log_group)
         self.status_log = QPlainTextEdit()
         self.status_log.setReadOnly(True)
         log_layout.addWidget(self.status_log)
+        log_btn_row = QHBoxLayout()
+        log_btn_row.addStretch()
+        self.open_log_btn = QPushButton("Open Log Folder")
+        self.open_log_btn.setToolTip(
+            "Open the folder holding spec-echem.log — the full history of this and "
+            "previous sessions, including instrument connections made before a run.")
+        self.open_log_btn.clicked.connect(self.on_open_log_folder)
+        log_btn_row.addWidget(self.open_log_btn)
+        log_layout.addLayout(log_btn_row)
         layout.addWidget(log_group, stretch=1)
+
+    def on_open_log_folder(self):
+        folder = app_log_path(self.win.settings["data_root"]).parent
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def log(self, message):
         self.status_log.appendPlainText(message)

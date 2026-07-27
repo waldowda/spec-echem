@@ -6,6 +6,7 @@ averages (with an inline timing test), show a phase-aware potentiostat status,
 collect dark / reference spectra with a live preview, and test-measure in raw
 counts or absorbance.
 """
+import logging
 import numpy as np
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +34,10 @@ from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_identity
 from spec_echem.settings import DEFAULT_SETTINGS
 from spec_echem.spectral_range import recommend_wavelength_range
 from gui.widgets.plot_canvas import MplCanvas
+
+# Under the spec_echem package logger so setup actions — which all happen before any
+# run exists — land in the app log rather than vanishing.
+logger = logging.getLogger("spec_echem.gui.instrument")
 
 try:
     from spec_echem import AvantesSpectrometer
@@ -648,12 +653,14 @@ class InstrumentTab(QWidget):
             label, serial = probe_identity()
         except Exception as exc:  # noqa: BLE001 — surface any toolkitpy/hardware failure
             self._pstat_connected = False
+            logger.warning("Potentiostat connect failed: %s", exc)
             self._set_pstat_status(f"● Connect failed: {exc}", "#b00")
             return
         label = (label or "").strip()
         who = f"{label} (serial {serial})" if label else f"serial {serial}"
         self._pstat_connected = True
         self.win.pstat_identity = who
+        logger.info("Potentiostat connected: %s", who)
         self._set_pstat_status(f"● Connected — {who}", "#080")
 
     def _update_cal_plot(self):
@@ -706,6 +713,7 @@ class InstrumentTab(QWidget):
         try:
             _, serial = spec.init()
         except Exception as exc:  # noqa: BLE001 — surface any hardware init failure to the user
+            logger.warning("Spectrometer connect failed: %s", exc)
             self.spec_status.setText(f"● Connect failed: {exc}")
             self.spec_status.setStyleSheet("color: #b00;")
             return
@@ -717,6 +725,7 @@ class InstrumentTab(QWidget):
         self.win.spec_identity = (f"simulated ({serial})"
                                   if isinstance(spec, FakeSpectrometer)
                                   else f"Avantes serial {serial}")
+        logger.info("Spectrometer connected: %s", self.win.spec_identity)
         self.spec_status.setText(f"● Connected ({serial})")
         self.spec_status.setStyleSheet("color: #080;")
         self._set_actions_enabled(True)
@@ -749,6 +758,8 @@ class InstrumentTab(QWidget):
             return
         _, spectrum = self.win.spec.measure()
         self.win.dark = spectrum
+        logger.info("Dark collected (%d px, max %.0f counts)",
+                    len(spectrum), np.max(spectrum))
         self.dark_status.setText(f"Dark: collected ({len(spectrum)} px)")
         self._update_cal_plot()
         self._update_absorbance_enabled()
@@ -809,6 +820,8 @@ class InstrumentTab(QWidget):
             return
         _, spectrum = self.win.spec.measure()
         self.win.ref = spectrum
+        logger.info("Reference collected (%d px, max %.0f counts)",
+                    len(spectrum), np.max(spectrum))
         self.ref_status.setText(f"Reference: collected ({len(spectrum)} px)")
         self._update_cal_plot()
         self._update_absorbance_enabled()

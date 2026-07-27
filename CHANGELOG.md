@@ -24,6 +24,27 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   is why a bare version string wouldn't have been enough. `build_info.py` is also now the single
   source of the version: `setup.py` reads it out rather than keeping a second copy that can drift.
 
+- **App log — logging now starts at launch, not at Start.** `{data_root}/logs/spec-echem.log`,
+  rotating (2 MB × 5, so it never needs maintenance), opened before the window appears. There is an
+  **Open Log Folder** button on the Run tab.
+
+  Until now the only logging began when you pressed Start, so everything before a run — connecting
+  the spectrometer, collecting a dark, a *failed* connect — went nowhere but the shell, if anywhere.
+  The Run tab's status pane looks like a log but is per-run and cleared at Start, so a student
+  looking there after a bad connect saw nothing at all. The handler sits on the `spec_echem` package
+  logger, so every module reaches it, and the run logger propagates up: a run appears in both logs.
+
+  The **per-run log is unchanged** and still written inside the data folder, so it travels with the
+  data. The two answer different questions — "how was this folder produced?" versus "what did I do
+  this afternoon, and where did it go wrong?"
+
+- **Instrument identity is recorded.** A run folder named its code (the build id) and every setting
+  but never its *hardware*. The run log and the metadata JSON (`instruments`) now carry the
+  spectrometer and potentiostat as reported at Connect — e.g. `Avantes serial 7513391SP` /
+  `Gamry Duck (serial 08083)`. Simulated runs self-label as `simulated`, so they can't later be
+  mistaken for real data. In External mode the potentiostat is recorded as not queried rather than
+  guessed at, since Python never opens it there.
+
 - `examples/identify_hardware.py` — read-only script that prints the attached instruments' identity.
 - `examples/query_avantes.py` + `query_avantes_setup.md` — standalone, zero-dependency "can this PC
   talk to the Avantes from Python?" self-check (plus a read-only Metrohm/Autolab USB-presence scan),
@@ -63,6 +84,18 @@ poll loop, the live-plot timer) were deliberately left untouched.
   a longer prior run no longer linger), and its segment selector keeps your selection across updates.
 - **Instrument-tab hygiene** — Connect can no longer be re-enabled mid-run by toggling the mode
   radios; the acquisition worker/thread now tear down with the safe `deleteLater` pattern.
+- **The spectrometer no longer prints to the shell.** Ten `print()` calls left over from the
+  notebook era became log records, so their content is kept (timestamped, in the app log) instead of
+  scrolling past in a terminal nobody keeps. The per-segment trigger-mode line is `debug`, file-only.
+- **"Invalid index" is now a real error message** — `No Avantes spectrometer found. Check the USB
+  cable, and close AvaSoft or any other program using the spectrometer.` The old text named an
+  internal condition, which tells a student nothing about what to do.
+- **The run log no longer claims a segment is armed before it is.** The line was written before the
+  Gamry setup that precedes arming, so a setup failure read as though the spectrometer had already
+  armed into a trigger that would never come.
+- **The blind-run safety net now says so.** When a segment that never fired is cancelled, the log
+  records that the waveform was not applied — previously it acted silently, so a log showing only
+  the upstream spectrometer error left the Gamry's behaviour unaccounted for.
 
 ---
 
