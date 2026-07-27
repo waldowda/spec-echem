@@ -6,7 +6,7 @@ travels with the data: hand a folder to a collaborator and the record of how it 
 produced goes along. Opened at run START by configure_run_logging(), closed at the end.
 
 **App log** — {data_root}/logs/spec-echem.log, opened at LAUNCH by configure_app_logging()
-and rotated nightly (30 days kept) so it never needs maintenance. This is the session
+and rotated nightly, keeping every day (nothing is deleted). This is the session
 narrative: connecting an instrument, collecting a dark, a failed Connect — all of which
 happen long before any run exists, and used to go nowhere but the shell. It is the log a
 student goes back to when asking "what did I do this afternoon, and where did it go
@@ -31,11 +31,16 @@ APP_LOGGER_NAME = "spec_echem"
 RUN_LOGGER_NAME = "spec_echem.run"
 
 APP_LOG_NAME = "spec-echem.log"
-# Rotate at midnight, keeping a month: spec-echem.log is always today, and older days
-# are spec-echem.log.2026-07-26. Chosen over size-based rotation because "send me the
-# log from the day it broke" is the actual request — a single size-rotated file would
-# run months on a lab machine and bury one afternoon in the middle of a term.
-APP_LOG_BACKUP_DAYS = 30
+# Rotate at midnight: spec-echem.log is always today, older days are
+# spec-echem.log.2026-07-26. Chosen over size-based rotation because "send me the log
+# from the day it broke" is the actual request — a single size-rotated file would run
+# months on a lab machine and bury one afternoon in the middle of a term.
+#
+# 0 = keep every day, delete nothing. This is instrument provenance: at ~30 KB/day it
+# costs ~11 MB/year, and the one time an old log matters is tracing a result months
+# later — precisely when an automatic cutoff would already have discarded it. Old files
+# are dated, so pruning by hand is easy if it ever becomes worth doing.
+APP_LOG_BACKUP_DAYS = 0
 
 
 def get_app_logger():

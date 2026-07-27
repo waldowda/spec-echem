@@ -25,7 +25,7 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   source of the version: `setup.py` reads it out rather than keeping a second copy that can drift.
 
 - **App log — logging now starts at launch, not at Start.** `{data_root}/logs/spec-echem.log`,
-  rotated nightly and kept for 30 days, opened before the window appears. There is an
+  rotated nightly and kept indefinitely, opened before the window appears. There is an
   **Open Log Folder** button on the Run tab.
 
   Until now the only logging began when you pressed Start, so everything before a run — connecting
