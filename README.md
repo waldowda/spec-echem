@@ -165,7 +165,7 @@ spec-echem/
 ├── gamry/                   # .GSequence files with digital-output triggers
 ├── docs/                    # sop.md, data-format.md, inspect-run.md
 ├── examples/                # Bench/validation scripts (trigger timing, co-acquisition)
-├── tests/                   # 150 tests — no hardware required
+├── tests/                   # 168 tests — no hardware required
 └── data/                    # Sample data
 ```
 
@@ -215,6 +215,22 @@ When you start a run in the GUI, files are written to **`‹Save location›\‹
 
 > ⚠️ Don't browse *into* a folder you made yourself for the Save location, or you'll get a doubled path
 > like `…\20260704_test\20260704_test\`.
+
+### Logs — two of them, for two different questions
+
+**Inside each run folder:** `‹Data folder name›.log`, the record of that one run. It travels with the
+data, so a folder you hand to a collaborator explains how it was produced — including which
+instruments, by serial number, and which build of this code.
+
+**In `‹Save location›\logs\`:** `spec-echem.log`, the record of *the day*, opened when the program
+launches rather than when a run starts. This is the one to look at when something went wrong
+**before** you pressed Start — a spectrometer that wouldn't connect, a dark you're not sure you
+collected. Reach it from **Open Log Folder** on the Run tab.
+
+It rotates at midnight and nothing is ever deleted: `spec-echem.log` is today,
+`spec-echem.log.2026-07-26` is yesterday. Each launch writes a banner recording the build, the Python
+environment, and whether the instrument drivers loaded — so if you ever paste a log for help, it
+already answers "which environment was this?"
 
 ## Workflow
 
