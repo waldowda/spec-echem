@@ -16,7 +16,8 @@ from pathlib import Path
 
 from spec_echem.experiment import build_segments
 from spec_echem.data import write_run_metadata, DATA_TYPE_CV
-from spec_echem.logging_config import configure_run_logging, close_run_logging
+from spec_echem.logging_config import (configure_run_logging, close_run_logging,
+                                       get_run_logger)
 from spec_echem.potentiostat import ExternalPotentiostat, ToolkitPotentiostat
 from gui.widgets.plot_canvas import MplCanvas
 from gui.workers import AcquisitionWorker
@@ -170,10 +171,25 @@ class RunTab(QWidget):
         # full history is always preserved in each run's own .log file on disk.
         self.status_log.clear()
 
+        # Which hardware produced this folder. Connect happens long before Start, when
+        # no run log exists yet, so the identities are stashed at Connect and recorded
+        # here instead — the first moment there is somewhere durable to put them.
+        instruments = {
+            "spectrometer": self.win.spec_identity or "unknown (not connected via Connect)",
+            "potentiostat": self.win.pstat_identity if
+                settings.get("potentiostat_mode", "external") == "python"
+                else "external — Gamry runs its own .GSequence (not queried)",
+        }
+        if instruments["potentiostat"] is None:
+            instruments["potentiostat"] = "unknown (Connect Potentiostat not used)"
+
         # Write the self-documenting run metadata and open the per-run log file
-        write_run_metadata(settings, settings["data_root"], settings["data_folder"])
+        write_run_metadata(settings, settings["data_root"], settings["data_folder"],
+                           instruments=instruments)
         _, log_path = configure_run_logging(run_folder, settings["data_folder"])
         self.log(f"Logging to {log_path.name}")
+        get_run_logger().info("Spectrometer: %s", instruments["spectrometer"])
+        get_run_logger().info("Potentiostat: %s", instruments["potentiostat"])
 
         # Expose the run folder + segment map so the Results tab can find each
         # segment's echem file (written next to the spectra in Python mode).
