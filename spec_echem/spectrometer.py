@@ -5,6 +5,7 @@ Author: Dean Waldow
 Updated: 07-02-2025
 """
 
+import logging
 import os
 import platform
 import sys
@@ -23,6 +24,11 @@ try:
     AVASPEC_AVAILABLE = True
 except ImportError:
     AVASPEC_AVAILABLE = False
+
+# A child of the `spec_echem` package logger, so these records reach the app log
+# (see logging_config). They used to be print() calls, which meant the only record
+# of a connection attempt was a shell nobody keeps.
+logger = logging.getLogger(__name__)
 
 
 # Calibrated usable pixel window (~380-1100 nm, 1265 pts) — the fixed slice this
@@ -67,23 +73,28 @@ class AvantesSpectrometer:
             tuple: (measconfig, serial_number) - Measurement configuration and device serial number
         """
         # Initialize AVS library
-        ret = AVS_Init(0)    
-        print(f"AVS_Init returned: {ret}")
-        
+        ret = AVS_Init(0)
+        logger.info("AVS_Init returned: %s", ret)
+
         # Get number of devices
         ret = AVS_GetNrOfDevices()
-        print(f"AVS_GetNrOfDevices returned: {ret}")
+        logger.info("AVS_GetNrOfDevices returned: %s", ret)
         if ret < 1:
-            raise RuntimeError("Invalid index (forget to plug in the spectrometer?)")
+            # Say what to do about it. The old "Invalid index" named an internal
+            # condition, which tells a student nothing — and this is the failure
+            # they actually hit (a cable, or other software holding the device).
+            raise RuntimeError(
+                "No Avantes spectrometer found. Check the USB cable, and close "
+                "AvaSoft or any other program using the spectrometer.")
 
         # Get device list and activate first device
         mylist = AVS_GetList(1)
         self.serial_number = str(mylist[0].SerialNumber.decode("utf-8"))
-        print(f"Found Serial number: {self.serial_number}")
-        
+        logger.info("Found serial number: %s", self.serial_number)
+
         # Activate device
         self.dev_handle = AVS_Activate(mylist[0])
-        print(f"AVS_Activate returned: {self.dev_handle}")
+        logger.info("AVS_Activate returned: %s", self.dev_handle)
 
         # Get device configuration
         devcon = AVS_GetParameter(self.dev_handle, 63484)
@@ -169,7 +180,8 @@ class AvantesSpectrometer:
         if hi < lo:
             raise ValueError(f"Empty wavelength window: {wl_min}-{wl_max} nm")
         self._lo_i, self._hi_i = lo, hi
-        print(f"Wavelength window: {cal_wl[lo]:.1f}-{cal_wl[hi]:.1f} nm ({hi - lo + 1} px)")
+        logger.info("Wavelength window: %.1f-%.1f nm (%d px)",
+                    cal_wl[lo], cal_wl[hi], hi - lo + 1)
 
     def measure_timing(self, measconfig=None):
         """
@@ -290,7 +302,7 @@ class AvantesSpectrometer:
             
         measconfig.m_IntegrationTime = duration
         ret = AVS_PrepareMeasure(self.dev_handle, measconfig)
-        print(f"Integration time set to {duration} ms")
+        logger.info("Integration time set to %s ms", duration)
     
     def set_trigger_mode(self, mode, measconfig=None):
         """
@@ -306,7 +318,10 @@ class AvantesSpectrometer:
         measconfig.m_Trigger_m_Mode = mode
         ret = AVS_PrepareMeasure(self.dev_handle, measconfig)
         mode_str = "No trigger" if mode == 0 else "Edge trigger"
-        print(f"Trigger mode set to: {mode_str}")
+        # DEBUG, not INFO: called twice per segment from inside acquire_segment (armed,
+        # then disarmed after spectrum 0), so at INFO it would bury the status pane in
+        # noise. File-only keeps it available for debugging without costing anything.
+        logger.debug("Trigger mode set to: %s", mode_str)
     
     def set_source_type(self, mode, measconfig=None):
         """
@@ -322,7 +337,7 @@ class AvantesSpectrometer:
         measconfig.m_Trigger_m_SourceType = mode
         ret = AVS_PrepareMeasure(self.dev_handle, measconfig)
         mode_str = "Edge trigger" if mode == 0 else "Level trigger"
-        print(f"Source type set to: {mode_str}")
+        logger.info("Source type set to: %s", mode_str)
     
     def set_scan_averages(self, scans, measconfig=None):
         """
@@ -337,13 +352,13 @@ class AvantesSpectrometer:
             
         measconfig.m_NrAverages = scans
         ret = AVS_PrepareMeasure(self.dev_handle, measconfig)
-        print(f"Number of averages set to {scans}")
+        logger.info("Number of averages set to %s", scans)
     
     def close(self):
         """Close the connection to the spectrometer."""
         if self.dev_handle:
             # Add any cleanup code here
-            print("Spectrometer connection closed")
+            logger.info("Spectrometer connection closed")
     
     def __enter__(self):
         """Context manager entry."""
