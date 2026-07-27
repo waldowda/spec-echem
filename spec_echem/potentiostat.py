@@ -278,6 +278,14 @@ class ToolkitPotentiostat(Potentiostat):
         arm), not a normal finish — cancel the thread FIRST so that releasing it below
         makes it return WITHOUT running the waveform blind on the sample."""
         if aborted or not self._fired.is_set():
+            if not aborted:
+                # Say so: the segment was set up and the Gamry thread was waiting to
+                # be released, and we are deliberately NOT releasing it. Without this
+                # the safety net leaves no trace, so a log showing only the upstream
+                # error can't tell you whether the waveform ran on the sample.
+                get_run_logger().warning(
+                    "Gamry cancelled before it started — the segment never armed, so "
+                    "the waveform was NOT applied and no .dta was written.")
             self._abort.set()
         self._armed.set()   # unblock the thread; it now returns without running
         self._join_thread()

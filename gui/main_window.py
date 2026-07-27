@@ -42,6 +42,11 @@ class MainWindow(QMainWindow):
         self.results = {}   # segment label -> absorbance DataFrame (populated during a run)
         self.run_folder = None       # Path to the active/last run folder (echem file lookup)
         self.segments_by_label = {}  # segment label -> Segment (echem file type/number)
+        # Which physical instruments are attached, as reported by their Connect buttons.
+        # Recorded into the run log + metadata at Start so a data folder names its
+        # hardware, not just its settings. None = never connected this session.
+        self.spec_identity = None
+        self.pstat_identity = None
 
         # --- tabs ---
         self.tabs = QTabWidget()

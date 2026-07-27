@@ -653,6 +653,7 @@ class InstrumentTab(QWidget):
         label = (label or "").strip()
         who = f"{label} (serial {serial})" if label else f"serial {serial}"
         self._pstat_connected = True
+        self.win.pstat_identity = who
         self._set_pstat_status(f"● Connected — {who}", "#080")
 
     def _update_cal_plot(self):
@@ -713,6 +714,9 @@ class InstrumentTab(QWidget):
         # A fresh connection is at the full window; remember it so loaded (full-range)
         # dark/ref files can be sliced to a narrower window later.
         self._full_wl = np.asarray(self.win.wavelengths)
+        self.win.spec_identity = (f"simulated ({serial})"
+                                  if isinstance(spec, FakeSpectrometer)
+                                  else f"Avantes serial {serial}")
         self.spec_status.setText(f"● Connected ({serial})")
         self.spec_status.setStyleSheet("color: #080;")
         self._set_actions_enabled(True)

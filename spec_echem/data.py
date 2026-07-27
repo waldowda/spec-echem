@@ -286,7 +286,7 @@ def write_echem_file(acq_data, data_type, run_number, data_root, added_path):
     return path
 
 
-def write_run_metadata(settings, data_root, added_path):
+def write_run_metadata(settings, data_root, added_path, instruments=None):
     """
     Write a metadata JSON file to the run folder at experiment start.
     Captures sample info, notes, and all settings used — making the data
@@ -298,6 +298,9 @@ def write_run_metadata(settings, data_root, added_path):
         settings: dict from load_settings() or DEFAULT_SETTINGS
         data_root: str or Path, base data directory
         added_path: str, subfolder name (format: YYYYMMDD_Description)
+        instruments: optional dict of instrument identities (spectrometer /
+            potentiostat serials) as reported at Connect. Omitted when unknown —
+            the settings say how the run was configured, not what it ran on.
 
     Returns:
         Path: path to the metadata file written
@@ -316,6 +319,8 @@ def write_run_metadata(settings, data_root, added_path):
         "notes": settings.get("notes", ""),
         "settings": settings,
     }
+    if instruments:
+        metadata["instruments"] = instruments
 
     path = folder / f"{added_path}_metadata.json"
     with open(path, "w", encoding="utf-8") as f:
