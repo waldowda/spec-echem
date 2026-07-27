@@ -80,7 +80,9 @@ class AcquisitionWorker(QObject):
                     break
 
                 self.segment_started.emit(seg.label, i + 1, total)
-                logger.info("Armed for %s (%d/%d) — waiting for Gamry trigger",
+                # Logged BEFORE run_one_segment, which does the Gamry setup first and
+                # only then arms — so this states intent, not that arming has happened.
+                logger.info("Starting %s (%d/%d) — Gamry setup, then arm and wait for trigger",
                             seg.label, i + 1, total)
                 logger.debug("%s: %d points @ %.4gs, trigger=%s",
                              seg.label, seg.num_points, seg.delta_time, seg.trigger)
