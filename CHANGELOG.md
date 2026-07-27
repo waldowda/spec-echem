@@ -28,6 +28,11 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   rotated nightly and kept indefinitely, opened before the window appears. There is an
   **Open Log Folder** button on the Run tab.
 
+  Each launch writes a banner carrying the build id, the **Python version, bitness and conda env**,
+  and whether `avaspec` / `toolkitpy` imported. That last part earns its place: "Python mode is
+  greyed out" looks like a dead potentiostat but is nearly always the wrong environment, since
+  `toolkitpy` is 32-bit only. A pasted log now answers that without anyone having to ask.
+
   Until now the only logging began when you pressed Start, so everything before a run — connecting
   the spectrometer, collecting a dark, a *failed* connect — went nowhere but the shell, if anywhere.
   The Run tab's status pane looks like a log but is per-run and cleared at Start, so a student
