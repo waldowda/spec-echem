@@ -22,6 +22,10 @@ DEBUG and up goes to both files. The GUI attaches its own handler (gui/workers.p
 mirror INFO records to the Run tab's status pane during a run.
 """
 import logging
+import os
+import platform
+import struct
+import sys
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
@@ -74,11 +78,53 @@ def configure_app_logging(data_root):
     handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-7s %(message)s"))
     logger.addHandler(handler)
 
-    # A banner per launch: the file is append-and-rotate, so this is what makes one
-    # session findable in a log covering weeks of them.
-    logger.info("=" * 60)
-    logger.info("spec-echem %s starting", build_id())
+    _log_launch_banner(logger)
     return path
+
+
+def _driver_status():
+    """(avaspec, toolkitpy) importability, as the application itself sees it.
+
+    Imported lazily: both modules import spec_echem.logging_config, so a top-level
+    import here would be circular. Reports the REAL import result rather than mere
+    presence on disk — "the file is there but the DLL isn't" is a failure mode worth
+    telling apart, and it is what actually decides whether Python Gamry mode is offered.
+    """
+    try:
+        from spec_echem.spectrometer import AVASPEC_AVAILABLE
+    except Exception:      # noqa: BLE001 — a broken SDK must not stop the log opening
+        AVASPEC_AVAILABLE = False
+    try:
+        from spec_echem.potentiostat import TOOLKITPY_AVAILABLE
+    except Exception:      # noqa: BLE001
+        TOOLKITPY_AVAILABLE = False
+    return AVASPEC_AVAILABLE, TOOLKITPY_AVAILABLE
+
+
+def _log_launch_banner(logger):
+    """A banner per launch: the file covers a whole day of sessions, so this is what
+    makes one findable when scrolling. Blank lines above and below because the
+    timestamp/level prefix indents every line ~35 chars — without the whitespace the
+    rule doesn't read as a break.
+
+    The environment lines earn their place: "Python mode is greyed out" looks like a
+    dead potentiostat but is almost always the wrong conda env (toolkitpy is 32-bit
+    only). Recording it means any pasted log answers that question by itself.
+    """
+    avaspec_ok, toolkitpy_ok = _driver_status()
+    env = os.environ.get("CONDA_DEFAULT_ENV") or Path(sys.prefix).name
+    yes_no = lambda ok: "yes" if ok else "no"        # noqa: E731
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("==============  SPEC-ECHEM LAUNCHED  =======================")
+    logger.info("=" * 60)
+    logger.info("  build   %s", build_id())
+    logger.info("  python  %s (%d-bit), env %s",
+                platform.python_version(), struct.calcsize("P") * 8, env)
+    logger.info("  drivers avaspec: %s | toolkitpy: %s",
+                yes_no(avaspec_ok), yes_no(toolkitpy_ok))
+    logger.info("")
 
 
 def app_log_path(data_root):
