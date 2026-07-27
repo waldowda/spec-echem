@@ -6,10 +6,12 @@ travels with the data: hand a folder to a collaborator and the record of how it 
 produced goes along. Opened at run START by configure_run_logging(), closed at the end.
 
 **App log** — {data_root}/logs/spec-echem.log, opened at LAUNCH by configure_app_logging()
-and rotating so it never needs maintenance. This is the session narrative: connecting an
-instrument, collecting a dark, a failed Connect — all of which happen long before any run
-exists, and used to go nowhere but the shell. It is the log a student goes back to when
-asking "what did I do this afternoon, and where did it go wrong?"
+and rotated nightly (30 days kept) so it never needs maintenance. This is the session
+narrative: connecting an instrument, collecting a dark, a failed Connect — all of which
+happen long before any run exists, and used to go nowhere but the shell. It is the log a
+student goes back to when asking "what did I do this afternoon, and where did it go
+wrong?" — so it is organised by DAY: spec-echem.log is today, spec-echem.log.2026-07-26
+is yesterday.
 
 The app handler lives on the PACKAGE logger (`spec_echem`), the parent of every module
 logger, so anything any module logs lands in it — including the run logger, which
@@ -20,7 +22,7 @@ DEBUG and up goes to both files. The GUI attaches its own handler (gui/workers.p
 mirror INFO records to the Run tab's status pane during a run.
 """
 import logging
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 from spec_echem.build_info import build_id
@@ -29,8 +31,11 @@ APP_LOGGER_NAME = "spec_echem"
 RUN_LOGGER_NAME = "spec_echem.run"
 
 APP_LOG_NAME = "spec-echem.log"
-APP_LOG_MAX_BYTES = 2 * 1024 * 1024   # ~2 MB per file
-APP_LOG_BACKUPS = 5                   # ~12 MB total, then the oldest is dropped
+# Rotate at midnight, keeping a month: spec-echem.log is always today, and older days
+# are spec-echem.log.2026-07-26. Chosen over size-based rotation because "send me the
+# log from the day it broke" is the actual request — a single size-rotated file would
+# run months on a lab machine and bury one afternoon in the middle of a term.
+APP_LOG_BACKUP_DAYS = 30
 
 
 def get_app_logger():
@@ -55,9 +60,8 @@ def configure_app_logging(data_root):
         folder = Path(data_root) / "logs"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / APP_LOG_NAME
-        handler = RotatingFileHandler(
-            path, maxBytes=APP_LOG_MAX_BYTES, backupCount=APP_LOG_BACKUPS,
-            encoding="utf-8")
+        handler = TimedRotatingFileHandler(
+            path, when="midnight", backupCount=APP_LOG_BACKUP_DAYS, encoding="utf-8")
     except OSError:
         return None
 

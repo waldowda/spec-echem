@@ -8,6 +8,7 @@ import pytest
 from spec_echem.logging_config import (
     configure_run_logging, close_run_logging, get_run_logger, RUN_LOGGER_NAME,
     configure_app_logging, get_app_logger, app_log_path, APP_LOGGER_NAME,
+    APP_LOG_BACKUP_DAYS,
 )
 
 
@@ -77,6 +78,19 @@ def test_app_log_also_captures_the_run(app_log, tmp_path):
     get_run_logger().info("Run started: 6 segments.")
     close_run_logging()
     assert "Run started: 6 segments." in app_log.read_text()
+
+
+def test_app_log_rotates_daily_keeping_a_month(app_log):
+    """Rotation is by DAY, not size: "send me the log from the day it broke" is the
+    request this has to serve, and a size-rotated file would span a whole term."""
+    from logging.handlers import TimedRotatingFileHandler
+    handlers = [h for h in get_app_logger().handlers
+                if isinstance(h, logging.FileHandler)]
+    assert len(handlers) == 1
+    handler = handlers[0]
+    assert isinstance(handler, TimedRotatingFileHandler)
+    assert handler.when == "MIDNIGHT"
+    assert handler.backupCount == APP_LOG_BACKUP_DAYS == 30
 
 
 def test_app_log_failure_does_not_stop_startup(tmp_path):
