@@ -11,7 +11,7 @@ _Last updated: 2026-07-27_
 ## 🎉 RELEASED: v0.2.0 on `main`, tagged (2026-07-14) — START HERE
 
 **v0.2.0 is merged to `main` (`--no-ff`) and tagged `v0.2.0`.** `gui-dev` stays the dev branch and is
-now **well ahead of `main`** with the post-tag work below. **168 tests** (150 at the tag).
+now **well ahead of `main`** with the post-tag work below. **170 tests** (150 at the tag).
 
 **The 0.2.0 theme is instrument setup.** 0.1.0 could run an experiment; 0.2.0 helps you set the
 instrument up correctly first, and remembers how your rig is configured:
@@ -75,10 +75,13 @@ Hardening that came out of the same sessions:
 
 - **The trigger cable's *build*** — connector, pinout, shielding — is undocumented; only its endpoints
   are. It exists in Dean's head and in the one cable on the bench. See `TODO.md`.
-- **A mid-run Gamry USB pull surfaces late.** Pulling the cable during a run stops it, but the error
-  banner appears to arrive only on the *next* Start rather than at the moment of failure. Observed
-  twice, not yet pinned down. See `TODO.md` for the decisive test.
-- **`gui/` is still barely tested** — 4 of 168 tests touch it. *Every* bug in the 0.2.0 cycle lived in
+- **A mid-run Gamry USB pull is now warned about, but doesn't stop the run at the failing segment.**
+  Diagnosed 2026-07-27: the poll loop *did* detect the lost instrument, but an abnormal exit looked
+  exactly like a finished step, so the segment was written with a full spectra file beside a
+  truncated echem file and the error surfaced one segment later naming the wrong segment. The silent
+  part is fixed (a warning naming the segment, elapsed time, and points captured); whether it should
+  also abort the run there is an open decision in `TODO.md`.
+- **`gui/` is still barely tested** — 4 of 170 tests touch it. *Every* bug in the 0.2.0 cycle lived in
   GUI wiring and the core suite passed through all of them. The layout tests establish the pattern
   (headless via `QT_QPA_PLATFORM=offscreen`, `importorskip("qtpy")` so no-Qt envs still run).
 

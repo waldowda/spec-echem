@@ -101,6 +101,13 @@ poll loop, the live-plot timer) were deliberately left untouched.
 - **The run log no longer claims a segment is armed before it is.** The line was written before the
   Gamry setup that precedes arming, so a setup failure read as though the spectrometer had already
   armed into a trigger that would never come.
+- **A Gamry that disappears mid-segment is no longer silent.** Pulling the instrument's USB during a
+  step ended the Gamry poll loop early — which was indistinguishable from the step *finishing*. The
+  segment was written and marked complete, with a **truncated echem file beside a full spectra
+  file**, and the only sign of trouble arrived one segment later as a setup failure naming the wrong
+  segment. The poll loop now reports why it ended: a lost instrument (or a run hitting the safety
+  time limit) logs a warning naming the segment, how far into the step it stopped, and how many
+  echem points were actually captured. *(bench-reproduced; new tests)*
 - **The blind-run safety net now says so.** When a segment that never fired is cancelled, the log
   records that the waveform was not applied — previously it acted silently, so a log showing only
   the upstream spectrometer error left the Gamry's behaviour unaccounted for.

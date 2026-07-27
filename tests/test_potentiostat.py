@@ -81,6 +81,42 @@ def test_cancelling_an_unfired_segment_is_logged(toolkit, tmp_path):
     assert any("NOT applied" in r.getMessage() for r in records)
 
 
+def _run_records(toolkit, tmp_path):
+    """Run a segment through to completion, capturing what reached the run logger."""
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    run_logger = logging.getLogger("spec_echem.run")
+    run_logger.addHandler(handler)
+    try:
+        p = potentiostat.ToolkitPotentiostat(_settings(tmp_path))
+        p.prepare(_pre_segment())
+        p.fire()
+        p.finish(aborted=False)
+    finally:
+        run_logger.removeHandler(handler)
+    return [r.getMessage() for r in records]
+
+
+def test_a_gamry_that_vanishes_mid_segment_is_reported(toolkit, tmp_path):
+    """Bench-reproduced 2026-07-27: pulling the Gamry USB mid-segment ended the poll
+    loop early, and that was indistinguishable from the step finishing — so a
+    TRUNCATED echem file was written beside complete spectra, the segment was marked
+    done, and the error only surfaced one segment later naming the wrong segment."""
+    tkp, pstat, curve = toolkit
+    tkp.pstat_is_valid.return_value = False      # the instrument went away
+
+    messages = _run_records(toolkit, tmp_path)
+
+    assert any("stopped responding" in m and "TRUNCATED" in m for m in messages), messages
+
+
+def test_a_normal_segment_warns_about_nothing(toolkit, tmp_path):
+    """Guard the above: a healthy segment must stay quiet, or the warning is noise."""
+    messages = _run_records(toolkit, tmp_path)
+    assert not any("TRUNCATED" in m or "stopped responding" in m for m in messages), messages
+
+
 def test_normal_fire_runs_the_waveform(toolkit, tmp_path):
     """Guard the happy path: after fire(), the segment does run — cell on, DIGOUT0
     high, curve.run — so the #1 fix didn't break normal operation."""

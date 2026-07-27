@@ -165,7 +165,7 @@ spec-echem/
 ├── gamry/                   # .GSequence files with digital-output triggers
 ├── docs/                    # sop.md, data-format.md, inspect-run.md
 ├── examples/                # Bench/validation scripts (trigger timing, co-acquisition)
-├── tests/                   # 168 tests — no hardware required
+├── tests/                   # 170 tests — no hardware required
 └── data/                    # Sample data
 ```
 
