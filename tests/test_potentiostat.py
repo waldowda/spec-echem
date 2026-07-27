@@ -4,6 +4,7 @@ never fired is NOT released to run the waveform, and that a setup failure surfac
 instead of hanging. toolkitpy is hardware-only, so it's replaced with a MagicMock;
 these tests exercise the arm/fire/finish coordination, not the Gamry itself.
 """
+import logging
 from unittest import mock
 
 import pytest
@@ -55,6 +56,29 @@ def test_finish_without_fire_does_not_run_the_waveform(toolkit, tmp_path):
     assert not curve.run.called                                   # waveform never ran
     assert mock.call(True) not in pstat.set_cell.call_args_list   # cell never turned ON
     assert mock.call(0x1, 0x1) not in pstat.set_digital_out.call_args_list  # no HIGH edge
+
+
+def test_cancelling_an_unfired_segment_is_logged(toolkit, tmp_path):
+    """The #1 safety net must leave a trace: a bench log that shows only the upstream
+    spectrometer error can't otherwise prove the waveform was withheld.
+
+    Captured with a handler on the run logger rather than caplog — the run logger sets
+    propagate=False (so run records don't leak to the root logger), which is exactly
+    the bug that made potentiostat errors silent in the first place.
+    """
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    run_logger = logging.getLogger("spec_echem.run")
+    run_logger.addHandler(handler)
+    try:
+        p = potentiostat.ToolkitPotentiostat(_settings(tmp_path))
+        p.prepare(_pre_segment())
+        p.finish(aborted=False)
+    finally:
+        run_logger.removeHandler(handler)
+
+    assert any("NOT applied" in r.getMessage() for r in records)
 
 
 def test_normal_fire_runs_the_waveform(toolkit, tmp_path):
