@@ -8,7 +8,7 @@ import pytest
 from spec_echem.logging_config import (
     configure_run_logging, close_run_logging, get_run_logger, RUN_LOGGER_NAME,
     configure_app_logging, get_app_logger, app_log_path, APP_LOGGER_NAME,
-    APP_LOG_BACKUP_DAYS,
+    APP_LOG_BACKUP_DAYS, APP_LOG_NAME,
 )
 
 
@@ -80,9 +80,13 @@ def test_app_log_also_captures_the_run(app_log, tmp_path):
     assert "Run started: 6 segments." in app_log.read_text()
 
 
-def test_app_log_rotates_daily_keeping_a_month(app_log):
+def test_app_log_rotates_daily_and_deletes_nothing(app_log):
     """Rotation is by DAY, not size: "send me the log from the day it broke" is the
-    request this has to serve, and a size-rotated file would span a whole term."""
+    request this has to serve, and a size-rotated file would span a whole term.
+
+    backupCount of 0 means keep everything — this is instrument provenance, and an
+    automatic cutoff would discard exactly the old log someone eventually needs.
+    """
     from logging.handlers import TimedRotatingFileHandler
     handlers = [h for h in get_app_logger().handlers
                 if isinstance(h, logging.FileHandler)]
@@ -90,7 +94,25 @@ def test_app_log_rotates_daily_keeping_a_month(app_log):
     handler = handlers[0]
     assert isinstance(handler, TimedRotatingFileHandler)
     assert handler.when == "MIDNIGHT"
-    assert handler.backupCount == APP_LOG_BACKUP_DAYS == 30
+    assert handler.backupCount == APP_LOG_BACKUP_DAYS == 0
+
+
+def test_old_daily_logs_survive_a_rollover(app_log):
+    """Behavioural, not just the flag: getFilesToDelete() still LISTS old files even
+    with backupCount 0 — only a guard in doRollover spares them. Assert the files are
+    actually still on disk, so a future handler swap can't quietly start deleting."""
+    import time
+    old_days = ["2025-08-01", "2025-12-25", "2026-03-02"]
+    for day in old_days:
+        (app_log.parent / f"{APP_LOG_NAME}.{day}").write_text(f"old day {day}")
+
+    handler = next(h for h in get_app_logger().handlers if hasattr(h, "doRollover"))
+    handler.rolloverAt = time.time() - 1     # force a roll without waiting for midnight
+    get_app_logger().info("triggers the rollover")
+
+    for day in old_days:
+        assert (app_log.parent / f"{APP_LOG_NAME}.{day}").exists(), \
+            f"{day} was deleted — the app log must not discard instrument history"
 
 
 def test_app_log_failure_does_not_stop_startup(tmp_path):
