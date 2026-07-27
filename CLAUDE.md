@@ -45,7 +45,7 @@ spec-echem/
 │   ├── sop.md                       # Standard operating procedure (GUI-first)
 │   └── inspect-run.md
 ├── examples/                        # Bench/validation scripts + identify_hardware.py
-├── tests/                           # Unit tests (150) — no hardware required
+├── tests/                           # Unit tests (165) — no hardware required
 ├── data/                            # Sample data directory
 ├── CHANGELOG.md                     # What changed between versions
 ├── STATUS.md                        # Human-readable project status + next steps
@@ -287,7 +287,7 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
 
 ### Modularization — DONE
 `get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
-`data.py`; hardware is faked (`fakes.py`) so all 150 tests run with no instruments attached.
+`data.py`; hardware is faked (`fakes.py`) so all 165 tests run with no instruments attached.
 
 ### Settings: two layers, don't confuse them
 - **Experiment settings** (`settings.py`, `DEFAULT_SETTINGS`) — *this run*: sample, folder, CV
@@ -299,8 +299,11 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   `data_root` and `potentiostat_mode` are deliberately ABSENT from the tracked file (machine-specific).
 
 ### Known gaps (see TODO.md)
-- **`gui/` has no test coverage** while `spec_echem/` has 150 tests. Every bug in the 0.2.0 cycle
-  lived in GUI wiring, and the core suite passed through all of them.
+- **`gui/` is barely tested.** 165 tests total, of which exactly 4 touch `gui/`
+  (`tests/test_gui_layout.py`, headless via `QT_QPA_PLATFORM=offscreen`). Every bug in the 0.2.0
+  cycle lived in GUI wiring and the core suite passed through all of them, so this is where new
+  coverage pays. Qt-dependent tests must `pytest.importorskip("qtpy")` — the suite has to keep
+  running in environments with no Qt.
 - **The trigger cable's build** (connector, pinout, shielding) is undocumented — only its endpoints.
 
 ---
