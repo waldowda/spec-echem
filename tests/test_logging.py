@@ -5,6 +5,7 @@ import logging
 
 import pytest
 
+from spec_echem.build_info import build_id
 from spec_echem.logging_config import (
     configure_run_logging, close_run_logging, get_run_logger, RUN_LOGGER_NAME,
     configure_app_logging, get_app_logger, app_log_path, APP_LOGGER_NAME,
@@ -62,7 +63,21 @@ def test_logger_name():
 
 def test_app_log_opens_at_the_documented_path(app_log, tmp_path):
     assert app_log == app_log_path(tmp_path) == tmp_path / "logs" / "spec-echem.log"
-    assert "starting" in app_log.read_text()   # launch banner
+    assert "SPEC-ECHEM LAUNCHED" in app_log.read_text()   # launch banner
+
+
+def test_launch_banner_records_the_environment(app_log):
+    """The banner carries the interpreter and driver availability because "Python mode
+    is greyed out" reads like a dead potentiostat but is nearly always the wrong conda
+    env — toolkitpy is 32-bit only. A pasted log should answer that without asking."""
+    import platform
+    import struct
+
+    text = app_log.read_text()
+    assert platform.python_version() in text
+    assert f"{struct.calcsize('P') * 8}-bit" in text
+    assert "toolkitpy:" in text and "avaspec:" in text
+    assert build_id() in text
 
 
 def test_app_log_captures_records_from_any_module(app_log):
