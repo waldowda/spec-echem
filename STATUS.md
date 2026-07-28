@@ -71,6 +71,15 @@ Hardening that came out of the same sessions:
   error message dragged the window past its half-column layout, because a `QLabel` in a Qt layout
   demands its full text width rather than clipping.
 
+### Next: v0.3.0 — one bench run gates the merge
+
+`gui-dev` is well ahead of `main` and the work is coherent enough to release as **v0.3.0**
+(theme: *provenance and diagnosability*). Before merging, one **normal** Python-mode run has to pass
+on the rig — not a failure case. The lost-potentiostat handling can now stop a run and has only
+executed against fakes, so the gate is that a healthy run still finishes `done`, and that the
+per-segment cadence numbers are unchanged from the 2026-07-27 baseline. Full checklist and the
+baseline table are in [`TODO.md`](TODO.md).
+
 ### Still open (none blocking)
 
 - **The trigger cable's *build*** — connector, pinout, shielding — is undocumented; only its endpoints
