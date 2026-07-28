@@ -111,6 +111,39 @@ def test_a_gamry_that_vanishes_mid_segment_is_reported(toolkit, tmp_path):
     assert any("stopped responding" in m and "TRUNCATED" in m for m in messages), messages
 
 
+def test_device_lost_is_reported_so_the_run_can_stop_at_this_segment(toolkit, tmp_path):
+    """The run must stop at the segment that actually failed, not at the next one's
+    setup — which is what named the wrong segment on the bench."""
+    tkp, pstat, curve = toolkit
+    tkp.pstat_is_valid.return_value = False
+
+    p = potentiostat.ToolkitPotentiostat(_settings(tmp_path))
+    p.prepare(_pre_segment())
+    p.fire()
+    p.finish(aborted=False)
+
+    assert p.device_lost()
+
+
+def test_device_lost_resets_between_segments(toolkit, tmp_path):
+    """A stale flag would abort the run on a later, healthy segment."""
+    tkp, pstat, curve = toolkit
+    p = potentiostat.ToolkitPotentiostat(_settings(tmp_path))
+
+    tkp.pstat_is_valid.return_value = False
+    p.prepare(_pre_segment()); p.fire(); p.finish(aborted=False)
+    assert p.device_lost()
+
+    tkp.pstat_is_valid.return_value = True          # instrument back for the next segment
+    p.prepare(_pre_segment()); p.fire(); p.finish(aborted=False)
+    assert not p.device_lost()
+
+
+def test_base_potentiostat_never_claims_a_lost_device(tmp_path):
+    """External mode can't know — it must not stop runs on a guess."""
+    assert not potentiostat.ExternalPotentiostat().device_lost()
+
+
 def test_a_normal_segment_warns_about_nothing(toolkit, tmp_path):
     """Guard the above: a healthy segment must stay quiet, or the warning is noise."""
     messages = _run_records(toolkit, tmp_path)

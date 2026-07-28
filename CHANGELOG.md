@@ -107,7 +107,9 @@ poll loop, the live-plot timer) were deliberately left untouched.
   file**, and the only sign of trouble arrived one segment later as a setup failure naming the wrong
   segment. The poll loop now reports why it ended: a lost instrument (or a run hitting the safety
   time limit) logs a warning naming the segment, how far into the step it stopped, and how many
-  echem points were actually captured. *(bench-reproduced; new tests)*
+  echem points were actually captured — **and the run now stops at that segment** instead of failing
+  at the next one's setup and blaming it. The interrupted segment is written first: its spectra are
+  complete and its partial echem is real data. *(bench-reproduced; new tests)*
 - **The blind-run safety net now says so.** When a segment that never fired is cancelled, the log
   records that the waveform was not applied — previously it acted silently, so a log showing only
   the upstream spectrometer error left the Gamry's behaviour unaccounted for.

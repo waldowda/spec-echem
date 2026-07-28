@@ -100,6 +100,21 @@ class AcquisitionWorker(QObject):
                 self.segment_done.emit(seg.label, absorb_df)
                 logger.info("%s complete → %s", seg.label,
                             path.name if path is not None else "discarded (not saved)")
+
+                # Stop HERE if the potentiostat vanished during this segment, rather
+                # than letting the next segment fail at setup and report the wrong
+                # one. The segment is written first — the spectra are complete and the
+                # partial echem is real data — and this is a controlled break rather
+                # than an exception, so it can't mask a genuine failure the way raising
+                # from run_one_segment's finally would.
+                if self.potentiostat is not None and self.potentiostat.device_lost():
+                    logger.error(
+                        "Stopping the run: the potentiostat was lost during '%s'. That "
+                        "segment's files are written (spectra complete, echem "
+                        "truncated); no further segments will run without it.",
+                        seg.label)
+                    reason = "error"
+                    break
         except Exception:  # noqa: BLE001 — surface any failure to the log + UI
             logger.exception("Acquisition error")
             reason = "error"
