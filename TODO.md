@@ -10,7 +10,7 @@ termination, ground/shield, cable length. That knowledge currently exists only i
 the single cable on the bench — if it's damaged, or a second rig is built, there's nothing to work
 from. A placeholder marks the spot in the SOP. **Needs Dean's bench notes / photos.**
 
-## Mid-run Gamry USB pull — DIAGNOSED 2026-07-27, warning added; one decision left
+## Mid-run Gamry USB pull — DIAGNOSED + FIXED 2026-07-27
 
 **What actually happens** (Dean pulled the cable during Pre-dedoping, Python mode):
 `tkp.pstat_is_valid()` in the Gamry poll loop *does* notice, so the loop exits and the echem data
@@ -24,15 +24,17 @@ its own loop and knows nothing about it, so the segment completed with a *full* 
 the step the instrument stopped responding, and how many echem points were captured. Runs after the
 poll loop on the Gamry thread — no acquisition-timing cost. Covered by tests.
 
-**Still to decide: should a lost potentiostat stop the run at that segment?** Today it warns, finishes
-the segment, and the run dies at the *next* segment's setup. Arguments:
-- **For failing fast:** the error would name the segment that actually failed; nothing further can
-  run without a potentiostat anyway; the film isn't put through more steps for nothing.
-- **Against:** `finish()` is called from a `finally`, so raising there risks masking a genuine
-  upstream exception, and the partial data captured so far is real and worth keeping.
+**Also fixed — the run now stops at the segment that failed** (Dean's call: write the partial data,
+then stop). `Potentiostat.device_lost()` is the seam; the worker checks it *after* writing and
+emitting the segment, then breaks with `reason="error"`. Deliberately a controlled break, **not** an
+exception raised from `run_one_segment`'s `finally` — that would have masked any genuine upstream
+failure. External mode always answers False: it can't know, so it must not stop runs on a guess.
 
-Leaning: keep writing the partial data, but have `finish()` raise afterwards so the run stops at the
-true point of failure. Needs care with the `finally` interaction, so not done unilaterally.
+Result: the interrupted segment keeps its complete spectra and its partial echem, appears in Results,
+and the run ends naming the right segment instead of blaming the next one.
+
+Confirmed with the fakes end-to-end: lost-device run emits only the first segment and finishes
+`error`; a healthy run still emits both and finishes `done`.
 
 ## Automated tests for the GUI layer
 
@@ -41,7 +43,7 @@ via `QT_QPA_PLATFORM=offscreen`, guarded with `pytest.importorskip("qtpy")` so t
 where Qt isn't installed. That resolves the "Qt in the 32-bit env" objection below — the tests skip
 rather than fail.
 
-Still only 4 of 170 tests touch `gui/`. Every bug in the 0.2.0 cycle (stale absorbance after a
+Still only 4 of 173 tests touch `gui/`. Every bug in the 0.2.0 cycle (stale absorbance after a
 wavelength re-slice, status labels outliving their data, load-before-connect, a discarded segment
 still reaching the Results tab) lived in **GUI wiring**, and the core suite passed through all of
 them. Highest-value targets next, all reachable with the same offscreen pattern:
