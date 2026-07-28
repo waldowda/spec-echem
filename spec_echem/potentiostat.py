@@ -150,6 +150,15 @@ class Potentiostat:
         """
         pass
 
+    def device_lost(self):
+        """
+        True if the instrument stopped responding partway through the last segment,
+        so its echem data is truncated even though the segment otherwise completed.
+        The caller uses this to stop the run at the segment that actually failed
+        rather than at the next one. External/no-op can never know — always False.
+        """
+        return False
+
     def last_data(self):
         """
         Echem data (numpy structured array) captured from the just-finished
@@ -199,6 +208,7 @@ class ToolkitPotentiostat(Potentiostat):
         self._built = threading.Event()   # set by the thread once the signal is built
         self._abort = threading.Event()   # set to stop a segment early
         self._error = None                # exception from the Gamry thread, if any
+        self._device_lost = False         # instrument vanished partway through a segment
         self._max_wait = 60.0             # safety cap on the poll loop (set per segment)
 
     # --- lifecycle ------------------------------------------------------
@@ -231,6 +241,7 @@ class ToolkitPotentiostat(Potentiostat):
         self._last_data = None
         self._live_data = None
         self._error = None
+        self._device_lost = False
         # Safety cap for the poll loop: comfortably longer than the real segment
         # (num_points * delta_time is ~the segment duration).
         self._max_wait = segment.num_points * segment.delta_time * 3.0 + 30.0
@@ -296,6 +307,9 @@ class ToolkitPotentiostat(Potentiostat):
     def stop(self):
         self._abort.set()
 
+    def device_lost(self):
+        return self._device_lost
+
     def last_data(self):
         return self._last_data
 
@@ -321,6 +335,7 @@ class ToolkitPotentiostat(Potentiostat):
         """
         points = 0 if self._last_data is None else len(self._last_data)
         if not tkp.pstat_is_valid(pstat):
+            self._device_lost = True
             get_run_logger().warning(
                 "%s: the Gamry stopped responding %.1f s into the step (cable, power, "
                 "or the instrument taken by other software). Its echem data is "
