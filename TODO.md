@@ -2,6 +2,39 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Release gate for v0.3.0 — one bench run before merging `gui-dev` → `main` (Dean, 2026-07-27)
+
+Almost everything since the v0.2.0 tag is additive (logging, provenance, docs). **One thing is not:**
+the lost-potentiostat handling can now *stop a run*, and it has only ever executed against fakes. A
+false positive would abort a good experiment mid-sample — worse than the bug it fixes. So the gate is
+a **normal** run, not a failure case.
+
+1. **No false positive (the actual gate).** A complete Python-mode run must still end
+   `Run finished: done.` with every segment ✓.
+2. **Timing unaffected.** Every segment logs its real cadence, so this is measurable rather than
+   assumed. Compare against the 2026-07-27 baseline from before these changes:
+
+   | Segment | mean (target 100 ms) | jitter (sd) | max |
+   |---|---|---|---|
+   | CV (41 pts) | 101.1 | 1.2 | 104.0 |
+   | Pre-dedoping (101) | 101.2 | 1.5 | 111.4 |
+   | Doping (301) | 102.0 | 4.5–5.6 | 149–170 |
+   | Dedoping (301) | 101.6–101.9 | 2.6–3.5 | 127–134 |
+
+   **Expectation: no change**, because nothing was added to the per-spectrum path. The only
+   per-spectrum call is `on_tick = potentiostat.pump` (`acquisition.py:62`), which was not touched.
+   `tkp.pstat_is_valid()` sits in the *Gamry* poll loop (20 Hz, its own thread) and predates this
+   work; `_note_early_exit()` runs once per segment after that loop; `device_lost()` is checked once
+   per segment in the worker. A rise in mean or jitter would mean something reached the acquisition
+   loop that shouldn't have — investigate before tagging.
+3. Optional confirmation: repeat the mid-segment USB pull — warning names the right segment, files
+   still written, run stops there.
+4. Banner sanity: `32-bit`, `env SpecEchem32`, `toolkitpy: yes`.
+
+Then: bump `__version__` in `spec_echem/build_info.py` (single source — `setup.py` reads it),
+`CHANGELOG` `[Unreleased]` → `[0.3.0]`, commit, `merge --no-ff` to `main`, tag `v0.3.0`, push both.
+Theme for the release notes: **provenance and diagnosability**.
+
 ## Document the trigger cable build (Dean, 2026-07-14)
 
 `docs/sop.md` §2.1 gives the trigger *endpoints* (Gamry DIGOUT0 → Avantes DB26 pin 6) but not how
