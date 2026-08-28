@@ -28,9 +28,12 @@ from datetime import datetime
 # no effect on it (confirmed at the bench 2026-08-28, on avaspec.py line 42). Without help,
 # `import avaspec` only works when you happen to be sitting in the DLL's folder.
 #
-# Loading the DLL ourselves by absolute path first fixes it: the wrapper's later request
-# finds it already loaded, matched by base name, and never touches the filesystem. This
-# also covers older wrappers that load by bare name.
+# Preloading the DLL ourselves by absolute path covers wrappers that load by BARE name:
+# their request then finds it already loaded. It does NOT rescue the "./avaspecx64.dll"
+# form above — Windows does not match that request against the loaded module, verified on
+# hardware 2026-08-28. That wrapper needs the vendored-file edit in
+# examples/query_avantes_setup.md §2 (bare-name load after os.add_dll_directory), after
+# which this variable is what the edit reads.
 #
 # Set SPEC_ECHEM_AVASPEC_DLL_DIR to the FOLDER holding the DLL. Unset — the bench rig,
 # which is launched from that folder — this is a no-op.
