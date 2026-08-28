@@ -83,5 +83,33 @@ def test_connect_failure_message_is_still_shown_somewhere(window):
     tab.simulated_check.setChecked(False)
     tab.on_connect()   # no hardware in CI -> takes the failure path
 
+    if tab.win.spec is not None:
+        pytest.skip("a real spectrometer is attached — the no-hardware "
+                    "failure path can't be exercised on this machine")
     assert "failed" in tab.spec_status.text().lower()
     assert tab.spec_detail.text()          # the reason is on screen, not just logged
+
+
+# --- wavelength spin boxes track the connected spectrometer (options A + C) ----
+
+def test_window_fits_only_rejects_a_crop_for_another_detector():
+    from gui.tabs.instrument_tab import InstrumentTab
+    f = InstrumentTab._window_fits
+    assert f(400.0, 1050.0, 380.0, 1100.0)      # normal crop, well inside
+    assert f(300.0, 1100.0, 410.0, 1124.0)      # edges over the floor, still >50% overlap
+    assert f(395.0, 1105.0, 410.0, 1124.0)      # small edge mismatch still fits
+    assert not f(1200.0, 1300.0, 380.0, 1100.0)  # disjoint -> a different spectrometer
+    assert not f(200.0, 405.0, 410.0, 1124.0)    # only a sliver overlaps
+
+
+def test_connect_clamps_wavelength_spinboxes_to_the_spectrometer_span(window):
+    """On connect the wl spin boxes must be bounded by what the spectrometer
+    actually reports, not the old 0–5000 nm free-for-all."""
+    tab = window.instrument_tab
+    tab.simulated_check.setChecked(True)
+    tab.on_connect()                       # FakeSpectrometer: 380–1100 nm
+
+    full = tab._full_wl
+    assert tab.wl_min_spin.minimum() == pytest.approx(float(full[0]), abs=0.5)
+    assert tab.wl_max_spin.maximum() == pytest.approx(float(full[-1]), abs=0.5)
+    assert "1100" in tab.wl_status.text()   # the real span is surfaced, not hidden
