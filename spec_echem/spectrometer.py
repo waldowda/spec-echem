@@ -5,9 +5,11 @@ Author: Dean Waldow
 Updated: 07-02-2025
 """
 
+import ctypes
 import logging
 import os
 import platform
+import struct
 import sys
 import time
 import matplotlib.pyplot as plt
@@ -20,19 +22,30 @@ import warnings
 import json
 from datetime import datetime
 
-# Newer avaspec.py loads the AvaSpec DLL by relative name, so on a machine where
-# the DLL does not sit beside the wrapper `import avaspec` fails even though both
-# are installed. Point SPEC_ECHEM_AVASPEC_DLL_DIR at the DLL folder (e.g.
-# C:\AvaSpecX64-DLL_9.14.0.0) to put it on the search path. Unset — the bench rig,
-# where wrapper and DLL live together — this is a no-op.
+# Avantes' avaspec.py loads its DLL as `ctypes.WinDLL("./avaspecx64.dll")` — an explicit
+# relative path. Because that string contains a separator, Windows resolves it against the
+# CURRENT DIRECTORY and never consults the DLL search path, so os.add_dll_directory() has
+# no effect on it (confirmed at the bench 2026-08-28, on avaspec.py line 42). Without help,
+# `import avaspec` only works when you happen to be sitting in the DLL's folder.
+#
+# Loading the DLL ourselves by absolute path first fixes it: the wrapper's later request
+# finds it already loaded, matched by base name, and never touches the filesystem. This
+# also covers older wrappers that load by bare name.
+#
+# Set SPEC_ECHEM_AVASPEC_DLL_DIR to the FOLDER holding the DLL. Unset — the bench rig,
+# which is launched from that folder — this is a no-op.
 _avaspec_dll_dir = os.environ.get("SPEC_ECHEM_AVASPEC_DLL_DIR")
-if _avaspec_dll_dir and hasattr(os, "add_dll_directory"):
-    if os.path.isdir(_avaspec_dll_dir):
-        os.add_dll_directory(_avaspec_dll_dir)
-    else:
+if _avaspec_dll_dir and hasattr(ctypes, "WinDLL"):
+    # Same 64/32-bit split the wrapper itself makes (avaspec.py lines 42/46).
+    _avaspec_dll = "avaspecx64.dll" if struct.calcsize("P") == 8 else "avaspec.dll"
+    _avaspec_dll_path = os.path.join(_avaspec_dll_dir, _avaspec_dll)
+    try:
+        ctypes.WinDLL(_avaspec_dll_path)
+    except OSError as exc:
+        # Not fatal: the import below may still succeed from the DLL's own folder.
         warnings.warn(
-            f"SPEC_ECHEM_AVASPEC_DLL_DIR is set to {_avaspec_dll_dir!r}, "
-            "which is not a directory; ignoring it."
+            f"Could not preload {_avaspec_dll_path!r} ({exc}); `import avaspec` will "
+            "only work from the folder that holds the DLL."
         )
 
 try:
