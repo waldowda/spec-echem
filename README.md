@@ -111,6 +111,20 @@ not report a model string — pair the serial number it prints with the label on
    automatically disabled and the app falls back to External mode. Vendor packages (`avaspec`,
    `EchemToolkitPy`) are not pip-installable — they ship with the Avantes SDK / Gamry Framework.
 
+4. **If `avaspec` will not import (fresh installs)**
+
+   Newer `avaspec.py` loads its DLL by relative name, so `import avaspec` can fail even with the SDK
+   installed, if the DLL does not sit beside the wrapper. Set `SPEC_ECHEM_AVASPEC_DLL_DIR` to the DLL
+   folder and the app adds it to the search path (Windows only; unset, it does nothing):
+
+   ```
+   set SPEC_ECHEM_AVASPEC_DLL_DIR=C:\AvaSpecX64-DLL_9.14.0.0
+   ```
+
+   The launch banner in the app log reports the import failure and its reason, so "avaspec: no" can be
+   told apart from an unplugged spectrometer. Keep `avaspec.py` and the DLL a version-matched pair, and
+   match bitness: 64-bit Python needs `avaspecx64.dll`.
+
 ## Installation
 
 ### 1. Clone the Repository

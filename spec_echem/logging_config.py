@@ -83,7 +83,7 @@ def configure_app_logging(data_root):
 
 
 def _driver_status():
-    """(avaspec, toolkitpy) importability, as the application itself sees it.
+    """(avaspec, toolkitpy, avaspec_reason) importability, as the application sees it.
 
     Imported lazily: both modules import spec_echem.logging_config, so a top-level
     import here would be circular. Reports the REAL import result rather than mere
@@ -91,14 +91,20 @@ def _driver_status():
     telling apart, and it is what actually decides whether Python Gamry mode is offered.
     """
     try:
-        from spec_echem.spectrometer import AVASPEC_AVAILABLE
-    except Exception:      # noqa: BLE001 — a broken SDK must not stop the log opening
+        from spec_echem import spectrometer
+        AVASPEC_AVAILABLE = spectrometer.AVASPEC_AVAILABLE
+        # getattr, not a from-import: an older spectrometer.py that predates the
+        # reason string must still report avaspec's REAL status, not be forced to
+        # "no" by the missing name. These files get hand-copied between machines.
+        AVASPEC_IMPORT_ERROR = getattr(spectrometer, "AVASPEC_IMPORT_ERROR", None)
+    except Exception as exc:   # noqa: BLE001 — a broken SDK must not stop the log opening
         AVASPEC_AVAILABLE = False
+        AVASPEC_IMPORT_ERROR = str(exc)
     try:
         from spec_echem.potentiostat import TOOLKITPY_AVAILABLE
     except Exception:      # noqa: BLE001
         TOOLKITPY_AVAILABLE = False
-    return AVASPEC_AVAILABLE, TOOLKITPY_AVAILABLE
+    return AVASPEC_AVAILABLE, TOOLKITPY_AVAILABLE, AVASPEC_IMPORT_ERROR
 
 
 def _log_launch_banner(logger):
@@ -111,7 +117,7 @@ def _log_launch_banner(logger):
     dead potentiostat but is almost always the wrong conda env (toolkitpy is 32-bit
     only). Recording it means any pasted log answers that question by itself.
     """
-    avaspec_ok, toolkitpy_ok = _driver_status()
+    avaspec_ok, toolkitpy_ok, avaspec_reason = _driver_status()
     env = os.environ.get("CONDA_DEFAULT_ENV") or Path(sys.prefix).name
     yes_no = lambda ok: "yes" if ok else "no"        # noqa: E731
 
@@ -124,6 +130,10 @@ def _log_launch_banner(logger):
                 platform.python_version(), struct.calcsize("P") * 8, env)
     logger.info("  drivers avaspec: %s | toolkitpy: %s",
                 yes_no(avaspec_ok), yes_no(toolkitpy_ok))
+    # The reason matters on a fresh install: "no" reads as an unplugged spectrometer,
+    # but it is usually a DLL the wrapper could not find (see SPEC_ECHEM_AVASPEC_DLL_DIR).
+    if not avaspec_ok and avaspec_reason:
+        logger.info("          avaspec import failed: %s", avaspec_reason)
     logger.info("")
 
 
