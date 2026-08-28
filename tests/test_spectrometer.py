@@ -68,42 +68,52 @@ def test_measure_success_without_on_armed(monkeypatch):
     assert len(data) == 1660 - 395
 
 
-# --- AvaSpec DLL search path (SPEC_ECHEM_AVASPEC_DLL_DIR) --------------------
-# Import-time behaviour, so each case reloads the module. os.add_dll_directory
-# exists only on Windows; it is faked here so the guard can be tested anywhere.
+# --- AvaSpec DLL preload (SPEC_ECHEM_AVASPEC_DLL_DIR) ------------------------
+# Import-time behaviour, so each case reloads the module. ctypes.WinDLL exists only
+# on Windows; it is faked here so the guard can be tested anywhere.
 
-def _reload_spectrometer(monkeypatch, dll_dir):
-    """Reimport spec_echem.spectrometer with the env var set, recording the
-    add_dll_directory calls it makes."""
-    calls = []
-    monkeypatch.setattr(os, "add_dll_directory", calls.append, raising=False)
+def _reload_spectrometer(monkeypatch, dll_dir, loader=None):
+    """Reimport spec_echem.spectrometer with the env var set, recording what the
+    module tried to preload."""
+    loaded = []
+    fake = loader or loaded.append
+    monkeypatch.setattr(sm.ctypes, "WinDLL", fake, raising=False)
     monkeypatch.setenv("SPEC_ECHEM_AVASPEC_DLL_DIR", str(dll_dir))
     monkeypatch.delitem(sys.modules, "spec_echem.spectrometer", raising=False)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         importlib.import_module("spec_echem.spectrometer")
-    return calls, caught
+    return loaded, caught
 
 
-def test_dll_dir_added_to_search_path(monkeypatch, tmp_path):
-    calls, caught = _reload_spectrometer(monkeypatch, tmp_path)
-    assert calls == [str(tmp_path)]
+def test_dll_is_preloaded_by_absolute_path(monkeypatch, tmp_path):
+    """The wrapper loads "./avaspecx64.dll" against the CWD, so the search path can't
+    help it — only an already-loaded module of the same base name can."""
+    loaded, caught = _reload_spectrometer(monkeypatch, tmp_path)
+    assert len(loaded) == 1
+    assert os.path.isabs(loaded[0])
+    assert os.path.dirname(loaded[0]) == str(tmp_path)
+    assert os.path.basename(loaded[0]) in ("avaspecx64.dll", "avaspec.dll")
     assert not caught
 
 
-def test_missing_dll_dir_warns_and_is_skipped(monkeypatch, tmp_path):
-    calls, caught = _reload_spectrometer(monkeypatch, tmp_path / "absent")
-    assert calls == []
-    assert any("SPEC_ECHEM_AVASPEC_DLL_DIR" in str(w.message) for w in caught)
+def test_preload_failure_warns_but_does_not_raise(monkeypatch, tmp_path):
+    """A bad folder must not stop the package importing — the plain import may still
+    succeed from the DLL's own directory."""
+    def boom(_path):
+        raise OSError("[WinError 126] The specified module could not be found")
+
+    _, caught = _reload_spectrometer(monkeypatch, tmp_path, loader=boom)
+    assert any("Could not preload" in str(w.message) for w in caught)
 
 
-def test_unset_dll_dir_is_a_no_op(monkeypatch):
-    calls = []
-    monkeypatch.setattr(os, "add_dll_directory", calls.append, raising=False)
+def test_unset_dll_dir_preloads_nothing(monkeypatch):
+    loaded = []
+    monkeypatch.setattr(sm.ctypes, "WinDLL", loaded.append, raising=False)
     monkeypatch.delenv("SPEC_ECHEM_AVASPEC_DLL_DIR", raising=False)
     monkeypatch.delitem(sys.modules, "spec_echem.spectrometer", raising=False)
     importlib.import_module("spec_echem.spectrometer")
-    assert calls == []
+    assert loaded == []
 
 
 def test_import_failure_records_its_reason():
