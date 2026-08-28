@@ -113,13 +113,22 @@ not report a model string — pair the serial number it prints with the label on
 
 4. **If `avaspec` will not import (fresh installs)**
 
-   Newer `avaspec.py` loads its DLL by relative name, so `import avaspec` can fail even with the SDK
-   installed, if the DLL does not sit beside the wrapper. Set `SPEC_ECHEM_AVASPEC_DLL_DIR` to the DLL
-   folder and the app adds it to the search path (Windows only; unset, it does nothing):
+   Avantes' `avaspec.py` loads its DLL as `ctypes.WinDLL("./avaspecx64.dll")`. That leading `./` makes
+   Windows resolve the name against the **current directory**, so `import avaspec` works only when you
+   happen to be sitting in the DLL's folder — and `os.add_dll_directory()` cannot help, because a path
+   containing a separator bypasses the DLL search order entirely.
+
+   Point `SPEC_ECHEM_AVASPEC_DLL_DIR` at the folder holding the DLL and the app loads it by absolute
+   path *before* importing the wrapper; the wrapper's own request then finds it already loaded, matched
+   by base name (Windows only; unset, it does nothing):
 
    ```
    set SPEC_ECHEM_AVASPEC_DLL_DIR=C:\AvaSpecX64-DLL_9.14.0.0
    ```
+
+   That is the **folder**, not the file. Copy `avaspec.py` and `globals.py` into your environment's
+   `site-packages` (they are vendor files — do not commit them to the repo); the DLL stays where the
+   SDK installed it.
 
    The launch banner in the app log reports the import failure and its reason, so "avaspec: no" can be
    told apart from an unplugged spectrometer. Keep `avaspec.py` and the DLL a version-matched pair, and
