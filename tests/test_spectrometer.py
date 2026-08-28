@@ -10,6 +10,11 @@ the time-zero sync for CV and chrono identically — there is only one path.
 The avaspec SDK is absent off-instrument (`from avaspec import *` is guarded), so
 the AVS_* calls are monkeypatched in (raising=False, since they don't exist here).
 """
+import importlib
+import os
+import sys
+import warnings
+
 import pytest
 
 import spec_echem.spectrometer as sm
@@ -61,3 +66,51 @@ def test_measure_success_without_on_armed(monkeypatch):
     spec = _detached_spectrometer()
     ts, data = spec.measure()
     assert len(data) == 1660 - 395
+
+
+# --- AvaSpec DLL search path (SPEC_ECHEM_AVASPEC_DLL_DIR) --------------------
+# Import-time behaviour, so each case reloads the module. os.add_dll_directory
+# exists only on Windows; it is faked here so the guard can be tested anywhere.
+
+def _reload_spectrometer(monkeypatch, dll_dir):
+    """Reimport spec_echem.spectrometer with the env var set, recording the
+    add_dll_directory calls it makes."""
+    calls = []
+    monkeypatch.setattr(os, "add_dll_directory", calls.append, raising=False)
+    monkeypatch.setenv("SPEC_ECHEM_AVASPEC_DLL_DIR", str(dll_dir))
+    monkeypatch.delitem(sys.modules, "spec_echem.spectrometer", raising=False)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        importlib.import_module("spec_echem.spectrometer")
+    return calls, caught
+
+
+def test_dll_dir_added_to_search_path(monkeypatch, tmp_path):
+    calls, caught = _reload_spectrometer(monkeypatch, tmp_path)
+    assert calls == [str(tmp_path)]
+    assert not caught
+
+
+def test_missing_dll_dir_warns_and_is_skipped(monkeypatch, tmp_path):
+    calls, caught = _reload_spectrometer(monkeypatch, tmp_path / "absent")
+    assert calls == []
+    assert any("SPEC_ECHEM_AVASPEC_DLL_DIR" in str(w.message) for w in caught)
+
+
+def test_unset_dll_dir_is_a_no_op(monkeypatch):
+    calls = []
+    monkeypatch.setattr(os, "add_dll_directory", calls.append, raising=False)
+    monkeypatch.delenv("SPEC_ECHEM_AVASPEC_DLL_DIR", raising=False)
+    monkeypatch.delitem(sys.modules, "spec_echem.spectrometer", raising=False)
+    importlib.import_module("spec_echem.spectrometer")
+    assert calls == []
+
+
+def test_import_failure_records_its_reason():
+    """A bare "avaspec: no" cannot distinguish a missing wrapper from a missing
+    DLL; the reason string is what tells them apart in the launch banner."""
+    import spec_echem.spectrometer as sp
+    if sp.AVASPEC_AVAILABLE:
+        assert sp.AVASPEC_IMPORT_ERROR is None
+    else:
+        assert sp.AVASPEC_IMPORT_ERROR
