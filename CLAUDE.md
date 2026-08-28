@@ -285,6 +285,17 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   `spec_echem_version` (the build id), sample name, electrolyte, notes, and a full settings snapshot,
   making each data folder self-documenting.
 
+### Metrohm / Autolab rig — bring-up done, findings in `docs/metrohm-rig-status.md`
+spec-echem was brought up on a Metrohm-Autolab rig (Autolab **PGSTAT10** + AvaSpec-**ULS2048L**,
+2026-08-28). **Read [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md)** — it is the
+cross-session handoff. Headlines: the Autolab connects under **64-bit** Python (no 32/64-bit split,
+unlike Gamry); the SDK 2.1 **does** expose digital I/O (`Instrument.Dio`) plus `Ei` / `LoadProcedure`
+/ `Sampler`; and the DIO→Avantes hardware trigger works from one Python process
+(`examples/query_avantes_trigger.py`). So a Python-driven Autolab backend in `potentiostat.py` (the
+analogue of `ToolkitPotentiostat`) is the recommended direction. Open item there: the calibrated
+pixel window (`CAL_START_PX`/`CAL_STOP_PX` in `spectrometer.py`) is hardcoded for the original
+VRS2048CL-EVO and needs to become bench-configurable — a user on the ULS2048L rig needs >1100 nm.
+
 ### Modularization — DONE
 `get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
 `data.py`; hardware is faked (`fakes.py`) so all 165 tests run with no instruments attached.
