@@ -113,14 +113,19 @@ not report a model string — pair the serial number it prints with the label on
 
 4. **If `avaspec` will not import (fresh installs)**
 
-   Avantes' `avaspec.py` loads its DLL as `ctypes.WinDLL("./avaspecx64.dll")`. That leading `./` makes
-   Windows resolve the name against the **current directory**, so `import avaspec` works only when you
-   happen to be sitting in the DLL's folder — and `os.add_dll_directory()` cannot help, because a path
-   containing a separator bypasses the DLL search order entirely.
+   Avantes' 9.14.0.0 `avaspec.py` loads its DLL as `ctypes.WinDLL("./avaspecx64.dll")`. That leading
+   `./` makes Windows resolve the name against the **current directory**, so `import avaspec` works
+   only when you happen to be sitting in the DLL's folder.
 
-   Point `SPEC_ECHEM_AVASPEC_DLL_DIR` at the folder holding the DLL and the app loads it by absolute
-   path *before* importing the wrapper; the wrapper's own request then finds it already loaded, matched
-   by base name (Windows only; unset, it does nothing):
+   **Neither `os.add_dll_directory()` nor an absolute-path preload fixes that wrapper** — both were
+   tried on hardware (2026-08-28). A path containing a separator bypasses the DLL search order, and
+   the `"./..."` request is not matched against the already-loaded module. The fix is the vendored-file
+   edit in `examples/query_avantes_setup.md` §2: load the DLL by **bare name** after an
+   `os.add_dll_directory(...)`.
+
+   Once the wrapper loads by bare name, point `SPEC_ECHEM_AVASPEC_DLL_DIR` at the folder holding the
+   DLL. The app also preloads the DLL from that folder before importing, which is sufficient on its own
+   for a wrapper that already loads by bare name (Windows only; unset, it does nothing):
 
    ```
    set SPEC_ECHEM_AVASPEC_DLL_DIR=C:\AvaSpecX64-DLL_9.14.0.0
