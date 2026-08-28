@@ -758,21 +758,53 @@ class InstrumentTab(QWidget):
         self._set_actions_enabled(True)
         self.on_apply()
 
-        # Apply this rig's saved wavelength range automatically — otherwise "it comes up
-        # the way I left it" wouldn't hold: the bench default would sit in the spin boxes
-        # while the spectrometer quietly ran at full range.
+        # Clamp the wavelength spin boxes to what THIS spectrometer actually reports
+        # (its calibrated span) — they otherwise accept 0–5000 nm regardless of the
+        # hardware, so a crop tuned for one detector silently misapplies to another.
+        full_lo = float(self._full_wl[0]) if len(self._full_wl) else None
+        full_hi = float(self._full_wl[-1]) if len(self._full_wl) else None
+        if full_lo is not None:
+            for spin in (self.wl_min_spin, self.wl_max_spin):
+                spin.setRange(full_lo, full_hi)
+
+        # Apply this rig's saved wavelength crop automatically — "it comes up the way I
+        # left it" — UNLESS it clearly doesn't belong to the spectrometer now connected
+        # (a different unit, or a stale settings JSON): then come up at the full range
+        # with the saved values parked in the boxes for an explicit Apply, rather than
+        # silently clamping a window drawn for another detector.
         wl_min = self.win.settings.get("wavelength_min")
         wl_max = self.win.settings.get("wavelength_max")
-        if wl_min is not None and wl_max is not None:
+        have_saved = wl_min is not None and wl_max is not None
+        fits = (have_saved and full_lo is not None
+                and self._window_fits(float(wl_min), float(wl_max), full_lo, full_hi))
+        if have_saved and fits:
             self.wl_min_spin.setValue(float(wl_min))
             self.wl_max_spin.setValue(float(wl_max))
-            self._apply_window(float(wl_min), float(wl_max))
+            self._apply_window(self.wl_min_spin.value(), self.wl_max_spin.value())
+            self.wl_status.setText(
+                f"Spectrometer {full_lo:.0f}–{full_hi:.0f} nm · " + self.wl_status.text())
+        elif have_saved and full_lo is not None:   # saved crop doesn't fit this unit
+            self.wl_min_spin.setValue(float(wl_min))
+            self.wl_max_spin.setValue(float(wl_max))
+            self.wl_status.setText(
+                f"Saved crop {float(wl_min):.0f}–{float(wl_max):.0f} nm doesn't fit this "
+                f"spectrometer's {full_lo:.0f}–{full_hi:.0f} nm range — showing full range. "
+                "Adjust and Apply.")
         elif len(self.win.wavelengths):
             self.wl_min_spin.setValue(float(self.win.wavelengths[0]))
             self.wl_max_spin.setValue(float(self.win.wavelengths[-1]))
             self.wl_status.setText(
                 f"Full range: {self._full_wl[0]:.0f}–{self._full_wl[-1]:.0f} nm "
                 f"({len(self._full_wl)} px). Set your lamp's usable range, then Apply.")
+
+    @staticmethod
+    def _window_fits(wl_min, wl_max, full_lo, full_hi):
+        """False only when the saved crop was clearly drawn for a different detector —
+        i.e. it overlaps this spectrometer's calibrated span by less than half its own
+        width. A small edge mismatch (e.g. a 400 nm setting vs a 410 nm floor) still fits."""
+        overlap = max(0.0, min(wl_max, full_hi) - max(wl_min, full_lo))
+        want = max(1e-9, wl_max - wl_min)
+        return overlap >= 0.5 * want
 
     def on_apply(self):
         if self.win.spec is None:
