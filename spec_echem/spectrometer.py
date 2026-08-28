@@ -228,39 +228,59 @@ class AvantesSpectrometer:
         """
         if measconfig is None:
             measconfig = self.measconfig
-            
+
+        total_int_time = measconfig.m_IntegrationTime * measconfig.m_NrAverages
+
         nummeas = 1
         scans = 0
         stopscanning = False
-        
+
         while not stopscanning:
             t1 = time.time()
-            
+
             # Start measurement
             ret = AVS_Measure(self.dev_handle, 0, 1)
-            
-            # Poll for data ready
+            if ret < 0:
+                raise RuntimeError(
+                    f"AVS_Measure failed (code {ret}); no timing measurement taken.")
+
+            # Poll for data ready — but bounded. A scan that never completes (an
+            # integration time below the detector minimum, or the device armed for
+            # an external trigger that never fires) would otherwise spin here
+            # forever, and on_timing_test() runs this on the GUI thread. The bound
+            # scales with the requested exposure so a slow-but-valid measurement is
+            # never cut off; on a normal fast measurement it is never approached.
+            timeout_s = max(2.0, total_int_time / 1000.0 * 3.0 + 2.0)
+            deadline = time.time() + timeout_s
             dataready = False
             while not dataready:
                 dataready = AVS_PollScan(self.dev_handle)
+                if dataready:
+                    break
+                if time.time() > deadline:
+                    raise RuntimeError(
+                        f"No scan completed within {timeout_s:.1f} s at "
+                        f"{measconfig.m_IntegrationTime:g} ms x "
+                        f"{measconfig.m_NrAverages} averages. The integration time "
+                        "may be below this detector's minimum, or it is armed for "
+                        "an external trigger.")
                 time.sleep(0.001)
-            
+
             if dataready:
                 scans += 1
-                
+
             if scans >= nummeas:
                 stopscanning = True
-                
+
             # Get spectral data
             ret = AVS_GetScopeData(self.dev_handle)
             t2 = time.time()
             t_dif = t2 - t1
-            
+
             timestamp = ret[0]
             spectral_data = ret[1]
 
             # Calculate timing difference
-            total_int_time = measconfig.m_IntegrationTime * measconfig.m_NrAverages
             net_dif = (t_dif * 1000) - total_int_time
 
         return timestamp, self._crop(spectral_data), net_dif, t_dif

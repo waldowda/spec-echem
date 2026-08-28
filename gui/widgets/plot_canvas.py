@@ -2,6 +2,8 @@
 Embedded matplotlib canvas, shared by the Instrument preview, the Run cockpit,
 and the Results review tab. Static plots only (drawn on demand / post-segment).
 """
+import textwrap
+
 import matplotlib
 matplotlib.use("QtAgg")
 import numpy as np
@@ -115,7 +117,8 @@ class MplCanvas(FigureCanvasQTAgg):
 
         self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888")
         self.ax.annotate("ADC full scale", xy=(times[0], full_scale), xytext=(2, -10),
-                         textcoords="offset points", fontsize=7, color="#888")
+                         textcoords="offset points", fontsize=7, color="#888",
+                         clip_on=True)
 
         # The fill cap usually decides the working point (the detector stays linear
         # nearly to the clip), so show it — otherwise the recommendation looks arbitrary.
@@ -124,20 +127,25 @@ class MplCanvas(FigureCanvasQTAgg):
             self.ax.axhline(counts_rec, ls=":", lw=1.0, color="#ff7f0e")
             self.ax.annotate(f"max fill ({counts_rec / full_scale * 100:.0f}% FS)",
                              xy=(times[0], counts_rec), xytext=(2, -10),
-                             textcoords="offset points", fontsize=7, color="#ff7f0e")
+                             textcoords="offset points", fontsize=7, color="#ff7f0e",
+                             clip_on=True)
 
         if result.get("t_limit") is not None:
             self.ax.axvline(result["t_limit"], ls="-", lw=1.0, color="#d62728", alpha=0.7)
             self.ax.annotate(f"limit {result['t_limit']:.4g} ms",
                              xy=(result["t_limit"], result["counts_limit"]),
                              xytext=(4, 6), textcoords="offset points",
-                             fontsize=8, color="#d62728")
+                             fontsize=8, color="#d62728", clip_on=True)
         t_rec = result.get("t_recommended")
         if t_rec is not None:
             self.ax.axvline(t_rec, ls="-", lw=1.4, color="#ff7f0e", alpha=0.9)
-            self.ax.annotate(f"recommended {t_rec:.4g} ms", xy=(t_rec, counts[0]),
-                             xytext=(-4, 4), textcoords="offset points",
-                             fontsize=8, color="#ff7f0e", ha="right")
+            # Anchored in the axes corner, not at the (t_rec, counts[0]) data point:
+            # a recommendation near the left edge used to push right-aligned text off
+            # the canvas. Legend is lower-right, so the upper-left corner is free.
+            self.ax.annotate(f"recommended {t_rec:.4g} ms",
+                             xy=(0.03, 0.97), xycoords="axes fraction",
+                             fontsize=8, color="#ff7f0e", ha="left", va="top",
+                             clip_on=True)
 
         self.ax.set_ylim(0, full_scale * 1.08)
         # Lower right: upper-left collides with the ADC full-scale label.
@@ -146,10 +154,17 @@ class MplCanvas(FigureCanvasQTAgg):
         self.draw_idle()
 
     def show_message(self, text):
-        """Clear the canvas and show a centered note (e.g. 'no echem data yet')."""
+        """Clear the canvas and show a centered note (e.g. 'no echem data yet').
+
+        Long strings — a LinearityError sentence, say — are hard-wrapped so they
+        stay inside the axes instead of running off both edges of a small canvas.
+        """
         self._new_axes()
-        self.ax.text(0.5, 0.5, text, ha="center", va="center",
-                     transform=self.ax.transAxes, color="#888", fontsize=9)
+        wrapped = "\n".join(textwrap.fill(line, 48)
+                            for line in (text.splitlines() or [""]))
+        self.ax.text(0.5, 0.5, wrapped, ha="center", va="center",
+                     transform=self.ax.transAxes, color="#888", fontsize=9,
+                     wrap=True, clip_on=True)
         self.ax.set_xticks([])
         self.ax.set_yticks([])
         self.draw_idle()
