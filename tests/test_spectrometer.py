@@ -124,3 +124,48 @@ def test_import_failure_records_its_reason():
         assert sp.AVASPEC_IMPORT_ERROR is None
     else:
         assert sp.AVASPEC_IMPORT_ERROR
+
+
+# --- measure_timing(): must never hang, since on_timing_test() runs it on the GUI
+# thread. A failed arm raises; a scan that never completes times out rather than
+# spinning forever (the ULS2048L below its ~1.05 ms floor, or an unfired trigger).
+
+class _FakeMeasConfig:
+    def __init__(self, integration_ms=2.0, averages=1):
+        self.m_IntegrationTime = integration_ms
+        self.m_NrAverages = averages
+
+
+def _timing_spectrometer(integration_ms=2.0, averages=1):
+    spec = _detached_spectrometer()
+    spec.measconfig = _FakeMeasConfig(integration_ms, averages)
+    return spec
+
+
+def test_measure_timing_raises_on_arm_failure(monkeypatch):
+    monkeypatch.setattr(sm, "AVS_Measure", lambda *a: -1, raising=False)
+    with pytest.raises(RuntimeError, match="AVS_Measure failed"):
+        _timing_spectrometer().measure_timing()
+
+
+def test_measure_timing_times_out_instead_of_hanging(monkeypatch):
+    """AVS_PollScan never goes ready — the inner loop must break on its deadline,
+    not spin. A fake clock jumps past the deadline so the test is instant."""
+    monkeypatch.setattr(sm, "AVS_Measure", lambda *a: 0, raising=False)
+    monkeypatch.setattr(sm, "AVS_PollScan", lambda *a: False, raising=False)
+    ticks = iter([0.0, 0.0] + [1000.0] * 50)
+    monkeypatch.setattr(sm.time, "time", lambda: next(ticks))
+    monkeypatch.setattr(sm.time, "sleep", lambda _s: None)
+    with pytest.raises(RuntimeError, match="No scan completed"):
+        _timing_spectrometer().measure_timing()
+
+
+def test_measure_timing_success_returns_four_tuple(monkeypatch):
+    monkeypatch.setattr(sm, "AVS_Measure", lambda *a: 0, raising=False)
+    monkeypatch.setattr(sm, "AVS_PollScan", lambda *a: True, raising=False)
+    monkeypatch.setattr(sm, "AVS_GetScopeData",
+                        lambda *a: (7.0, list(range(2000))), raising=False)
+    ts, data, net_dif, t_dif = _timing_spectrometer().measure_timing()
+    assert ts == 7.0
+    assert len(data) == 1660 - 395
+    assert t_dif >= 0
