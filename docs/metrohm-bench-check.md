@@ -4,11 +4,17 @@ A start-to-finish order of operations for a machine that has **never run spec-ec
 **Metrohm Autolab** instead of the Gamry. Each step is cheap and answers one question; do them in
 order, because a failure early makes everything after it ambiguous.
 
-The two probe scripts have their own detailed setup guides — this document says *when* to run them
+The probe scripts have their own detailed setup guides — this document says *when* to run them
 and what to conclude. It does not repeat their contents:
 
 - `examples/query_avantes_setup.md` — spectrometer probe (installing the AvaSpec-DLL SDK)
 - `examples/query_autolab_setup.md` — Autolab connect probe (installing the Autolab SDK + pythonnet)
+- `examples/query_avantes_trigger.py` — end-to-end trigger check (Step 4): arms the Avantes and
+  pulses the Autolab DIO from one Python process, no NOVA. No separate setup guide — it needs the
+  same two SDKs as the probes above.
+
+**First rig brought up this way:** an Autolab PGSTAT10 + AvaSpec-ULS2048L, 2026-08-28. Results,
+findings, and what they imply for an Autolab backend are in [`metrohm-rig-status.md`](metrohm-rig-status.md).
 
 ---
 

@@ -20,17 +20,19 @@ import os
 import sys
 
 # ---------------------------------------------------------------------------
-# EDIT THESE THREE to match your install and your instrument model. They all live
-# under the AUTOLAB SDK folder created by the SDK installer.
+# EDIT THESE THREE to match your install and your instrument. The SDK installer
+# creates the "Autolab SDK <version>" folder (older installers used "autolabsdk").
 #
 #   SDK  the EcoChemie.Autolab.Sdk assembly (NO .dll extension — clr adds it)
 #   ADX  the Adk.x hardware driver the SDK launches ("EmbeddedExeFileToStart")
-#   HDW  the hardware-setup XML for YOUR model — the folder name IS the model
-#        (PGSTAT302N here); pick the .xml that matches your module (e.g. FRA32M)
+#   HDW  the hardware-setup XML. Best is the serial-specific file NOVA maintains at
+#        C:\ProgramData\Metrohm Autolab\<ver>\HardwareSetup.<serial>.xml (it carries
+#        this unit's real calibration). Otherwise the SDK's per-model example:
+#        ...\Hardware Setup Files\<MODEL>\HardwareSetup[.<module>].xml
 # ---------------------------------------------------------------------------
-SDK = r"C:\Program Files\Metrohm Autolab\autolabsdk\EcoChemie.Autolab.Sdk"
-ADX = r"C:\Program Files\Metrohm Autolab\autolabsdk\Hardware Setup Files\Adk.x"
-HDW = r"C:\Program Files\Metrohm Autolab\autolabsdk\Hardware Setup Files\PGSTAT302N\HardwareSetup.FRA32M.xml"
+SDK = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\EcoChemie.Autolab.Sdk"
+ADX = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Hardware Setup Files\Adk.x"
+HDW = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Hardware Setup Files\PGSTAT302N\HardwareSetup.FRA32M.xml"
 
 
 def query_autolab():

@@ -4,7 +4,28 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-07-27_
+_Last updated: 2026-08-28_
+
+---
+
+## Metrohm-Autolab rig bring-up (2026-08-28, `gui-dev`) — new
+
+A fresh Win11 box with an Avantes **AvaSpec-ULS2048L** + a Metrohm **Autolab PGSTAT10** (not a Gamry).
+Full write-up: [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md).
+
+- **All four bench-check steps pass.** Spectrometer imports and measures; Autolab connects under
+  **64-bit** Python (no 32/64-bit split on an Autolab rig); and the Autolab digital-out → Avantes
+  hardware-trigger line **fires from Python**, polarity correct (new `examples/query_avantes_trigger.py`).
+- **The Autolab SDK 2.1 exposes `Ei`, `LoadProcedure`, `Sampler`, and full DIO** (`Dio.DioPortsP1[0]`
+  is the trigger line) — so a Python-drives-everything Autolab backend in `potentiostat.py` is the
+  recommended direction, not the NOVA-runs-echem "External mode". NOVA's own spectro-EC procedures
+  already pulse that same P1.A line; NOVA and spec-echem can't both own the Avantes over USB.
+- **Two GUI fixes** (`8f606ca`): `measure_timing()` had an unbounded poll on the GUI thread (froze the
+  app when the integration time was below the detector's ~1.05 ms floor); canvas notes could overflow
+  a small plot area. **Wavelength spin boxes** now clamp to the connected spectrometer's calibrated
+  span (options A+C).
+- **Open:** `CAL_START_PX/CAL_STOP_PX` in `spectrometer.py` is a hardcoded pixel slice (410–1124 nm on
+  this ULS2048L) — a user on this rig needs >1100 nm. Make it bench-configurable, default unchanged.
 
 ---
 

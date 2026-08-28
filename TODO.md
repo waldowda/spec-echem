@@ -109,12 +109,35 @@ Design findings live in the `hardware-portability` memory.
       original "wait for the Avantes check" gate at Dean's direction (2026-07-22).
 - **Findings that make an eventual Autolab *backend* look modest, not scary** (see memory): the SDK
   is **procedure-based** — CV/CA are `.nox` procedure files you `LoadProcedure` + `Measure()`, which
-  mirrors your existing **External mode** (`.GSequence` holds the recipe; Python runs it). The thin
-  wrapper exposes CV only as a result-reading command id (`FHCyclicVoltammetry2`), **no CA**, and
-  **no digital I/O at all**. **The one real pivot to verify: the trigger.** Our sync is Gamry DIGOUT0
-  → Avantes hardware trigger; the wrapper has zero DIO, so confirm in Metrohm's SDK docs whether the
-  Autolab exposes a digital-out line (or a `.nox` can toggle one) to fire the Avantes trigger. If yes,
-  an Autolab backend is largely plumbing behind the existing seam.
+  mirrors your existing **External mode** (`.GSequence` holds the recipe; Python runs it).
+
+- **BENCH-CONFIRMED on a real Autolab (PGSTAT10, 2026-08-28) — see [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md).**
+  - `query_autolab.py` connects under **64-bit** Python → no 32/64-bit split on an Autolab rig
+    (one interpreter can hold avaspec + the SDK).
+  - The "no digital I/O" note above was **wrong for SDK 2.1**: `Instrument.Dio` exposes
+    `DioPortsP1[]/DioPortsP2[]`, and each `DioPort` has `PortDirection {Input,Output}`, `Value:Byte`,
+    `SetPortBit/GetPortBit`. Also `Ei` (potentiostat), `LoadProcedure`, `Sampler`, `Adc`, `Dac`.
+  - **The trigger works.** New `examples/query_avantes_trigger.py` arms the Avantes for a hardware
+    trigger and pulses Autolab DIO `DioPortsP1[0]` (P1.A) from the same Python process — the scan
+    completes, polarity correct. NOVA's own spectro-EC procedures pulse the same P1.A line.
+  - So a Python-drives-everything Autolab backend in `potentiostat.py` (analogue of
+    `ToolkitPotentiostat`, all 64-bit, one process) is the recommended direction. Note: NOVA and
+    spec-echem can't both own the Avantes over USB.
+
+## Wavelength window is a hardcoded pixel slice, wrong for a different spectrometer (2026-08-28)
+
+`spec_echem/spectrometer.py` `CAL_START_PX = 395` / `CAL_STOP_PX = 1659` — a fixed `[395:1660]`
+pixel window applied to **every** Avantes, chosen for the original VRS2048CL-EVO's 300–1100 nm optics.
+On an **AvaSpec-ULS2048L** those pixels are **410.2–1123.7 nm**, so ~1124–1326 nm is silently dropped
+(a user on that rig needs >1100 nm) and <410 nm is unreachable. `set_wavelength_window()` only crops
+*within* the slice, so the GUI can't offer wider.
+
+- [ ] Make the calibrated pixel window **bench-configurable** (`config/*.ini`, e.g. `cal_start_px` /
+      `cal_stop_px`), **default = current `[395:1660]`** so existing 8-column output is byte-identical
+      unless opted in. Validate against `tests/golden/` and re-confirm through `OECT_processing`.
+- [x] **GUI (options A + C, 2026-08-28):** wl spin boxes clamp to the connected spectrometer's
+      calibrated span and show it; a saved crop that fits a different detector (`_window_fits`) is
+      parked for an explicit Apply, not silently clamped. Does not widen past the slice — see above.
 
 ## Gamry DTA converter — cleanups for when we own the parser
 
