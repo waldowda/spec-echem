@@ -19,11 +19,31 @@ import pickle
 import warnings
 import json
 from datetime import datetime
+
+# Newer avaspec.py loads the AvaSpec DLL by relative name, so on a machine where
+# the DLL does not sit beside the wrapper `import avaspec` fails even though both
+# are installed. Point SPEC_ECHEM_AVASPEC_DLL_DIR at the DLL folder (e.g.
+# C:\AvaSpecX64-DLL_9.14.0.0) to put it on the search path. Unset — the bench rig,
+# where wrapper and DLL live together — this is a no-op.
+_avaspec_dll_dir = os.environ.get("SPEC_ECHEM_AVASPEC_DLL_DIR")
+if _avaspec_dll_dir and hasattr(os, "add_dll_directory"):
+    if os.path.isdir(_avaspec_dll_dir):
+        os.add_dll_directory(_avaspec_dll_dir)
+    else:
+        warnings.warn(
+            f"SPEC_ECHEM_AVASPEC_DLL_DIR is set to {_avaspec_dll_dir!r}, "
+            "which is not a directory; ignoring it."
+        )
+
 try:
     from avaspec import *
     AVASPEC_AVAILABLE = True
-except ImportError:
+    AVASPEC_IMPORT_ERROR = None
+except ImportError as exc:
     AVASPEC_AVAILABLE = False
+    # Kept so the launch banner can say WHY, not just "no": a missing DLL and a
+    # missing avaspec.py look identical from the outside and are fixed differently.
+    AVASPEC_IMPORT_ERROR = str(exc)
 
 # A child of the `spec_echem` package logger, so these records reach the app log
 # (see logging_config). They used to be print() calls, which meant the only record
