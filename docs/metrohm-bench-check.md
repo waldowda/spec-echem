@@ -52,16 +52,30 @@ Two things that bite on a fresh install:
 
 ## Step 2 — Spectrometer, as the application sees it
 
-The probe passing does **not** guarantee the app can import `avaspec`. Newer `avaspec.py` loads its
-DLL by relative name, so `import avaspec` can fail even with the SDK correctly installed if the DLL
-does not sit beside the wrapper. The probe handles this internally; the package needs to be told:
+The probe passing does **not** guarantee the app can import `avaspec`, and on the 9.14.0.0 SDK it
+almost certainly won't without help. That `avaspec.py` loads its DLL as
+`ctypes.WinDLL("./avaspecx64.dll")` — an explicit relative path, which Windows resolves against the
+**current directory**. `import avaspec` therefore works only when you are sitting in the DLL's own
+folder. The probe sidesteps this by being run from there.
+
+**Two things were tried against real hardware and do NOT fix it:** `os.add_dll_directory()` (a path
+containing a separator bypasses the DLL search order entirely) and preloading the DLL by absolute
+path (Windows does not match the `"./..."` request to the already-loaded module). Don't reach for
+either — both look correct in the Windows documentation and neither works here.
+
+**What does work** is the vendored-file edit in `examples/query_avantes_setup.md` §2: in your
+environment's `site-packages\avaspec.py`, comment out `import globals` and
+`from PyQt5.QtCore import *`, and change the DLL load to a **bare name** after an
+`os.add_dll_directory(...)`. Once the wrapper loads by bare name, the search path applies and this
+variable is honoured:
 
 ```
 set SPEC_ECHEM_AVASPEC_DLL_DIR=C:\AvaSpecX64-DLL_9.14.0.0
 ```
 
-(Windows only; unset, it does nothing.) Then launch the app and read the banner at the top of the
-app log:
+(Windows only; unset, it does nothing. The app also preloads the DLL from that folder, which is
+enough on its own for a wrapper that already loads by bare name.) Then launch the app and read the
+banner at the top of the app log:
 
 ```
 python -m gui
