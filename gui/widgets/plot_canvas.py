@@ -87,7 +87,7 @@ class MplCanvas(FigureCanvasQTAgg):
         briefly and doesn't jitter the spectra cadence on the worker thread. The
         line resets whenever the axes are cleared (_new_axes → _live_line=None),
         e.g. show_message() at the start of each segment. Generic x/y so the caller
-        picks I-vs-E (CV) or I-vs-t (chrono) from the acq_data fields."""
+        picks I-vs-E (CV) or I-vs-t (chrono) from the EchemData arrays."""
         if self._live_line is None:
             self._xlabel, self._ylabel = xlabel, ylabel
             self._new_axes()

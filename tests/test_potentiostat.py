@@ -36,6 +36,9 @@ def toolkit(monkeypatch):
     pstat = mock.MagicMock(name="pstat")
     curve = mock.MagicMock(name="curve")
     curve.running.return_value = False
+    # No data captured: these tests exercise the arm/fire/finish handshake, not the
+    # echem payload. A MagicMock here would masquerade as a structured array.
+    curve.acq_data.return_value = None
     tkp.Pstat.return_value = pstat
     tkp.ChronoCurve.return_value = curve
     tkp.RcvCurve.return_value = curve
@@ -172,3 +175,56 @@ def test_prepare_raises_when_gamry_setup_fails(toolkit, tmp_path):
     p = potentiostat.ToolkitPotentiostat(_settings(tmp_path))
     with pytest.raises(RuntimeError, match="Gamry setup"):
         p.prepare(_pre_segment())
+
+
+# --- acq_data -> EchemData -------------------------------------------------
+# The Gamry field names stop at this converter; everything downstream sees
+# EchemData. A wrong-shaped array must fail loudly here rather than three files
+# later in the writer.
+
+def _acq(names=("time", "vf", "im"), n=4):
+    import numpy as np
+    arr = np.zeros(n, dtype=np.dtype([(nm, "f8") for nm in names]))
+    for i, nm in enumerate(names):
+        arr[nm] = np.arange(n, dtype=float) + i
+    return arr
+
+
+def test_acq_data_maps_gamry_fields_onto_echem_data():
+    e = potentiostat.echem_from_acq_data(_acq())
+    assert list(e.time) == [0.0, 1.0, 2.0, 3.0]        # 'time'
+    assert list(e.potential) == [1.0, 2.0, 3.0, 4.0]   # 'vf'
+    assert list(e.current) == [2.0, 3.0, 4.0, 5.0]     # 'im'
+
+
+def test_acq_data_missing_a_field_raises():
+    with pytest.raises(ValueError, match="im"):
+        potentiostat.echem_from_acq_data(_acq(names=("time", "vf")))
+
+
+def test_no_data_yet_is_none_not_an_error():
+    """Early in a poll loop there may be nothing at all — that is not a broken
+    contract, and must not raise inside the segment thread."""
+    assert potentiostat.echem_from_acq_data(None) is None
+
+
+# --- make_potentiostat: one place decides who drives the cell ---------------
+
+def test_factory_defaults_to_external():
+    """An absent or empty mode must give the PROVEN path, never a Python driver
+    nobody asked for."""
+    assert isinstance(potentiostat.make_potentiostat({}),
+                      potentiostat.ExternalPotentiostat)
+
+
+def test_factory_builds_the_toolkit_driver_for_python_mode(toolkit, tmp_path):
+    p = potentiostat.make_potentiostat(dict(_settings(tmp_path),
+                                            potentiostat_mode="python"))
+    assert isinstance(p, potentiostat.ToolkitPotentiostat)
+
+
+def test_factory_rejects_an_unknown_mode():
+    """A typo in bench.ini must say so, not quietly run with nobody driving the
+    cell — which would look like a successful External run producing no echem."""
+    with pytest.raises(ValueError, match="autolab"):
+        potentiostat.make_potentiostat({"potentiostat_mode": "autolab"})

@@ -37,9 +37,11 @@ independent; t=0 is still synced by the hardware trigger.
 import threading
 import time
 
+import numpy as np
+
 from spec_echem.data import (
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
-    _echem_dta_path,
+    EchemData, _echem_dta_path,
 )
 from spec_echem.logging_config import get_run_logger
 
@@ -103,6 +105,34 @@ def probe_identity():
         tkp.toolkitpy_close()
 
 
+def echem_from_acq_data(acq):
+    """toolkitpy's ``acq_data()`` structured array -> the vendor-neutral EchemData.
+
+    The Gamry field names (`vf`, `im`, `time`) stop HERE. `write_echem_file` used to
+    read them straight out of the array, which meant any non-Gamry driver had to
+    fabricate Gamry field names just to be writable — the one thing that had to change
+    before a second potentiostat could exist.
+
+    Returns None when there is nothing yet (no array, or one with no dtype fields);
+    raises when a real structured array is missing a field we need, since that is a
+    broken contract rather than an empty one.
+    """
+    if acq is None:
+        return None
+    names = getattr(acq.dtype, "names", None) or ()
+    if not names:
+        return None
+    missing = [n for n in ("time", "vf", "im") if n not in names]
+    if missing:
+        raise ValueError(
+            f"acq_data missing field(s) {missing}; got {list(names)}")
+    return EchemData(
+        time=np.asarray(acq["time"]),
+        potential=np.asarray(acq["vf"]),
+        current=np.asarray(acq["im"]),
+    )
+
+
 class Potentiostat:
     """
     No-op base / interface. ExternalPotentiostat is exactly this: the Gamry runs
@@ -161,21 +191,38 @@ class Potentiostat:
 
     def last_data(self):
         """
-        Echem data (numpy structured array) captured from the just-finished
-        segment, or None. External/no-op has none — Python never touches the Gamry.
+        Echem data (data.EchemData) captured from the just-finished segment, or
+        None. External/no-op has none — Python never touches the potentiostat.
         """
         return None
 
     def live_data(self):
         """
-        Snapshot of the echem data captured SO FAR in the current segment (numpy
-        structured array), or None — lets the GUI draw a live plot mid-run so the
+        Snapshot of the echem data captured SO FAR in the current segment
+        (data.EchemData), or None — lets the GUI draw a live plot mid-run so the
         user can watch a CV/hold and abort early. External/no-op has none.
         """
         return None
 
     def close(self):
         pass
+
+
+def make_potentiostat(settings):
+    """Build the driver named by settings["potentiostat_mode"].
+
+    One place decides which potentiostat a run uses. It was a ternary at the GUI's
+    construction site; a second vendor is coming (see docs/metrohm-rig-status.md),
+    and an unknown mode should fail here with a readable message rather than
+    silently falling back to "nobody is driving the cell".
+    """
+    mode = (settings.get("potentiostat_mode") or "external").lower()
+    if mode == "external":
+        return ExternalPotentiostat()
+    if mode == "python":
+        return ToolkitPotentiostat(settings)
+    raise ValueError(
+        f"Unknown potentiostat_mode {mode!r}; expected 'external' or 'python'.")
 
 
 class ExternalPotentiostat(Potentiostat):
@@ -333,7 +380,7 @@ class ToolkitPotentiostat(Potentiostat):
         Runs AFTER the loop, on the Gamry thread — not in the per-spectrum path, so it
         costs the acquisition timing nothing.
         """
-        points = 0 if self._last_data is None else len(self._last_data)
+        points = 0 if self._last_data is None else len(self._last_data.current)
         if not tkp.pstat_is_valid(pstat):
             self._device_lost = True
             get_run_logger().warning(
@@ -391,7 +438,7 @@ class ToolkitPotentiostat(Potentiostat):
                 # the GUI can draw the curve mid-run. (This poll was already here from
                 # the validated path; feeding the live plot now also gives it a clear
                 # purpose — still flagged for the two-thread simplification follow-up.)
-                self._live_data = curve.acq_data()
+                self._live_data = echem_from_acq_data(curve.acq_data())
                 time.sleep(0.05)
             elapsed = time.time() - started
             if curve.running():
@@ -401,7 +448,7 @@ class ToolkitPotentiostat(Potentiostat):
                     pass
 
             if not self._abort.is_set():
-                self._last_data = curve.acq_data()
+                self._last_data = echem_from_acq_data(curve.acq_data())
                 self._write_dta(curve, pstat, segment)
                 # WHY the poll loop ended matters, and used to be thrown away: leaving
                 # early because the instrument vanished looked exactly like finishing
