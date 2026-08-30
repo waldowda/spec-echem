@@ -19,6 +19,7 @@ probe pulses DIO P1.A. Everything else is unknown, because nothing has yet calle
       -> decides everything. The doping potential increments every cycle
          (potentiostat._chrono_potential), so if a .nox can't be parameterized,
          twelve cycles means twelve procedure files, or no procedure route at all.
+         Tested by WRITING a value and reading it back, not just listing it.
   Q3  Can `Ei` hold a potential directly, with no .nox?
       -> if yes, chrono needs no procedure and only CV does.
   Q4  What does the data look like coming back (names, lengths, dtypes)?
@@ -26,6 +27,9 @@ probe pulses DIO P1.A. Everything else is unknown, because nothing has yet calle
   Q5  Is data readable DURING a run, or only after?   -> live_data()/pump()
   Q6  Can a running measurement be aborted?            -> stop()
   Q7  Is there a liveness check usable mid-run?        -> device_lost()
+  Q8  Does the procedure already contain a DIO pulse?  -> then the .nox fires the
+      Avantes trigger itself, the way DIGOUT0 lives inside a .GSequence, and
+      fire() becomes simply "start the procedure".
 
 Most of this is REFLECTION — listing what the SDK actually exposes — which touches
 nothing. The parts that energize the cell are behind ENERGIZE_CELL, off by default.
@@ -53,8 +57,13 @@ SDK = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\EcoChemie.Autolab.Sdk"
 ADX = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Hardware Setup Files\Adk.x"
 HDW = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Hardware Setup Files\PGSTAT302N\HardwareSetup.FRA32M.xml"
 
-# A NOVA-built procedure to inspect (and optionally run). A chronoamperometry or CV
-# procedure is ideal. Leave "" to skip every procedure question (Q1, Q2).
+# A NOVA-built procedure to inspect (and optionally run). Prefer one of NOVA's
+# STANDARD CV or chronoamperometry procedures — the intended design is to use the
+# vendor's standard measurement the way the Gamry driver uses toolkitpy's own
+# signal constructors (signal_r_up_dn_new / signal_d_step_new), rather than
+# hand-rolling a waveform in Python. The PC_Spectral* procedures on this rig are
+# also worth a look: they already contain the P1.A trigger pulse (Q8).
+# Leave "" to skip every procedure question (Q1, Q2, Q8).
 NOX = r""
 
 # ---------------------------------------------------------------------------
@@ -197,6 +206,8 @@ def inspect_procedure(inst):
     # Q2 is the expensive question: can we change a potential before running?
     say("")
     say("Q2 — parameter access. Looking for a command tree we can write into:")
+    writable = []
+    dio_commands = []
     for attr in ("Commands", "CommandList", "Steps"):
         node = _safe(lambda a=attr: getattr(proc, a), None)
         if node is None or isinstance(node, str):
@@ -205,20 +216,85 @@ def inspect_procedure(inst):
         dump_members(node, f"Procedure.{attr}")
         try:
             for i, cmd in enumerate(node):
-                if i >= 12:
+                if i >= 40:
                     say("    ... (truncated)")
                     break
                 name = _safe(lambda c=cmd: str(c.CommandId), None)
                 say(f"    [{i}] {name}")
+                # Q8: does the trigger already live INSIDE this procedure? NOVA's own
+                # spectro-EC procedures pulse P1.A, which is the .nox analogue of
+                # DIGOUT0 living in a .GSequence.
+                if any(k in str(name).lower() for k in ("dio", "hdio", "digital")):
+                    dio_commands.append(f"[{i}] {name}")
                 params = _safe(lambda c=cmd: c.CommandParameters, None)
-                if params is not None and not isinstance(params, str):
-                    for p in params:
-                        pn = _safe(lambda p=p: str(p.ParameterName), None)
-                        pv = _safe(lambda p=p: str(p.ValueAsObject), None)
-                        say(f"         param {pn} = {pv}")
+                if params is None or isinstance(params, str):
+                    continue
+                for prm in params:
+                    pn = _safe(lambda prm=prm: str(prm.ParameterName), None)
+                    pv = _safe(lambda prm=prm: str(prm.ValueAsObject), None)
+                    say(f"         param {pn} = {pv}")
+                    if _param_is_writable(prm, pn):
+                        writable.append(f"{name}.{pn}")
         except Exception as exc:  # noqa: BLE001
             say(f"    could not iterate: {exc}")
+
+    say("")
+    if writable:
+        say(f"Q2 ANSWER: YES — {len(writable)} parameter(s) took a written value and read")
+        say("  it back. A single standard NOVA CV/CA procedure can be re-parameterized")
+        say("  per cycle, which is what the incrementing doping potential needs.")
+        for w in writable[:10]:
+            say(f"    writable: {w}")
+    else:
+        say("Q2 ANSWER: NO parameter accepted a write (or none were reachable).")
+        say("  If this holds, the procedure route needs one .nox per potential — or")
+        say("  chrono moves to direct Ei control and only CV stays a procedure.")
+
+    say("")
+    if dio_commands:
+        say("Q8 ANSWER: this procedure ALREADY contains digital-I/O command(s):")
+        for d in dio_commands:
+            say(f"    {d}")
+        say("  So the Avantes trigger can live inside the .nox, exactly the way DIGOUT0")
+        say("  lives inside a .GSequence — fire() becomes 'start the procedure'.")
+    else:
+        say("Q8: no digital-I/O command found in this procedure. Either add a P1.A pulse")
+        say("  in NOVA (see the PC_Spectral* procedures, which have one), or have Python")
+        say("  pulse DIO before starting the run.")
     return proc
+
+
+def _param_is_writable(prm, name):
+    """Q2, definitively: write a value, read it back, put the original back.
+
+    Reading the parameter list only proves we can SEE the potentials. What decides
+    the design is whether we can CHANGE one — the doping potential increments every
+    cycle. Touches no hardware: this edits the in-memory procedure, and nothing is
+    run afterwards.
+    """
+    try:
+        original = prm.ValueAsObject
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        probe = float(original) + 0.001 if isinstance(original, (int, float)) else None
+    except Exception:  # noqa: BLE001
+        probe = None
+    if probe is None:
+        return False       # non-numeric (a mode, a name) — not what we need to set
+    try:
+        prm.ValueAsObject = probe
+        readback = float(prm.ValueAsObject)
+        ok = abs(readback - probe) < 1e-9
+    except Exception as exc:  # noqa: BLE001
+        say(f"           (write to {name} rejected: {exc})")
+        return False
+    finally:
+        try:
+            prm.ValueAsObject = original   # always restore
+        except Exception:  # noqa: BLE001
+            say(f"           WARNING: could not restore {name} to {original!r}")
+    return ok
 
 
 def run_procedure(inst):
