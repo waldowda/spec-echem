@@ -5,6 +5,7 @@ No Qt imports. No vendor SDK imports.
 import json
 import re
 from datetime import datetime
+from typing import NamedTuple
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -232,19 +233,27 @@ def _echem_dta_path(data_type, run_number, data_root, added_path):
     return Path(data_root) / added_path / 'dta' / name
 
 
-def _acq_field(acq_data, name):
-    """Pull a named field from the toolkit's numpy structured array (defensive)."""
-    names = acq_data.dtype.names or ()
-    if name not in names:
-        raise ValueError(f"acq_data missing field '{name}'; got {list(names)}")
-    return np.asarray(acq_data[name])
+class EchemData(NamedTuple):
+    """One segment's electrochemistry, in vendor-neutral terms.
 
+    Every potentiostat driver returns THIS from last_data()/live_data(), whatever
+    its SDK hands back. The writer below used to read the toolkitpy field names
+    (`vf`, `im`, `time`) straight out of a Gamry structured array, which meant a
+    non-Gamry driver had to fabricate Gamry field names to be writable. Naming the
+    three quantities once, here, is what lets a second driver exist.
 
-def write_echem_file(acq_data, data_type, run_number, data_root, added_path):
+    Arrays are parallel and equal length; `time` is the device clock in seconds
+    (the writer rebases it), potential in volts, current in amperes.
     """
-    Write the clean analysis .txt for one Python-mode segment straight from the
-    toolkit's acq_data() structured array — no gamry_parser, matching the exact
-    column contract the reader (gamry_data.py) enforces.
+    time: np.ndarray
+    potential: np.ndarray
+    current: np.ndarray
+
+
+def write_echem_file(echem, data_type, run_number, data_root, added_path):
+    """
+    Write the clean analysis .txt for one Python-mode segment from an EchemData,
+    matching the exact column contract the reader (gamry_data.py) enforces.
 
       CV                       -> CV.txt            [potential, current] (cycles concatenated)
       doping/dedoping/prededope -> steps/dedoping/prededoping(N).txt
@@ -254,7 +263,7 @@ def write_echem_file(acq_data, data_type, run_number, data_root, added_path):
     sample) — no vestigial +100 offset (downstream keys off Corrected time by name).
 
     Args:
-        acq_data: numpy structured array from curve.acq_data() (fields vf, im, time)
+        echem: EchemData — parallel time/potential/current arrays
         data_type: int, one of DATA_TYPE_* constants
         run_number: int, cycle counter for the filename
         data_root: str or Path, base data directory
@@ -263,13 +272,13 @@ def write_echem_file(acq_data, data_type, run_number, data_root, added_path):
     Returns:
         Path: path to the file written
     """
-    potential = _acq_field(acq_data, 'vf')
-    current = _acq_field(acq_data, 'im')
+    potential = np.asarray(echem.potential)
+    current = np.asarray(echem.current)
 
     if data_type == DATA_TYPE_CV:
         df = pd.DataFrame({POTENTIAL_COL: potential, CURRENT_COL: current})[CV_COLUMNS]
     else:
-        t = _acq_field(acq_data, 'time')
+        t = np.asarray(echem.time)
         rel = t - t[0] if len(t) else t
         df = pd.DataFrame({
             'Time (s)':           rel,

@@ -9,6 +9,7 @@ from spec_echem.settings import DEFAULT_SETTINGS
 from spec_echem.experiment import build_segments, n_doping_cycles, run_one_segment, Segment
 from spec_echem.data import (
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
+    EchemData,
 )
 from spec_echem.fakes import FakeSpectrometer
 
@@ -159,12 +160,11 @@ class FakePotentiostat:
 
 
 def _chrono_acq(n=5):
-    dt = np.dtype([('time', 'f8'), ('vf', 'f8'), ('im', 'f8')])
-    arr = np.zeros(n, dtype=dt)
-    arr['time'] = np.arange(n) * 0.1
-    arr['vf'] = 0.2
-    arr['im'] = np.linspace(1e-6, 5e-6, n)
-    return arr
+    return EchemData(
+        time=np.arange(n) * 0.1,
+        potential=np.full(n, 0.2),
+        current=np.linspace(1e-6, 5e-6, n),
+    )
 
 
 def test_run_one_segment_writes_echem_next_to_spectra(tmp_path):
