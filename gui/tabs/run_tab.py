@@ -19,7 +19,7 @@ from spec_echem.experiment import build_segments
 from spec_echem.data import write_run_metadata, DATA_TYPE_CV
 from spec_echem.logging_config import (configure_run_logging, close_run_logging,
                                        get_run_logger, app_log_path)
-from spec_echem.potentiostat import ExternalPotentiostat, ToolkitPotentiostat
+from spec_echem.potentiostat import make_potentiostat
 from gui.widgets.plot_canvas import MplCanvas
 from gui.workers import AcquisitionWorker
 
@@ -230,8 +230,7 @@ class RunTab(QWidget):
 
         # Pick the potentiostat: Python-controlled drives the Gamry itself;
         # external means the human starts the .GSequence (the proven default).
-        python_mode = settings.get("potentiostat_mode", "external") == "python"
-        potentiostat = ToolkitPotentiostat(settings) if python_mode else ExternalPotentiostat()
+        potentiostat = make_potentiostat(settings)
 
         # Spin up the worker on its own thread
         self._thread = QThread()
@@ -317,25 +316,22 @@ class RunTab(QWidget):
             self.live_canvas.show_message(f"{label} — waiting for data…")
 
     def _update_live_echem(self):
-        """Timer slot (GUI thread): draw the potentiostat's growing acq_data
+        """Timer slot (GUI thread): draw the potentiostat's growing EchemData
         snapshot. Python mode only; no-op until a segment is producing data."""
         worker, seg = self._worker, self._current_segment
         if worker is None or seg is None:
             return
         pot = worker.potentiostat
         data = pot.live_data() if pot is not None else None
-        if data is None or len(data) == 0:
+        if data is None or len(data.current) == 0:
             return
-        fields = data.dtype.names or ()
-        if "im" not in fields:
-            return
-        current = data["im"]
-        if seg.data_type == DATA_TYPE_CV and "vf" in fields:
+        current = data.current
+        if seg.data_type == DATA_TYPE_CV:
             self.live_canvas.update_live_line(
-                data["vf"], current, "Potential (V)", "Current (A)",
+                data.potential, current, "Potential (V)", "Current (A)",
                 title=f"{seg.label} — live")
-        elif "time" in fields:
-            t = data["time"]
+        else:
+            t = data.time
             t0 = t[0] if len(t) else 0.0
             self.live_canvas.update_live_line(
                 t - t0, current, "Time (s)", "Current (A)",

@@ -12,6 +12,9 @@ and what to conclude. It does not repeat their contents:
 - `examples/query_avantes_trigger.py` — end-to-end trigger check (Step 4): arms the Avantes and
   pulses the Autolab DIO from one Python process, no NOVA. No separate setup guide — it needs the
   same two SDKs as the probes above.
+- `examples/query_autolab_run.py` — can Python *run* electrochemistry (Step 5)? Reflects the SDK
+  and, behind an off-by-default flag, holds a potential and runs a procedure. Writes
+  `autolab_api_report.txt`, which is the input to writing an Autolab driver.
 
 **First rig brought up this way:** an Autolab PGSTAT10 + AvaSpec-ULS2048L, 2026-08-28. Results,
 findings, and what they imply for an Autolab backend are in [`metrohm-rig-status.md`](metrohm-rig-status.md).
@@ -152,6 +155,32 @@ trigger = false
 Acquisition then free-runs: start the spectra, start the procedure, correlate by wall clock. You
 lose the hardware time zero, which is the point of the rig — but it gets you a first co-acquisition
 rather than a dead afternoon.
+
+---
+
+## Step 5 — Can Python run the electrochemistry?
+
+Only needed if you are heading toward a Python-driven Autolab backend rather than External mode.
+Steps 1–4 prove the *trigger*; this one asks whether Python can drive the cell as well, which is
+what `spec_echem/potentiostat.py` would need.
+
+```
+python examples\query_autolab_run.py
+```
+
+Out of the box it **only connects and reflects** — it lists what the SDK exposes and never
+energizes anything. That alone answers most of the design questions. To go further, set `NOX` to a
+NOVA procedure and flip `ENERGIZE_CELL = True` — **with a dummy cell or test resistor**, never a
+real sample.
+
+It writes `examples/autolab_api_report.txt`. **Commit and push that file**; it is what the driver
+gets written from, and it saves retyping API listings between machines.
+
+The two answers that matter most:
+
+- **Can a loaded `.nox`'s parameters be overridden from Python?** The doping potential increments
+  every cycle, so if not, the procedure route needs one file per cycle — or isn't viable.
+- **Does `Measure()` block?** That decides whether the driver needs its own thread.
 
 ---
 
