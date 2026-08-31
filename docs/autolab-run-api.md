@@ -181,7 +181,8 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
    does `IsMeasuring` go False cleanly.
 4. **Errored run:** does `IsMeasuring` go False (looks like success) or hang True on a fault? Is
    there a status/result object to distinguish completed / aborted / errored?
-   → **`examples/bench_autolab_fault.py`** (written 2026-08-31). Premise: the dangerous fault is
+   → **`examples/bench_autolab_fault.py`** (written 2026-08-31; instructions in
+   `examples/bench_autolab_fault_setup.md`). Premise: the dangerous fault is
    probably one the SDK does *not* report — an open cell or an overload finishes normally and fills
    `.Signals` with meaningless numbers. It compares a clean baseline against a software-induced
    current overload, an open cell, and a USB pull, sampling `Ei.PotentialOverload` /
