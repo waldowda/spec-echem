@@ -36,3 +36,17 @@ software up on a machine or a rig it has never run on. The Autolab ones are 64-b
 
 Run them in that order — a failure early makes everything after it ambiguous. The procedure is
 `docs/metrohm-bench-check.md`; the findings so far are `docs/metrohm-rig-status.md`.
+
+## Autolab bench scripts — characterising the templates
+
+Written against the API proven by the probes (`docs/autolab-run-api.md`), these run real
+measurements on a **10 kΩ dummy resistor** and answer what is left before the
+`AutolabPotentiostat` driver can be written. Shared SDK calls live in `autolab_common.py`.
+
+| Script | Closes | What it settles |
+|--------|--------|-----------------|
+| `bench_autolab_cv.py` | items 1, 2, 3 | Is `CommandParameters[4]` the crossing count? Does a second run reuse the first's buffer? What does `Abort()` leave behind? Writes CSVs of a known-good CV. |
+| `bench_autolab_ca.py` | item 6 | The chronoamperometry parameter index map — **unknown**, and needed by three of the four data types. Verifies each candidate index against the recorded data instead of adopting it on looks. |
+
+Both default to `ENERGIZE_CELL = False`, which runs the parameter-map phase only and touches
+nothing. That phase is worth running even without a dummy cell.
