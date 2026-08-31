@@ -48,6 +48,7 @@ measurements on a **10 kΩ dummy resistor** and answer what is left before the
 | `bench_autolab_cv.py` | items 1, 2, 3 | Is `CommandParameters[4]` the crossing count? Does a second run reuse the first's buffer? What does `Abort()` leave behind? Writes CSVs of a known-good CV. |
 | `bench_autolab_ca.py` | item 6 | The chronoamperometry parameter index map — **unknown**, and needed by three of the four data types. Verifies each candidate index against the recorded data instead of adopting it on looks. |
 | `bench_autolab_fault.py` | items 4, 7 | What a *failed* run looks like. Compares a clean run against an overload, an open cell and a USB pull — because a fault the SDK doesn't report finishes looking exactly like a success. Instructions: `bench_autolab_fault_setup.md`. |
+| `bench_autolab_coacquire.py` | item 5 | Both instruments in one process: arm the Avantes → `Measure()` → pulse the DIO in the procedure's wait window → collect. Measures the **skew** between optical and echem t=0 and prints the pulse delay that zeroes it. |
 
 Both default to `ENERGIZE_CELL = False`, which runs the parameter-map phase only and touches
 nothing. That phase is worth running even without a dummy cell.

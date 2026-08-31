@@ -192,6 +192,15 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
 5. **Trigger integration:** one script — arm Avantes (external-trigger mode) → `Measure()` →
    pulse `Dio.DioPortsP1[0]` → poll to completion → confirm the spectrum landed and is aligned
    within the `FHWait` window.
+   → **`examples/bench_autolab_coacquire.py`** (written 2026-08-31). Reads the procedure's own WAIT
+   duration rather than assuming 5 s, pulses at that offset, and reports the **skew** —
+   `CalcTime[0]` minus the pulse offset — i.e. how far the echem t=0 sits from the optical t=0,
+   plus the `PULSE_DELAY_S` that would zero it. That delay is what `fire()` will use. Good to
+   roughly a tenth of a second (both clocks are host-side and `Measure()` takes ~0.3 s to return),
+   which is enough to choose the delay but is not a calibration. `NUM_SPECTRA > 1` rehearses the
+   real pattern — spectrum 0 triggered, the rest free-running, as `acquisition.py` does.
+   `RUN_EARLY_PULSE_CONTROL` deliberately fires the edge before arming, to confirm on this hardware
+   that it is missed (the rule `diag_trigger_timing.py` established on the Gamry).
 6. **CA template:** doping / dedoping / pre-dedoping are chronoamperometry holds. Pick
    `Standard Nova Procedures\Chrono amperometry.nox` as the template, map its parameter indices
    the same way, decide where the trigger pulse lives.
