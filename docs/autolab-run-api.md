@@ -181,6 +181,13 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
    does `IsMeasuring` go False cleanly.
 4. **Errored run:** does `IsMeasuring` go False (looks like success) or hang True on a fault? Is
    there a status/result object to distinguish completed / aborted / errored?
+   → **`examples/bench_autolab_fault.py`** (written 2026-08-31). Premise: the dangerous fault is
+   probably one the SDK does *not* report — an open cell or an overload finishes normally and fills
+   `.Signals` with meaningless numbers. It compares a clean baseline against a software-induced
+   current overload, an open cell, and a USB pull, sampling `Ei.PotentialOverload` /
+   `Ei.CurrentOverload` / `IsConnected` **during** each run via the new `watch` hook in
+   `autolab_common.run()`. If only the overload flags differ, polling them *is* fault detection —
+   and the driver must report an overloaded segment rather than write it as if it were fine.
 5. **Trigger integration:** one script — arm Avantes (external-trigger mode) → `Measure()` →
    pulse `Dio.DioPortsP1[0]` → poll to completion → confirm the spectrum landed and is aligned
    within the `FHWait` window.
@@ -188,6 +195,9 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
    `Standard Nova Procedures\Chrono amperometry.nox` as the template, map its parameter indices
    the same way, decide where the trigger pulse lives.
 7. **USB-lost liveness:** pull the USB mid-run, confirm `IsConnected` flips (for `device_lost()`).
+   → covered by `bench_autolab_fault.py` run 4, which is opt-in (`RUN_USB_PULL`) and deliberately
+   last: it leaves the cell energized with no software control, so dummy resistor only, and
+   recovery may need a reconnect or a power cycle.
 
 ---
 

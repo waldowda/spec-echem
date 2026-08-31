@@ -203,11 +203,16 @@ def set_param(cmd, index, value, label=""):
         return False
 
 
-def run(proc, inst, poll=0.25, timeout=600.0, live=False):
+def run(proc, inst, poll=0.25, timeout=600.0, live=False, watch=None):
     """Measure() then poll IsMeasuring to completion. Returns elapsed seconds.
 
     Measure() is non-blocking, so the caller owns timing — which is exactly what
     lets the driver pulse the trigger after arming the spectrometer.
+
+    `watch` is called once per poll with (inst, proc, elapsed). The fault bench uses
+    it to sample the overload flags, and the driver will need the same hook: an
+    overloaded run finishes looking exactly like a clean one, so whatever notices
+    has to notice WHILE it runs.
     """
     t0 = time.time()
     proc.Measure()
@@ -224,6 +229,11 @@ def run(proc, inst, poll=0.25, timeout=600.0, live=False):
             i = safe(lambda: inst.Ei.Sampler.GetSignal("WE(1).Current").Value)
             say(f"    t={time.time() - t0:6.2f}s  E={e}  I={i}")
             shown += 1
+        if watch is not None:
+            try:
+                watch(inst, proc, time.time() - t0)
+            except Exception:  # noqa: BLE001 — a watcher must never break the run
+                pass
         time.sleep(poll)
     elapsed = time.time() - t0
     say(f"  Run finished in {elapsed:.2f} s "
