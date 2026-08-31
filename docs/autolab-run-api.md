@@ -58,19 +58,21 @@ Standard CV (`Standard Nova Procedures\Cyclic voltammetry.nox`) command list:
 
 | idx | type | seen | meaning | confidence |
 |---|---|---|---|---|
-| 0 | Double | 0.0 | start potential (V) | high |
-| 1 | Double | 1.0 | upper vertex (V) | high |
-| 2 | Double | −1.0 | lower vertex (V) | high |
-| 3 | Double | 0.00244 | **step potential (V)** | **confirmed** (`SetpointApplied` increments by exactly this) |
-| 4 | Int | 2 | # scans / stops | **unknown** — `Scan` stayed 1 for one full cycle |
-| 5 | Double | 0.0 | ? | **unknown** |
-| 6 | Double | 0.1 | **scan rate (V/s)** | **confirmed** (step / Δt = 0.09998) |
+| 0 | Double | 0.0 | **start potential** (V) | high |
+| 1 | Double | 1.0 | **upper vertex potential** (V) | high |
+| 2 | Double | −1.0 | **lower vertex potential** (V) | high |
+| 3 | Double | 0.00244 | **step potential** (V) | **confirmed** — `SetpointApplied` increments by exactly this; `[3] / Δt` = scan rate. (NOVA manual labels this slot "stop pot", but the data says step — likely a "step"/"stop" transcription slip, or NOVA exposes step here.) |
+| 4 | Int | 2 | **number of (stop) crossings** — 2 = one full cycle | **confirmed** by the NOVA manual + `Scan` staying 1 across one 0→+1→−1→0 cycle |
+| 5 | Double | 0.0 | **"setup potential"** — a NOVA settle value; spec-echem does not set it | resolved via NOVA manual |
+| 6 | Double | 0.1 | **scan rate** — stored **V/s** in the SDK (NOVA UI shows mV/s: 0.1 V/s = 100 mV/s) | **confirmed** — step / Δt = 0.09998 |
 
-Close idx 4 & 5 by opening the `.nox` in NOVA's procedure editor and reading the CV-staircase
-parameter order. spec-echem only needs 0/1/2/6, so this is not blocking.
+The NOVA manual's "CV potentiostatic" entry lists the staircase block as: start pot, upper vertex
+pot, lower vertex pot, stop/step pot, number of crossings, setup potential, scan rate (mV/s) —
+seven items, matching `CommandParameters[0..6]` in order. spec-echem drives 0/1/2/6 (and 4 for
+multi-cycle).
 
-Other writable Doubles: `FHSetSetpointPotential` param [0] (conditioning potential),
-`FHWait` param [0] (pre-staircase wait, seconds — default 5.0).
+Other writable Doubles: `FHSetSetpointPotential` param [0] (**preconditioning potential**),
+`FHWait` param [0] (**duration** / pre-staircase wait, seconds — default 5.0).
 
 ### Recorded data (Q4 — clean mapping)
 - Read **after** `proc.IsMeasuring` goes `False`, from
@@ -167,8 +169,9 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
 
 ## 4. Still to resolve (do with the resistor back in, during driver work)
 
-1. **Multi-cycle:** set CV-staircase idx-4 higher, confirm `Scan` increments and point count
-   multiplies; confirm cycles concatenate in the `.Signals` arrays.
+1. **Multi-cycle:** idx-4 is "number of (stop) crossings" (2 = one cycle). Set it to 4, confirm
+   two cycles run, `ScanNumber` goes 1→2, point count doubles, and cycles concatenate in the
+   `.Signals` arrays.
 2. **Sampler lifecycle:** two `Measure()` runs back-to-back without reconnecting — does run 2's
    `.Signals` contain run 1's points? If so the driver must call `inst.Ei.Sampler.Reset()` (or
    reload the procedure) between segments.
