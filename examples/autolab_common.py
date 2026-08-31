@@ -133,6 +133,56 @@ def disconnect(inst):
         say(f"Disconnect failed: {exc}")
 
 
+# --- digital I/O (the Avantes trigger line) --------------------------------
+
+def open_dio(inst, index=0):
+    """Set DioPortsP1[index] to Output, driven low, and return the port.
+
+    index 0 = P1.A, which is the line NOVA's own spectro-EC procedures pulse on
+    this rig and the one query_avantes_trigger.py proved reaches the Avantes.
+    """
+    import clr
+    from EcoChemie.Autolab.Sdk import DIO
+    from System import Enum
+
+    dio = inst.Dio
+    # DioPortDirection lives in EcoChemie100; reach the enum type through the DIO
+    # property rather than importing that namespace directly.
+    dir_type = clr.GetClrType(DIO).GetProperty("DioPortDirection").PropertyType
+    output = Enum.Parse(dir_type, "Output")
+
+    ports = dio.DioPortsP1
+    if index >= len(ports):
+        say(f"  DioPortsP1 has {len(ports)} ports; index {index} is out of range.")
+        return None
+    port = ports[index]
+    try:
+        port.PortDirection = output
+    except Exception:  # noqa: BLE001 — some builds set direction at the DIO level
+        dio.DioPortDirection = output
+    port.Value = 0
+    name = safe(lambda: str(port.PortName), f"index {index}")
+    say(f"  DIO port {name} (DioPortsP1[{index}]) set to Output, driven low")
+    return port
+
+
+def pulse(port, width_s=0.002):
+    """low -> high -> low. The RISING edge is what the armed Avantes catches."""
+    port.Value = 0
+    time.sleep(0.001)
+    port.Value = 0xFF
+    time.sleep(width_s)
+    port.Value = 0
+
+
+def release_dio(port):
+    try:
+        port.Value = 0
+        port.Release()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # --- procedures ------------------------------------------------------------
 
 def load(inst, nox):
