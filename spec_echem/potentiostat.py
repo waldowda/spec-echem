@@ -208,6 +208,442 @@ class Potentiostat:
         pass
 
 
+# ---------------------------------------------------------------------------
+# Metrohm Autolab
+#
+# Everything below follows docs/autolab-run-api.md, which records what the SDK
+# actually did on the UW rig (2026-08-31) rather than what its documentation says.
+# The unresolved points are named constants or explicit stubs, never guesses buried
+# in logic — see docs/autolab-driver-finishing.md for what to fill in after the
+# bench scripts run.
+#
+# The import guard mirrors toolkitpy's: pythonnet's `clr` is the cheap
+# yes/no. The SDK assembly itself is referenced in open(), from settings paths,
+# because those are per-rig.
+try:
+    import clr as _clr                     # pythonnet
+    AUTOLAB_AVAILABLE = True
+except ImportError:
+    _clr = None
+    AUTOLAB_AVAILABLE = False
+
+# Standard-CV command IdNames (autolab-run-api.md §1).
+AUTOLAB_CV_COMMAND = "FHCyclicVoltammetry2"
+AUTOLAB_WAIT_COMMAND = "FHWait"
+
+# CV staircase CommandParameters, by index. Parameters have no name property on
+# this SDK, so the index IS the address and this table is the only map there is.
+CV_IDX_START = 0
+CV_IDX_UPPER = 1
+CV_IDX_LOWER = 2
+CV_IDX_STEP = 3
+CV_IDX_CROSSINGS = 4      # Int; 2 per full cycle
+CV_IDX_STOP = 5
+CV_IDX_SCANRATE = 6       # V/s in the SDK, even though NOVA's UI shows mV/s
+
+# Chronoamperometry (doping / dedoping / pre-dedoping). UNKNOWN until
+# examples/bench_autolab_ca.py has been run — deliberately None so that reaching
+# this path fails loudly instead of writing a plausible-looking wrong potential.
+CA_COMMAND = None
+CA_IDX_POTENTIAL = None
+CA_IDX_DURATION = None
+CA_IDX_INTERVAL = None
+
+# Pulse the trigger this long, and give up on a segment after this.
+AUTOLAB_PULSE_WIDTH_S = 0.002
+AUTOLAB_MAX_WAIT_MARGIN_S = 30.0
+
+
+def open_instrument(settings):
+    """Connect to the Autolab and return the SDK Instrument.
+
+    A module-level function so tests can substitute a FakeAutolab, the same way
+    the toolkitpy tests substitute `tkp`.
+    """
+    sdk = settings.get("autolab_sdk")
+    if not sdk:
+        raise RuntimeError(
+            "autolab_sdk is not set. The Autolab needs sdk/adx/hdw paths in "
+            "config/bench.ini — they are machine-specific, like data_root.")
+    import os
+    import sys
+    sdk_dir = os.path.dirname(sdk)
+    if sdk_dir and sdk_dir not in sys.path:
+        sys.path.append(sdk_dir)
+    _clr.AddReference(sdk)
+    from EcoChemie.Autolab.Sdk import Instrument
+
+    inst = Instrument()
+    inst.AutolabConnection.EmbeddedExeFileToStart = settings.get("autolab_adx")
+    inst.set_HardwareSetupFile(settings.get("autolab_hdw"))
+    inst.Connect()
+    if not inst.AutolabConnection.IsConnected:
+        raise RuntimeError(
+            "Autolab did not connect. Is NOVA holding the link, or is the "
+            "hardware-setup file wrong for this instrument?")
+    return inst
+
+
+def open_trigger_port(inst, index=0):
+    """DioPortsP1[index] as an output, driven low. Index 0 is P1.A — the line
+    query_avantes_trigger.py proved reaches the Avantes."""
+    from EcoChemie.Autolab.Sdk import DIO
+    from System import Enum
+    dio = inst.Dio
+    dir_type = _clr.GetClrType(DIO).GetProperty("DioPortDirection").PropertyType
+    output = Enum.Parse(dir_type, "Output")
+    port = dio.DioPortsP1[index]
+    try:
+        port.PortDirection = output
+    except Exception:  # noqa: BLE001 — some builds set direction at the DIO level
+        dio.DioPortDirection = output
+    port.Value = 0
+    return port
+
+
+def _set_cell(inst, on):
+    """The cell needs the nested enum member; pythonnet 3.0 rejects a bare bool."""
+    from EcoChemie.Autolab.Sdk import EI
+    inst.Ei.CellOnOff = EI.EICellOnOff.On if on else EI.EICellOnOff.Off
+
+
+def echem_from_signals(cmd):
+    """command.Signals (read after the run) -> EchemData.
+
+    CalcTime is wall-clock from procedure start and begins at roughly the
+    procedure's wait duration, so it is rebased here. CalcPotential is the MEASURED
+    potential — SetpointApplied is what was commanded, which is not what the data
+    file should carry. Current is already amps.
+    """
+    sigs = getattr(cmd, "Signals", None)
+    if sigs is None:
+        return None
+    idnames = list(getattr(sigs, "IdNames", []) or [])
+    if not idnames:
+        return None
+    channels = {}
+    for i, sg in enumerate(sigs):
+        if i < len(idnames):
+            channels[idnames[i]] = list(sg.ValueAsObject)
+
+    missing = [n for n in ("CalcTime", "EI_0.CalcPotential", "EI_0.CalcCurrent")
+               if not channels.get(n)]
+    if missing:
+        raise ValueError(
+            f"Autolab .Signals missing {missing}; got {list(channels)}")
+
+    t = np.asarray(channels["CalcTime"], dtype=float)
+    return EchemData(
+        time=t - t[0] if len(t) else t,
+        potential=np.asarray(channels["EI_0.CalcPotential"], dtype=float),
+        current=np.asarray(channels["EI_0.CalcCurrent"], dtype=float),
+    )
+
+
+class AutolabPotentiostat(Potentiostat):
+    """Python drives a Metrohm Autolab through the SDK, firing the Avantes trigger.
+
+    Simpler than ToolkitPotentiostat, and for one reason: Measure() is
+    NON-BLOCKING. The Gamry needed a dedicated per-segment thread because a
+    toolkitpy curve dies within ~50 ms if its thread does anything else; here the
+    caller starts the run and polls, so there is no thread, no arm/fire event pair,
+    and no stillborn-curve hazard.
+
+    Per segment: prepare() loads the procedure fresh and writes the parameters,
+    fire() switches the cell on, calls Measure(), and pulses the trigger inside the
+    procedure's own wait window; finish() polls to completion and reads the trace.
+
+    Ordering is unchanged from the Gamry path: fire() is called from INSIDE the
+    spectrometer's measure(), after AVS_Measure has armed it, so the edge always
+    lands on an armed detector. Late is safe; early is silently missed.
+    """
+
+    def __init__(self, settings):
+        if not AUTOLAB_AVAILABLE:
+            raise RuntimeError(
+                "pythonnet (clr) is not importable — Autolab control needs the "
+                "Metrohm SDK and `pip install pythonnet`. Use External mode.")
+        self.settings = settings
+        self._inst = None
+        self._port = None
+        self._proc = None
+        self._cmd = None            # the measurement command for this segment
+        self._segment = None
+        self._last_data = None
+        self._live_samples = []     # (t, E, I) scalars accumulated by pump()
+        self._t0 = None
+        self._overloaded = False
+        self._device_lost = False
+        self._aborted = False
+        self._pulse_delay = 0.0
+        self._max_wait = 60.0
+
+    # --- lifecycle ------------------------------------------------------
+
+    def open(self):
+        self._inst = open_instrument(self.settings)
+        self._port = open_trigger_port(
+            self._inst, int(self.settings.get("autolab_dio_port", 0)))
+
+    def close(self):
+        if self._inst is None:
+            return
+        try:
+            _set_cell(self._inst, False)
+        except Exception:  # noqa: BLE001 — never raise on the way out
+            pass
+        if self._port is not None:
+            try:
+                self._port.Value = 0
+                self._port.Release()
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            self._inst.Disconnect()
+        except Exception as exc:  # noqa: BLE001
+            get_run_logger().warning("Autolab disconnect failed: %s", exc)
+        self._inst = None
+
+    # --- per-segment ----------------------------------------------------
+
+    def prepare(self, segment):
+        """Load the procedure FRESH for every segment and write its parameters.
+
+        Reloading each time is deliberate. Whether a second Measure() reuses the
+        first run's .Signals buffer is unresolved (bench_autolab_cv.py phase 2), and
+        a reload is correct either way — if the buffer turns out to be replaced per
+        run, this costs a load; if it accumulates, this is what stops every segment
+        after the first from carrying the one before it.
+        """
+        self._segment = segment
+        self._last_data = None
+        self._live_samples = []
+        self._t0 = None
+        self._overloaded = False
+        self._device_lost = False
+        self._aborted = False
+        self._max_wait = segment.num_points * segment.delta_time * 3.0 + \
+            AUTOLAB_MAX_WAIT_MARGIN_S
+
+        self._proc = self._inst.LoadProcedure(self._nox_for(segment))
+        self._cmd = self._command_for(segment)
+        self._apply_parameters(segment)
+        self._pulse_delay = self._wait_window()
+
+    def fire(self):
+        """The spectrometer is armed and waiting for the edge right now."""
+        _set_cell(self._inst, True)
+        self._t0 = time.time()
+        self._proc.Measure()          # returns immediately
+        self._pulse_trigger()
+
+    def finish(self, aborted=False):
+        if aborted or self._aborted:
+            self._stop_procedure()
+        else:
+            self._poll_to_completion()
+        try:
+            _set_cell(self._inst, False)
+        except Exception as exc:  # noqa: BLE001
+            get_run_logger().warning("Autolab: could not switch the cell off: %s", exc)
+
+        if aborted or self._aborted:
+            return                    # a discarded segment keeps no data
+        try:
+            self._last_data = echem_from_signals(self._cmd)
+        except ValueError as exc:
+            get_run_logger().warning("Autolab: %s", exc)
+            self._last_data = None
+        self._report_segment_health()
+
+    def stop(self):
+        self._aborted = True
+        self._stop_procedure()
+
+    def pump(self):
+        """Once per spectrum. Two jobs, and the first one matters most.
+
+        An overloaded or open-cell run finishes looking exactly like a good one —
+        IsMeasuring goes False, .Signals fills, nothing complains. The overload
+        flags are only readable WHILE the run is going, so if nothing samples them
+        here, a meaningless segment is written as though it were fine.
+
+        It also accumulates the live scalars, since the Autolab exposes instantaneous
+        values rather than a growing array; the authoritative trace still comes from
+        .Signals at the end.
+        """
+        inst = self._inst
+        if inst is None:
+            return
+        try:
+            if inst.Ei.PotentialOverload or inst.Ei.CurrentOverload:
+                self._overloaded = True
+            if not inst.AutolabConnection.IsConnected:
+                self._device_lost = True
+                return
+            if self._t0 is not None:
+                self._live_samples.append(
+                    (time.time() - self._t0,
+                     float(inst.Ei.Potential), float(inst.Ei.Current)))
+        except Exception:  # noqa: BLE001 — a live sample must never sink a segment
+            pass
+
+    def device_lost(self):
+        return self._device_lost
+
+    def last_data(self):
+        return self._last_data
+
+    def live_data(self):
+        if not self._live_samples:
+            return None
+        t, e, i = zip(*self._live_samples)
+        return EchemData(time=np.asarray(t), potential=np.asarray(e),
+                         current=np.asarray(i))
+
+    # --- internals ------------------------------------------------------
+
+    def _nox_for(self, segment):
+        key = ("autolab_nox_cv" if segment.data_type == DATA_TYPE_CV
+               else "autolab_nox_ca")
+        path = self.settings.get(key)
+        if not path:
+            raise RuntimeError(
+                f"{key} is not set — Autolab mode needs a NOVA procedure template "
+                "for this segment type (see config/bench.ini).")
+        return path
+
+    def _command_for(self, segment):
+        if segment.data_type == DATA_TYPE_CV:
+            return self._proc.Commands[AUTOLAB_CV_COMMAND]
+        if CA_COMMAND is None:
+            raise NotImplementedError(
+                "The chronoamperometry command and parameter indices are not known "
+                "yet. Run examples/bench_autolab_ca.py and fill in CA_COMMAND / "
+                "CA_IDX_* — see docs/autolab-driver-finishing.md.")
+        return self._proc.Commands[CA_COMMAND]
+
+    def _apply_parameters(self, segment):
+        s = self.settings
+        if segment.data_type == DATA_TYPE_CV:
+            self._set(CV_IDX_START, s["cv_initial_v"])
+            self._set(CV_IDX_UPPER, s["cv_limit1_v"])
+            self._set(CV_IDX_LOWER, s["cv_limit2_v"])
+            self._set(CV_IDX_STOP, s["cv_final_v"])
+            self._set(CV_IDX_STEP, s["cv_step_size"] / 1000.0)     # mV -> V
+            self._set(CV_IDX_SCANRATE, s["cv_scan_rate"] / 1000.0)  # mV/s -> V/s
+            # 2 crossings per full cycle — bench_autolab_cv.py phase 3 confirms.
+            self._set(CV_IDX_CROSSINGS, 2 * int(s["cv_cycles"]))
+            return
+        # Chrono: same potentials as the Gamry path, once the indices are known.
+        self._set(CA_IDX_POTENTIAL, self._chrono_potential(segment))
+        hold = (s["prededoping_time"] if segment.data_type == DATA_TYPE_PREDEDOPING
+                else s["chrono_time"])
+        if CA_IDX_DURATION is not None:
+            self._set(CA_IDX_DURATION, hold)
+        if CA_IDX_INTERVAL is not None:
+            self._set(CA_IDX_INTERVAL, segment.delta_time)
+
+    def _set(self, index, value):
+        """Write one parameter by index and verify it stuck — a silently ignored
+        potential would run the wrong experiment on a real sample."""
+        if index is None:
+            raise NotImplementedError(
+                "An Autolab parameter index is still unknown — see "
+                "docs/autolab-driver-finishing.md.")
+        prm = self._cmd.CommandParameters[index]
+        prm.ValueAsObject = value
+        back = prm.ValueAsObject
+        if abs(float(back) - float(value)) > 1e-9:
+            raise RuntimeError(
+                f"Autolab parameter [{index}] did not take: wrote {value}, "
+                f"read back {back}.")
+
+    def _chrono_potential(self, segment):
+        s = self.settings
+        if segment.data_type == DATA_TYPE_PREDEDOPING:
+            return s["prededoping_potential"]
+        if segment.data_type == DATA_TYPE_DOPING:
+            return s["doping_potential_start"] + segment.run_number * s["doping_potential_step"]
+        if segment.data_type == DATA_TYPE_DEDOPING:
+            return s["dedoping_potential"]
+        raise ValueError(f"No chrono potential for data_type {segment.data_type}")
+
+    def _wait_window(self):
+        """The procedure's own wait duration — the room between Measure() and the
+        electrochemistry starting, which is where the trigger pulse goes. Read from
+        the procedure rather than assumed, since a NOVA edit would change it."""
+        override = self.settings.get("autolab_pulse_delay_s")
+        if override is not None:
+            return float(override)
+        try:
+            wait = self._proc.Commands[AUTOLAB_WAIT_COMMAND]
+            return float(wait.CommandParameters[0].ValueAsObject)
+        except Exception:  # noqa: BLE001
+            get_run_logger().warning(
+                "Autolab: no wait command in this procedure — pulsing the trigger "
+                "immediately, so the spectra lead the electrochemistry.")
+            return 0.0
+
+    def _pulse_trigger(self):
+        """Pulse P1.A after the wait window, so the optical and echem clocks start
+        together. Sleeping here is harmless: the spectrometer is already armed and
+        doing nothing but waiting for this edge. Chunked so an abort still lands."""
+        deadline = time.time() + self._pulse_delay
+        while time.time() < deadline and not self._aborted:
+            time.sleep(min(0.05, max(0.0, deadline - time.time())))
+        if self._aborted:
+            return
+        port = self._port
+        port.Value = 0
+        time.sleep(0.001)
+        port.Value = 0xFF          # rising edge -> the armed Avantes fires
+        time.sleep(AUTOLAB_PULSE_WIDTH_S)
+        port.Value = 0
+
+    def _poll_to_completion(self):
+        started = self._t0 or time.time()
+        deadline = started + self._max_wait
+        while time.time() < deadline:
+            try:
+                if not self._proc.IsMeasuring:
+                    return
+            except Exception:  # noqa: BLE001 — a vanished instrument reads as lost
+                self._device_lost = True
+                return
+            if not self._inst.AutolabConnection.IsConnected:
+                self._device_lost = True
+                return
+            time.sleep(0.05)
+        get_run_logger().warning(
+            "%s: the Autolab was still running after %.0f s and was stopped at the "
+            "safety limit. Its echem data may be truncated.",
+            getattr(self._segment, "label", "?"), self._max_wait)
+        self._stop_procedure()
+
+    def _stop_procedure(self):
+        try:
+            if self._proc is not None:
+                self._proc.Abort()
+        except Exception as exc:  # noqa: BLE001
+            get_run_logger().warning("Autolab Abort() failed: %s", exc)
+
+    def _report_segment_health(self):
+        """Say so when a segment finished but should not be trusted. The Gamry
+        equivalent of this silence wrote a truncated file with nothing to show it."""
+        label = getattr(self._segment, "label", "?")
+        if self._overloaded:
+            get_run_logger().warning(
+                "%s: the Autolab reported a potential or current OVERLOAD during "
+                "this segment. It completed normally and the data looks ordinary, "
+                "but the electrochemistry is not trustworthy — check the cell "
+                "connections and the current range.", label)
+        if self._device_lost:
+            get_run_logger().warning(
+                "%s: the Autolab stopped responding during this segment; its echem "
+                "data is truncated while the spectra are complete.", label)
+
+
 def make_potentiostat(settings):
     """Build the driver named by settings["potentiostat_mode"].
 
@@ -221,8 +657,11 @@ def make_potentiostat(settings):
         return ExternalPotentiostat()
     if mode == "python":
         return ToolkitPotentiostat(settings)
+    if mode == "autolab":
+        return AutolabPotentiostat(settings)
     raise ValueError(
-        f"Unknown potentiostat_mode {mode!r}; expected 'external' or 'python'.")
+        f"Unknown potentiostat_mode {mode!r}; expected 'external', 'python' "
+        "or 'autolab'.")
 
 
 class ExternalPotentiostat(Potentiostat):

@@ -136,3 +136,215 @@ class FakeSpectrometer:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+# ---------------------------------------------------------------------------
+# FakeAutolab — a stand-in for the Metrohm Autolab SDK.
+#
+# Shaped to match what the SDK actually did on the UW rig on 2026-08-31, recorded
+# in examples/autolab_api_report.txt and docs/autolab-run-api.md. The awkward parts
+# are deliberate, because they are the parts a driver gets wrong:
+#
+#   * LoadProcedure(path) RETURNS the Procedure; there is no inst.Procedure.
+#   * Measure() returns immediately and IsMeasuring goes False later.
+#   * Commands and CommandParameters have NO name property — a command is fetched
+#     from the list by IdName, a parameter only by INDEX.
+#   * Recorded arrays hang off command.Signals and are only readable after the run.
+#   * The cell is switched with an enum member, not a bool.
+#
+# IMPORTANT: this fake encodes our UNDERSTANDING of the SDK. A test passing against
+# it proves the driver is internally consistent, not that the SDK behaves this way.
+# Only the bench can settle that.
+# ---------------------------------------------------------------------------
+
+# The standard-CV command list, as reported by the rig.
+CV_COMMAND_ID = "FHCyclicVoltammetry2"
+WAIT_COMMAND_ID = "FHWait"
+
+# CV staircase parameter defaults, in SDK index order (autolab-run-api.md §1):
+#   0 start V, 1 upper V, 2 lower V, 3 step V, 4 crossings (int), 5 stop V,
+#   6 scan rate V/s
+_CV_DEFAULTS = [0.0, 1.0, -1.0, 0.00244, 2, 0.0, 0.1]
+_WAIT_DEFAULTS = [5.0]
+
+
+class _FakeParameter:
+    """A CommandParameter: a value, addressed by index. No name — that is the point."""
+
+    def __init__(self, value):
+        self.ValueAsObject = value
+
+
+class _FakeList:
+    """Stands in for CommandParameterList / CommandParameterSignalList / the command
+    list: indexable, iterable, and carrying Names/IdNames on the LIST rather than on
+    the items."""
+
+    def __init__(self, items, names=None, idnames=None):
+        self._items = list(items)
+        self.Names = list(names) if names else []
+        self.IdNames = list(idnames) if idnames else []
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._items[key]
+        for i, idn in enumerate(self.IdNames):      # by IdName
+            if idn == key:
+                return self._items[i]
+        for i, nm in enumerate(self.Names):         # then by display name
+            if nm == key:
+                return self._items[i]
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter(self._items)
+
+    def __len__(self):
+        return len(self._items)
+
+
+class _FakeSignal:
+    def __init__(self, values):
+        self.ValueAsObject = list(values)
+
+
+class _FakeCommand:
+    def __init__(self, values):
+        self.CommandParameters = _FakeList([_FakeParameter(v) for v in values])
+        self.Signals = _FakeList([], idnames=[])
+
+    def _publish(self, channels):
+        """Fill .Signals the way a completed run does."""
+        self.Signals = _FakeList([_FakeSignal(v) for v in channels.values()],
+                                 idnames=list(channels))
+
+
+class FakeProcedure:
+    """One loaded .nox. Measure() is non-blocking; IsMeasuring clears after
+    `duration` seconds of wall clock, or immediately when duration is 0."""
+
+    def __init__(self, path, duration=0.0, points=64, wait_s=5.0, fail=False):
+        self.path = path
+        self._duration = duration
+        self._points = points
+        self._fail = fail
+        self._started = None
+        self._aborted = False
+        cv = _FakeCommand(list(_CV_DEFAULTS))
+        wait = _FakeCommand(list(_WAIT_DEFAULTS))
+        wait.CommandParameters[0].ValueAsObject = wait_s
+        self.Commands = _FakeList(
+            [cv, wait],
+            names=["CV staircase", "Wait time (s)"],
+            idnames=[CV_COMMAND_ID, WAIT_COMMAND_ID],
+        )
+
+    # --- the SDK surface ---
+    def Measure(self):
+        if self._fail:
+            raise RuntimeError("fake: Measure() refused")
+        self._started = time.time()
+        self._aborted = False
+
+    @property
+    def IsMeasuring(self):
+        if self._started is None or self._aborted:
+            return False
+        if time.time() - self._started >= self._duration:
+            self._finish()
+            return False
+        return True
+
+    def Abort(self):
+        self._aborted = True
+        self._finish(partial=True)
+
+    # --- what a finished run leaves behind ---
+    def _finish(self, partial=False):
+        cv = self.Commands[CV_COMMAND_ID]
+        n = max(1, self._points // 2) if partial else self._points
+        wait = float(self.Commands[WAIT_COMMAND_ID].CommandParameters[0].ValueAsObject)
+        # CalcTime is wall-clock from procedure start and begins at ~the wait value,
+        # which is exactly the offset the driver has to remove.
+        cv._publish({
+            "CalcTime": [wait + i * 0.024414 for i in range(n)],
+            "EI_0.CalcPotential": [0.001 * i for i in range(n)],
+            "EI_0.CalcCurrent": [1e-7 * i for i in range(n)],
+            "SetpointApplied": [0.001 * i for i in range(n)],
+            "ScanNumber": [1] * n,
+            "Index": list(range(1, n + 1)),
+        })
+
+
+class _FakeEi:
+    def __init__(self):
+        self.Cell = False
+        self.CellOnOff = None
+        self.PotentialOverload = False
+        self.CurrentOverload = False
+        self.Setpoint = 0.0
+        self.Potential = 0.0
+        self.Current = 0.0
+
+
+class _FakePort:
+    """Records every write, so a test can assert an actual rising edge happened
+    rather than just that some method was called."""
+
+    def __init__(self):
+        self._value = 0
+        self.history = []
+        self.PortDirection = None
+        self.PortName = "P1.A"
+        self.released = False
+
+    @property
+    def Value(self):
+        return self._value
+
+    @Value.setter
+    def Value(self, v):
+        self._value = v
+        self.history.append(v)
+
+    @property
+    def rising_edges(self):
+        return sum(1 for a, b in zip(self.history, self.history[1:])
+                   if a == 0 and b != 0)
+
+    def Release(self):
+        self.released = True
+
+
+class _FakeConnection:
+    def __init__(self):
+        self.IsConnected = True
+        self.EmbeddedExeFileToStart = None
+
+
+class FakeAutolab:
+    """Stand-in for EcoChemie.Autolab.Sdk.Instrument."""
+
+    def __init__(self, duration=0.0, points=64, wait_s=5.0, fail_measure=False):
+        self.AutolabConnection = _FakeConnection()
+        self.Ei = _FakeEi()
+        self.port = _FakePort()
+        self._duration = duration
+        self._points = points
+        self._wait_s = wait_s
+        self._fail_measure = fail_measure
+        self.loaded = []              # every .nox path handed to LoadProcedure
+        self.disconnected = False
+
+    def LoadProcedure(self, path):
+        self.loaded.append(path)
+        return FakeProcedure(path, duration=self._duration, points=self._points,
+                             wait_s=self._wait_s, fail=self._fail_measure)
+
+    def Disconnect(self):
+        self.AutolabConnection.IsConnected = False
+        self.disconnected = True
+
+    # --- helpers the tests drive the fake with ---
+    def lose_connection(self):
+        self.AutolabConnection.IsConnected = False
