@@ -1,12 +1,12 @@
 # Can Python *run* electrochemistry on the Autolab? — running `query_autolab_run.py`
 
-The third and last Autolab probe. The first two are answered:
+The third and last Autolab probe. All three are now answered:
 
 | Probe | Question | Answer |
 |---|---|---|
 | `query_autolab.py` | can Python connect? | ✅ yes, under 64-bit |
 | `query_avantes_trigger.py` | can Python fire the Avantes trigger? | ✅ yes, DIO P1.A |
-| **`query_autolab_run.py`** | **can Python run CV / a hold and read the data back?** | **this session** |
+| **`query_autolab_run.py`** | **can Python run CV / a hold and read the data back?** | ✅ yes — see §3.5 |
 
 `spec_echem/potentiostat.py` defines a nine-method driver contract. `fire()` is proven. The other
 eight are unknown, because nothing has yet called `Ei`, `LoadProcedure`, `Measure` or `Sampler` —
@@ -48,11 +48,24 @@ Then set one more:
 
 | Constant | What to point it at |
 |---|---|
-| `NOX` | a NOVA **standard CV or chronoamperometry** procedure |
+| `NOX` | a **standard** CV or chronoamperometry `.nox` |
 
-`NOX` is the important one. Leave it empty and the probe skips the questions that matter. Worth a
-second run pointed at one of the rig's `PC_Spectral*` procedures too — those already contain the
-P1.A trigger pulse, which is Q8.
+`NOX` is the important one. Leave it empty and the probe skips the questions that matter (Q1, Q2,
+Q8). Use one of the procedures the SDK ships in its **`Standard Nova Procedures\`** folder, e.g.
+
+```
+C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Cyclic voltammetry.nox
+C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Chrono amperometry.nox
+```
+
+— not a hand-built procedure from `Documents\NOVA 2.1\`. The design intent is to drive the vendor's
+*standard* measurement (the way the Gamry driver uses toolkitpy's own signal constructors), so the
+probe should characterise a standard procedure.
+
+For **Q8 only** (does the `.nox` already pulse P1.A?), a second **non-energized** run pointed at one
+of the rig's `PC_Spectral*` procedures is worth it — those contain the trigger pulse. Do **not**
+point `NOX` at a `PC_Spectral*` file for the energized run in §4: it also embeds `AvantesStart` /
+`SpectroTriggered` commands that seize the spectrometer over USB.
 
 **Close NOVA before running.** A held link is the most common failure.
 
@@ -64,9 +77,10 @@ P1.A trigger pulse, which is Q8.
 python examples\query_autolab_run.py
 ```
 
-Out of the box `ENERGIZE_CELL = False`: the probe connects, reflects the SDK, loads the procedure,
-tests whether a parameter can be **written**, and disconnects. It never switches the cell on, never
-applies a potential, never calls `Measure()`.
+With `NOX` set and `ENERGIZE_CELL = False` (its default): the probe connects, reflects the SDK, loads
+the procedure, tests whether a parameter can be **written**, and disconnects. It never switches the
+cell on, never applies a potential, never calls `Measure()`. (With `NOX` left empty it still
+connects and reflects, but skips Q1/Q2/Q8 entirely — so set `NOX`.)
 
 This run alone answers the two questions that size the whole job. **It is worth doing even if you
 have twenty minutes and no dummy cell.**
@@ -98,28 +112,55 @@ The decisive one. It writes a value, reads it back, and restores the original.
 
 ### Q4 — what the data looks like
 
-We need per-sample **time, potential, current** to build a `data.EchemData`. Note which `Sampler`
-members return arrays.
+We need per-sample **time, potential, current** to build a `data.EchemData`. On SDK 2.1 the recorded
+arrays are **not** on `Sampler` (its `GetSignal(name)` returns a *scalar* `Signal.Value`, useful for
+live polling only) — they hang off the **command's `.Signals`** list (`CommandParameterSignalList`),
+read after the run. Note which channels come back with a full array.
 
 ---
 
-## 4. Optional — with a dummy cell only
+## 3.5 What the probe found (PGSTAT302N + SDK 2.1, 2026-08-31)
 
-To answer Q1 (does `Measure()` block?) and Q3/Q5 (direct `Ei` hold, data during the run), set:
+Full listing in `examples/autolab_api_report.txt`. Headlines:
+
+- **Q2 — YES.** `LoadProcedure()` *returns* the `Procedure` object (there is no `inst.Procedure`).
+  `Procedure.Commands` is a named list (`.Names` / `.IdNames`); numeric params expose `ValueAsObject`
+  that takes a write and reads back. The standard CV's vertices, step, scan rate, conditioning
+  potential and wait are all writable. → one standard `.nox` per experiment type, re-parameterized
+  per cycle.
+- **Q1 — `Measure()` is NON-BLOCKING.** `Procedure.Measure()` returns in ~0.3 s with
+  `IsMeasuring = True`; poll `Procedure.IsMeasuring` to completion. No dedicated driver thread
+  needed — simpler than the Gamry.
+- **Q4 — clean mapping.** After the run, `Commands['CV staircase'].Signals` gives 1640-point arrays
+  including `CalcTime` (s), `EI_0.CalcPotential` (V) and `EI_0.CalcCurrent` (A) — i.e. there **is** a
+  time channel. `sg.ValueAsObject` is a `List<Double>`. Maps straight onto
+  `data.EchemData(time, potential, current)`.
+- **Q6/Q7 — on the `Procedure` object:** `Abort()`, `Hold()`, `Continue()`, `Skip()`,
+  `IsMeasuring`; `AutolabConnection.IsConnected` for device-lost.
+- **Q8 — NO** for the SDK standard CV: no DIO command. `fire()` pulses `Dio.DioPortsP1[0]` from
+  Python (as `query_avantes_trigger.py` already did), or a P1.A command is added to the `.nox`.
+- **Cell switching:** `Ei.CellOnOff` is the nested enum `EI.EICellOnOff` (`On` / `Off`) — pythonnet
+  3.0 rejects a bare bool/int.
+
+---
+
+## 4. Optional — with a dummy or empty cell
+
+To confirm Q1 timing and Q3/Q5 (direct `Ei` hold, data during the run), set:
 
 ```python
 ENERGIZE_CELL = True
 ```
 
-> ⚠️ **Dummy cell or test resistor only — never a real sample.** The first run of new
-> instrument-control code is not where you want a real electrode. The probe switches the cell off
-> in a `finally`, but that is a backstop, not a substitute for a dummy load.
+> ⚠️ **Dummy cell, test resistor, or empty cell — never a real sample.** An empty cell (leads open)
+> is an open circuit: no current path, no hazard — you just get railed potentials and
+> `PotentialOverload` flags. A real electrode is not where you want the first run of new
+> instrument-control code. The probe switches the cell off in a `finally` and verifies `Ei.Cell`,
+> but that is a backstop, not a substitute for keeping a real sample out of the loop.
 
 `TEST_POTENTIAL` defaults to 0.0 V and `HOLD_SECONDS` to 3 s. Leave them unless you have a reason.
-
-**Q1's answer:** if `Measure()` returns after roughly the procedure's real duration, it blocks and
-the driver needs its own thread, as the Gamry does. If it returns immediately, we poll instead —
-which would make the Autolab driver simpler than the Gamry's.
+The probe polls `Procedure.IsMeasuring` to completion (150 s cap, then `Procedure.Abort()`), so an
+energized run takes about as long as the procedure itself (~50 s for the standard CV).
 
 ---
 
@@ -130,7 +171,7 @@ API listing. That file is what the driver gets written from.
 
 ```
 git add examples/autolab_api_report.txt
-git commit -m "Autolab API report from the UW rig"
+git commit -m "Autolab API report from the Metrohm rig"
 git push origin gui-dev
 ```
 

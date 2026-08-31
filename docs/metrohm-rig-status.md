@@ -11,7 +11,7 @@ Avantes spectrometer + a Metrohm Autolab, and where things stand for continued d
 |---|---|
 | Box | fresh Win11, user `Ginger Lab`, 64-bit `SpecEchem` conda env (Python 3.13) |
 | Spectrometer | **AvaSpec-ULS2048L-USB2**, serial **1404154U1**, 2048 px, min integration ~1.05 ms |
-| Potentiostat | **Metrohm Autolab PGSTAT10**, serial **AUT86130** (no FRA module) |
+| Potentiostat | **Metrohm Autolab PGSTAT302N** (corrected 2026-08-31; earlier notes said PGSTAT10). Connects with the SDK's `Hardware Setup Files\PGSTAT302N\HardwareSetup.FRA32M.xml`. Serial/modules on this unit still to be re-confirmed at the bench. |
 | Autolab SDK | **2.1**, at `C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\` |
 | NOVA | 2.1, also installed |
 
@@ -97,7 +97,28 @@ NOVA-runs-echem "External mode" path on this rig.
    (`_window_fits`, <50% overlap) is parked in the boxes for an explicit Apply instead of being
    silently clamped. Does **not** address item 1 (still 410–1124 for this unit).
 
-3. **Autolab backend** — see the SDK table above. Trigger line confirmed (`Dio.DioPortsP1[0]`).
+3. **Autolab backend** — `examples/query_autolab_run.py` characterised the run API against the
+   PGSTAT302N + SDK 2.1 on 2026-08-31 (full listing: `examples/autolab_api_report.txt`; full
+   handoff incl. dummy-cell validation, contract mapping, open items and the next bench script:
+   **[`autolab-run-api.md`](autolab-run-api.md)**). Ready to write the `potentiostat.py` driver from:
+   - `LoadProcedure(path)` **returns** the `Procedure` object (no `inst.Procedure`).
+   - `Procedure.Commands` is a named command list; numeric `CommandParameter.ValueAsObject` accepts a
+     write + reads back → a standard `.nox` is re-parameterized per cycle (CV vertices / step / scan
+     rate / conditioning V / wait all writable). Address commands by `Commands['<IdName>']`, e.g.
+     `FHCyclicVoltammetry2`, `FHSetSetpointPotential`.
+   - `Procedure.Measure()` is **non-blocking** (returns ~0.3 s, `IsMeasuring` True) → poll
+     `Procedure.IsMeasuring`; no dedicated thread. `MeasureAsync` is absent.
+   - Abort/pause: `Procedure.Abort()` / `Hold()` / `Continue()` / `Skip()`. Liveness:
+     `AutolabConnection.IsConnected`.
+   - Recorded data: `Commands['FHCyclicVoltammetry2'].Signals` (a `CommandParameterSignalList`),
+     read after `IsMeasuring` goes False. Channels seen: `CalcTime` (s), `EI_0.CalcPotential` (V),
+     `EI_0.CalcCurrent` (A), `SetpointApplied`, `ScanNumber`, `Index` — each a `List<Double>` via
+     `ValueAsObject`. Maps directly to `data.EchemData(time, potential, current)`.
+   - Live scalars mid-run: `Ei.Sampler.GetSignal("WE(1).Potential").Value` (scalar, not array).
+   - Cell: `Ei.CellOnOff` takes the nested enum `EI.EICellOnOff.On` / `.Off` (pythonnet 3.0 rejects
+     bool/int). `Ei.Cell` (bool) reads back the state.
+   - No DIO command in the SDK standard CV → `fire()` pulses `Dio.DioPortsP1[0]` (trigger line
+     confirmed by `query_avantes_trigger.py`), or a P1.A command is added to the `.nox` in NOVA.
 
 4. **`avaspec.py` on a fresh box** — the 26fea45 env-var mechanism is ineffective for wrappers that
    load `"./avaspecx64.dll"`; the vendored-file edit is still required. Worth folding the "bare name
