@@ -62,14 +62,15 @@ Standard CV (`Standard Nova Procedures\Cyclic voltammetry.nox`) command list:
 | 1 | Double | 1.0 | **upper vertex potential** (V) | high |
 | 2 | Double | −1.0 | **lower vertex potential** (V) | high |
 | 3 | Double | 0.00244 | **step potential** (V) | **confirmed** — `SetpointApplied` increments by exactly this; `[3] / Δt` = scan rate. (NOVA manual labels this slot "stop pot", but the data says step — likely a "step"/"stop" transcription slip, or NOVA exposes step here.) |
-| 4 | Int | 2 | **number of (stop) crossings** — 2 = one full cycle | **confirmed** by the NOVA manual + `Scan` staying 1 across one 0→+1→−1→0 cycle |
-| 5 | Double | 0.0 | **"setup potential"** — a NOVA settle value; spec-echem does not set it | resolved via NOVA manual |
+| 4 | Int | 2 | **number of (stop) crossings** — 2 = one full cycle | **high** — the only `Int` of the seven params, and "crossings" is the only count-type param in the manual; `Scan` stayed 1 across one 0→+1→−1→0 cycle |
+| 5 | Double | 0.0 | **"setup potential"** (by manual position) — possibly "stop potential"; spec-echem sets neither | **medium** — leans on manual-order == SDK-order; bench-script write-probe will settle it |
 | 6 | Double | 0.1 | **scan rate** — stored **V/s** in the SDK (NOVA UI shows mV/s: 0.1 V/s = 100 mV/s) | **confirmed** — step / Δt = 0.09998 |
 
-The NOVA manual's "CV potentiostatic" entry lists the staircase block as: start pot, upper vertex
-pot, lower vertex pot, stop/step pot, number of crossings, setup potential, scan rate (mV/s) —
-seven items, matching `CommandParameters[0..6]` in order. spec-echem drives 0/1/2/6 (and 4 for
-multi-cycle).
+Indices 0–3 and 6 are pinned by the *run data* alone. The NOVA manual's "CV potentiostatic" entry
+lists the staircase block as (in order, no indices given): start pot, upper vertex pot, lower
+vertex pot, stop/step pot, number of crossings, setup potential, scan rate (mV/s) — seven items,
+assumed to line up with `CommandParameters[0..6]` positionally. spec-echem drives 0/1/2/6 (and 4
+for multi-cycle), none of which depend on that assumption.
 
 Other writable Doubles: `FHSetSetpointPotential` param [0] (**preconditioning potential**),
 `FHWait` param [0] (**duration** / pre-staircase wait, seconds — default 5.0).
