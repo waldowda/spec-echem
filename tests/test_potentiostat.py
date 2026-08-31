@@ -5,6 +5,7 @@ instead of hanging. toolkitpy is hardware-only, so it's replaced with a MagicMoc
 these tests exercise the arm/fire/finish coordination, not the Gamry itself.
 """
 import logging
+import time
 from unittest import mock
 
 import pytest
@@ -226,5 +227,219 @@ def test_factory_builds_the_toolkit_driver_for_python_mode(toolkit, tmp_path):
 def test_factory_rejects_an_unknown_mode():
     """A typo in bench.ini must say so, not quietly run with nobody driving the
     cell — which would look like a successful External run producing no echem."""
-    with pytest.raises(ValueError, match="autolab"):
-        potentiostat.make_potentiostat({"potentiostat_mode": "autolab"})
+    with pytest.raises(ValueError, match="gamry"):
+        potentiostat.make_potentiostat({"potentiostat_mode": "gamry"})
+
+
+# ===========================================================================
+# AutolabPotentiostat
+#
+# Driven against fakes.FakeAutolab, which mimics what the SDK actually did on the
+# rig (docs/autolab-run-api.md). NOTE the limit of these tests: the fake encodes the
+# same understanding of the SDK as the driver does, so a green suite proves internal
+# consistency and catches regressions — it cannot catch a misreading of the SDK.
+# Only the bench settles that.
+# ===========================================================================
+from spec_echem.data import DATA_TYPE_CV, DATA_TYPE_DOPING     # noqa: E402
+from spec_echem.fakes import FakeAutolab, CV_COMMAND_ID        # noqa: E402
+
+
+@pytest.fixture
+def autolab(monkeypatch):
+    """Return a factory: make(**kwargs) -> (driver, fake_instrument), opened."""
+    def make(settings=None, **kwargs):
+        inst = FakeAutolab(**kwargs)
+        monkeypatch.setattr(potentiostat, "AUTOLAB_AVAILABLE", True)
+        monkeypatch.setattr(potentiostat, "open_instrument", lambda s: inst)
+        monkeypatch.setattr(potentiostat, "open_trigger_port",
+                            lambda i, index=0: i.port)
+        monkeypatch.setattr(potentiostat, "_set_cell",
+                            lambda i, on: setattr(i.Ei, "Cell", on))
+        p = potentiostat.AutolabPotentiostat(settings or _autolab_settings())
+        p.open()
+        return p, inst
+    return make
+
+
+def _autolab_settings(**over):
+    s = DEFAULT_SETTINGS.copy()
+    s.update({
+        "autolab_sdk": "sdk", "autolab_adx": "adx", "autolab_hdw": "hdw",
+        "autolab_nox_cv": "cv.nox", "autolab_nox_ca": "ca.nox",
+        "autolab_pulse_delay_s": 0.0,      # keep the tests fast
+        "cv_initial_v": 0.1, "cv_limit1_v": 0.8, "cv_limit2_v": -0.7,
+        "cv_final_v": 0.05, "cv_step_size": 2.44, "cv_scan_rate": 100.0,
+        "cv_cycles": 3,
+    })
+    s.update(over)
+    return s
+
+
+def _cv_segment(points=5):
+    return Segment("CV", DATA_TYPE_CV, 0, num_points=points, delta_time=0.01,
+                   trigger=True)
+
+
+def test_factory_builds_the_autolab_driver(autolab, monkeypatch):
+    monkeypatch.setattr(potentiostat, "AUTOLAB_AVAILABLE", True)
+    p = potentiostat.make_potentiostat(
+        dict(_autolab_settings(), potentiostat_mode="autolab"))
+    assert isinstance(p, potentiostat.AutolabPotentiostat)
+
+
+def test_every_segment_reloads_the_procedure(autolab):
+    """The conservative answer to the unresolved buffer question: whether a second
+    Measure() reuses the first run's .Signals is unknown, and reloading is correct
+    either way. If this stops happening, segment 2 may silently carry segment 1."""
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    p.prepare(_cv_segment())
+    assert inst.loaded == ["cv.nox", "cv.nox"]
+
+
+def test_cv_parameters_are_written_from_settings(autolab):
+    """Including the unit conversions, which are the easy thing to get wrong: the
+    SDK stores scan rate in V/s while NOVA's UI shows mV/s."""
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    prm = [x.ValueAsObject for x in p._cmd.CommandParameters]
+
+    assert prm[potentiostat.CV_IDX_START] == 0.1
+    assert prm[potentiostat.CV_IDX_UPPER] == 0.8
+    assert prm[potentiostat.CV_IDX_LOWER] == -0.7
+    assert prm[potentiostat.CV_IDX_STOP] == 0.05
+    assert prm[potentiostat.CV_IDX_STEP] == pytest.approx(0.00244)   # mV -> V
+    assert prm[potentiostat.CV_IDX_SCANRATE] == pytest.approx(0.1)   # mV/s -> V/s
+    assert prm[potentiostat.CV_IDX_CROSSINGS] == 6                   # 2 per cycle
+
+
+def test_a_parameter_that_does_not_stick_raises(autolab):
+    """A silently ignored potential would run the wrong experiment on a real
+    sample, so the write is verified rather than assumed."""
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+
+    class _Stubborn:
+        ValueAsObject = 0.0
+        def __setattr__(self, name, value):
+            pass                                  # accepts writes, keeps the old value
+
+    p._cmd.CommandParameters._items[0] = _Stubborn()
+    with pytest.raises(RuntimeError, match="did not take"):
+        p._set(0, 0.42)
+
+
+def test_fire_switches_the_cell_on_and_pulses_the_trigger(autolab):
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    p.fire()
+
+    assert inst.Ei.Cell is True
+    assert inst.port.rising_edges == 1            # a real edge, not just a call
+    assert inst.port.Value == 0                   # left low afterwards
+
+
+def test_the_trigger_waits_for_the_procedure_wait_window(autolab):
+    """The pulse goes inside the procedure's own wait, so the optical and echem
+    clocks start together instead of a wait-length apart."""
+    p, inst = autolab(settings=_autolab_settings(autolab_pulse_delay_s=None),
+                      wait_s=0.3)
+    p.prepare(_cv_segment())
+    assert p._pulse_delay == 0.3
+
+    t0 = time.time()
+    p.fire()
+    assert time.time() - t0 >= 0.25               # it actually waited
+
+
+def test_finish_builds_echem_data_rebased_to_zero(autolab):
+    """CalcTime starts at the wait value, not 0, and the MEASURED potential is what
+    belongs in the file — SetpointApplied is only what was commanded."""
+    p, inst = autolab(points=10, wait_s=5.0)
+    p.prepare(_cv_segment())
+    p.fire()
+    p.finish()
+
+    data = p.last_data()
+    assert data is not None
+    assert len(data.current) == 10
+    assert data.time[0] == 0.0                    # rebased
+    assert data.time[-1] == pytest.approx(9 * 0.024414)
+    assert inst.Ei.Cell is False                  # cell off after the segment
+
+
+def test_an_aborted_segment_keeps_no_data(autolab):
+    p, inst = autolab(points=10)
+    p.prepare(_cv_segment())
+    p.fire()
+    p.finish(aborted=True)
+    assert p.last_data() is None
+
+
+def test_an_overload_is_reported_even_though_the_run_completes(autolab, caplog):
+    """The whole reason pump() exists. An overloaded run finishes normally and its
+    data looks ordinary; if nothing samples the flags, it is written as if fine."""
+    p, inst = autolab(points=6)
+    p.prepare(_cv_segment())
+    p.fire()
+    inst.Ei.CurrentOverload = True
+    p.pump()
+    with caplog.at_level(logging.WARNING):
+        p.finish()
+
+    assert "OVERLOAD" in caplog.text
+    assert p.last_data() is not None              # the data is still returned...
+    assert p._overloaded                          # ...but flagged
+
+
+def test_a_vanished_instrument_is_noticed_by_pump(autolab):
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    p.fire()
+    inst.lose_connection()
+    p.pump()
+    assert p.device_lost() is True
+
+
+def test_device_lost_resets_between_segments(autolab):
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    p._device_lost = True
+    p.prepare(_cv_segment())
+    assert p.device_lost() is False
+
+
+def test_live_data_accumulates_the_scalar_samples(autolab):
+    """The Autolab gives instantaneous values, not a growing array, so the live
+    trace is built from what pump() collected."""
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    p.fire()
+    assert p.live_data() is None                  # nothing sampled yet
+    inst.Ei.Potential, inst.Ei.Current = 0.25, 1e-5
+    p.pump()
+    p.pump()
+
+    live = p.live_data()
+    assert len(live.current) == 2
+    assert live.potential[0] == pytest.approx(0.25)
+
+
+def test_a_chrono_segment_fails_loudly_until_the_ca_map_is_known(autolab):
+    """Three of the four data types are chrono holds and the CA parameter indices
+    are still unknown. Reaching this path must name what is missing, not write a
+    plausible-looking wrong potential."""
+    p, inst = autolab()
+    seg = Segment("Doping 0", DATA_TYPE_DOPING, 0, num_points=5, delta_time=0.01,
+                  trigger=True)
+    with pytest.raises(NotImplementedError, match="autolab-driver-finishing"):
+        p.prepare(seg)
+
+
+def test_close_switches_the_cell_off_and_disconnects(autolab):
+    p, inst = autolab()
+    inst.Ei.Cell = True
+    p.close()
+    assert inst.Ei.Cell is False
+    assert inst.disconnected is True
+    assert inst.port.released is True

@@ -145,6 +145,17 @@ Standard CV, 0 → +1 → −1 → 0 V at 0.1 V/s:
 
 ---
 
+## 2b. Driver status (2026-08-31)
+
+`AutolabPotentiostat` is **written and test-covered** in `spec_echem/potentiostat.py`, ahead of the
+bench scripts, with every unresolved point as a named constant or an explicit stub. `FakeAutolab`
+(`spec_echem/fakes.py`) mimics the SDK surface recorded here so the driver is testable with no
+hardware — 200 tests pass. **What is still blocked: the chronoamperometry parameter map**, which
+covers three of the four data types; a chrono segment raises `NotImplementedError` by design.
+
+**`docs/autolab-driver-finishing.md` is the checklist** for turning bench results into a finished
+driver. The GUI wiring is deliberately not written yet.
+
 ## 3. Nine-method contract → Autolab SDK
 
 `potentiostat.py` contract: `open, prepare, fire, finish, stop, pump, last_data, live_data, close`.
