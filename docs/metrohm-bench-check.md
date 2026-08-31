@@ -12,8 +12,8 @@ and what to conclude. It does not repeat their contents:
 - `examples/query_avantes_trigger.py` — end-to-end trigger check (Step 4): arms the Avantes and
   pulses the Autolab DIO from one Python process, no NOVA. No separate setup guide — it needs the
   same two SDKs as the probes above.
-- `examples/query_autolab_run.py` — can Python *run* electrochemistry (Step 5)? Reflects the SDK
-  and, behind an off-by-default flag, holds a potential and runs a procedure. Writes
+- `examples/query_autolab_run_setup.md` — can Python *run* electrochemistry (Step 5)? Reflects the
+  SDK and, behind an off-by-default flag, holds a potential and runs a procedure. Writes
   `autolab_api_report.txt`, which is the input to writing an Autolab driver.
 
 **First rig brought up this way:** an Autolab PGSTAT10 + AvaSpec-ULS2048L, 2026-08-28. Results,
@@ -163,6 +163,9 @@ rather than a dead afternoon.
 Only needed if you are heading toward a Python-driven Autolab backend rather than External mode.
 Steps 1–4 prove the *trigger*; this one asks whether Python can drive the cell as well, which is
 what `spec_echem/potentiostat.py` would need.
+
+**Full directions: [`../examples/query_autolab_run_setup.md`](../examples/query_autolab_run_setup.md)**
+— what to set, how to read each answer, and what to bring back.
 
 ```
 python examples\query_autolab_run.py
