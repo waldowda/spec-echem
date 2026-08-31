@@ -191,9 +191,28 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
 
 ---
 
-## 5. Bench script to write next — `examples/bench_autolab_cv.py`
+## 5. Bench scripts — WRITTEN (2026-08-31), awaiting a rig session
 
-A single command for the next bench session (needs the 10 kΩ back in):
+`examples/bench_autolab_cv.py` and `examples/bench_autolab_ca.py` are committed, with the shared
+proven SDK calls in `examples/autolab_common.py`. Both default to `ENERGIZE_CELL = False`, which
+prints the command list and parameter map and energizes nothing — worth running even without the
+resistor, and the only way the CA map gets made.
+
+With the 10 kΩ back in:
+
+- **`bench_autolab_cv.py`** closes items **1, 2 and 3**. Item 2 is the one that matters most: it
+  runs the same procedure twice back-to-back and compares point counts, so a `.Signals` buffer that
+  accumulates across runs is caught before it silently contaminates every segment after the first.
+  It also re-runs after an explicit reload, to show whether reloading is a clean reset.
+- **`bench_autolab_ca.py`** closes item **6**, the biggest gap — doping, dedoping and pre-dedoping
+  are all chronoamperometry holds and only CV is mapped. The CA indices are unknown, so the script
+  establishes them the way the CV map was established: apply a distinctive value, run, and check the
+  recording agrees (potential → mean `CalcPotential`; duration → `CalcTime` span; interval → median
+  Δt). Each index is reported CONFIRMED or NOT. It also reports whether the CA template has a WAIT
+  command, since the standard CV's 5 s `FHWait` is what gives the driver its arm-margin window for
+  the trigger — if CA lacks one, doping/dedoping trigger timing needs a separate answer.
+
+Original spec for the CV script:
 
 - Load the standard CV, run it energized, poll `IsMeasuring` to completion.
 - Write `CalcTime`, `SetpointApplied`, `EI_0.CalcPotential`, `EI_0.CalcCurrent`, `ScanNumber` to
