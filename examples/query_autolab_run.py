@@ -64,7 +64,7 @@ HDW = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Hardware Setup Files\PG
 # hand-rolling a waveform in Python. The PC_Spectral* procedures on this rig are
 # also worth a look: they already contain the P1.A trigger pulse (Q8).
 # Leave "" to skip every procedure question (Q1, Q2, Q8).
-NOX = r""
+NOX = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Cyclic voltammetry.nox"
 
 # ---------------------------------------------------------------------------
 # CELL SAFETY. With ENERGIZE_CELL = False (the default) this script only connects
@@ -104,6 +104,29 @@ def _safe(fn, default="<unavailable>"):
         return f"<error: {exc}>" if default is None else default
 
 
+def _first_attr(obj, names):
+    """Return (name, value) for the first attribute in `names` that resolves to a
+    real (non-error, non-None) value. For probing an API whose member names we're
+    still guessing at."""
+    for n in names:
+        v = _safe(lambda o=obj, n=n: getattr(o, n), None)
+        if v is not None and not (isinstance(v, str) and v.startswith("<error:")):
+            return n, v
+    return None, None
+
+
+def _switch_cell(ei, on):
+    """Set the cell on/off. EI.CellOnOff is the nested enum EI.EICellOnOff in
+    SDK 2.1 (On=1 / Off=0), and pythonnet 3.0 refuses a bare bool/int — you must
+    assign the enum member. Returns the label that worked; raises otherwise. This
+    is the safety-critical path — the run must be able to de-energize.
+    """
+    from EcoChemie.Autolab.Sdk import EI
+    member = EI.EICellOnOff.On if on else EI.EICellOnOff.Off
+    ei.CellOnOff = member
+    return f"EI.EICellOnOff.{'On' if on else 'Off'}"
+
+
 def dump_members(obj, label, max_items=200):
     """List a .NET object's properties and methods. Pure reflection — touches nothing.
 
@@ -114,6 +137,9 @@ def dump_members(obj, label, max_items=200):
     say(f"--- {label} " + "-" * max(0, 68 - len(label)))
     if obj is None:
         say("  (not available)")
+        return
+    if isinstance(obj, str):
+        say(f"  (not available) {obj}")
         return
     try:
         t = obj.GetType()
@@ -194,14 +220,31 @@ def inspect_procedure(inst):
         return None
 
     try:
-        inst.LoadProcedure(NOX)
+        loaded = inst.LoadProcedure(NOX)
     except Exception as exc:  # noqa: BLE001
         say(f"LoadProcedure failed: {exc}")
         return None
     say(f"LoadProcedure OK: {os.path.basename(NOX)}")
+    say(f"  LoadProcedure() returned: {loaded!r} ({type(loaded).__name__})")
 
-    proc = _safe(lambda: inst.Procedure, None)
-    dump_members(proc, "Instrument.Procedure")
+    # Instrument has NO 'Procedure' property in SDK 2.1 (reflection shows 10
+    # props, none named Procedure). Try every plausible handle and reflect the
+    # first that resolves to a real object.
+    proc = None
+    for expr, getter in (
+        ("inst.Procedure", lambda: inst.Procedure),
+        ("inst.get_Procedure()", lambda: inst.get_Procedure()),
+        ("LoadProcedure() return value", lambda: loaded),
+        ("inst.Commands", lambda: inst.Commands),
+        ("inst.Procedure()", lambda: inst.Procedure()),
+    ):
+        cand = _safe(getter, None)
+        if cand is not None and not isinstance(cand, str):
+            say(f"  procedure handle resolved via: {expr}")
+            proc = cand
+            break
+        say(f"  {expr} -> {cand}")
+    dump_members(proc, "procedure handle")
 
     # Q2 is the expensive question: can we change a potential before running?
     say("")
@@ -214,23 +257,46 @@ def inspect_procedure(inst):
             continue
         say(f"  Procedure.{attr} exists -> {type(node)}")
         dump_members(node, f"Procedure.{attr}")
+
+        # SDK 2.1: ProcedureCommandList carries Names[] / IdNames[]; the per-command
+        # name is NOT cmd.CommandId. Learn the real member names by reflecting one
+        # Command and one CommandParameter before iterating.
+        names_arr = _safe(lambda: list(node.Names), None)
+        idnames_arr = _safe(lambda: list(node.IdNames), None)
+        say(f"  {attr}.Names   = {names_arr}")
+        say(f"  {attr}.IdNames = {idnames_arr}")
+        try:
+            _c0 = next(iter(node))
+            dump_members(_c0, f"{attr}[0] (a Command)")
+            _p0 = _safe(lambda: list(_c0.CommandParameters), None)
+            if _p0 and not isinstance(_p0, str):
+                dump_members(_p0[0], f"{attr}[0].CommandParameters[0]")
+        except Exception as exc:  # noqa: BLE001
+            say(f"  could not reflect a sample command: {exc}")
+
         try:
             for i, cmd in enumerate(node):
                 if i >= 40:
                     say("    ... (truncated)")
                     break
-                name = _safe(lambda c=cmd: str(c.CommandId), None)
+                if isinstance(names_arr, list) and i < len(names_arr):
+                    name = str(names_arr[i])
+                else:
+                    _, nv = _first_attr(cmd, ("CommandId", "Id", "Name", "IdName"))
+                    name = str(nv)
                 say(f"    [{i}] {name}")
                 # Q8: does the trigger already live INSIDE this procedure? NOVA's own
                 # spectro-EC procedures pulse P1.A, which is the .nox analogue of
                 # DIGOUT0 living in a .GSequence.
-                if any(k in str(name).lower() for k in ("dio", "hdio", "digital")):
+                if any(k in name.lower() for k in ("dio", "hdio", "digital")):
                     dio_commands.append(f"[{i}] {name}")
                 params = _safe(lambda c=cmd: c.CommandParameters, None)
                 if params is None or isinstance(params, str):
                     continue
                 for prm in params:
-                    pn = _safe(lambda prm=prm: str(prm.ParameterName), None)
+                    _, pn = _first_attr(prm, ("Name", "ParameterName", "IdName",
+                                              "Id", "CommandParameterName"))
+                    pn = str(pn) if pn is not None else prm.GetType().Name
                     pv = _safe(lambda prm=prm: str(prm.ValueAsObject), None)
                     say(f"         param {pn} = {pv}")
                     if _param_is_writable(prm, pn):
@@ -297,29 +363,79 @@ def _param_is_writable(prm, name):
     return ok
 
 
-def run_procedure(inst):
-    """Q1: does Measure() block, and how long does it take? ENERGIZES THE CELL."""
-    rule("Q1 (live) — Measure() timing and blocking behaviour")
+def run_procedure(inst, proc):
+    """Q1: does Measure() block, and how long? Q4/Q5: what did it record?
+    ENERGIZES THE CELL (the .nox's own Set-cell commands do the switching)."""
+    rule("Q1 (live) — Procedure.Measure() timing / blocking / recorded data")
     if not (ENERGIZE_CELL and NOX):
         say("Skipped (needs ENERGIZE_CELL = True and a NOX path).")
         return
-    say("Running the procedure. Cell WILL be energized — dummy cell only.")
+    if proc is None or isinstance(proc, str):
+        say("No procedure handle — LoadProcedure must have failed. Skipped.")
+        return
+    say("Running the procedure via Procedure.Measure(). Cell WILL be energized.")
+    say(f"  MeasureAsync present: {hasattr(proc, 'MeasureAsync')}")
+    RUN_TIMEOUT = 150.0     # standard CV 0->+1->-1->0 @ 0.1 V/s is ~45 s
     t0 = time.time()
     try:
-        inst.Measure()
+        proc.Measure()
     except Exception as exc:  # noqa: BLE001
-        say(f"Measure() raised: {exc}")
+        say(f"Procedure.Measure() raised: {exc}")
+        _safe(lambda: _switch_cell(inst.Ei, False))   # never leave it energized
         return
-    elapsed = time.time() - t0
-    say(f"Measure() returned after {elapsed:.2f} s.")
-    say("  If that is ~the procedure's real duration, Measure() BLOCKS -> the driver")
-    say("  needs its own thread (like the Gamry). If it returned immediately, poll it.")
+    ret = time.time() - t0
+    say(f"Procedure.Measure() returned after {ret:.2f} s; IsMeasuring="
+        f"{_safe(lambda: proc.IsMeasuring, None)}")
+    if ret < 2.0:
+        say("  -> Measure() is NON-BLOCKING (returns immediately). Q1 ANSWER: the")
+        say("     driver polls Procedure.IsMeasuring; no dedicated thread needed.")
+    else:
+        say("  -> Measure() BLOCKED for the run duration. Q1 ANSWER: driver needs a")
+        say("     worker thread (like the Gamry).")
 
-    for attr in ("IsMeasuring", "Busy", "IsBusy"):
-        v = _safe(lambda a=attr: getattr(inst, a), None)
-        say(f"  Instrument.{attr} = {v}")
+    # Q5: is per-sample data visible WHILE it runs? Poll the live scalars.
+    say("  polling Ei live scalars + IsMeasuring while it runs:")
+    last = None
+    while _safe(lambda: proc.IsMeasuring, False) is True:
+        if time.time() - t0 > RUN_TIMEOUT:
+            say(f"  timeout at {RUN_TIMEOUT:.0f}s — calling Procedure.Abort()")
+            _safe(lambda: proc.Abort())
+            break
+        e = _safe(lambda: inst.Ei.Sampler.GetSignal("WE(1).Potential").Value, None)
+        i = _safe(lambda: inst.Ei.Sampler.GetSignal("WE(1).Current").Value, None)
+        now = f"{time.time() - t0:6.1f}s  E={e}  I={i}"
+        if now[8:] != (last or "")[8:]:
+            say(f"    {now}")
+        last = now
+        time.sleep(0.5)
+    say(f"  run finished after {time.time() - t0:.1f} s "
+        f"(IsMeasuring={_safe(lambda: proc.IsMeasuring, None)})")
 
-    dump_members(_safe(lambda: inst.Procedure, None), "Procedure (after Measure)")
+    # Q4: the recorded arrays. On this SDK they hang off the command's .Signals.
+    cv = _safe(lambda: proc.Commands["FHCyclicVoltammetry2"], None)
+    if cv is None or isinstance(cv, str):
+        cv = _safe(lambda: proc.Commands["CV staircase"], None)
+    sigs = _safe(lambda: cv.Signals, None)
+    dump_members(sigs, "CV staircase .Signals (after run)")
+    names_arr = _safe(lambda: list(sigs.Names), None)
+    idnames_arr = _safe(lambda: list(sigs.IdNames), None)
+    say(f"  .Signals.Names   = {names_arr}")
+    say(f"  .Signals.IdNames = {idnames_arr}")
+    try:
+        for i, sg in enumerate(sigs):
+            nm = names_arr[i] if isinstance(names_arr, list) and i < len(names_arr) else "?"
+            val = _safe(lambda sg=sg: list(sg.ValueAsObject), None)
+            if isinstance(val, list):
+                say(f"    signal[{i}] {nm!r}: {len(val)} pts, "
+                    f"first={val[:3]} last={val[-3:]}")
+            else:
+                say(f"    signal[{i}] {nm!r}: {type(val).__name__} {val}")
+    except Exception as exc:  # noqa: BLE001
+        say(f"    could not iterate .Signals: {exc}")
+    say("")
+    say("  Q4: a signal with N points and a matching E/I pair -> maps to")
+    say("      data.EchemData(time, potential, current). No 'time' signal in the")
+    say("      list means time is index x interval (or a Time signal id).")
 
 
 # --- Q3/Q4/Q5: direct control ---------------------------------------------
@@ -339,32 +455,34 @@ def hold_potential(inst):
         return
 
     say("")
-    say(f"Holding {TEST_POTENTIAL} V for {HOLD_SECONDS} s. DUMMY CELL ONLY.")
+    say(f"Holding {TEST_POTENTIAL} V for {HOLD_SECONDS} s. DUMMY / EMPTY CELL ONLY.")
     try:
         try:
             ei.Setpoint = TEST_POTENTIAL
         except Exception:  # noqa: BLE001
             ei.set_Setpoint(TEST_POTENTIAL)
-        ei.CellOnOff = True
+        say(f"  cell ON via {_switch_cell(ei, True)}; Ei.Cell = {_safe(lambda: ei.Cell, None)}")
         t0 = time.time()
         samples = 0
         while time.time() - t0 < HOLD_SECONDS:
             v = _safe(lambda: ei.PotentialApplied, None)
             i = _safe(lambda: ei.Current, None)
+            ov = _safe(lambda: (ei.PotentialOverload, ei.CurrentOverload), None)
             if samples < 5:
-                say(f"  t={time.time() - t0:5.2f}s  E={v}  I={i}")
+                say(f"  t={time.time() - t0:5.2f}s  E={v}  I={i}  overload(P,I)={ov}")
             samples += 1
             time.sleep(POLL_SECONDS)
         say(f"Held OK; polled {samples} times.")
         say("  Q4: if E and I read back as numbers above, a software-timed chrono is")
-        say("      possible with no .nox at all.")
+        say("      possible with no .nox at all. (Empty cell -> expect railed values")
+        say("      and overload flags; that only proves the read path, not the data.)")
         say("  Q5: values changing across polls == data IS available during a run.")
     except Exception as exc:  # noqa: BLE001
         say(f"Hold failed: {exc}")
     finally:
         try:
-            ei.CellOnOff = False
-            say("Cell switched OFF.")
+            lbl = _switch_cell(ei, False)
+            say(f"Cell switched OFF via {lbl}; Ei.Cell = {_safe(lambda: ei.Cell, None)}")
         except Exception as exc:  # noqa: BLE001
             say(f"WARNING: could not switch the cell off: {exc}")
 
@@ -372,17 +490,31 @@ def hold_potential(inst):
 def inspect_sampler(inst):
     """Q4: what array does the SDK hand back?"""
     rule("Q4 — Sampler / signal arrays")
-    dump_members(_safe(lambda: inst.Sampler, None), "Instrument.Sampler")
+    # Instrument has no .Sampler property; the sampler lives on Ei, and
+    # GetSignals / GetSignal / CreateSampler are the Instrument-level entry points.
+    dump_members(_safe(lambda: inst.Ei.Sampler, None), "Instrument.Ei.Sampler")
+    sigs = _safe(lambda: list(inst.GetSignals), None)
+    say("")
+    say(f"  Instrument.GetSignals -> {sigs}")
     say("")
     say("We need per-sample TIME, POTENTIAL and CURRENT to build a")
     say("data.EchemData(time, potential, current). Note which members give arrays.")
 
 
-def inspect_abort_and_liveness(inst):
+def inspect_abort_and_liveness(inst, proc=None):
     """Q6/Q7: aborting a run, and noticing a vanished instrument."""
     rule("Q6/Q7 — abort and liveness")
     for attr in ("Abort", "Stop", "StopMeasurement", "IsMeasuring"):
         say(f"  Instrument.{attr}: {'present' if hasattr(inst, attr) else 'ABSENT'}")
+    say("")
+    say("  Abort/pause/liveness live on the PROCEDURE object (from LoadProcedure),")
+    say("  not the Instrument:")
+    if proc is None or isinstance(proc, str):
+        say("    (no procedure loaded — set NOX to check)")
+    else:
+        for attr in ("Abort", "Hold", "Continue", "Skip", "IsMeasuring"):
+            say(f"    Procedure.{attr}: "
+                f"{'present' if hasattr(proc, attr) else 'ABSENT'}")
     say("")
     say("  AutolabConnection.IsConnected is the obvious liveness check for")
     say("  device_lost(); whether it goes False on a yanked USB cable is worth one")
@@ -407,18 +539,19 @@ def main():
 
     try:
         dump_members(inst, "Instrument")
-        inspect_procedure(inst)
+        proc = inspect_procedure(inst)
         inspect_sampler(inst)
-        inspect_abort_and_liveness(inst)
+        inspect_abort_and_liveness(inst, proc)
         hold_potential(inst)
-        run_procedure(inst)
+        run_procedure(inst, proc)
     finally:
         try:
             ei = getattr(inst, "Ei", None)
             if ei is not None:
-                ei.CellOnOff = False      # belt and braces: never leave the cell on
-        except Exception:  # noqa: BLE001
-            pass
+                lbl = _switch_cell(ei, False)   # belt and braces: never leave it on
+                say(f"final cell-off via {lbl}; Ei.Cell = {_safe(lambda: ei.Cell, None)}")
+        except Exception as exc:  # noqa: BLE001
+            say(f"WARNING: final cell-off failed: {exc}")
         try:
             inst.Disconnect()
             say("")
