@@ -177,7 +177,12 @@ def test_the_repo_defaults_cover_every_machine_independent_key():
     """A key that's in the schema but nowhere in the lab defaults is easy to forget —
     which is exactly how save_dta and trigger got left out the first time."""
     from spec_echem.bench import REPO_DEFAULTS
-    machine_specific = {"data_root", "potentiostat_mode"}
+    # Machine-specific keys are deliberately absent from the tracked lab defaults:
+    # a path or a mode that is true on one rig is false on the next, and committing
+    # one makes every pull a conflict. The autolab_* keys are all install paths and
+    # NOVA procedure templates, so they belong here for the same reason data_root does.
+    machine_specific = {"data_root", "potentiostat_mode"} | {
+        k for k in BENCH_KEYS if k.startswith("autolab_")}
     values, _ = read_bench_file(REPO_DEFAULTS)
     missing = set(BENCH_KEYS) - machine_specific - set(values)
     assert missing == set(), f"not in config/defaults.ini: {sorted(missing)}"

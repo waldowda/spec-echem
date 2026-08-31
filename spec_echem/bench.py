@@ -78,6 +78,18 @@ BENCH_SCHEMA = {
         "save_dta": _bool,
         "trigger": _bool,
     },
+    # Metrohm Autolab: install paths and the NOVA procedure templates. ALL of these
+    # are machine-specific — like data_root, they must never go in the tracked
+    # defaults.ini, or every pull is a conflict.
+    "autolab": {
+        "autolab_sdk": _str,              # EcoChemie.Autolab.Sdk assembly, no .dll
+        "autolab_adx": _str,              # the Adk.x hardware driver
+        "autolab_hdw": _str,              # this instrument's HardwareSetup XML
+        "autolab_nox_cv": _str,           # standard CV procedure template
+        "autolab_nox_ca": _str,           # chronoamperometry procedure template
+        "autolab_dio_port": int,          # DioPortsP1 index; 0 = P1.A
+        "autolab_pulse_delay_s": _opt_float,  # None = use the procedure's own wait
+    },
 }
 
 # Flat key -> (section, parser)

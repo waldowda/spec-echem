@@ -37,11 +37,24 @@ DEFAULT_SETTINGS = {
 
     # --- Potentiostat control ---
     # "external" = human starts the Gamry .GSequence (Phase-1, proven default);
-    # "python"   = Python drives the Gamry via EchemToolkitPy (Phase-2).
+    # "python"   = Python drives the Gamry via EchemToolkitPy (Phase-2);
+    # "autolab"  = Python drives a Metrohm Autolab via its SDK.
     "potentiostat_mode": "external",
     # Python mode only: also emit native Gamry .DTA files (dta/ subfolder)
     # alongside the clean analysis .txt. No-op in External mode.
     "save_dta": True,
+
+    # --- Metrohm Autolab (autolab mode only) ---
+    # Install paths and NOVA procedure templates. All machine-specific, so they
+    # live in config/bench.ini and are deliberately absent from the tracked
+    # config/defaults.ini — committing them would make every pull a conflict.
+    "autolab_sdk": "",              # EcoChemie.Autolab.Sdk assembly, no .dll
+    "autolab_adx": "",              # the Adk.x hardware driver
+    "autolab_hdw": "",              # this instrument's HardwareSetup XML
+    "autolab_nox_cv": "",           # standard CV procedure template
+    "autolab_nox_ca": "",           # chronoamperometry procedure template
+    "autolab_dio_port": 0,          # DioPortsP1 index; 0 = P1.A
+    "autolab_pulse_delay_s": None,  # None = use the procedure's own wait window
 
     # --- Cyclic voltammetry (vertices map to Gamry VINIT/VLIMIT1/VLIMIT2/VFINAL) ---
     "cv_enabled": True,
