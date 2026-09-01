@@ -356,6 +356,15 @@ class AutolabPotentiostat(Potentiostat):
     Ordering is unchanged from the Gamry path: fire() is called from INSIDE the
     spectrometer's measure(), after AVS_Measure has armed it, so the edge always
     lands on an armed detector. Late is safe; early is silently missed.
+
+    WHY THIS DRIVES A NOVA PROCEDURE rather than generating a waveform in Python:
+    the same reason ToolkitPotentiostat calls toolkitpy's signal_r_up_dn_new /
+    signal_d_step_new instead of stepping potentials itself — the staircase and its
+    sampling are firmware-timed, and a Python loop inherits OS jitter on both the
+    potential and the time axis. The vendor supplies the waveform; we supply the
+    numbers. See docs/autolab-run-api.md §0. It is also why the CV_IDX_* / CA_IDX_*
+    tables matter so much: with no name property on a CommandParameter, the index is
+    the only handle there is on a potential.
     """
 
     def __init__(self, settings):
