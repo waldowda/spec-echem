@@ -14,6 +14,38 @@ to re-confirm at the bench), Autolab **SDK 2.1**, **64-bit** `SpecEchem` conda e
 
 ---
 
+## 0. The design decision this all serves
+
+**Use NOVA's standard CV and chronoamperometry procedures, parameterized from Python. Do not
+generate waveforms in Python.** (Dean, 2026-08-30.)
+
+This is the same shape as the Gamry driver, which is worth seeing explicitly. `ToolkitPotentiostat`
+does not hand-roll anything either — `_build_signal` calls toolkitpy's own constructors,
+`signal_r_up_dn_new` for CV and `signal_d_step_new` for a hold, and feeds them numbers out of
+settings. The vendor supplies the standard waveform; we supply the parameters. The Autolab
+equivalent of that is `LoadProcedure` on a standard `.nox` plus parameter writes.
+
+**Why it matters technically, not just tidily:** the staircase and its sampling are *firmware*
+timed. A Python loop that sets a potential, waits, and reads a current inherits OS scheduling jitter
+on both the potential axis and the time axis. Direct `Ei` control is trivial for a constant-potential
+hold and poor for a sweep, and even for the hold it is a real downgrade in the current trace. It is
+the fallback, not the plan.
+
+**Two consequences that shape everything else here:**
+
+1. **The parameter index map *is* the interface.** Since a `CommandParameter` has no name property,
+   an index is the only handle on a potential or a scan rate. That is why so much bench effort goes
+   into establishing and *verifying* those indices, and why an unconfirmed index is a `None` stub in
+   the driver rather than a plausible guess — a silently wrong index runs the wrong experiment on a
+   real sample and produces data that looks fine.
+2. **The trigger can live inside the `.nox`.** NOVA's own spectro-EC procedures on this rig already
+   pulse P1.A, which is exactly the analogue of DIGOUT0 living inside a `.GSequence`. The driver
+   currently pulses from Python during the procedure's wait window, which is equivalent and keeps
+   the timing in code; either is legitimate, and the choice is now a preference rather than a
+   constraint.
+
+---
+
 ## 1. What is now proven (with hardware)
 
 ### Connect / load / run
