@@ -7,6 +7,33 @@ as we know" into "correct".
 The design rule throughout: every unresolved point is a **named constant or an explicit stub**, so
 finishing is filling in blanks rather than auditing assumptions. Nothing below is buried in logic.
 
+## Starting a Claude Code session on the rig
+
+Claude Code is installed on the Win11 box. Run it from the repo root (`claude`) in the Anaconda
+Prompt with the `SpecEchem` env active, so any Python it runs is the interpreter you have been
+testing with. It loads `CLAUDE.md` automatically. Paste this to start it warm:
+
+> I'm at the UW Metrohm rig on the Win11 box: Autolab PGSTAT302N + AvaSpec-ULS2048L, 64-bit
+> SpecEchem env. A 10 kΩ 1% dummy resistor is available (2-electrode: W+WS one leg, RE+CE the
+> other). Read `docs/autolab-driver-finishing.md`, `docs/autolab-run-api.md` and
+> `examples/bench_autolab_fault_setup.md`.
+>
+> `AutolabPotentiostat` and the GUI wiring are written and test-covered but were written before the
+> bench scripts ran. Today: run the four `examples/bench_autolab_*.py` scripts (their
+> `ENERGIZE_CELL = False` phases first — those energize nothing), then fill in the CA parameter map
+> (`CA_COMMAND` / `CA_IDX_*` in `spec_echem/potentiostat.py`), which is the one thing blocking
+> doping/dedoping/pre-dedoping.
+>
+> Constraints: dummy resistor only, never a real sample; adopt a parameter index only if the bench
+> script reports it CONFIRMED; do not change the External or Python (Gamry) paths — that is a
+> working rig. Confirm the build id first, commit and push what we learn, and update
+> `docs/autolab-run-api.md` §4 with the answers.
+
+If it starts a long piece of work, remind it the suite is `python -m pytest tests/ -q` and should
+stay green (206 tests, 1 skipped as of `8a10323`).
+
+---
+
 > **What the tests do and don't prove.** `tests/test_potentiostat.py` drives the driver against
 > `fakes.FakeAutolab`, which encodes the same understanding of the SDK that the driver does. A green
 > suite proves internal consistency and catches regressions. It **cannot** catch a misreading of the
