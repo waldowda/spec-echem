@@ -13,6 +13,24 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **Metrohm Autolab support (in progress).** A third potentiostat mode, `autolab`, alongside
+  `external` and `python`. `AutolabPotentiostat` drives a Metrohm Autolab through its SDK, running
+  NOVA's standard CV/CA procedures with the parameters written from settings — the same approach the
+  Gamry driver takes with toolkitpy's own signal constructors. Simpler than the Gamry path because
+  `Measure()` is non-blocking: no dedicated per-segment thread.
+
+  The Instrument tab gains an **Autolab** radio (disabled, with the reason shown, where pythonnet is
+  absent), and **Connect Potentiostat** now probes whichever instrument the selected mode names —
+  read-only in both cases, and cell-safe for the Autolab. The spectrometer's status line now also
+  reports pixel count and calibrated span, since a serial number alone doesn't tell you which
+  2048-pixel Avantes answered.
+
+  **Chronoamperometry is not yet supported** — the CA parameter index map is still unknown, so
+  doping/dedoping/pre-dedoping raise `NotImplementedError` naming
+  `docs/autolab-driver-finishing.md`. CV works. Existing External and Python (Gamry) behaviour is
+  unchanged: External remains the default, and a saved `autolab` mode falls back to External on a
+  machine without the SDK rather than selecting a mode it cannot honour.
+
 - **Build identity.** `spec_echem.build_id()` reports `0.2.0` at a tag and `0.2.0+5.gaadf15a`
   between tags (`.dirty` if the tree has uncommitted changes). It now appears in three places:
   the **run metadata JSON** (`spec_echem_version`), the **first line of every run log**, and the

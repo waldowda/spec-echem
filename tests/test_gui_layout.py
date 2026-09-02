@@ -113,3 +113,89 @@ def test_connect_clamps_wavelength_spinboxes_to_the_spectrometer_span(window):
     assert tab.wl_min_spin.minimum() == pytest.approx(float(full[0]), abs=0.5)
     assert tab.wl_max_spin.maximum() == pytest.approx(float(full[-1]), abs=0.5)
     assert "1100" in tab.wl_status.text()   # the real span is surfaced, not hidden
+
+
+# --- Potentiostat mode selection (External / Python / Autolab) ---------------
+# The External + Python paths are the working Gamry rig. Every test here exists to
+# make sure adding a third mode left those two exactly as they were.
+
+def _tab(window):
+    return window.instrument_tab
+
+
+def test_external_is_the_default_mode(window):
+    """External is the only mode that works with no vendor stack installed, and it is
+    the proven one. It must be what a fresh launch selects."""
+    tab = _tab(window)
+    assert tab.pstat_external_radio.isChecked()
+    assert not tab.pstat_python_radio.isChecked()
+    assert not tab.pstat_autolab_radio.isChecked()
+
+
+def test_all_three_modes_round_trip_through_settings(window):
+    tab = _tab(window)
+    for radio, expected in ((tab.pstat_external_radio, "external"),
+                            (tab.pstat_python_radio, "python"),
+                            (tab.pstat_autolab_radio, "autolab")):
+        radio.setChecked(True)
+        settings = {}
+        tab.collect_into(settings)
+        assert settings["potentiostat_mode"] == expected
+
+
+def test_a_saved_mode_the_machine_cannot_honour_falls_back_to_external(window):
+    """The safety property: loading a settings file that says "autolab" on the Gamry
+    rig (no pythonnet) must leave External selected, not select a radio whose driver
+    would raise at Start."""
+    tab = _tab(window)
+    from spec_echem.settings import DEFAULT_SETTINGS
+
+    tab.pstat_autolab_radio.setEnabled(False)          # as on a box without pythonnet
+    tab.populate_from(dict(DEFAULT_SETTINGS, potentiostat_mode="autolab"))
+    assert tab.pstat_external_radio.isChecked()
+
+    tab.pstat_python_radio.setEnabled(False)           # and the Gamry equivalent
+    tab.populate_from(dict(DEFAULT_SETTINGS, potentiostat_mode="python"))
+    assert tab.pstat_external_radio.isChecked()
+
+
+def test_dta_checkbox_belongs_to_gamry_python_mode_only(window):
+    """.DTA is a Gamry format written by toolkitpy. External writes its own through
+    Framework and the Autolab has none, so the box must be live in exactly one mode."""
+    tab = _tab(window)
+    if not tab.pstat_python_radio.isEnabled():
+        pytest.skip("toolkitpy not available in this environment")
+    tab.pstat_python_radio.setChecked(True)
+    assert tab.save_dta_check.isEnabled()
+    tab.pstat_autolab_radio.setChecked(True)
+    assert not tab.save_dta_check.isEnabled()
+    tab.pstat_external_radio.setChecked(True)
+    assert not tab.save_dta_check.isEnabled()
+
+
+def test_an_unavailable_mode_is_disabled_and_says_why(window):
+    """A greyed radio with no reason reads as a bug. Whichever vendor stack is missing
+    here, its radio must be off AND its label must name what is missing."""
+    tab = _tab(window)
+    for radio, needle in ((tab.pstat_python_radio, "toolkitpy"),
+                          (tab.pstat_autolab_radio, "pythonnet")):
+        if not radio.isEnabled():
+            assert needle in radio.text()
+
+
+def test_connect_button_follows_the_selected_mode(window):
+    """External has nothing to connect to from here — the Gamry runs standalone."""
+    tab = _tab(window)
+    tab.pstat_external_radio.setChecked(True)
+    assert not tab.pstat_connect_btn.isEnabled()
+
+
+def test_spectrometer_detail_names_the_detector(window):
+    """A serial alone doesn't distinguish one 2048-pixel Avantes from another; the
+    pixel count and calibrated span are what you can check against the bench."""
+    tab = _tab(window)
+    tab.simulated_check.setChecked(True)                # no SDK on a dev box
+    tab.on_connect()
+    detail = tab.spec_detail.text()
+    assert "serial" in detail
+    assert "px" in detail and "nm" in detail
