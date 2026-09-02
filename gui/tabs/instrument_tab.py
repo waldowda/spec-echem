@@ -46,7 +46,9 @@ from spec_echem.fakes import FakeSpectrometer
 from spec_echem.linearity import (
     LinearityError, analyze_linearity, find_saturation_time, measure_linearity_series,
 )
-from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_identity
+from spec_echem.potentiostat import (
+    TOOLKITPY_AVAILABLE, AUTOLAB_AVAILABLE, probe_identity, autolab_identity,
+)
 from spec_echem.settings import DEFAULT_SETTINGS
 from spec_echem.spectral_range import recommend_wavelength_range
 from gui.widgets.plot_canvas import MplCanvas
@@ -187,13 +189,22 @@ class InstrumentTab(QWidget):
             "External — start the Gamry sequence in Gamry Framework")
         self.pstat_python_radio = QRadioButton(
             "Python — drive the Gamry from here (EchemToolkitPy)")
+        self.pstat_autolab_radio = QRadioButton(
+            "Autolab — drive a Metrohm Autolab from here (Autolab SDK)")
+        # External stays the default on every machine: it is the proven path and the
+        # only one that works with no vendor stack installed.
         self.pstat_external_radio.setChecked(True)
         if not TOOLKITPY_AVAILABLE:
             self.pstat_python_radio.setEnabled(False)
             self.pstat_python_radio.setText(
                 "Python — drive the Gamry from here (EchemToolkitPy) — toolkitpy not available")
+        if not AUTOLAB_AVAILABLE:
+            self.pstat_autolab_radio.setEnabled(False)
+            self.pstat_autolab_radio.setText(
+                "Autolab — drive a Metrohm Autolab from here (Autolab SDK) — pythonnet not available")
         pstat_layout.addWidget(self.pstat_external_radio)
         pstat_layout.addWidget(self.pstat_python_radio)
+        pstat_layout.addWidget(self.pstat_autolab_radio)
 
         # Connect (Python mode): verify the Gamry is reachable + show its name/serial,
         # mirroring the spectrometer's Connect button + status dot.
@@ -218,6 +229,7 @@ class InstrumentTab(QWidget):
         pstat_layout.addWidget(self.save_dta_check)
 
         self.pstat_external_radio.toggled.connect(self._update_pstat_controls)
+        self.pstat_autolab_radio.toggled.connect(self._update_pstat_controls)
         self._update_pstat_controls()
 
         # --- Linearity check (sits beside Spectrometer Settings, which it feeds) ---
@@ -569,9 +581,13 @@ class InstrumentTab(QWidget):
             self.wl_min_spin.setValue(wl_min)
         if wl_max is not None:
             self.wl_max_spin.setValue(wl_max)
+        # An unavailable mode falls back to External rather than selecting a radio the
+        # machine cannot honour — a saved "autolab" on the Gamry rig must not disarm it.
         mode = settings.get("potentiostat_mode", "external")
         if mode == "python" and self.pstat_python_radio.isEnabled():
             self.pstat_python_radio.setChecked(True)
+        elif mode == "autolab" and self.pstat_autolab_radio.isEnabled():
+            self.pstat_autolab_radio.setChecked(True)
         else:
             self.pstat_external_radio.setChecked(True)
         self.save_dta_check.setChecked(settings.get("save_dta", True))
@@ -587,8 +603,12 @@ class InstrumentTab(QWidget):
         else:
             settings["wavelength_min"] = self.wl_min_spin.value()
             settings["wavelength_max"] = self.wl_max_spin.value()
-        settings["potentiostat_mode"] = (
-            "python" if self.pstat_python_radio.isChecked() else "external")
+        if self.pstat_python_radio.isChecked():
+            settings["potentiostat_mode"] = "python"
+        elif self.pstat_autolab_radio.isChecked():
+            settings["potentiostat_mode"] = "autolab"
+        else:
+            settings["potentiostat_mode"] = "external"
         settings["save_dta"] = self.save_dta_check.isChecked()
         settings["lin_start_ms"] = self.lin_start_spin.value()
         settings["lin_stop_ms"] = self.lin_stop_spin.value()
@@ -657,30 +677,43 @@ class InstrumentTab(QWidget):
 
     def _update_pstat_controls(self):
         python = self.pstat_python_radio.isChecked()
+        autolab = self.pstat_autolab_radio.isChecked()
+        driven = python or autolab          # Python is holding the instrument
+        available = TOOLKITPY_AVAILABLE if python else AUTOLAB_AVAILABLE
         # Respect the run lock: toggling the mode radios during a run must NOT
-        # re-enable Connect, which would re-init toolkitpy and collide with the
-        # Gamry thread driving the live run. _actions_enabled is False during a run.
+        # re-enable Connect, which would re-init the vendor stack and collide with the
+        # thread driving the live run. _actions_enabled is False during a run.
         self.pstat_connect_btn.setEnabled(
-            python and TOOLKITPY_AVAILABLE and getattr(self, "_actions_enabled", True))
-        # .DTA files only exist in Python mode (External writes its own via Framework)
+            driven and available and getattr(self, "_actions_enabled", True))
+        # .DTA is a Gamry format written by toolkitpy — meaningless in the other two
+        # modes (External writes its own via Framework; the Autolab has no .DTA).
         self.save_dta_check.setEnabled(python)
-        if not python:
+        if not driven:
             self._set_pstat_status("● Runs from Gamry Framework", "#555")
         elif not self._pstat_connected:
             self._set_pstat_status("● Not connected", "#b00")
         # else: keep the green "● Connected — …" so it survives run-end / re-toggle
 
     def on_connect_pstat(self):
+        """Verify the selected potentiostat is reachable and report WHICH unit it is.
+
+        Both probes are read-only: the Gamry one opens and reads its label/serial, the
+        Autolab one connects and disconnects without touching the cell.
+        """
         self._set_pstat_status("● Connecting…", "#555")
+        autolab = self.pstat_autolab_radio.isChecked()
         try:
-            label, serial = probe_identity()
-        except Exception as exc:  # noqa: BLE001 — surface any toolkitpy/hardware failure
+            if autolab:
+                who = autolab_identity(self.win.settings)
+            else:
+                label, serial = probe_identity()
+                label = (label or "").strip()
+                who = f"{label} (serial {serial})" if label else f"Gamry serial {serial}"
+        except Exception as exc:  # noqa: BLE001 — surface any vendor/hardware failure
             self._pstat_connected = False
             logger.warning("Potentiostat connect failed: %s", exc)
             self._set_pstat_status("● Connect failed", "#b00", detail=str(exc))
             return
-        label = (label or "").strip()
-        who = f"{label} (serial {serial})" if label else f"serial {serial}"
         self._pstat_connected = True
         self.win.pstat_identity = who
         logger.info("Potentiostat connected: %s", who)
@@ -728,6 +761,15 @@ class InstrumentTab(QWidget):
             return np.asarray(arr)[i0:i0 + len(wl)]
         return None
 
+    def _spectrometer_detail(self, spec, serial):
+        """One line naming the connected detector: pixels and full calibrated span."""
+        kind = "Simulated spectrometer" if isinstance(spec, FakeSpectrometer) else "Avantes"
+        bits = [f"{kind} · serial {serial}"]
+        full = getattr(self, "_full_wl", None)
+        if full is not None and len(full):
+            bits.append(f"{len(full)} px · {float(full[0]):.1f}–{float(full[-1]):.1f} nm")
+        return "   ".join(bits)
+
     def on_connect(self):
         if self.simulated_check.isChecked() or AvantesSpectrometer is None:
             spec = FakeSpectrometer()
@@ -752,9 +794,12 @@ class InstrumentTab(QWidget):
                                   if isinstance(spec, FakeSpectrometer)
                                   else f"Avantes serial {serial}")
         logger.info("Spectrometer connected: %s", self.win.spec_identity)
-        self.spec_detail.setText("")   # clear a previous failure
         self.spec_status.setText(f"● Connected ({serial})")
         self.spec_status.setStyleSheet("color: #080;")
+        # Which detector is this, in terms you can check against the instrument on the
+        # bench? A serial alone doesn't distinguish a ULS2048L from a VRS2048CL-EVO;
+        # the pixel count and reported span do. Also replaces any previous failure text.
+        self.spec_detail.setText(self._spectrometer_detail(spec, serial))
         self._set_actions_enabled(True)
         self.on_apply()
 

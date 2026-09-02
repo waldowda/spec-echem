@@ -113,14 +113,19 @@ looks ordinary.
 
 ---
 
-## 3. Then, and only then, the GUI
+## 3. The GUI — WIRED (2026-09-02)
 
-Deliberately not written yet. The wiring is small — a third radio at
-`gui/tabs/instrument_tab.py:572` and `:590`, and `make_potentiostat()` already handles the
-`"autolab"` mode — but `gui/` is where every 0.2.0 bug lived and it still has almost no coverage. It
-deserves its own pass, not the tail end of a long session.
+Done, with tests. The Instrument tab has an **Autolab** radio; it is disabled and says why on a
+machine without pythonnet, External stays the default everywhere, and a saved `autolab` mode falls
+back to External rather than selecting something the machine cannot honour — so loading a settings
+file from the Metrohm rig on the Gamry rig cannot disarm it. **Connect Potentiostat** probes
+whichever instrument the selected mode names (`probe_identity` for the Gamry, `autolab_identity`
+for the Autolab — both read-only, the Autolab one cell-safe).
 
-Before that pass:
+`tests/test_gui_layout.py` covers the default, the three-way round trip, the fallback, the `.DTA`
+checkbox belonging to Gamry-Python mode alone, and that a disabled radio explains itself.
+
+Still to do at the bench:
 
 - [ ] `config/bench.ini` on the rig carries `autolab_sdk`, `autolab_adx`, `autolab_hdw`,
       `autolab_nox_cv`, `autolab_nox_ca`, `autolab_dio_port`. All machine-specific — they are

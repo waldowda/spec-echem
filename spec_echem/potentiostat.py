@@ -34,6 +34,7 @@ high, then run + clean poll loop), and ``finish()`` joins it and picks up the
 captured data. The spectrometer keeps its own thread, so their timing is
 independent; t=0 is still synced by the hardware trigger.
 """
+import os
 import threading
 import time
 
@@ -265,7 +266,6 @@ def open_instrument(settings):
         raise RuntimeError(
             "autolab_sdk is not set. The Autolab needs sdk/adx/hdw paths in "
             "config/bench.ini — they are machine-specific, like data_root.")
-    import os
     import sys
     sdk_dir = os.path.dirname(sdk)
     if sdk_dir and sdk_dir not in sys.path:
@@ -338,6 +338,31 @@ def echem_from_signals(cmd):
         potential=np.asarray(channels["EI_0.CalcPotential"], dtype=float),
         current=np.asarray(channels["EI_0.CalcCurrent"], dtype=float),
     )
+
+
+def autolab_identity(settings):
+    """Connect to the Autolab briefly, report what answered, and disconnect.
+
+    Backs the GUI's "Connect Potentiostat" button in Autolab mode, the same way
+    probe_identity() backs it for the Gamry — so the user can confirm WHICH
+    instrument is on the other end before committing a sample to a run.
+
+    CELL-SAFE: connecting and switching the cell on are separate operations in this
+    SDK, and this only connects. Returns a human-readable description.
+    """
+    inst = open_instrument(settings)          # raises with a readable message
+    try:
+        hdw = settings.get("autolab_hdw") or ""
+        # The hardware-setup file is model-specific and is the closest thing the SDK
+        # offers to "which instrument is this" without touching the cell.
+        model = os.path.basename(os.path.dirname(hdw)) or "unknown model"
+        setup = os.path.basename(hdw) or "no setup file"
+        return f"Autolab {model} ({setup})"
+    finally:
+        try:
+            inst.Disconnect()
+        except Exception:  # noqa: BLE001 — never leave the link held by a probe
+            pass
 
 
 class AutolabPotentiostat(Potentiostat):
