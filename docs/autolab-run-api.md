@@ -303,6 +303,19 @@ question. `set_param()` in `autolab_common.py` was fixed the same day (int index
    - Not yet run: the `RUN_EARLY_PULSE_CONTROL` negative control (pulse before arming → expect a
      miss) and `NUM_SPECTRA > 1` (triggered spectrum 0 + free-run remainder). The arm-then-fire
      ordering is already proven on the Gamry and encoded in `acquisition.py`.
+   - **OPEN — move the edge into the procedure.** The +988 ms is because *Python* emits the pulse
+     (a `time.time()` sleep-loop then `pulse(port)`), targeting the variable-duration
+     `FHPreCurrentRangingCV` gap. Correcting `PULSE_DELAY_S` only removes the mean; a GC pause or
+     scheduler delay in Python still jitters *when the edge fires* (not the spectrometer start —
+     that stays hardware-timed at ~0.5 ms once armed). The fix, same as the Gamry's DIGOUT0-in-
+     `.GSequence`: add an `FHDIO` command to the `.nox` right after `FHPreCurrentRangingCV` (idx 5)
+     and before `FHCyclicVoltammetry2` (idx 6) — copy a NOVA `PC_Spectral*` procedure that already
+     pulses P1.A, or add the step in NOVA to a copy of the standard CV (and the CA template). Then
+     Python's role is just arm + `Measure()` (neither timing-critical — `FHWait` is the arm
+     margin), the Autolab fires the edge on its own clock after ranging completes, and residual
+     skew = (DIO-step → first staircase point, sub-ms) + (edge → integration start, ~0.5 ms).
+     `AutolabPotentiostat.fire()` then = "start the procedure", no DIO code in Python. Re-run
+     `bench_autolab_coacquire.py` (Python not pulsing) to measure the residual.
 6. **CA template:** doping / dedoping / pre-dedoping are chronoamperometry holds. Pick
    `Standard Nova Procedures\Chrono amperometry.nox` as the template, map its parameter indices
    the same way, decide where the trigger pulse lives.
