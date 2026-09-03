@@ -240,8 +240,12 @@ def test_factory_rejects_an_unknown_mode():
 # consistency and catches regressions — it cannot catch a misreading of the SDK.
 # Only the bench settles that.
 # ===========================================================================
-from spec_echem.data import DATA_TYPE_CV, DATA_TYPE_DOPING     # noqa: E402
-from spec_echem.fakes import FakeAutolab, CV_COMMAND_ID        # noqa: E402
+from spec_echem.data import (                                  # noqa: E402
+    DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_PREDEDOPING,
+)
+from spec_echem.fakes import (                                 # noqa: E402
+    FakeAutolab, CV_COMMAND_ID, CA_RECORDER_ID, CA_SETPOINT_ID,
+)
 
 
 @pytest.fixture
@@ -326,7 +330,7 @@ def test_a_parameter_that_does_not_stick_raises(autolab):
 
     p._cmd.CommandParameters._items[0] = _Stubborn()
     with pytest.raises(RuntimeError, match="did not take"):
-        p._set(0, 0.42)
+        p._set(p._cmd, 0, 0.42)
 
 
 def test_fire_switches_the_cell_on_and_pulses_the_trigger(autolab):
@@ -425,15 +429,85 @@ def test_live_data_accumulates_the_scalar_samples(autolab):
     assert live.potential[0] == pytest.approx(0.25)
 
 
-def test_a_chrono_segment_fails_loudly_until_the_ca_map_is_known(autolab):
-    """Three of the four data types are chrono holds and the CA parameter indices
-    are still unknown. Reaching this path must name what is missing, not write a
-    plausible-looking wrong potential."""
-    p, inst = autolab()
-    seg = Segment("Doping 0", DATA_TYPE_DOPING, 0, num_points=5, delta_time=0.01,
-                  trigger=True)
-    with pytest.raises(NotImplementedError, match="autolab-driver-finishing"):
-        p.prepare(seg)
+def _doping_segment(run_number=0, points=5):
+    return Segment(f"Doping {run_number}", DATA_TYPE_DOPING, run_number,
+                   num_points=points, delta_time=0.02, trigger=True)
+
+
+def test_chrono_parameters_are_written_to_the_right_commands(autolab):
+    """CA map confirmed on the rig 2026-09-03: the hold potential goes on the
+    FHSetSetpointPotential command, the duration + interval on the FHLevel recorder
+    — two different commands, unlike the CV staircase."""
+    p, inst = autolab(settings=_autolab_settings(
+        doping_potential_start=0.20, doping_potential_step=0.05, chrono_time=30.0))
+    p.prepare(_doping_segment(run_number=2))
+
+    setpoint = [x.ValueAsObject for x in
+                p._proc.Commands[CA_SETPOINT_ID].CommandParameters]
+    level = [x.ValueAsObject for x in
+             p._proc.Commands[CA_RECORDER_ID].CommandParameters]
+
+    # doping potential increments once per cycle, same rule as the Gamry path
+    assert setpoint[potentiostat.CA_IDX_POTENTIAL] == pytest.approx(0.20 + 2 * 0.05)
+    assert level[potentiostat.CA_IDX_DURATION] == 30.0
+    assert level[potentiostat.CA_IDX_INTERVAL] == pytest.approx(0.02)
+    assert inst.loaded == ["ca.nox"]                 # the CA template, not the CV one
+
+
+def test_prededoping_uses_its_own_hold_time_and_potential(autolab):
+    p, inst = autolab(settings=_autolab_settings(
+        prededoping_potential=-0.30, prededoping_time=12.0))
+    seg = Segment("Pre-dedoping", DATA_TYPE_PREDEDOPING, 0, num_points=5,
+                  delta_time=0.05, trigger=True)
+    p.prepare(seg)
+
+    setpoint = [x.ValueAsObject for x in
+                p._proc.Commands[CA_SETPOINT_ID].CommandParameters]
+    level = [x.ValueAsObject for x in
+             p._proc.Commands[CA_RECORDER_ID].CommandParameters]
+    assert setpoint[potentiostat.CA_IDX_POTENTIAL] == -0.30
+    assert level[potentiostat.CA_IDX_DURATION] == 12.0
+
+
+def test_extra_ca_hold_steps_are_neutralised(autolab):
+    """The stock Chrono amperometry.nox is THREE (setpoint -> FHLevel) blocks.
+    spec-echem wants one hold, so the 2nd and 3rd FHLevel durations must be zeroed
+    or a real sample gets driven to 0 V for ~10 s after every segment."""
+    p, inst = autolab(ca_levels=3)
+    p.prepare(_doping_segment())
+
+    levels = [c for idn, c in zip(p._proc.Commands.IdNames, p._proc.Commands)
+              if idn == CA_RECORDER_ID]
+    assert len(levels) == 3
+    durations = [list(c.CommandParameters)[potentiostat.CA_IDX_DURATION].ValueAsObject
+                 for c in levels]
+    assert durations[0] == p.settings["chrono_time"]     # step 1 holds
+    assert durations[1] == 0.0 and durations[2] == 0.0   # steps 2-3 neutralised
+
+
+def test_an_open_cell_is_flagged_even_though_the_run_completes(autolab, caplog):
+    """bench_autolab_fault.py 2026-09-03: an open cell is invisible to every status
+    signal; the only tell is that the current never leaves the noise. current_scale
+    1e-4 drives the fake's trace down to ~1e-10 A, below the 1e-7 A floor."""
+    p, inst = autolab(points=20, current_scale=1e-4)
+    p.prepare(_cv_segment())
+    p.fire()
+    with caplog.at_level(logging.WARNING):
+        p.finish()
+
+    assert p.last_data() is not None                 # the file still gets written...
+    assert "carries no electrochemistry" in caplog.text   # ...but flagged
+
+
+def test_trigger_in_procedure_skips_the_python_pulse(autolab):
+    """With an FHDIO step in the .nox the Autolab fires P1.A itself; Python must not
+    also pulse, and does not open the port as an output."""
+    p, inst = autolab(settings=_autolab_settings(autolab_trigger_in_procedure=True))
+    assert p._port is None
+    p.prepare(_cv_segment())
+    p.fire()
+    assert inst.Ei.Cell is True                      # cell still switched on
+    assert inst.port.rising_edges == 0              # Python did NOT pulse
 
 
 def test_close_switches_the_cell_off_and_disconnects(autolab):

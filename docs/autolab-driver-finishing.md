@@ -1,8 +1,27 @@
 # Finishing the Autolab driver — what to fill in after the bench tests
 
-`AutolabPotentiostat` (`spec_echem/potentiostat.py`) is written and test-covered, but it was
-written **before** the bench scripts ran. This is the checklist for turning it from "correct as far
-as we know" into "correct".
+> **STATUS 2026-09-03 — bench items A–G done.** All four `bench_autolab_*.py` scripts ran on the
+> rig; `docs/autolab-run-api.md §4` carries the results and `AutolabPotentiostat` is wired to them
+> (commit after this doc). What changed in the driver:
+> - **`set_param` int-index bug fixed** — `list(cmd.CommandParameters)[i]`, not `[i]` (SDK rejects a
+>   bare int). Was latent in `_set()` and `_wait_window()`.
+> - **CA map filled in** — `CA_RECORDER_COMMAND` / `CA_SETPOINT_COMMAND` / `CA_IDX_*`. The hold
+>   potential is on a *separate* `FHSetSetpointPotential` command, and the stock `.nox` is a
+>   **3-step** template — `_neutralise_extra_ca_steps()` zeroes the extra FHLevel durations.
+> - **Reload-per-segment is now load-bearing** — a reused procedure object is INERT (§4.2), not just
+>   "might accumulate".
+> - **Open-cell detection added** — `_warn_if_current_never_rose()`; overload flags never fire for an
+>   open cell (§4.4), only `max|I|` in the noise gives it away.
+> - **`autolab_trigger_in_procedure`** — new flag; when the `.nox` has an `FHDIO` step the Autolab
+>   fires P1.A itself and `fire()` skips the Python pulse.
+>
+> **Two things still need the rig:** (1) positional command-list indexing, used by
+> `_neutralise_extra_ca_steps` — only iteration is bench-verified; (2) a `.nox` with an `FHDIO` step
+> so the trigger edge leaves Python's timing path (§4.5), then re-measure the skew. Plus a real
+> co-acquisition run against the 8-column format, and the first real-sample run.
+
+`AutolabPotentiostat` (`spec_echem/potentiostat.py`) is written and test-covered. This is the
+checklist for turning it from "correct as far as we know" into "correct".
 
 The design rule throughout: every unresolved point is a **named constant or an explicit stub**, so
 finishing is filling in blanks rather than auditing assumptions. Nothing below is buried in logic.
