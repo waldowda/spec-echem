@@ -174,7 +174,9 @@ def wait_window(proc):
     wait, used = ac.command(proc, *WAIT_IDS)
     if wait is None:
         return None
-    val = safe(lambda: float(wait.CommandParameters[0].ValueAsObject))
+    # list(...) not [0] — this SDK's CommandParameterList rejects a bare int index
+    # (same reason autolab_common.set_param iterates).
+    val = safe(lambda: float(list(wait.CommandParameters)[0].ValueAsObject))
     say(f"  WAIT command '{used}' duration = {val} s")
     return val
 

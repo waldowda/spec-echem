@@ -1,0 +1,59 @@
+
+========================================================================
+AUTOLAB + AVANTES — CO-ACQUISITION REHEARSAL (item 5)
+========================================================================
+ENERGIZE_CELL : True
+NUM_SPECTRA   : 1
+
+*** The cell WILL be energized. 10 kOhm dummy resistor only. ***
+Connected OK — cell NOT switched on.
+
+========================================================================
+PHASE 0 — open both instruments, read the wait window
+========================================================================
+  Avantes open: 2048 pixels
+  DIO port Port_A (DioPortsP1[0]) set to Output, driven low
+Loaded: Cyclic voltammetry.nox
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper V = 1.0  (read back 1.0) OK
+    set [2] lower V = -1.0  (read back -1.0) OK
+    set [3] step V = 0.00244  (read back 0.00244) OK
+    set [4] crossings = 2  (read back 2) OK
+    set [6] scan rate V/s = 0.5  (read back 0.5) OK
+  WAIT command 'FHWait' duration = 5.0 s
+
+  Both instruments are open in ONE process. Pulse delay will be 5.00 s.
+
+========================================================================
+RUN — arm, Measure(), pulse, collect
+========================================================================
+
+  arming the Avantes (hardware trigger), then Measure(), then pulsing at +5.00 s
+    Measure() returned at +0.310 s (IsMeasuring=True)
+    pulsed P1[0] at +5.004 s
+    scan landed 0.5 ms after the pulse, max 16384 counts
+    procedure finished at +15.55 s
+
+========================================================================
+RESULT — how well aligned are the two clocks?
+========================================================================
+  spectrum landed        : True
+  pulse sent at          : +5.004 s after Measure()
+  echem first sample at  : +5.992 s (CalcTime[0])
+  echem points           : 1640
+
+  >> SKEW = +988 ms (echem t=0 minus optical t=0)
+     positive: the staircase started AFTER the spectrum
+     to align them, set PULSE_DELAY_S = 5.992
+
+     Both clocks are read on this PC, and Measure() itself takes
+     ~0.3 s to return, so treat this as good to roughly a tenth of
+     a second — enough to choose the delay, not a calibration.
+Cell switched OFF.
+Disconnected.
+
+========================================================================
+NEXT
+========================================================================
+Record the skew and the chosen PULSE_DELAY_S in docs/autolab-run-api.md
+§4 item 5. That delay is what AutolabPotentiostat.fire() will use.
