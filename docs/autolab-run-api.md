@@ -268,6 +268,36 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
 6. **CA template:** doping / dedoping / pre-dedoping are chronoamperometry holds. Pick
    `Standard Nova Procedures\Chrono amperometry.nox` as the template, map its parameter indices
    the same way, decide where the trigger pulse lives.
+
+   **RESULT — 2026-09-03 (10 kΩ 1% dummy, `examples/bench_autolab_ca.py`,
+   `bench_autolab_ca_report.txt` + `bench_autolab_ca_run1.csv`):**
+   - **`Chrono amperometry.nox` is a THREE-step template** — `(FHSetSetpointPotential → FHLevel
+     "Record signals" → PlotsIvst) × 3`, bracketed by `FHSwitchCell` on/off, with a single
+     `FHWait` before the first hold. spec-echem needs one hold per segment, so the driver drives
+     step 1 and must **zero or drop steps 2–3** (leaving them runs two extra holds — harmless on a
+     resistor, not on a sample). A single-step template (`Chrono amperometry fast.nox`) exists but
+     uses a different `Levels` / `LevelShortSetpoint` model (fast-ADC); not adopted.
+   - **Parameter map — CONFIRMED against recorded data** (applied a distinctive value, ran, checked
+     the recording):
+
+     | quantity | command | param idx | check |
+     |---|---|---|---|
+     | hold potential (V) | `FHSetSetpointPotential` (not the recorder) | `[0]` | set 0.35 → mean `EI_0.CalcPotential` 0.3496 V |
+     | hold duration (s) | `FHLevel` | `[1]` | set 8.0 → `CalcTime` span 7.95 s (`Correctedtime` 0→7.95) |
+     | sampling interval (s) | `FHLevel` | `[0]` | set 0.05 → median Δt 0.05 s (160 pts) |
+     | (unused) | `FHLevel` | `[2]` bool | left untouched |
+     | trigger arm window | `FHWait` | `[0]` | 5.0 s present — same window the CV path uses |
+
+     The potential is on a **separate** `FHSetSetpointPotential` command, exactly as in the CV
+     template — it is *not* a parameter of the recorder. `Commands["FHLevel"]` resolves to the
+     first of the three steps. Recorder channels: `CalcTime` (procedure clock), `Correctedtime`
+     (hold-relative, starts 0), `EI_0.CalcPotential`, `EI_0.CalcCurrent`, `Index`.
+   - **Lifecycle: a reused procedure object is INERT.** A second `Measure()` on the same `proc`
+     returned in 0.00 s with `IsMeasuring` never True — run 2 did not execute; its `.Signals` was
+     just run 1's data still resident. **The driver must call `LoadProcedure()` for every
+     segment** — it cannot re-`Measure()` one object. (Whether a fresh reload then behaves like the
+     first run is checked by the updated phase 2 but not yet re-run on hardware; it is the same
+     `LoadProcedure` call the CV path already relies on.)
 7. **USB-lost liveness:** pull the USB mid-run, confirm `IsConnected` flips (for `device_lost()`).
    → covered by `bench_autolab_fault.py` run 4, which is opt-in (`RUN_USB_PULL`) and deliberately
    last: it leaves the cell energized with no software control, so dummy resistor only, and
