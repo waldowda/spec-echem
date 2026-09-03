@@ -216,12 +216,27 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
 1. **Multi-cycle:** idx-4 is "number of (stop) crossings" (2 = one cycle). Set it to 4, confirm
    two cycles run, `ScanNumber` goes 1→2, point count doubles, and cycles concatenate in the
    `.Signals` arrays.
+   → **CONFIRMED — 2026-09-03** (`bench_autolab_cv.py`, `bench_autolab_cv_2cycle.csv`). crossings
+   4 → 3280 points, exactly 2× the 1640 at crossings 2; `ScanNumber` runs 1→2; one concatenated
+   `.Signals` array. The driver sets idx-4 = `2 * settings['cv_cycles']`.
 2. **Sampler lifecycle:** two `Measure()` runs back-to-back without reconnecting — does run 2's
    `.Signals` contain run 1's points? If so the driver must call `inst.Ei.Sampler.Reset()` (or
    reload the procedure) between segments.
+   → **ANSWERED — 2026-09-03** (`bench_autolab_cv.py` phase 2; matches `bench_autolab_ca.py`). A
+   second `Measure()` on the **same procedure object is INERT** — returns in 0.00 s, `IsMeasuring`
+   never True, nothing runs; the `.Signals` still holds run 1's data. After an explicit
+   `LoadProcedure()` **reload**, run 3 = 1640 points, byte-for-count identical to run 1 — **reload
+   is a clean reset**. So the driver reloads the procedure per segment (which it does anyway);
+   **no `Ei.Sampler.Reset()` needed**, and there is no cross-segment `.Signals` accumulation to
+   guard against because you cannot re-measure a used object at all.
 3. **`Abort()` semantics:** mid-run `proc.Abort()` — do `.Signals` hold the partial trace (spec-
    echem must discard it); is the instrument immediately ready for the next `Measure()`;
    does `IsMeasuring` go False cleanly.
+   → **ANSWERED — 2026-09-03** (`bench_autolab_cv.py` phase 4). `Abort()` 5 s into a run:
+   `IsMeasuring` goes False cleanly, settled in ~1.3 s. `.Signals` is **completely empty (0
+   points)** — not a truncated partial, *nothing* — so a partial can never be mistaken for a
+   complete run. The very next run (after reload) returns a full 1640 points; the instrument is
+   ready immediately, no reconnect or power-cycle.
 4. **Errored run:** does `IsMeasuring` go False (looks like success) or hang True on a fault? Is
    there a status/result object to distinguish completed / aborted / errored?
    → **`examples/bench_autolab_fault.py`** (written 2026-08-31; instructions in

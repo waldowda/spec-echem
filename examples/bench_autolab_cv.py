@@ -136,15 +136,21 @@ def main():
             rule("PHASE 2 — item 2: does a second run reuse the first run's buffer?")
             say("  Running AGAIN with no reconnect and no reload, then comparing counts.")
             ac.switch_cell(inst, True)
-            ac.run(proc, inst)
+            elapsed2 = ac.run(proc, inst)
             ac.switch_cell(inst, False)
             sig2 = ac.read_signals(cv)
             n2, _, _ = summarize(sig2, "run 2 (same procedure object)")
             say("")
-            if n1 and n2:
+            if elapsed2 < 1.0:
+                say("  >> INERT: a second Measure() on the SAME procedure object did not")
+                say("     execute (returned instantly, IsMeasuring never True). The points")
+                say("     above are run 1's, still in .Signals. Not 'clean' — the object")
+                say("     simply cannot re-measure. The driver reloads per segment (below).")
+                say("     (Matches the CA bench, 2026-09-03.)")
+            elif n1 and n2:
                 if abs(n2 - n1) <= max(2, n1 // 100):
-                    say("  >> CLEAN: run 2 has ~the same count as run 1. .Signals is")
-                    say("     replaced per run; the driver needs no reset between segments.")
+                    say("  >> CLEAN: run 2 executed and has ~the same count as run 1.")
+                    say("     .Signals is replaced per run; no reset needed between segments.")
                 elif n2 >= n1 * 1.8:
                     say("  >> CUMULATIVE: run 2 carries run 1's points. The driver MUST")
                     say("     reset the sampler or reload the procedure between segments,")
