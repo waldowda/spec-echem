@@ -28,6 +28,22 @@
 > 8-column format (watch the first one); the first real-sample run; and, for the last of the skew,
 > a `.nox` with an `FHDIO` step so the edge leaves Python's timing path (§4.5) — not required to
 > operate, ~50 ms improvement.
+>
+> **First GUI run — 2026-09-03, STALLED, not yet resolved.** `python -m gui` → Autolab mode → a
+> CV-only experiment. Two findings:
+> 1. `gui/tabs/run_tab.py::on_start` referenced an undefined `python_mode` → `NameError` on Start
+>    for *every* mode. **Fixed** (commit 1487af4) — defined once, `autolab` counts as Python-driven.
+> 2. After the fix, the run started (`20260903_test2`) but never finished — no spectra/echem files
+>    written. Most likely cause: **`scan_averages = 200`** (saved into `config/bench.ini` by "Save
+>    as defaults" after a Linearity Check) × 2.64 ms integration ≈ **530 ms per spectrum**, and the
+>    CV segment wanted 241 spectra at `delta_time = 0.1 s` → the run needs 2+ minutes of collection,
+>    which looked like a hang. Not confirmed hung vs slow. Secondary suspect: whether
+>    `AvantesSpectrometer.set_trigger_mode(1)` alone puts the detector in external-edge mode — the
+>    bench scripts set `m_Trigger_m_Source`/`m_Trigger_m_SourceType` explicitly, `set_trigger_mode`
+>    only sets `m_Trigger_m_Mode`. **Next session:** drop `scan_averages` to ~1–5 for timed
+>    segments, re-run, capture the full `{folder}/{folder}.log`, and confirm spectrum 0 gets the
+>    trigger. `examples/bench_autolab_fullrun.py` runs the same pipeline headless for faster
+>    iteration.
 
 `AutolabPotentiostat` (`spec_echem/potentiostat.py`) is written and test-covered. This is the
 checklist for turning it from "correct as far as we know" into "correct".
