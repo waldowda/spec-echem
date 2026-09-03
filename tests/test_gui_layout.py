@@ -31,7 +31,12 @@ def app():
 
 @pytest.fixture
 def window(app):
-    win = MainWindow()
+    # Isolate from this machine's config/bench.ini — a layout/default test must not
+    # depend on whether the rig it runs on has (say) potentiostat_mode = autolab set.
+    import gui.main_window as _mw
+    from unittest.mock import patch
+    with patch.object(_mw, "load_bench_defaults", lambda *a, **k: ({}, [])):
+        win = MainWindow()
     win.show()          # size hints aren't computed for a window that never laid out
     yield win
     win.close()

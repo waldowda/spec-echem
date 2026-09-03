@@ -297,9 +297,14 @@ question. `set_param()` in `autolab_common.py` was fixed the same day (int index
      staircase starts ~1 s *after* the optical t=0. The gap is `FHPreCurrentRangingCV` (command
      [5], "Optimize current range") + the setpoint/cell-settle between `FHWait` ending and the
      staircase beginning; it matches the ~6 s `CalcTime[0]` seen in the CV/CA benches.
-   - **`fire()` pulses at `PULSE_DELAY_S ≈ 5.992` s** (= `FHWait` 5.0 + ~1.0), *not* at `FHWait`.
+   - **`fire()` pulses at `PULSE_DELAY_S ≈ 5.95` s** (= `FHWait` 5.0 + ~0.95), *not* at `FHWait`.
      Host-side clocks + `Measure()` ~0.3 s latency → trust to ~0.1 s; enough to choose the delay,
      not a calibration. `PULSE_WIDTH_S = 0.002`, `INTEGRATION_MS = 5.0`.
+   - **CORRECTED-SKEW re-run (2026-09-03, `PULSE_DELAY_S = 5.99`):** pulse at +5.995 s, staircase
+     `CalcTime[0]` at +5.944 s → **skew −51 ms**, scan landed 0.6 ms after the pulse. So the
+     Python-pulse path with a measured `autolab_pulse_delay_s` lands the trigger within ~50 ms of
+     the electrochemistry — the ~50 ms is `FHPreCurrentRangingCV` duration wobble run-to-run.
+     `config/bench.ini` on this rig now sets `autolab_pulse_delay_s = 5.95`.
    - Not yet run: the `RUN_EARLY_PULSE_CONTROL` negative control (pulse before arming → expect a
      miss) and `NUM_SPECTRA > 1` (triggered spectrum 0 + free-run remainder). The arm-then-fire
      ordering is already proven on the Gamry and encoded in `acquisition.py`.

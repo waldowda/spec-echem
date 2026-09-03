@@ -15,10 +15,19 @@
 > - **`autolab_trigger_in_procedure`** — new flag; when the `.nox` has an `FHDIO` step the Autolab
 >   fires P1.A itself and `fire()` skips the Python pulse.
 >
-> **Two things still need the rig:** (1) positional command-list indexing, used by
-> `_neutralise_extra_ca_steps` — only iteration is bench-verified; (2) a `.nox` with an `FHDIO` step
-> so the trigger edge leaves Python's timing path (§4.5), then re-measure the skew. Plus a real
-> co-acquisition run against the 8-column format, and the first real-sample run.
+> **DRIVER RAN ON HARDWARE 2026-09-03** — `examples/bench_autolab_driver.py` drives the real
+> `AutolabPotentiostat` class (open / prepare / fire / pump / finish / last_data) through one CV
+> and one doping segment on the 10 kΩ dummy. Both come back matching Ohm's law: CV 1640 pts ±1 V
+> 101 µA; doping 80 pts, held at +0.300 V, 30 µA (= 0.30 V / 10 kΩ), and `_neutralise_extra_ca_steps`
+> confirmed working (one hold, ~14 s, vs ~26 s for the un-neutralised 3-step template). Positional
+> command-list indexing therefore works. `config/bench.ini` on this rig now has the `[autolab]`
+> section and `potentiostat_mode = autolab`; corrected trigger skew is −51 ms with
+> `autolab_pulse_delay_s = 5.95`.
+>
+> **Still need the rig:** a full run through the GUI with real spectra, checked against the
+> 8-column format (watch the first one); the first real-sample run; and, for the last of the skew,
+> a `.nox` with an `FHDIO` step so the edge leaves Python's timing path (§4.5) — not required to
+> operate, ~50 ms improvement.
 
 `AutolabPotentiostat` (`spec_echem/potentiostat.py`) is written and test-covered. This is the
 checklist for turning it from "correct as far as we know" into "correct".
@@ -173,11 +182,16 @@ checkbox belonging to Gamry-Python mode alone, and that a disabled radio explain
 
 Still to do at the bench:
 
-- [ ] `config/bench.ini` on the rig carries `autolab_sdk`, `autolab_adx`, `autolab_hdw`,
-      `autolab_nox_cv`, `autolab_nox_ca`, `autolab_dio_port`. All machine-specific — they are
-      deliberately absent from the tracked `config/defaults.ini`, like `data_root`.
-- [ ] `potentiostat_mode = autolab` in that same file.
-- [ ] A full run on the dummy resistor with real spectra, checked against the 8-column format.
+- [x] `config/bench.ini` on the rig carries the `[autolab]` section (`autolab_sdk`, `autolab_adx`,
+      `autolab_hdw`, `autolab_nox_cv`, `autolab_nox_ca`, `autolab_dio_port`, `autolab_pulse_delay_s`,
+      `autolab_trigger_in_procedure`). Done 2026-09-03.
+- [x] `potentiostat_mode = autolab` in that same file. Done 2026-09-03.
+- [x] Driver class exercised on hardware — `examples/bench_autolab_driver.py`, CV + doping on the
+      dummy, both match Ohm's law.
+- [ ] A full run through the **GUI** with real spectra, checked against the 8-column format.
+- [ ] `autolab_nox_cv` currently points at the stock template. Switch to
+      `spectroelectrochem_CV.nox` (Sung-Joo's — fixed current range, no `FHPreCurrentRangingCV`)
+      once it is confirmed to run via the SDK; it is the protocol-equivalent base.
 
 ---
 
