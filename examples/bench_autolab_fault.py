@@ -49,13 +49,23 @@ NOX = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedure
 
 ENERGIZE_CELL = False     # False = phase 0 only (reflection; nothing energized)
 RUN_BASELINE = True
-RUN_OVERLOAD = True       # item 4, software-induced
-RUN_OPEN_CIRCUIT = True   # item 4, physical — prompts you
-RUN_USB_PULL = False      # item 7, physical — prompts you. Opt IN deliberately.
+RUN_OVERLOAD = False      # dropped 2026-09-03: stock Cyclic voltammetry.nox is
+                         # self-protecting — command [1] FHGetSetValues sets
+                         # CurrentRange=CR10_1mA and command [5] FHPreCurrentRangingCV
+                         # auto-ranges, so a pre-set small range never reaches the
+                         # staircase. A software range error is not a reachable fault
+                         # mode for this procedure. (see docs/autolab-run-api.md §4.4)
+RUN_OPEN_CIRCUIT = True   # item 4, physical — prompts you. Answered 2026-09-03.
+RUN_USB_PULL = False      # item 7 — DO NOT re-run casually. On 2026-09-03 a mid-run
+                         # USB pull wedged the SDK: proc.IsMeasuring stuck True, the
+                         # Adk.x process flooded the console with uncatchable native
+                         # errors, reconnecting did not recover, Ctrl-C required, box
+                         # power-cycled. Finding recorded in docs/autolab-run-api.md §4.7.
 
-# Phase 0 prints the available EICurrentRange member names. Put a SMALL one here
-# (small enough that ~100 uA through the 10 kOhm overloads it) and re-run.
-CURRENT_RANGE_NAME = None      # e.g. "CR_1uA" — exact spelling comes from phase 0
+# Only used by RUN_OVERLOAD (now off) and as a pre-set before RUN_OPEN_CIRCUIT.
+# Left None so the open-circuit run uses the procedure's normal auto-range and the
+# only variable is the open lead.
+CURRENT_RANGE_NAME = None   # exact spelling would come from phase 0
 
 # CV staircase settings (same indices as bench_autolab_cv.py).
 CV_ID = "FHCyclicVoltammetry2"
@@ -89,13 +99,30 @@ def set_current_range(inst, name):
 
 def make_watcher(record):
     """Sample the overload flags every poll — the only way an overloaded run is
-    distinguishable from a clean one, since both finish normally."""
+    distinguishable from a clean one, since both finish normally.
+
+    Seed the observables to False so the comparison table reads unambiguously: a
+    blank means "never sampled", False means "sampled, never True".
+
+    For item 7 the distinction that matters is HOW a lost link shows up —
+    `IsConnected` returning False, or the call throwing on a dead handle. The driver's
+    device_lost() has to handle whichever it is, so record both.
+    """
+    record.setdefault("potential_overload", False)
+    record.setdefault("current_overload", False)
+    record.setdefault("disconnected_during", False)
+    record.setdefault("isconnected_threw", False)
+
     def watch(inst, proc, elapsed):
         if safe(lambda: bool(inst.Ei.PotentialOverload), False):
             record["potential_overload"] = True
         if safe(lambda: bool(inst.Ei.CurrentOverload), False):
             record["current_overload"] = True
-        if safe(lambda: bool(inst.AutolabConnection.IsConnected), True) is False:
+        try:
+            if bool(inst.AutolabConnection.IsConnected) is False:
+                record["disconnected_during"] = True
+        except Exception:  # noqa: BLE001 — a throw IS the disconnect signal here
+            record["isconnected_threw"] = True
             record["disconnected_during"] = True
         record["polls"] = record.get("polls", 0) + 1
     return watch
@@ -261,7 +288,7 @@ def main():
         rule("COMPARISON — what distinguishes a failed run from a good one?")
         keys = ["points", "is_measuring_after", "connected_after",
                 "potential_overload", "current_overload", "disconnected_during",
-                "max_abs_current"]
+                "isconnected_threw", "max_abs_current"]
         say(f"  {'observable':<26} " + "".join(f"{k:<16}" for k in _results))
         for k in keys:
             row = "".join(f"{str(_results[lbl].get(k, '-')):<16}" for lbl in _results)
