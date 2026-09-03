@@ -5,15 +5,18 @@ Closes open item 6 of docs/autolab-run-api.md §4, which is the biggest remainin
 gap: THREE of spec-echem's four data types (doping, dedoping, pre-dedoping) are
 constant-potential holds, and only CV has been characterised so far.
 
-Unlike the CV script, the CA parameter indices are NOT yet known. This script
-establishes them the same way the CV map was established — set a distinctive value,
-run, and check the recorded data agrees:
+Phase 0 on the rig (2026-09-03) established the map: Chrono amperometry.nox is a
+three-step template and the hold potential is on the FHSetSetpointPotential command,
+not the FHLevel recorder (potential = FHSetSetpointPotential[0], duration =
+FHLevel[1], interval = FHLevel[0]; FHWait[0] = 5.0 s is the trigger window). Phase 1
+now CONFIRMS that map against recorded data the same way the CV map was confirmed —
+apply a distinctive value, run, check the recording agrees:
 
     phase 0  list the CA procedure's commands and every parameter (index, type,
              value). Nothing is energized. This alone usually makes the map obvious:
              a 5.0 is a duration, a 0.0 a potential.
-    phase 1  with candidate indices filled in below, apply distinctive values, run,
-             and VERIFY from the data:
+    phase 1  apply distinctive values (potential on FHSetSetpointPotential,
+             duration/interval on FHLevel), run, and VERIFY from the data:
                  potential -> mean EI_0.CalcPotential ~= HOLD_V
                  duration  -> CalcTime span         ~= HOLD_S
                  interval  -> median dt             ~= INTERVAL_S
@@ -49,11 +52,20 @@ NOX = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedure
 ENERGIZE_CELL = False     # False = phase 0 only (parameter map, nothing energized)
 RUN_LIFECYCLE = True      # phase 2
 
-# Candidate parameter indices, from what phase 0 prints. Leave None on the first
-# run — phase 1 needs at least the potential index to be meaningful.
-IDX_POTENTIAL = None      # the hold potential (V)
-IDX_DURATION = None       # the hold duration (s)
-IDX_INTERVAL = None       # the sampling interval (s), if the template has one
+# Parameter map from phase 0 on the rig, 2026-09-03. Chrono amperometry.nox is a
+# THREE-step template: (Set potential -> Record signals -> i vs t) x3, bracketed by
+# cell on/off, with an FHWait(5.0 s) before the first hold. spec-echem needs ONE hold
+# per segment, so this bench drives step 1 and leaves steps 2-3 at their defaults
+# (three holds on a resistor is harmless; the DRIVER will need to zero or drop the
+# extra steps for a real sample — separate note in docs §4 item 6).
+#
+# The hold POTENTIAL is not a parameter of the recorder command — it is the separate
+# FHSetSetpointPotential command, exactly as in the CV template.
+IDX_SETPOINT_V = 0        # FHSetSetpointPotential.param[0] — the hold potential (V)
+IDX_DURATION = 1          # FHLevel.param[1] — the hold duration (s), default 5.0
+IDX_INTERVAL = 0          # FHLevel.param[0] — the sampling interval (s), default 0.01
+                          # FHLevel.param[2] is a bool, left untouched
+SETPOINT_IDS = ("FHSetSetpointPotential", "Set potential")
 
 # Distinctive values — deliberately not round defaults, so a parameter that did NOT
 # take is obvious in the recorded data rather than coincidentally right.
@@ -99,7 +111,7 @@ def main():
     rule("AUTOLAB — CHRONOAMPEROMETRY BENCH (parameter map + verification)")
     say(f"NOX           : {NOX}")
     say(f"ENERGIZE_CELL : {ENERGIZE_CELL}")
-    say(f"indices       : potential={IDX_POTENTIAL} duration={IDX_DURATION} "
+    say(f"indices       : setpoint_V={IDX_SETPOINT_V} duration={IDX_DURATION} "
         f"interval={IDX_INTERVAL}")
     if ENERGIZE_CELL:
         say("")
@@ -127,13 +139,17 @@ def main():
             say("  Could not identify the hold command. Add its IdName (from the list")
             say("  above) to CA_IDS at the top of this script and re-run.")
             return 1
-        say(f"  Hold command: {used}")
-        values = ac.dump_parameters(hold, used)
+        say(f"  Hold (recorder) command: {used}")
+        ac.dump_parameters(hold, used)
+        setpot, sused = ac.command(proc, *SETPOINT_IDS)
+        if setpot is not None:
+            say("")
+            say(f"  Setpoint command: {sused} — this holds the potential, not the recorder")
+            ac.dump_parameters(setpot, sused)
         say("")
-        say("  Read that list against what a hold needs: a POTENTIAL (V), a DURATION")
-        say("  (s) and possibly a SAMPLING INTERVAL (s). Put the indices in")
-        say("  IDX_POTENTIAL / IDX_DURATION / IDX_INTERVAL and re-run with")
-        say("  ENERGIZE_CELL = True to verify them against recorded data.")
+        say("  Map (phase 0, rig 2026-09-03): potential = FHSetSetpointPotential[0],")
+        say("  duration = FHLevel[1], interval = FHLevel[0]. Re-run with ENERGIZE_CELL =")
+        say("  True to apply distinctive values and confirm them against the recording.")
 
         # The trigger window question.
         wait, wused = ac.command(proc, *WAIT_IDS)
@@ -158,17 +174,15 @@ def main():
 
         # --- phase 1: verify the indices against the data -----------------
         rule("PHASE 1 — apply distinctive values and check the recording")
-        if IDX_POTENTIAL is None:
-            say("  IDX_POTENTIAL is None — nothing to verify. Fill in the indices from")
-            say("  phase 0 first.")
+        if setpot is None:
+            say("  Could not find the FHSetSetpointPotential command — cannot set the")
+            say("  hold potential. Check SETPOINT_IDS against phase 0's command list.")
             return 1
         say("")
-        say("  applying:")
-        ac.set_param(hold, IDX_POTENTIAL, HOLD_V, "hold V")
-        if IDX_DURATION is not None:
-            ac.set_param(hold, IDX_DURATION, HOLD_S, "duration s")
-        if IDX_INTERVAL is not None:
-            ac.set_param(hold, IDX_INTERVAL, INTERVAL_S, "interval s")
+        say("  applying (potential on the setpoint command, duration/interval on FHLevel):")
+        ac.set_param(setpot, IDX_SETPOINT_V, HOLD_V, "hold V")
+        ac.set_param(hold, IDX_DURATION, HOLD_S, "duration s")
+        ac.set_param(hold, IDX_INTERVAL, INTERVAL_S, "interval s")
 
         ac.switch_cell(inst, True)
         ac.run(proc, inst, live=True)
@@ -195,23 +209,53 @@ def main():
         say("  A NOT CONFIRMED means that index is something else — do not adopt it.")
         say("  Re-read phase 0's list and try the next candidate.")
 
-        # --- phase 2: the contamination question --------------------------
+        # --- phase 2: the lifecycle question -----------------------------
+        # Two distinct questions, and phase 1 on the rig (2026-09-03) showed the
+        # first one bites: (a) can a procedure object be re-Measure()d at all, and
+        # (b) if so, does run 2's .Signals still carry run 1's points.
         if RUN_LIFECYCLE:
-            rule("PHASE 2 — item 2 for CA: does run 2 reuse run 1's buffer?")
+            rule("PHASE 2 — item 2 for CA: re-Measure() the same object, then reload")
             ac.switch_cell(inst, True)
-            ac.run(proc, inst)
+            elapsed2 = ac.run(proc, inst)
             ac.switch_cell(inst, False)
             n2 = len(ac.read_signals(hold).get("EI_0.CalcCurrent", []))
             say("")
-            say(f"  run 1: {n1} points, run 2: {n2} points")
-            if n1 and n2:
-                if abs(n2 - n1) <= max(2, n1 // 100):
-                    say("  >> CLEAN: .Signals is replaced per run; no reset needed.")
-                elif n2 >= n1 * 1.8:
-                    say("  >> CUMULATIVE: the driver MUST reset or reload between")
-                    say("     segments, or every segment after the first is contaminated.")
-                else:
-                    say("  >> UNCLEAR — compare the CSVs before trusting either answer.")
+            say(f"  run 1: {n1} points ({25.0:.0f}s-ish), run 2: {n2} points "
+                f"(Measure() took {elapsed2:.2f}s)")
+            reused_object_is_inert = elapsed2 < 1.0
+            if reused_object_is_inert:
+                say("  >> INERT: a second Measure() on the SAME procedure object did not")
+                say("     execute (returned instantly, IsMeasuring never True). The points")
+                say("     above are run 1's, still in .Signals. The driver MUST reload the")
+                say("     procedure for every segment — a reused object cannot re-measure.")
+            elif n1 and n2 and abs(n2 - n1) <= max(2, n1 // 100):
+                say("  >> CLEAN: run 2 executed and .Signals was replaced per run.")
+            elif n1 and n2 and n2 >= n1 * 1.8:
+                say("  >> CUMULATIVE: run 2's .Signals carries run 1's points too — the")
+                say("     driver MUST reload or reset between segments.")
+            else:
+                say("  >> UNCLEAR — compare the CSVs before trusting either answer.")
+
+            say("")
+            say("  Now the same question after an explicit reload:")
+            proc = ac.load(inst, NOX)
+            hold, _ = find_hold_command(proc, ac.list_commands(proc))
+            setpot, _ = ac.command(proc, *SETPOINT_IDS)
+            ac.set_param(setpot, IDX_SETPOINT_V, HOLD_V, "hold V")
+            ac.set_param(hold, IDX_DURATION, HOLD_S, "duration s")
+            ac.set_param(hold, IDX_INTERVAL, INTERVAL_S, "interval s")
+            ac.switch_cell(inst, True)
+            elapsed3 = ac.run(proc, inst)
+            ac.switch_cell(inst, False)
+            n3 = len(ac.read_signals(hold).get("EI_0.CalcCurrent", []))
+            say("")
+            say(f"  run 3 (after reload): {n3} points (Measure() took {elapsed3:.2f}s)")
+            if elapsed3 >= 1.0 and n1 and abs(n3 - n1) <= max(2, n1 // 100):
+                say("  >> reload is a clean reset — run 3 matches run 1. This is what the")
+                say("     driver does per segment.")
+            else:
+                say("  >> reload did NOT behave like run 1 — investigate before the driver")
+                say("     relies on it.")
     finally:
         ac.cell_off_quietly(inst)
         ac.disconnect(inst)
