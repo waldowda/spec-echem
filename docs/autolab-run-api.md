@@ -232,6 +232,27 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
    `Ei.CurrentOverload` / `IsConnected` **during** each run via the new `watch` hook in
    `autolab_common.run()`. If only the overload flags differ, polling them *is* fault detection —
    and the driver must report an overloaded segment rather than write it as if it were fine.
+
+   **RESULT — 2026-09-03 (10 kΩ 1% dummy, `bench_autolab_fault_report.txt` + `_baseline.csv`
+   / `_open_circuit.csv`):**
+   - **An open cell is invisible to every status signal.** Baseline vs one lead unclipped for the
+     whole run: `points` 1640 = 1640, `IsMeasuring` → False in both (a dead run looks *complete*),
+     `IsConnected` stays True, `PotentialOverload` / `CurrentOverload` **never fire** — not even
+     for a fully open cell. Every `Procedure.*` status field (`Status` / `State` / `Result` /
+     `IsFinished` / `Aborted` / `HasError` / `Error`) is `<absent>`; **there is no status/result
+     object**. The lifecycle flags cannot distinguish completed from errored.
+   - **The only observable that moves is the recorded current itself:** `max|I|` 101 µA (baseline)
+     → **22 nA** (open) — a factor ~4600, i.e. flat-line noise. So the driver's *only* handle on
+     "dead run" is a data sanity check: flag a segment whose `max|I|` never rises out of the noise
+     floor. The SOP must warn that a complete-looking file can carry no electrochemistry — same
+     failure shape as the 2026-07-27 Gamry truncation bug.
+   - **Overload sub-case is not reachable through the stock procedure.** `Cyclic voltammetry.nox`
+     command [1] `FHGetSetValues` sets `CurrentRange = CR10_1mA` at run start and command [5]
+     `FHPreCurrentRangingCV` auto-ranges before the staircase, so a small range pre-set via
+     `inst.Ei.CurrentRange` never survives to the measurement (`RUN_OVERLOAD` was tried at
+     `CR12_10uA` / ~10× over and the current channel still reported the true 101 µA, flag False).
+     Whether `Ei.CurrentOverload` fires for a *genuine* mid-run overload is still unproven; the
+     stock CV protects itself against a software range error.
 5. **Trigger integration:** one script — arm Avantes (external-trigger mode) → `Measure()` →
    pulse `Dio.DioPortsP1[0]` → poll to completion → confirm the spectrum landed and is aligned
    within the `FHWait` window.
@@ -251,6 +272,24 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
    → covered by `bench_autolab_fault.py` run 4, which is opt-in (`RUN_USB_PULL`) and deliberately
    last: it leaves the cell energized with no software control, so dummy resistor only, and
    recovery may need a reconnect or a power cycle.
+
+   **RESULT — 2026-09-03 (10 kΩ 1% dummy, USB pulled ~5 s into a live `Measure()`):**
+   - **A mid-run USB loss wedges the SDK session.** `proc.IsMeasuring` **stuck True** — it did not
+     go False and did not throw, so `autolab_common.run()`'s `while ... IsMeasuring` poll loop
+     never terminated. (`timeout=120 s` would eventually have fired, but only after two minutes of
+     the next point.)
+   - **The Adk.x subprocess floods the console** with native errors that Python cannot suppress
+     (they are written below the `clr` layer). Not a Python `print` — nothing in the loop prints.
+   - **Reconnecting the cable did not recover the session.** Ctrl-C was required; the Autolab was
+     then power-cycled for a clean slate.
+   - No `usb_pull` fingerprint or CSV was produced — the run died inside the poll loop before
+     `fingerprint()`, and `write_transcript()` never ran (it is post-`main()`).
+   - **Consequence for the driver:** `device_lost()` **cannot** be a passive check inside a poll
+     loop guarded on `IsMeasuring` — that flag lies on a dead link. The driver needs a hard
+     wall-clock ceiling (expected run duration + small margin) that on expiry **kills the Adk.x
+     process**, not merely calls `proc.Abort()`. Using `IsConnected` (throw = lost) as the loop
+     guard is worth trying but is unproven here: the loop never got to act on it.
+   - `RUN_USB_PULL` is left `False` in the script with a warning; do not re-run it casually.
 
 ---
 
