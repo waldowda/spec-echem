@@ -148,6 +148,14 @@ class RunTab(QWidget):
         # desync the run from its own metadata. Freeze it at Start.
         settings = copy.deepcopy(self.win.collect_settings())
 
+        # "python_mode" means Python drives the potentiostat AND fires the trigger —
+        # true for the Gamry (toolkitpy) AND the Autolab. "external" is the only mode
+        # where a human starts the sequence.
+        mode = settings.get("potentiostat_mode", "external")
+        python_mode = mode in ("python", "autolab")
+        pstat_name = {"python": "the Gamry",
+                      "autolab": "the Autolab"}.get(mode, "the potentiostat")
+
         # Normalize the folder name so stray whitespace can't pollute paths/filenames
         settings["data_folder"] = settings["data_folder"].strip()
 
@@ -195,9 +203,8 @@ class RunTab(QWidget):
         # here instead — the first moment there is somewhere durable to put them.
         instruments = {
             "spectrometer": self.win.spec_identity or "unknown (not connected via Connect)",
-            "potentiostat": self.win.pstat_identity if
-                settings.get("potentiostat_mode", "external") == "python"
-                else "external — Gamry runs its own .GSequence (not queried)",
+            "potentiostat": self.win.pstat_identity if python_mode
+                else "external — the potentiostat runs its own sequence (not queried)",
         }
         if instruments["potentiostat"] is None:
             instruments["potentiostat"] = "unknown (Connect Potentiostat not used)"
@@ -267,12 +274,12 @@ class RunTab(QWidget):
             self.live_canvas.show_message("Live echem plot off (timing comparison).")
         else:
             self.live_canvas.show_message(
-                "External mode — Gamry Framework shows the live echem data.")
+                "External mode — the potentiostat's own software shows the live echem data.")
 
         if python_mode:
-            self.set_banner("▶ Running — Python is driving the Gamry", "#dfd")
+            self.set_banner(f"▶ Running — Python is driving {pstat_name}", "#dfd")
         else:
-            self.set_banner("⏳ Armed — now START the Gamry sequence", "#ffd")
+            self.set_banner("⏳ Armed — now START the sequence on the potentiostat", "#ffd")
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.abort_btn.setEnabled(True)
