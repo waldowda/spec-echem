@@ -157,15 +157,20 @@ class FakeSpectrometer:
 # Only the bench can settle that.
 # ---------------------------------------------------------------------------
 
-# The standard-CV command list, as reported by the rig.
+# Command IdNames, as reported by the rig (bench_autolab_cv.py / _ca.py phase 0).
 CV_COMMAND_ID = "FHCyclicVoltammetry2"
 WAIT_COMMAND_ID = "FHWait"
+CA_RECORDER_ID = "FHLevel"                 # "Record signals (>1 ms)"
+CA_SETPOINT_ID = "FHSetSetpointPotential"  # "Set potential" — holds the hold potential
 
 # CV staircase parameter defaults, in SDK index order (autolab-run-api.md §1):
 #   0 start V, 1 upper V, 2 lower V, 3 step V, 4 crossings (int), 5 stop V,
 #   6 scan rate V/s
 _CV_DEFAULTS = [0.0, 1.0, -1.0, 0.00244, 2, 0.0, 0.1]
 _WAIT_DEFAULTS = [5.0]
+# FHLevel: 0 interval s, 1 duration s, 2 bool. FHSetSetpointPotential: 0 potential V.
+_LEVEL_DEFAULTS = [0.01, 5.0, False]
+_SETPOINT_DEFAULTS = [0.0]
 
 
 class _FakeParameter:
@@ -223,21 +228,35 @@ class FakeProcedure:
     """One loaded .nox. Measure() is non-blocking; IsMeasuring clears after
     `duration` seconds of wall clock, or immediately when duration is 0."""
 
-    def __init__(self, path, duration=0.0, points=64, wait_s=5.0, fail=False):
+    def __init__(self, path, duration=0.0, points=64, wait_s=5.0, fail=False,
+                 ca_levels=1, current_scale=1.0):
         self.path = path
         self._duration = duration
         self._points = points
         self._fail = fail
+        self._current_scale = current_scale   # <1 models an open cell (near-zero I)
         self._started = None
         self._aborted = False
         cv = _FakeCommand(list(_CV_DEFAULTS))
         wait = _FakeCommand(list(_WAIT_DEFAULTS))
         wait.CommandParameters[0].ValueAsObject = wait_s
-        self.Commands = _FakeList(
-            [cv, wait],
-            names=["CV staircase", "Wait time (s)"],
-            idnames=[CV_COMMAND_ID, WAIT_COMMAND_ID],
-        )
+        # The CA template is 3 (setpoint -> FHLevel -> plot) blocks on the rig;
+        # ca_levels lets a test model that so _neutralise_extra_ca_steps has extras
+        # to zero. Interleaved setpoint/level so IdName POSITIONS look like the rig.
+        items = [cv, wait]
+        names = ["CV staircase", "Wait time (s)"]
+        idnames = [CV_COMMAND_ID, WAIT_COMMAND_ID]
+        self._levels = []
+        for _ in range(max(1, ca_levels)):
+            items.append(_FakeCommand(list(_SETPOINT_DEFAULTS)))
+            names.append("Set potential")
+            idnames.append(CA_SETPOINT_ID)
+            lvl = _FakeCommand(list(_LEVEL_DEFAULTS))
+            items.append(lvl)
+            names.append("Record signals (>1 ms)")
+            idnames.append(CA_RECORDER_ID)
+            self._levels.append(lvl)
+        self.Commands = _FakeList(items, names=names, idnames=idnames)
 
     # --- the SDK surface ---
     def Measure(self):
@@ -261,19 +280,23 @@ class FakeProcedure:
 
     # --- what a finished run leaves behind ---
     def _finish(self, partial=False):
-        cv = self.Commands[CV_COMMAND_ID]
         n = max(1, self._points // 2) if partial else self._points
         wait = float(self.Commands[WAIT_COMMAND_ID].CommandParameters[0].ValueAsObject)
         # CalcTime is wall-clock from procedure start and begins at ~the wait value,
         # which is exactly the offset the driver has to remove.
-        cv._publish({
+        channels = {
             "CalcTime": [wait + i * 0.024414 for i in range(n)],
             "EI_0.CalcPotential": [0.001 * i for i in range(n)],
-            "EI_0.CalcCurrent": [1e-7 * i for i in range(n)],
+            "EI_0.CalcCurrent": [1e-7 * i * self._current_scale for i in range(n)],
             "SetpointApplied": [0.001 * i for i in range(n)],
             "ScanNumber": [1] * n,
             "Index": list(range(1, n + 1)),
-        })
+        }
+        # The driver reads the CV staircase for a CV segment and the first FHLevel
+        # for a chrono hold — publish on both so either path finds its trace.
+        self.Commands[CV_COMMAND_ID]._publish(channels)
+        if self._levels:
+            self._levels[0]._publish(dict(channels))
 
 
 class _FakeEi:
@@ -325,7 +348,8 @@ class _FakeConnection:
 class FakeAutolab:
     """Stand-in for EcoChemie.Autolab.Sdk.Instrument."""
 
-    def __init__(self, duration=0.0, points=64, wait_s=5.0, fail_measure=False):
+    def __init__(self, duration=0.0, points=64, wait_s=5.0, fail_measure=False,
+                 ca_levels=1, current_scale=1.0):
         self.AutolabConnection = _FakeConnection()
         self.Ei = _FakeEi()
         self.port = _FakePort()
@@ -333,13 +357,17 @@ class FakeAutolab:
         self._points = points
         self._wait_s = wait_s
         self._fail_measure = fail_measure
+        self._ca_levels = ca_levels        # 3 models the stock Chrono amperometry.nox
+        self._current_scale = current_scale  # <1 models an open cell
         self.loaded = []              # every .nox path handed to LoadProcedure
         self.disconnected = False
 
     def LoadProcedure(self, path):
         self.loaded.append(path)
         return FakeProcedure(path, duration=self._duration, points=self._points,
-                             wait_s=self._wait_s, fail=self._fail_measure)
+                             wait_s=self._wait_s, fail=self._fail_measure,
+                             ca_levels=self._ca_levels,
+                             current_scale=self._current_scale)
 
     def Disconnect(self):
         self.AutolabConnection.IsConnected = False

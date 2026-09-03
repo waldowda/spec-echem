@@ -213,10 +213,10 @@ class Potentiostat:
 # Metrohm Autolab
 #
 # Everything below follows docs/autolab-run-api.md, which records what the SDK
-# actually did on the UW rig (2026-08-31) rather than what its documentation says.
-# The unresolved points are named constants or explicit stubs, never guesses buried
-# in logic — see docs/autolab-driver-finishing.md for what to fill in after the
-# bench scripts run.
+# actually did on the UW rig — the run-API on 2026-08-31, then all of §4 (CV/CA
+# maps, abort, lifecycle, fault behaviour, trigger skew) on the rig 2026-09-03.
+# The one remaining bench check is positional command-list indexing, used only by
+# _neutralise_extra_ca_steps and guarded there. See docs/autolab-driver-finishing.md.
 #
 # The import guard mirrors toolkitpy's: pythonnet's `clr` is the cheap
 # yes/no. The SDK assembly itself is referenced in open(), from settings paths,
@@ -228,31 +228,48 @@ except ImportError:
     _clr = None
     AUTOLAB_AVAILABLE = False
 
-# Standard-CV command IdNames (autolab-run-api.md §1).
+# Standard-CV command IdNames (autolab-run-api.md §1; re-confirmed on the rig
+# 2026-09-03, bench_autolab_cv.py phase 0).
 AUTOLAB_CV_COMMAND = "FHCyclicVoltammetry2"
 AUTOLAB_WAIT_COMMAND = "FHWait"
 
 # CV staircase CommandParameters, by index. Parameters have no name property on
 # this SDK, so the index IS the address and this table is the only map there is.
+# All six confirmed against recorded data (bench_autolab_cv.py, 2026-09-03).
 CV_IDX_START = 0
 CV_IDX_UPPER = 1
 CV_IDX_LOWER = 2
 CV_IDX_STEP = 3
-CV_IDX_CROSSINGS = 4      # Int; 2 per full cycle
+CV_IDX_CROSSINGS = 4      # Int; 2 per full cycle (phase 3: 4 -> 2 cycles, points doubled)
 CV_IDX_STOP = 5
 CV_IDX_SCANRATE = 6       # V/s in the SDK, even though NOVA's UI shows mV/s
 
-# Chronoamperometry (doping / dedoping / pre-dedoping). UNKNOWN until
-# examples/bench_autolab_ca.py has been run — deliberately None so that reaching
-# this path fails loudly instead of writing a plausible-looking wrong potential.
-CA_COMMAND = None
-CA_IDX_POTENTIAL = None
-CA_IDX_DURATION = None
-CA_IDX_INTERVAL = None
+# Chronoamperometry (doping / dedoping / pre-dedoping) — CONFIRMED on the rig
+# 2026-09-03 (bench_autolab_ca.py, each index verified against recorded data).
+# `Chrono amperometry.nox` is a THREE-step template:
+#   (FHSetSetpointPotential -> FHLevel "Record signals" -> PlotsIvst) x3
+# spec-echem needs ONE hold per segment, so the driver drives step 1 and
+# neutralises the extra FHLevel steps (see _neutralise_extra_ca_steps). The hold
+# POTENTIAL is on the FHSetSetpointPotential command, NOT the FHLevel recorder —
+# same split as the CV template. `Commands["FHLevel"]` returns the FIRST of the
+# three (bench-confirmed), which is step 1.
+CA_RECORDER_COMMAND = "FHLevel"                  # holds duration + interval; owns .Signals
+CA_SETPOINT_COMMAND = "FHSetSetpointPotential"   # holds the potential
+CA_IDX_POTENTIAL = 0     # on FHSetSetpointPotential
+CA_IDX_DURATION = 1      # on FHLevel  (default 5.0 s)
+CA_IDX_INTERVAL = 0      # on FHLevel  (default 0.01 s); FHLevel[2] is a bool, left alone
 
 # Pulse the trigger this long, and give up on a segment after this.
 AUTOLAB_PULSE_WIDTH_S = 0.002
 AUTOLAB_MAX_WAIT_MARGIN_S = 30.0
+
+# bench_autolab_coacquire.py (2026-09-03): on the standard CV template the
+# staircase starts ~1 s AFTER FHWait ends (FHPreCurrentRangingCV + cell settle),
+# so pulsing at the raw FHWait leaves the spectra ~1 s ahead of the echem. The gap
+# is variable, so the real fix is an FHDIO step inside the .nox
+# (autolab_trigger_in_procedure = True); until then set a measured
+# autolab_pulse_delay_s in config/bench.ini. This is only a log-time hint.
+AUTOLAB_STANDARD_TEMPLATE_EXTRA_LAG_S = 1.0
 
 
 def open_instrument(settings):
@@ -375,12 +392,24 @@ class AutolabPotentiostat(Potentiostat):
     and no stillborn-curve hazard.
 
     Per segment: prepare() loads the procedure fresh and writes the parameters,
-    fire() switches the cell on, calls Measure(), and pulses the trigger inside the
-    procedure's own wait window; finish() polls to completion and reads the trace.
+    fire() switches the cell on and calls Measure(), then either pulses P1.A itself
+    inside the procedure's wait window (default) or leaves it to an FHDIO step in
+    the .nox (autolab_trigger_in_procedure); finish() polls to completion and reads
+    the trace.
 
     Ordering is unchanged from the Gamry path: fire() is called from INSIDE the
     spectrometer's measure(), after AVS_Measure has armed it, so the edge always
     lands on an armed detector. Late is safe; early is silently missed.
+
+    On the trigger: the cable (Autolab P1.A -> Avantes hardware trigger input)
+    gives a jitter-free spectrometer start (~0.5 ms after the edge, bench-measured
+    2026-09-03). What still has host-timing slop is *when Python fires the edge* —
+    bench_autolab_coacquire.py measured +988 ms because Python pulses on a
+    wall-clock delay targeting the variable FHPreCurrentRangingCV gap. The fix is
+    autolab_trigger_in_procedure: an FHDIO step in the .nox fires P1.A on the
+    Autolab's own clock, after ranging, and Python drops out of the timing path
+    (see docs/autolab-run-api.md §4.5). The Python-pulse path stays as the fallback
+    and for templates without the step.
 
     WHY THIS DRIVES A NOVA PROCEDURE rather than generating a waveform in Python:
     the same reason ToolkitPotentiostat calls toolkitpy's signal_r_up_dn_new /
@@ -411,13 +440,21 @@ class AutolabPotentiostat(Potentiostat):
         self._aborted = False
         self._pulse_delay = 0.0
         self._max_wait = 60.0
+        # When the .nox carries its own FHDIO step (the eventual design — see
+        # docs/autolab-run-api.md §4.5), the Autolab fires P1.A itself on its own
+        # clock and Python must NOT pulse. fire() then just starts the procedure.
+        self._trigger_in_procedure = bool(
+            self.settings.get("autolab_trigger_in_procedure", False))
 
     # --- lifecycle ------------------------------------------------------
 
     def open(self):
         self._inst = open_instrument(self.settings)
-        self._port = open_trigger_port(
-            self._inst, int(self.settings.get("autolab_dio_port", 0)))
+        if self._trigger_in_procedure:
+            self._port = None       # the procedure's FHDIO step drives P1.A
+        else:
+            self._port = open_trigger_port(
+                self._inst, int(self.settings.get("autolab_dio_port", 0)))
 
     def close(self):
         if self._inst is None:
@@ -443,11 +480,12 @@ class AutolabPotentiostat(Potentiostat):
     def prepare(self, segment):
         """Load the procedure FRESH for every segment and write its parameters.
 
-        Reloading each time is deliberate. Whether a second Measure() reuses the
-        first run's .Signals buffer is unresolved (bench_autolab_cv.py phase 2), and
-        a reload is correct either way — if the buffer turns out to be replaced per
-        run, this costs a load; if it accumulates, this is what stops every segment
-        after the first from carrying the one before it.
+        Reloading each time is REQUIRED, not just tidy: bench_autolab_cv.py /
+        bench_autolab_ca.py (2026-09-03) showed a second Measure() on an already-run
+        procedure object is INERT — it returns instantly, IsMeasuring never goes
+        True, nothing runs, and .Signals still holds the previous run. Only a fresh
+        LoadProcedure() gives a clean run (and a clean buffer), so there is no
+        Ei.Sampler.Reset() to call.
         """
         self._segment = segment
         self._last_data = None
@@ -469,6 +507,8 @@ class AutolabPotentiostat(Potentiostat):
         _set_cell(self._inst, True)
         self._t0 = time.time()
         self._proc.Measure()          # returns immediately
+        if self._trigger_in_procedure:
+            return                    # the .nox's FHDIO step raises P1.A itself
         self._pulse_trigger()
 
     def finish(self, aborted=False):
@@ -548,44 +588,85 @@ class AutolabPotentiostat(Potentiostat):
         return path
 
     def _command_for(self, segment):
+        """The command whose .Signals holds the recorded trace for this segment —
+        the CV staircase, or the (first) FHLevel recorder for a chrono hold."""
         if segment.data_type == DATA_TYPE_CV:
             return self._proc.Commands[AUTOLAB_CV_COMMAND]
-        if CA_COMMAND is None:
-            raise NotImplementedError(
-                "The chronoamperometry command and parameter indices are not known "
-                "yet. Run examples/bench_autolab_ca.py and fill in CA_COMMAND / "
-                "CA_IDX_* — see docs/autolab-driver-finishing.md.")
-        return self._proc.Commands[CA_COMMAND]
+        return self._proc.Commands[CA_RECORDER_COMMAND]
 
     def _apply_parameters(self, segment):
         s = self.settings
         if segment.data_type == DATA_TYPE_CV:
-            self._set(CV_IDX_START, s["cv_initial_v"])
-            self._set(CV_IDX_UPPER, s["cv_limit1_v"])
-            self._set(CV_IDX_LOWER, s["cv_limit2_v"])
-            self._set(CV_IDX_STOP, s["cv_final_v"])
-            self._set(CV_IDX_STEP, s["cv_step_size"] / 1000.0)     # mV -> V
-            self._set(CV_IDX_SCANRATE, s["cv_scan_rate"] / 1000.0)  # mV/s -> V/s
+            self._set(self._cmd, CV_IDX_START, s["cv_initial_v"])
+            self._set(self._cmd, CV_IDX_UPPER, s["cv_limit1_v"])
+            self._set(self._cmd, CV_IDX_LOWER, s["cv_limit2_v"])
+            self._set(self._cmd, CV_IDX_STOP, s["cv_final_v"])
+            self._set(self._cmd, CV_IDX_STEP, s["cv_step_size"] / 1000.0)      # mV -> V
+            self._set(self._cmd, CV_IDX_SCANRATE, s["cv_scan_rate"] / 1000.0)  # mV/s -> V/s
             # 2 crossings per full cycle — bench_autolab_cv.py phase 3 confirms.
-            self._set(CV_IDX_CROSSINGS, 2 * int(s["cv_cycles"]))
+            self._set(self._cmd, CV_IDX_CROSSINGS, 2 * int(s["cv_cycles"]))
             return
-        # Chrono: same potentials as the Gamry path, once the indices are known.
-        self._set(CA_IDX_POTENTIAL, self._chrono_potential(segment))
+        # Chrono hold: potential on the SETPOINT command, duration + interval on the
+        # FHLevel recorder (self._cmd). Potentials are the same settings as the Gamry
+        # path — a doping cycle is start + run_number * step.
+        setpoint = self._proc.Commands[CA_SETPOINT_COMMAND]
+        self._set(setpoint, CA_IDX_POTENTIAL, self._chrono_potential(segment))
         hold = (s["prededoping_time"] if segment.data_type == DATA_TYPE_PREDEDOPING
                 else s["chrono_time"])
-        if CA_IDX_DURATION is not None:
-            self._set(CA_IDX_DURATION, hold)
-        if CA_IDX_INTERVAL is not None:
-            self._set(CA_IDX_INTERVAL, segment.delta_time)
+        self._set(self._cmd, CA_IDX_DURATION, hold)
+        self._set(self._cmd, CA_IDX_INTERVAL, segment.delta_time)
+        self._neutralise_extra_ca_steps()
 
-    def _set(self, index, value):
+    def _neutralise_extra_ca_steps(self):
+        """`Chrono amperometry.nox` has THREE FHLevel hold steps; spec-echem wants
+        one. Zero the duration of every FHLevel after the first so only step 1
+        holds — otherwise a real sample gets driven to steps 2-3's default 0 V for
+        ~10 s after every segment (partial de-doping).
+
+        Finds the extra steps by IdName position rather than a hardcoded index, so a
+        purpose-built single-step template makes this a clean no-op. Positional
+        command-list access is the one part of the SDK not yet bench-verified (only
+        iteration is), so this is defensive and logs what it did.
+        """
+        try:
+            idnames = list(getattr(self._proc.Commands, "IdNames", []) or [])
+            commands = list(self._proc.Commands)
+        except Exception as exc:  # noqa: BLE001
+            get_run_logger().warning(
+                "Autolab: could not enumerate commands to neutralise extra CA "
+                "hold steps (%s). If this is the 3-step stock template, segments "
+                "2-3 will run at 0 V — use a single-step CA .nox.", exc)
+            return
+        levels = [i for i, idn in enumerate(idnames) if idn == CA_RECORDER_COMMAND]
+        extras = levels[1:]                       # keep step 1, zero the rest
+        zeroed = 0
+        for pos in extras:
+            try:
+                prm = list(commands[pos].CommandParameters)[CA_IDX_DURATION]
+                prm.ValueAsObject = 0.0
+                zeroed += 1
+            except Exception as exc:  # noqa: BLE001
+                get_run_logger().warning(
+                    "Autolab: extra CA hold step at position %d not neutralised: "
+                    "%s", pos, exc)
+        if zeroed:
+            get_run_logger().info(
+                "Autolab: neutralised %d extra CA hold step(s) so only step 1 runs.",
+                zeroed)
+
+    def _set(self, cmd, index, value):
         """Write one parameter by index and verify it stuck — a silently ignored
-        potential would run the wrong experiment on a real sample."""
+        potential would run the wrong experiment on a real sample.
+
+        `list(cmd.CommandParameters)[index]`, not `[index]` directly: this SDK's
+        CommandParameterList rejects a bare Python int in get_Item ("No method
+        matches given arguments"), proven on the rig 2026-09-03. Iteration works.
+        """
         if index is None:
             raise NotImplementedError(
                 "An Autolab parameter index is still unknown — see "
                 "docs/autolab-driver-finishing.md.")
-        prm = self._cmd.CommandParameters[index]
+        prm = list(cmd.CommandParameters)[index]
         prm.ValueAsObject = value
         back = prm.ValueAsObject
         if abs(float(back) - float(value)) > 1e-9:
@@ -604,20 +685,36 @@ class AutolabPotentiostat(Potentiostat):
         raise ValueError(f"No chrono potential for data_type {segment.data_type}")
 
     def _wait_window(self):
-        """The procedure's own wait duration — the room between Measure() and the
-        electrochemistry starting, which is where the trigger pulse goes. Read from
-        the procedure rather than assumed, since a NOVA edit would change it."""
+        """When to pulse P1.A, measured from Measure(). A measured
+        `autolab_pulse_delay_s` in bench.ini wins; otherwise the procedure's own
+        FHWait duration, read live (a NOVA edit would change it).
+
+        Unused when autolab_trigger_in_procedure is set — the .nox fires its own
+        edge then.
+        """
         override = self.settings.get("autolab_pulse_delay_s")
         if override is not None:
             return float(override)
         try:
             wait = self._proc.Commands[AUTOLAB_WAIT_COMMAND]
-            return float(wait.CommandParameters[0].ValueAsObject)
+            base = float(list(wait.CommandParameters)[0].ValueAsObject)
         except Exception:  # noqa: BLE001
             get_run_logger().warning(
                 "Autolab: no wait command in this procedure — pulsing the trigger "
                 "immediately, so the spectra lead the electrochemistry.")
             return 0.0
+        # bench_autolab_coacquire.py 2026-09-03: on the standard CV template the
+        # staircase starts ~1 s after FHWait (FHPreCurrentRangingCV + settle), so
+        # the raw wait pulses ~1 s early. Can't correct it here — the lag is
+        # variable — but say so, since a measured autolab_pulse_delay_s or an
+        # in-procedure FHDIO step is the fix.
+        get_run_logger().warning(
+            "Autolab: pulsing at the raw FHWait (%.2f s). On the standard template "
+            "the electrochemistry starts ~%.1f s later — set a measured "
+            "autolab_pulse_delay_s in config/bench.ini, or an FHDIO step in the "
+            ".nox (autolab_trigger_in_procedure).",
+            base, AUTOLAB_STANDARD_TEMPLATE_EXTRA_LAG_S)
+        return base
 
     def _pulse_trigger(self):
         """Pulse P1.A after the wait window, so the optical and echem clocks start
@@ -676,6 +773,26 @@ class AutolabPotentiostat(Potentiostat):
             get_run_logger().warning(
                 "%s: the Autolab stopped responding during this segment; its echem "
                 "data is truncated while the spectra are complete.", label)
+        self._warn_if_current_never_rose(label)
+
+    def _warn_if_current_never_rose(self, label):
+        """bench_autolab_fault.py (2026-09-03): an open cell / loose lead is
+        INVISIBLE to every status signal — IsMeasuring goes False, no overload
+        fires, .Signals fills normally. The only tell is that the current stays in
+        the noise (22 nA seen for a fully open cell vs ~100 uA connected). So check
+        the trace we just built and say so, since nothing else will.
+        """
+        data = self._last_data
+        if data is None or not len(data.current):
+            return
+        floor = float(self.settings.get("autolab_min_current_a", 1e-7))
+        peak = float(np.nanmax(np.abs(np.asarray(data.current, dtype=float))))
+        if peak < floor:
+            get_run_logger().warning(
+                "%s: the measured current never exceeded %.1e A (peak %.1e A). The "
+                "cell is probably open or a lead is loose — this segment ran to "
+                "completion and the file looks normal, but it carries no "
+                "electrochemistry.", label, floor, peak)
 
 
 def make_potentiostat(settings):
