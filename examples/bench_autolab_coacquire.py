@@ -67,6 +67,12 @@ DELTA_TIME_S = 0.1
 
 RUN_EARLY_PULSE_CONTROL = False   # deliberately pulse BEFORE arming; expects a miss
 
+# True when the .nox carries its own FHDIO step (the design that takes Python out
+# of the trigger timing path — docs/autolab-run-api.md §4.5). Python then only
+# arms + Measure(); the Autolab raises P1.A itself. Skew is measured as
+# echem CalcTime[0] minus when the scan landed (both from the Measure() call).
+TRIGGER_IN_PROCEDURE = False
+
 # CV staircase, same indices as bench_autolab_cv.py.
 CV_ID = "FHCyclicVoltammetry2"
 WAIT_IDS = ("FHWait", "Wait time (s)")
@@ -198,8 +204,12 @@ def build_cv(inst):
 def coacquire(avaspec, handle, pixels, inst, port, proc, cv, delay):
     """The sequence the driver will run for every segment."""
     say("")
-    say(f"  arming the Avantes (hardware trigger), then Measure(), "
-        f"then pulsing at +{delay:.2f} s")
+    if TRIGGER_IN_PROCEDURE:
+        say("  arming the Avantes (hardware trigger), then Measure(); the .nox's "
+            "own FHDIO step raises P1.A — Python does NOT pulse")
+    else:
+        say(f"  arming the Avantes (hardware trigger), then Measure(), "
+            f"then pulsing at +{delay:.2f} s")
     if not arm(avaspec, handle, pixels, TRIGGER_MODE_HARDWARE):
         return None
 
@@ -209,19 +219,39 @@ def coacquire(avaspec, handle, pixels, inst, port, proc, cv, delay):
     say(f"    Measure() returned at +{time.time() - t_measure:.3f} s "
         f"(IsMeasuring={safe(lambda: proc.IsMeasuring)})")
 
-    while time.time() - t_measure < delay:
-        time.sleep(0.005)
-    t_pulse = time.time()
-    ac.pulse(port, PULSE_WIDTH_S)
-    pulse_at = t_pulse - t_measure
-    say(f"    pulsed P1[{DIO_PORT_INDEX}] at +{pulse_at:.3f} s")
-
-    waited, spectrum = wait_for_scan(avaspec, handle, TRIGGER_TIMEOUT_S)
-    if waited is None:
-        say("    NO SCAN — the edge did not reach the detector, or arrived early.")
+    if TRIGGER_IN_PROCEDURE:
+        # No Python pulse. Poll for the scan the procedure's FHDIO step triggers,
+        # and record when it landed relative to Measure() so the skew can be taken
+        # against CalcTime[0].
+        t_scan_poll_start = time.time()
+        waited, spectrum = wait_for_scan(avaspec, handle, TRIGGER_TIMEOUT_S)
+        if waited is None:
+            pulse_at = None
+            say("    NO SCAN — the .nox never raised P1.A, or the FHDIO step is "
+                "misconfigured (port, polarity), or it fired before arming.")
+        else:
+            scan_landed_at = (t_scan_poll_start - t_measure) + waited
+            # The scan completes one integration AFTER the edge, so back it out to
+            # estimate when the .nox actually fired P1.A — comparable to the pulse
+            # time the Python-pulse path records.
+            pulse_at = scan_landed_at - INTEGRATION_MS / 1000.0
+            say(f"    scan landed at +{scan_landed_at:.3f} s after Measure(); "
+                f"edge est. +{pulse_at:.3f} s (−{INTEGRATION_MS:.0f} ms integ.), "
+                f"max {max(spectrum):.0f} counts")
     else:
-        say(f"    scan landed {waited * 1000:.1f} ms after the pulse, "
-            f"max {max(spectrum):.0f} counts")
+        while time.time() - t_measure < delay:
+            time.sleep(0.005)
+        t_pulse = time.time()
+        ac.pulse(port, PULSE_WIDTH_S)
+        pulse_at = t_pulse - t_measure
+        say(f"    pulsed P1[{DIO_PORT_INDEX}] at +{pulse_at:.3f} s")
+
+        waited, spectrum = wait_for_scan(avaspec, handle, TRIGGER_TIMEOUT_S)
+        if waited is None:
+            say("    NO SCAN — the edge did not reach the detector, or arrived early.")
+        else:
+            say(f"    scan landed {waited * 1000:.1f} ms after the pulse, "
+                f"max {max(spectrum):.0f} counts")
 
     # Free-run continuation: spectrum 0 is triggered, the rest are not — the real
     # pattern from acquisition.py.
@@ -309,17 +339,26 @@ def main():
         rule("RESULT — how well aligned are the two clocks?")
         start = r["echem_start"]
         start_txt = "?" if start is None else f"+{start:.3f} s (CalcTime[0])"
+        pulse_at = r["pulse_at"]
+        pulse_txt = "?" if pulse_at is None else f"+{pulse_at:.3f} s after Measure()"
+        edge_label = ("edge (.nox FHDIO, est.)" if TRIGGER_IN_PROCEDURE
+                      else "pulse sent at")
         say(f"  spectrum landed        : {r['scan_landed']}")
-        say(f"  pulse sent at          : +{r['pulse_at']:.3f} s after Measure()")
+        say(f"  {edge_label:<22}: {pulse_txt}")
         say(f"  echem first sample at  : {start_txt}")
         say(f"  echem points           : {r['points']}")
-        if start is not None:
-            skew = start - r["pulse_at"]
+        if start is not None and pulse_at is not None:
+            skew = start - pulse_at
             say("")
             say(f"  >> SKEW = {skew * 1000:+.0f} ms "
                 "(echem t=0 minus optical t=0)")
             say("     positive: the staircase started AFTER the spectrum")
-            say(f"     to align them, set PULSE_DELAY_S = {start:.3f}")
+            if TRIGGER_IN_PROCEDURE:
+                say("     with the FHDIO step in the .nox this should be a few ms; a")
+                say("     large value means the step is in the wrong place in the "
+                    "procedure.")
+            else:
+                say(f"     to align them, set PULSE_DELAY_S = {start:.3f}")
             say("")
             say("     Both clocks are read on this PC, and Measure() itself takes")
             say("     ~0.3 s to return, so treat this as good to roughly a tenth of")
