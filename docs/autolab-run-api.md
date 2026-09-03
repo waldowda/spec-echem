@@ -211,7 +211,13 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
 
 ---
 
-## 4. Still to resolve (do with the resistor back in, during driver work)
+## 4. Bench items — ALL RESOLVED on the rig 2026-09-03
+
+Every item below was run on the Metrohm rig with a 10 kΩ 1% dummy on 2026-09-03 (three bench
+scripts: `bench_autolab_cv.py`, `bench_autolab_ca.py`, `bench_autolab_fault.py`,
+`bench_autolab_coacquire.py`). Item 7 is *recorded* rather than cleanly closed — see its note.
+The per-item **RESULT** blocks are the driver's contract; the prose above each is the original
+question. `set_param()` in `autolab_common.py` was fixed the same day (int index → iterate).
 
 1. **Multi-cycle:** idx-4 is "number of (stop) crossings" (2 = one cycle). Set it to 4, confirm
    two cycles run, `ScanNumber` goes 1→2, point count doubles, and cycles concatenate in the
@@ -280,6 +286,23 @@ status indicator becomes live (green/red) in this mode; doping-potential fields 
    real pattern — spectrum 0 triggered, the rest free-running, as `acquisition.py` does.
    `RUN_EARLY_PULSE_CONTROL` deliberately fires the edge before arming, to confirm on this hardware
    that it is missed (the rule `diag_trigger_timing.py` established on the Gamry).
+
+   **RESULT — 2026-09-03 (10 kΩ 1% dummy, ULS2048L, `bench_autolab_coacquire_report.txt`):**
+   - **The DIO→Avantes hardware trigger works from one Python process driving both instruments.**
+     Armed the Avantes (`m_Trigger_m_Mode = 1`, external edge) → `proc.Measure()` returned in
+     0.31 s → pulsed `Dio.DioPortsP1[0]` (Port_A) at +5.004 s → **scan landed 0.5 ms after the
+     pulse** (16384 counts). This is the end-to-end validation `AutolabPotentiostat` needed:
+     arm-then-`Measure()`-then-pulse, one process, no two-process split.
+   - **Skew = +988 ms.** Pulse at +5.004 s, echem first sample (`CalcTime[0]`) at +5.992 s — the
+     staircase starts ~1 s *after* the optical t=0. The gap is `FHPreCurrentRangingCV` (command
+     [5], "Optimize current range") + the setpoint/cell-settle between `FHWait` ending and the
+     staircase beginning; it matches the ~6 s `CalcTime[0]` seen in the CV/CA benches.
+   - **`fire()` pulses at `PULSE_DELAY_S ≈ 5.992` s** (= `FHWait` 5.0 + ~1.0), *not* at `FHWait`.
+     Host-side clocks + `Measure()` ~0.3 s latency → trust to ~0.1 s; enough to choose the delay,
+     not a calibration. `PULSE_WIDTH_S = 0.002`, `INTEGRATION_MS = 5.0`.
+   - Not yet run: the `RUN_EARLY_PULSE_CONTROL` negative control (pulse before arming → expect a
+     miss) and `NUM_SPECTRA > 1` (triggered spectrum 0 + free-run remainder). The arm-then-fire
+     ordering is already proven on the Gamry and encoded in `acquisition.py`.
 6. **CA template:** doping / dedoping / pre-dedoping are chronoamperometry holds. Pick
    `Standard Nova Procedures\Chrono amperometry.nox` as the template, map its parameter indices
    the same way, decide where the trigger pulse lives.
