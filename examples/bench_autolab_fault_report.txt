@@ -1,0 +1,121 @@
+
+========================================================================
+AUTOLAB — WHAT DOES A FAILED RUN LOOK LIKE? (items 4 and 7)
+========================================================================
+NOX           : C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Cyclic voltammetry.nox
+ENERGIZE_CELL : True
+current range : None
+
+*** The cell WILL be energized. 10 kOhm dummy resistor only. ***
+Connected OK — cell NOT switched on.
+
+========================================================================
+PHASE 0 — observable state and the current-range members
+========================================================================
+  EI.EICurrentRange members: ['CR07_1A', 'CR06_10A', 'CR01_100A', 'CR00_1000A', 'CR05_20A', 'CR04_40A', 'CR03_50A', 'CR02_80A', 'CR19_1pA', 'CR18_10pA', 'CR17_100pA', 'CR16_1nA', 'CR15_10nA', 'CR14_100nA', 'CR13_1uA', 'CR12_10uA', 'CR11_100uA', 'CR10_1mA', 'CR09_10mA', 'CR08_100mA']
+  Put a SMALL one in CURRENT_RANGE_NAME — small enough that ~100 uA
+  through the 10 kOhm overloads it.
+Loaded: Cyclic voltammetry.nox
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper V = 1.0  (read back 1.0) OK
+    set [2] lower V = -1.0  (read back -1.0) OK
+    set [3] step V = 0.00244  (read back 0.00244) OK
+    set [4] crossings = 2  (read back 2) OK
+    set [6] scan rate V/s = 0.5  (read back 0.5) OK
+
+  FHCyclicVoltammetry2.CommandParameters:
+    [0] float      = 0.0
+    [1] float      = 1.0
+    [2] float      = -1.0
+    [3] float      = 0.00244
+    [4] int        = 2
+    [5] float      = 0.0
+    [6] float      = 0.5
+
+  Procedure-level state worth watching for a status field:
+    Procedure.IsMeasuring  = False
+    Procedure.Status       = <absent>
+    Procedure.State        = <absent>
+    Procedure.Result       = <absent>
+    Procedure.IsFinished   = <absent>
+    Procedure.Aborted      = <absent>
+    Procedure.HasError     = <absent>
+    Procedure.Error        = <absent>
+
+  Ei flags: PotentialOverload=False CurrentOverload=False Cell=False
+
+========================================================================
+RUN 1 — BASELINE (clean run on the dummy resistor)
+========================================================================
+Loaded: Cyclic voltammetry.nox
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper V = 1.0  (read back 1.0) OK
+    set [2] lower V = -1.0  (read back -1.0) OK
+    set [3] step V = 0.00244  (read back 0.00244) OK
+    set [4] crossings = 2  (read back 2) OK
+    set [6] scan rate V/s = 0.5  (read back 0.5) OK
+  Measure() returned in 0.26 s; IsMeasuring=True
+  Run finished in 15.60 s (IsMeasuring=False)
+
+  fingerprint [baseline]:
+    polls                      58
+    points                     1640
+    is_measuring_after         False
+    connected_after            True
+    potential_overload_after   False
+    current_overload_after     False
+    max_abs_current            0.000100982666015625
+  CSV written: C:\Users\Ginger Lab\spec-echem\examples\bench_autolab_fault_baseline.csv  (1640 rows x 6 cols)
+
+========================================================================
+RUN 3 — OPEN CIRCUIT (the realistic failure)
+========================================================================
+
+  >>> OPEN the cell now — the cell switch, or unclip ONE lead. Leave the resistor otherwise wired.
+Loaded: Cyclic voltammetry.nox
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper V = 1.0  (read back 1.0) OK
+    set [2] lower V = -1.0  (read back -1.0) OK
+    set [3] step V = 0.00244  (read back 0.00244) OK
+    set [4] crossings = 2  (read back 2) OK
+    set [6] scan rate V/s = 0.5  (read back 0.5) OK
+  Measure() returned in 0.14 s; IsMeasuring=True
+  Run finished in 15.39 s (IsMeasuring=False)
+
+  fingerprint [open_circuit]:
+    polls                      57
+    points                     1640
+    is_measuring_after         False
+    connected_after            True
+    potential_overload_after   False
+    current_overload_after     False
+    max_abs_current            2.17987060546875e-08
+  CSV written: C:\Users\Ginger Lab\spec-echem\examples\bench_autolab_fault_open_circuit.csv  (1640 rows x 6 cols)
+
+  >>> Re-CLOSE the cell (reseat the lead) before continuing.
+  A near-zero max_abs_current above is the signature of an open cell:
+  a complete, successful-looking run carrying no electrochemistry.
+
+========================================================================
+COMPARISON — what distinguishes a failed run from a good one?
+========================================================================
+  observable                 baseline        open_circuit    
+  points                     1640            1640            
+  is_measuring_after         False           False           
+  connected_after            True            True            
+  potential_overload         -               -               
+  current_overload           -               -               
+  disconnected_during        -               -               
+  max_abs_current            0.0001009826660156252.17987060546875e-08
+
+  Any row that differs between baseline and a fault is something the
+  driver can check. If ONLY the overload flags differ, then polling them
+  during the run is the whole of fault detection — and a segment that
+  overloads must be reported, not written as if it were fine.
+Cell switched OFF.
+Disconnected.
+
+========================================================================
+NEXT
+========================================================================
+Record the comparison table in docs/autolab-run-api.md §4 items 4 and 7.

@@ -2,10 +2,12 @@
 autolab_common.py — the Autolab SDK calls that are already PROVEN on hardware.
 
 Shared by `bench_autolab_cv.py` and `bench_autolab_ca.py` so the two bench scripts
-contain their experiment and nothing else. Every call here was validated on the UW
-rig on 2026-08-31 (see docs/autolab-run-api.md and examples/autolab_api_report.txt);
-none of it is inferred from documentation, which is the distinction that cost this
-project several days.
+contain their experiment and nothing else. The SDK *facts* encoded here were proven on
+the UW rig on 2026-08-31 (see docs/autolab-run-api.md and examples/autolab_api_report.txt),
+not inferred from documentation — the distinction that cost this project several days.
+The *helper functions* wrapping those facts were written the same day but first
+exercised against hardware on 2026-09-03; `set_param()` needed a fix then
+(CommandParameterList rejects a bare int index — iterate instead).
 
 Does NOT import the spec-echem package — these stay runnable on a bare env with only
 pythonnet installed.
@@ -239,9 +241,15 @@ def dump_parameters(cmd, label):
 
 
 def set_param(cmd, index, value, label=""):
-    """Write one parameter by index and read it back. Returns True if it stuck."""
+    """Write one parameter by index and read it back. Returns True if it stuck.
+
+    Reach the parameter by iterating, not `CommandParameters[index]` — this SDK's
+    CommandParameterList rejects a bare Python int in get_Item ("No method matches
+    given arguments"). Iteration is the access pattern query_autolab_run.py proved on
+    hardware; dump_parameters() uses it too.
+    """
     try:
-        prm = cmd.CommandParameters[index]
+        prm = list(cmd.CommandParameters)[index]
         prm.ValueAsObject = value
         back = prm.ValueAsObject
         ok = abs(float(back) - float(value)) < 1e-9
