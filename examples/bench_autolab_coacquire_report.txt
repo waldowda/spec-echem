@@ -22,29 +22,29 @@ Loaded: Cyclic voltammetry.nox
     set [6] scan rate V/s = 0.5  (read back 0.5) OK
   WAIT command 'FHWait' duration = 5.0 s
 
-  Both instruments are open in ONE process. Pulse delay will be 5.00 s.
+  Both instruments are open in ONE process. Pulse delay will be 5.99 s.
 
 ========================================================================
 RUN — arm, Measure(), pulse, collect
 ========================================================================
 
-  arming the Avantes (hardware trigger), then Measure(), then pulsing at +5.00 s
-    Measure() returned at +0.310 s (IsMeasuring=True)
-    pulsed P1[0] at +5.004 s
-    scan landed 0.5 ms after the pulse, max 16384 counts
-    procedure finished at +15.55 s
+  arming the Avantes (hardware trigger), then Measure(), then pulsing at +5.99 s
+    Measure() returned at +0.281 s (IsMeasuring=True)
+    pulsed P1[0] at +5.995 s
+    scan landed 0.6 ms after the pulse, max 193 counts
+    procedure finished at +15.42 s
 
 ========================================================================
 RESULT — how well aligned are the two clocks?
 ========================================================================
   spectrum landed        : True
-  pulse sent at          : +5.004 s after Measure()
-  echem first sample at  : +5.992 s (CalcTime[0])
+  pulse sent at         : +5.995 s after Measure()
+  echem first sample at  : +5.944 s (CalcTime[0])
   echem points           : 1640
 
-  >> SKEW = +988 ms (echem t=0 minus optical t=0)
+  >> SKEW = -51 ms (echem t=0 minus optical t=0)
      positive: the staircase started AFTER the spectrum
-     to align them, set PULSE_DELAY_S = 5.992
+     to align them, set PULSE_DELAY_S = 5.944
 
      Both clocks are read on this PC, and Measure() itself takes
      ~0.3 s to return, so treat this as good to roughly a tenth of

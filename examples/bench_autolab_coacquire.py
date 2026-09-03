@@ -57,7 +57,10 @@ TRIGGER_TIMEOUT_S = 30.0
 
 # When to pulse, measured from the Measure() call. None = use the procedure's own
 # WAIT duration, which is what the driver should do. Set a number to override.
-PULSE_DELAY_S = None
+PULSE_DELAY_S = None   # None = use the procedure's own FHWait. On this rig the
+                       # staircase starts ~5.95 s after Measure(); pulsing there
+                       # gave skew -51 ms (2026-09-03). Set that as
+                       # autolab_pulse_delay_s in config/bench.ini.
 
 # Spectra to collect. 1 = the pure trigger test. More rehearses the real pattern:
 # spectrum 0 is hardware-triggered, the rest free-run at DELTA_TIME_S, exactly as

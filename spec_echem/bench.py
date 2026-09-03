@@ -89,6 +89,9 @@ BENCH_SCHEMA = {
         "autolab_nox_ca": _str,           # chronoamperometry procedure template
         "autolab_dio_port": int,          # DioPortsP1 index; 0 = P1.A
         "autolab_pulse_delay_s": _opt_float,  # None = use the procedure's own wait
+        # True when the .nox carries its own FHDIO step (the Autolab raises P1.A
+        # itself). Then Python does not pulse and the pulse-delay is unused.
+        "autolab_trigger_in_procedure": _bool,
     },
 }
 
