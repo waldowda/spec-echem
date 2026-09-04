@@ -119,6 +119,10 @@ class FakeSpectrometer:
         net_dif = (t_dif * 1000) - total_int_time
         return timestamp, spectrum, net_dif, t_dif
 
+    def per_spectrum_seconds(self, measconfig=None):
+        """Integration x averages, in seconds — same contract as the real class."""
+        return (self._integration_time * self._scan_averages) / 1000.0
+
     def set_integration_time(self, duration, measconfig=None):
         self._integration_time = duration
 
