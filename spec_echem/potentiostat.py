@@ -272,6 +272,17 @@ AUTOLAB_MAX_WAIT_MARGIN_S = 30.0
 AUTOLAB_STANDARD_TEMPLATE_EXTRA_LAG_S = 1.0
 
 
+class ConfigurationError(RuntimeError):
+    """A run was set up wrongly — a missing path, a template that cannot fire, a
+    parameter index nobody has filled in yet.
+
+    Separate from an ordinary failure because the remedy is different and so is the
+    presentation: this is a sentence the operator can act on ("set X in bench.ini"),
+    not a defect, so the worker logs it as a plain message rather than a traceback.
+    Subclasses RuntimeError so existing handlers keep working.
+    """
+
+
 def open_instrument(settings):
     """Connect to the Autolab and return the SDK Instrument.
 
@@ -280,7 +291,7 @@ def open_instrument(settings):
     """
     sdk = settings.get("autolab_sdk")
     if not sdk:
-        raise RuntimeError(
+        raise ConfigurationError(
             "autolab_sdk is not set. The Autolab needs sdk/adx/hdw paths in "
             "config/bench.ini — they are machine-specific, like data_root.")
     import sys
@@ -504,9 +515,13 @@ class AutolabPotentiostat(Potentiostat):
         self._proc = self._inst.LoadProcedure(self._nox_for(segment))
         self._cmd = self._command_for(segment)
         self._apply_parameters(segment)
-        self._pulse_delay = self._wait_window()
+        # Check the trigger arrangement BEFORE working out a pulse delay: when the
+        # procedure fires its own edge there is no Python pulse to schedule, and
+        # _wait_window()'s advice about tuning the delay would be noise in front of
+        # the real problem.
         if self._trigger_in_procedure:
             self._require_dio_step()
+        self._pulse_delay = self._wait_window()
 
     def fire(self):
         """The spectrometer is armed and waiting for the edge right now."""
@@ -588,7 +603,7 @@ class AutolabPotentiostat(Potentiostat):
                else "autolab_nox_ca")
         path = self.settings.get(key)
         if not path:
-            raise RuntimeError(
+            raise ConfigurationError(
                 f"{key} is not set — Autolab mode needs a NOVA procedure template "
                 "for this segment type (see config/bench.ini).")
         return path
@@ -755,7 +770,7 @@ class AutolabPotentiostat(Potentiostat):
                 "Autolab: procedure fires its own trigger (%s) — Python stays out "
                 "of the timing path.", ", ".join(str(n) for n in found))
             return
-        raise RuntimeError(
+        raise ConfigurationError(
             "autolab_trigger_in_procedure is set, but "
             f"'{os.path.basename(self._nox_for(self._segment))}' has no "
             "digital-output step, so nothing would raise the Avantes trigger. "

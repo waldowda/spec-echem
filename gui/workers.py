@@ -14,6 +14,7 @@ import threading
 from qtpy.QtCore import QObject, Signal
 
 from spec_echem.experiment import run_one_segment
+from spec_echem.potentiostat import ConfigurationError
 from spec_echem.logging_config import get_run_logger
 
 
@@ -115,6 +116,12 @@ class AcquisitionWorker(QObject):
                         seg.label)
                     reason = "error"
                     break
+        except ConfigurationError as exc:
+            # A setup mistake, not a defect: the message names what to change, so it
+            # reads as one line in the status pane instead of a stack trace nobody
+            # can act on. Cleanup below is identical either way.
+            logger.error("Cannot start: %s", exc)
+            reason = "error"
         except Exception:  # noqa: BLE001 — surface any failure to the log + UI
             logger.exception("Acquisition error")
             reason = "error"
