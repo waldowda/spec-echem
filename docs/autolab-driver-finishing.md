@@ -44,6 +44,20 @@
 >    segments, re-run, capture the full `{folder}/{folder}.log`, and confirm spectrum 0 gets the
 >    trigger. `examples/bench_autolab_fullrun.py` runs the same pipeline headless for faster
 >    iteration.
+>
+> **Follow-up 2026-09-03 (Mac side, `60422ab`):**
+> - **Suspect 2 is ruled out.** `_create_measurement_config` already sets
+>   `m_Trigger_m_Source = 0` (external) and `m_Trigger_m_SourceType = 0` (edge) at init, so
+>   `set_trigger_mode(1)` flipping only `m_Trigger_m_Mode` **is** sufficient. No bench time needed.
+> - **It was probably slow, not hung.** 241 x ~528 ms is ~127 s, and files are only written at
+>   *segment end* — so anything under ~2.5 minutes looks exactly like a hang.
+> - **The cadence problem is worse than slowness, and is now warned about.** `acquire_segment()`
+>   paces only *down* to `delta_time`; a slower measurement just runs slower, silently. At 528 ms
+>   against a 100 ms `delta_time` the CV segment runs ~127 s while the CV itself finishes in ~40 s,
+>   so most of its spectra record a cell that has already stopped — in a file that looks completely
+>   normal. `_warn_if_cadence_unachievable()` now says so at the start of every segment, naming both
+>   numbers. Silent on the Gamry rig (0.088 ms x 200 = 17.6 ms, well inside 100 ms), which is why
+>   this stayed latent for years.
 
 `AutolabPotentiostat` (`spec_echem/potentiostat.py`) is written and test-covered. This is the
 checklist for turning it from "correct as far as we know" into "correct".
