@@ -54,7 +54,9 @@ DEFAULT_SETTINGS = {
     "autolab_nox_cv": "",           # standard CV procedure template
     "autolab_nox_ca": "",           # chronoamperometry procedure template
     "autolab_dio_port": 0,          # DioPortsP1 index; 0 = P1.A
-    "autolab_pulse_delay_s": None,  # None = use the procedure's own wait window
+    "autolab_pulse_delay_s": None,  # None = FHWait + the template's setup lag
+    "autolab_setup_lag_cv_s": None,  # None = AUTOLAB_SETUP_LAG_CV_S (measured)
+    "autolab_setup_lag_ca_s": None,  # None = AUTOLAB_SETUP_LAG_CA_S (measured)
     "autolab_trigger_in_procedure": False,  # True = the .nox's FHDIO step fires P1.A
 
     # --- Cyclic voltammetry (vertices map to Gamry VINIT/VLIMIT1/VLIMIT2/VFINAL) ---

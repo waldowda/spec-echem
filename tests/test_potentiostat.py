@@ -344,16 +344,57 @@ def test_fire_switches_the_cell_on_and_pulses_the_trigger(autolab):
 
 
 def test_the_trigger_waits_for_the_procedure_wait_window(autolab):
-    """The pulse goes inside the procedure's own wait, so the optical and echem
-    clocks start together instead of a wait-length apart."""
+    """The pulse lands where the procedure starts RECORDING: its own FHWait plus
+    the ~1 s the template spends on setup before its first sample.
+
+    Pulsing at the raw FHWait fires that second early. MEASURED against
+    CalcTime[0] with FHWait = 5.0: the CV records from 5.992 s and the CA from
+    6.122 s.
+    """
+    from spec_echem.potentiostat import AUTOLAB_SETUP_LAG_CV_S
     p, inst = autolab(settings=_autolab_settings(autolab_pulse_delay_s=None),
                       wait_s=0.3)
     p.prepare(_cv_segment())
-    assert p._pulse_delay == 0.3
+    assert p._pulse_delay == pytest.approx(0.3 + AUTOLAB_SETUP_LAG_CV_S)
 
     t0 = time.time()
     p.fire()
     assert time.time() - t0 >= 0.25               # it actually waited
+
+
+def test_each_template_gets_its_own_setup_lag(autolab):
+    """One delay cannot serve both: the CV and CA templates start recording
+    130 ms apart, so a CV-derived number fires early on every chrono segment."""
+    from spec_echem.potentiostat import AUTOLAB_SETUP_LAG_CA_S, AUTOLAB_SETUP_LAG_CV_S
+
+    p, _ = autolab(settings=_autolab_settings(autolab_pulse_delay_s=None), wait_s=0.3)
+    p.prepare(_cv_segment())
+    cv_delay = p._pulse_delay
+
+    p, _ = autolab(settings=_autolab_settings(autolab_pulse_delay_s=None), wait_s=0.3)
+    p.prepare(_doping_segment())
+    ca_delay = p._pulse_delay
+
+    assert cv_delay == pytest.approx(0.3 + AUTOLAB_SETUP_LAG_CV_S)
+    assert ca_delay == pytest.approx(0.3 + AUTOLAB_SETUP_LAG_CA_S)
+    assert ca_delay != cv_delay
+
+
+def test_a_bench_can_override_a_measured_setup_lag(autolab):
+    """It is an instrument-and-template property, not a universal constant, so a
+    rig that measures its own can say so."""
+    p, _ = autolab(settings=_autolab_settings(autolab_pulse_delay_s=None,
+                                              autolab_setup_lag_ca_s=2.5),
+                   wait_s=0.3)
+    p.prepare(_doping_segment())
+    assert p._pulse_delay == pytest.approx(2.8)
+
+
+def test_the_manual_pulse_delay_still_wins(autolab):
+    """Kept as an escape hatch for a rig that has tuned one."""
+    p, _ = autolab(settings=_autolab_settings(autolab_pulse_delay_s=5.95), wait_s=0.3)
+    p.prepare(_doping_segment())
+    assert p._pulse_delay == pytest.approx(5.95)
 
 
 def test_finish_builds_echem_data_rebased_to_zero(autolab):
