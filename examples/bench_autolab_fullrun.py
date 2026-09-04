@@ -50,8 +50,10 @@ def short_experiment():
         "doping_potential_start": 0.30, "doping_potential_step": 0.05,
         "dedoping_potential": -0.30,
         "chrono_time": 5.0, "chrono_delta_time": 0.25,
-        # one doping/dedoping cycle
-        "doping_potential_final": 0.30,
+        # one doping/dedoping cycle. The key is doping_potential_END — n_doping_cycles
+        # reads that; "doping_potential_final" is not a setting and was silently
+        # ignored, leaving the 0.8 V default and running ELEVEN cycles (~5 min).
+        "doping_potential_end": 0.30,
         # spectrometer: this box's ULS2048L floor is ~1.05 ms; keep averages low
         "integration_time_ms": float(s.get("integration_time_ms", 1.5)),
         "scan_averages": 1,
