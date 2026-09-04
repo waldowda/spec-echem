@@ -345,6 +345,18 @@ class AvantesSpectrometer:
         plt.grid(True, alpha=0.3)
         plt.show()
     
+    def per_spectrum_seconds(self, measconfig=None):
+        """How long ONE spectrum actually takes: integration x averages.
+
+        The number that has to fit inside a segment's delta_time. Exposed so the
+        acquisition loop can say when it does not — see acquire_segment().
+        """
+        if measconfig is None:
+            measconfig = self.measconfig
+        if measconfig is None:
+            return 0.0
+        return (measconfig.m_IntegrationTime * measconfig.m_NrAverages) / 1000.0
+
     def set_integration_time(self, duration, measconfig=None):
         """
         Set integration time.

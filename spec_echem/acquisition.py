@@ -2,7 +2,41 @@
 Hardware acquisition loop for Avantes spectrometer.
 No Qt imports. No vendor SDK imports — spec is injected.
 """
+import logging
 import time
+
+logger = logging.getLogger(__name__)
+
+
+def _warn_if_cadence_unachievable(spec, delta_time, num_points):
+    """Say so when one spectrum takes longer than the gap between spectra.
+
+    The loop below only paces DOWN to delta_time; when a measurement is slower it
+    simply runs slower, silently. The result is not just a slow run — the spectra
+    land further apart than requested, so the segment outlives the electrochemistry
+    and the later spectra record a cell that has already stopped. The file looks
+    completely normal.
+
+    Invisible on the original rig (0.088 ms x 200 averages = 17.6 ms, well inside a
+    100 ms delta_time). A detector with a ~1 ms integration floor makes the same
+    200 averages take ~530 ms, and the arithmetic inverts.
+    """
+    try:
+        per_spectrum = float(spec.per_spectrum_seconds())
+    except Exception:  # noqa: BLE001 — a diagnostic must never stop a run
+        return
+    if per_spectrum <= 0 or per_spectrum < delta_time:
+        return
+    logger.warning(
+        "Spectra cannot keep the requested cadence: one spectrum takes %.0f ms "
+        "(integration x scan averages) but delta_time is %.0f ms. They will be "
+        "collected every ~%.0f ms instead, so this segment takes ~%.0f s rather "
+        "than ~%.0f s and its later spectra may fall after the electrochemistry "
+        "has finished. Reduce scan averages or the integration time.",
+        per_spectrum * 1000, delta_time * 1000, per_spectrum * 1000,
+        per_spectrum * num_points, delta_time * num_points)
+
+
 
 
 def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
@@ -34,6 +68,8 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
         (spectra, timestamps): spectra is list of 1D arrays, timestamps are
         Avantes SDK timestamps converted to seconds
     """
+    _warn_if_cadence_unachievable(spec, delta_time, num_echem_points)
+
     trigger_mode = 1 if trigger else 0
     spec.set_trigger_mode(trigger_mode)
 

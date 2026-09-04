@@ -204,3 +204,67 @@ def test_spectrometer_detail_names_the_detector(window):
     detail = tab.spec_detail.text()
     assert "serial" in detail
     assert "px" in detail and "nm" in detail
+
+
+# --- Start actually runs -----------------------------------------------------
+# A smoke test: build the real window, hand it fakes, click Start, and assert it
+# does not blow up. It checks nothing about the science — only that on_start()
+# EXECUTES. That is worth a test on its own because on_start had no coverage and a
+# refactor once deleted a variable it still referenced, so Start raised NameError
+# in every potentiostat mode and nothing noticed until someone clicked it at a rig.
+
+@pytest.fixture
+def ready_window(window, tmp_path, monkeypatch):
+    """A window that would really start a run — fake spectrometer, calibration in
+    hand, a writable data folder — with the worker thread stubbed so nothing
+    acquires. Everything up to and including building the potentiostat runs for real."""
+    import numpy as np
+    from qtpy.QtCore import QThread
+    from spec_echem.fakes import FakeSpectrometer
+
+    spec = FakeSpectrometer()
+    spec.init()
+    _, wl = spec.wavelengths()
+    window.spec = spec
+    window.wavelengths = wl
+    window.dark = np.full(len(wl), 100.0)
+    window.ref = np.full(len(wl), 5000.0)
+    window.settings["data_root"] = str(tmp_path)
+    window.settings["data_folder"] = "20260903_smoke"
+
+    started = []
+    monkeypatch.setattr(QThread, "start", lambda self, *a, **k: started.append(self))
+    return window, started
+
+
+@pytest.mark.parametrize("mode", ["external", "python", "autolab"])
+def test_start_executes_in_every_mode(ready_window, monkeypatch, mode):
+    """The regression guard. Every mode must get through on_start() and hand a
+    worker to a thread — including the modes whose vendor stack is absent here,
+    since the driver is only constructed, never opened."""
+    window, started = ready_window
+    tab = window.run_tab
+    window.settings["potentiostat_mode"] = mode
+    monkeypatch.setattr(window, "collect_settings", lambda: dict(window.settings))
+    if mode != "external":
+        # Stand in for the vendor driver: on a dev box neither stack imports, and
+        # this test is about on_start's own code, not about the drivers.
+        monkeypatch.setattr("gui.tabs.run_tab.make_potentiostat",
+                            lambda s: object())
+
+    tab.on_start()
+
+    assert started, f"Start did not reach thread.start() in {mode!r} mode"
+    assert tab._worker is not None
+
+
+def test_start_refuses_without_a_spectrometer(window, monkeypatch):
+    """The guard that must still fire — Start with nothing connected should warn,
+    not crash, and must not spin up a worker."""
+    from qtpy.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    window.spec = None
+
+    window.run_tab.on_start()
+
+    assert getattr(window.run_tab, "_worker", None) is None
