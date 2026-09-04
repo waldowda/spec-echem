@@ -1,5 +1,99 @@
 # Finishing the Autolab driver — what to fill in after the bench tests
 
+## ▶ PLAN FOR THE NEXT UW TRIP
+
+**Goal: one complete co-acquisition run that writes valid files on the 10 kΩ dummy, then an old
+sample.** Not a good sample. The driver has never produced a full set of run files; that is the
+gap, and everything below is ordered to close it in the fewest instrument-minutes.
+
+### Before you go — pre-flight, no instrument needed
+
+```
+git pull
+python -c "from spec_echem.build_info import build_id; print(build_id())"
+```
+
+Then fix the thing that most likely caused the 2026-09-03 stall. **`scan_averages = 200` cannot
+work on this detector.** The arithmetic:
+
+```
+per spectrum  = integration_time_ms x scan_averages
+CV slot       = cv_step_size / cv_scan_rate      <- DERIVED, not a free setting
+chrono slot   = chrono_delta_time
+```
+
+At this rig's ~2.64 ms integration, 200 averages is **528 ms** per spectrum against a **100 ms**
+slot (10 mV step / 100 mV/s). Set **`scan_averages = 20`** in `config/bench.ini` → 53 ms, which
+fits both slots with margin.
+
+| averages | per spectrum | fits a 100 ms slot? |
+|---|---|---|
+| 200 | 528 ms | no — 5× over |
+| 50 | 132 ms | no |
+| 20 | 53 ms | **yes** |
+| 5 | 13 ms | yes |
+
+That is a real tradeoff, not free: optical S/N falls as √N, so 200 → 20 costs about 3.2×. If the
+spectra are too noisy, **raise `cv_step_size`** (a coarser CV, a longer slot) rather than putting
+averages back — the CV slot is derived from step ÷ rate, so a 20 mV step at 100 mV/s gives a 200 ms
+slot and room for ~70 averages. Coarser potential resolution, better optical S/N. Your call which
+matters more for the sample.
+
+`acquire_segment()` now warns at the start of every segment if it still does not fit, naming both
+numbers — so this cannot silently repeat.
+
+### Step 1 — headless full run, dummy resistor
+
+```
+python examples\bench_autolab_fullrun.py
+```
+
+Same pipeline as the GUI with none of the GUI's variables, so iterate here. In the log, want to see:
+
+- **no cadence warning** (the pre-flight worked)
+- **`neutralised N extra CA hold step(s)`** — proves the 3-step stock CA template is tamed; without
+  it a real sample gets driven to 0 V for ~10 s after every hold
+- **no open-cell warning** — peak current should be ~100 µA at 1 V through the 10 kΩ
+- `Run finished: done.`
+
+### Step 2 — check the files it wrote
+
+Against [`data-format.md`](data-format.md): 8 columns in the spectra files, and the echem `.txt`
+(`CV.txt`, `steps(N).txt`, …). Compare shapes against `tests/golden/`. **This has never been done
+for the Autolab path** — it is the actual acceptance test, more than any single instrument reading.
+
+### Step 3 — the same run through the GUI
+
+`python -m gui`, Autolab mode, same experiment. Files should match Step 1's. This is where
+2026-09-03 failed; the `NameError` is fixed and now smoke-tested, so it should reach acquisition.
+
+### Step 4 — an old sample
+
+Only once Steps 1–3 are clean. **Watch the first doping cycle** rather than starting it and walking
+away. Stop if you see: the open-cell warning, an overload warning, a cadence warning, or spectra
+that look nothing like the dummy run's shape.
+
+### Deliberately NOT on this trip
+
+- **`FHDIO` / trigger-in-procedure.** The command could not be found in NOVA, the `PC_Spectral*`
+  procedures could not be found on disk or in the database, and the Python pulse already measures
+  **−51 ms** — fine for 100 ms spectra. It now refuses cleanly with an explanatory message if
+  misconfigured, so nothing is at risk. Revisit only if timing proves inadequate on real data.
+- **A single-step CA `.nox`.** Nice to have; `_neutralise_extra_ca_steps()` was verified on hardware
+  (14 s vs 26 s). Confirm the log line and move on.
+
+### If it stalls again
+
+1. Is there a **cadence warning** in the log? → the pre-flight arithmetic is still wrong.
+2. Did **spectrum 0** ever land? → a trigger problem, not a speed problem. `query_avantes_trigger.py`
+   still passing isolates the cable.
+3. Neither? → capture `{folder}/{folder}.log` in full and push it; the run log records per-segment
+   cadence and every warning.
+
+Remember files are only written at **segment end** — a slow segment looks exactly like a hang.
+
+---
+
 > **STATUS 2026-09-03 — bench items A–G done.** All four `bench_autolab_*.py` scripts ran on the
 > rig; `docs/autolab-run-api.md §4` carries the results and `AutolabPotentiostat` is wired to them
 > (commit after this doc). What changed in the driver:
@@ -101,29 +195,52 @@ finishing is filling in blanks rather than auditing assumptions. Nothing below i
 ## Starting a Claude Code session on the rig
 
 Claude Code is installed on the Win11 box. Run it from the repo root (`claude`) in the Anaconda
-Prompt with the `SpecEchem` env active, so any Python it runs is the interpreter you have been
-testing with. It loads `CLAUDE.md` automatically. Paste this to start it warm:
+Prompt with the `SpecEchem` env active, so any Python it runs is the interpreter under test. It
+loads `CLAUDE.md` automatically. Paste this:
 
 > I'm at the UW Metrohm rig on the Win11 box: Autolab PGSTAT302N + AvaSpec-ULS2048L, 64-bit
-> SpecEchem env. A 10 kΩ 1% dummy resistor is available (2-electrode: W+WS one leg, RE+CE the
-> other). Read `docs/autolab-driver-finishing.md`, `docs/autolab-run-api.md` and
-> `examples/bench_autolab_fault_setup.md`.
+> SpecEchem env, 10 kΩ 1% dummy resistor available (2-electrode: W+WS one leg, RE+CE the other).
 >
-> `AutolabPotentiostat` and the GUI wiring are written and test-covered but were written before the
-> bench scripts ran. Today: run the four `examples/bench_autolab_*.py` scripts (their
-> `ENERGIZE_CELL = False` phases first — those energize nothing), then fill in the CA parameter map
-> (`CA_COMMAND` / `CA_IDX_*` in `spec_echem/potentiostat.py`), which is the one thing blocking
-> doping/dedoping/pre-dedoping.
+> Read **`docs/autolab-driver-finishing.md` — the "PLAN FOR THE NEXT UW TRIP" section at the top is
+> what we are doing** — plus `docs/autolab-run-api.md` for the proven SDK behaviour. Work that plan
+> in order: pre-flight `scan_averages`, then `examples/bench_autolab_fullrun.py` headless on the
+> dummy, then check the written files against `docs/data-format.md`, then the same run through the
+> GUI, and only then an old sample.
 >
-> Constraints: dummy resistor only, never a real sample; adopt a parameter index only if the bench
-> script reports it CONFIRMED; do not change the External or Python (Gamry) paths — that is a
-> working rig. Confirm the build id first, commit and push what we learn, and update
-> `docs/autolab-run-api.md` §4 with the answers.
+> The goal is **one complete run that writes valid files**, not new features. `AutolabPotentiostat`
+> and the GUI are written and test-covered; CV and chrono both ran on the instrument on 2026-09-03.
+> What has never happened is a full pipeline producing a run folder.
+>
+> Rules for this session:
+> - Dummy resistor until Steps 1–3 are clean. The first sample is an OLD one, and I watch the first
+>   doping cycle.
+> - **Do not** work on `FHDIO` / `autolab_trigger_in_procedure`. The command cannot be found in
+>   NOVA, the `PC_Spectral*` procedures cannot be found at all, and the Python pulse measures
+>   −51 ms, which is fine. It is explicitly deferred.
+> - Do not change the External or Python (Gamry) paths — that is a working rig at PLU.
+> - Diagnose before changing code. A slow segment looks exactly like a hang: files are only written
+>   at segment end, and `acquire_segment()` now warns when spectra cannot keep the requested
+>   cadence. Check the log for that warning first.
+> - Keep `python -m pytest tests/ -q` green (215 passed, 1 skipped as of `88dbd84`).
+> - Commit and push what we learn, and update `docs/autolab-run-api.md` / this file with results.
 
-If it starts a long piece of work, remind it the suite is `python -m pytest tests/ -q` and should
-stay green (206 tests, 1 skipped as of `8a10323`).
+### Things a fresh session gets wrong — tell it these
 
----
+Learned the expensive way; worth pasting if it starts down one of these paths:
+
+- **Parameters are addressed BY INDEX.** A `CommandParameter` has no name property on this SDK, and
+  `cmd.CommandParameters[i]` with a bare int is *rejected* — use `list(cmd.CommandParameters)[i]`.
+- **`LoadProcedure()` returns the Procedure.** There is no `inst.Procedure`.
+- **A used procedure object is INERT.** A second `Measure()` on it silently no-ops and `.Signals`
+  still holds the previous run. Reload every segment. This is load-bearing, not tidiness.
+- **`Measure()` is non-blocking** — poll `proc.IsMeasuring`. No dedicated thread (unlike the Gamry).
+- **Scan rate is stored V/s in the SDK** although NOVA's UI shows mV/s.
+- **An open cell is invisible** to every status signal — no overload, `IsMeasuring` goes False,
+  `.Signals` fills. Only `max|I|` staying in the noise gives it away.
+- **"FHDIO" is our shorthand**, not a confirmed NOVA command name. Do not assert it exists.
+- The Avantes must be armed for a **hardware** trigger (`m_Trigger_m_Mode = 1`) and fired by a real
+  edge. Never substitute a software start for spectrum 0 — an edge before arming is silently
+  missed, and a software start throws away the hardware t=0 that the rig exists for.
 
 > **What the tests do and don't prove.** `tests/test_potentiostat.py` drives the driver against
 > `fakes.FakeAutolab`, which encodes the same understanding of the SDK that the driver does. A green
