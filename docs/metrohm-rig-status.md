@@ -77,8 +77,12 @@ NOVA-runs-echem "External mode" path on this rig.
 
 ## Open items (for macOS-side development)
 
-1. **Wavelength window above ~1124 nm — the user needs it, and it's blocked by a hardcoded pixel
-   slice.** `spec_echem/spectrometer.py` `CAL_START_PX = 395` / `CAL_STOP_PX = 1659` is a fixed
+1. **Wavelength window above ~1124 nm — CLOSED 2026-09-04, no change needed.** Measured with the
+   lamp on: signal above the 721-count floor is 66 counts at 1100 nm, 17 at the current 1123.7 nm
+   edge, and 0 past 1150 nm — silicon QE is done by ~1050 nm, so the existing window already reaches
+   past usable signal. Widening would add ~388 pixels of baseline. Numbers in
+   `bench-2026-09-04.md`; the description below is kept for the day an InGaAs detector makes it
+   real. Original writeup: `spec_echem/spectrometer.py` `CAL_START_PX = 395` / `CAL_STOP_PX = 1659` is a fixed
    `[395:1660]` pixel window applied to *every* Avantes — it was chosen to bound the original
    **VRS2048CL-EVO**'s 300–1100 nm optics. On this **ULS2048L** those pixels map to **410.2–1123.7 nm**,
    so everything from ~1124 nm to the detector's 1326 nm is silently discarded, and nothing below
