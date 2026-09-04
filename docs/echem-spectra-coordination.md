@@ -247,6 +247,65 @@ is readable and `pump()` can check it, but that has to be written deliberately r
 
 ---
 
+## 7b. The 5–6 s gap is a TEMPLATE artifact — Dean's own `.nox` files show it (2026-09-04)
+
+**Dean's concern, and it is correct: our runs lose 5–6 s of initial current and spectra that his
+NOVA runs do not.** But the cause is not the Autolab, the procedure model, or Python. It is which
+template `autolab_nox_cv` / `autolab_nox_ca` point at.
+
+MEASURED — read-only byte scan of `docs/dw_test.nox` and `docs/dw_test2.nox`, Dean's own bare-bones
+procedures, against the stock templates the driver currently uses:
+
+| | `dw_test*.nox` | `Standard Nova Procedures\*.nox` |
+|---|---|---|
+| `FHWait` | **ABSENT** | 5.0 s |
+| `FHPreCurrentRanging` | **ABSENT** | present, ~0.2–0.4 s |
+| `HOptionCounter` + `HOptionGetSetValuesPulse` | **present** | absent |
+| `FHSwitchCell` / `FHSetSetpointPotential` / `FHLevel` | present | present |
+
+So the entire preamble that costs us the front of the useful window is a property of the *stock*
+templates. Dean's were built without it. **This is a config line, not an architecture.**
+
+(Byte order in a `.nox` is not guaranteed to be execution order, so the sequence above should not be
+over-read. Presence and absence are solid.)
+
+### The counter trigger is already configured
+
+`HOptionCounter` with `HOptionGetSetValuesPulse` in both files is the NOVA §9.4.2 mechanism — the
+counter action that emits a TTL pulse at the DIO connector, intrinsically linked to the measured
+data. Dean set this up before the manual search found it.
+
+### Which makes the `Ei` rewrite CONTINGENT, not agreed
+
+§7 exists to escape two costs: the ~6 s late start and the ±150 ms Python jitter. A template like
+`dw_test` removes the first; the counter removes the second — **while keeping firmware-timed current
+sampling, which the `Ei` route gives up.**
+
+**The measurement that decides it:** on a `dw_test`-style template, how long from `Set cell` to the
+first recorded `CalcTime` point, with no wait and no pre-ranging in between? Nobody has measured it.
+
+- **If it is tens of ms** — the procedure route wins outright. Minimal gap, exact alignment,
+  firmware sampling, no rewrite. Do not build §7.
+- **If it is still hundreds of ms** — the host→instrument start latency dominates, and §7's argument
+  stands.
+
+### Before those files can be used
+
+They contain `ExecCommandAvantesStart`, `ExecCommandAvantesStop` and `ExecCommandSpectroTriggered`,
+so NOVA would claim the Avantes over USB and fight spec-echem for it (see
+`metrohm-rig-status.md`). Those must be deleted; the echem structure and the counter stay.
+
+NOVA §10.9.2, p.618: select the command(s) and press **Delete**, or use Edit → Delete. Following
+commands shift left to fill the gap. Deleting a Group command or a stack removes everything inside
+it — so if the spectroscopy commands sit in a group, check what else is in there first. Commands can
+also be dragged to reorder (§10.10), one at a time.
+
+Open question for the bench: whether the counter's Pulse action is attached to the `FHLevel`
+command that survives, or to one of the deleted spectroscopy commands. If the latter, the counter
+has to be re-created on `FHLevel` after the deletion.
+
+---
+
 ## 8. Where the counter-Pulse route still matters
 
 If CV timing ever needs to beat ±150 ms, §4a is the mechanism — and it remains the only route to a
