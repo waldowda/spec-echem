@@ -17,16 +17,22 @@ Then fix the thing that most likely caused the 2026-09-03 stall. **`scan_average
 work on this detector.** The arithmetic:
 
 ```
-per spectrum  = integration_time_ms x scan_averages
-CV slot       = cv_step_size / cv_scan_rate      <- DERIVED, not a free setting
+per spectrum  = integration_time_ms x scan_averages   <- WALL CLOCK, not exposure
+CV slot       = cv_step_size / cv_scan_rate           <- DERIVED, not a free setting
 chrono slot   = chrono_delta_time
 ```
+
+**"Per spectrum" is how long one averaged spectrum takes to collect — it is NOT the integration
+time.** The integration time does not change here: it stays wherever the Linearity Check put it
+(~2.64 ms on this rig, for ~85% ADC fill). Setting *that* to 53 ms would over-expose by ~20× and
+clip every peak flat. `scan_averages` only decides how many of those 2.64 ms readouts get averaged
+into one spectrum, and therefore what the spectrum costs in wall clock.
 
 At this rig's ~2.64 ms integration, 200 averages is **528 ms** per spectrum against a **100 ms**
 slot (10 mV step / 100 mV/s). Set **`scan_averages = 20`** in `config/bench.ini` → 53 ms, which
 fits both slots with margin.
 
-| averages | per spectrum | fits a 100 ms slot? |
+| averages | per spectrum (2.64 ms each) | fits a 100 ms slot? |
 |---|---|---|
 | 200 | 528 ms | no — 5× over |
 | 50 | 132 ms | no |
