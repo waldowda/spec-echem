@@ -88,11 +88,15 @@ def describe(proc, label):
 
 
 def main():
+    # A path on the command line probes just that file — use it after saving a
+    # procedure out of NOVA with its trigger set to DIO rather than software.
+    targets = ([(f"CLI: {os.path.basename(p)}", p) for p in sys.argv[1:]]
+               or TARGETS)
     inst = connect()
     if inst is None:
         return 1
     try:
-        for label, path in TARGETS:
+        for label, path in targets:
             if not os.path.exists(path):
                 say("=" * 70)
                 say(f"{label}: NOT FOUND at {path}")
