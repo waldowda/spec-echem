@@ -123,6 +123,10 @@ class FakeSpectrometer:
         """Integration x averages, in seconds — same contract as the real class."""
         return (self._integration_time * self._scan_averages) / 1000.0
 
+    def integration_and_averages(self, measconfig=None):
+        """The two factors behind per_spectrum_seconds — same contract as the real class."""
+        return float(self._integration_time), int(self._scan_averages)
+
     def set_integration_time(self, duration, measconfig=None):
         self._integration_time = duration
 

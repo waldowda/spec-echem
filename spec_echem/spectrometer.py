@@ -357,6 +357,18 @@ class AvantesSpectrometer:
             return 0.0
         return (measconfig.m_IntegrationTime * measconfig.m_NrAverages) / 1000.0
 
+    def integration_and_averages(self, measconfig=None):
+        """(integration_ms, scan_averages) as the device is currently configured.
+
+        For cadence advice — per_spectrum_seconds() gives the product, this gives
+        the two factors so a caller can say which one to change.
+        """
+        if measconfig is None:
+            measconfig = self.measconfig
+        if measconfig is None:
+            return 0.0, 0
+        return float(measconfig.m_IntegrationTime), int(measconfig.m_NrAverages)
+
     def set_integration_time(self, duration, measconfig=None):
         """
         Set integration time.
