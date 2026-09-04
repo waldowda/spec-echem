@@ -286,7 +286,7 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   making each data folder self-documenting.
 
 ### Metrohm / Autolab rig — bring-up done, findings in `docs/metrohm-rig-status.md`
-spec-echem was brought up on a Metrohm-Autolab rig (Autolab **PGSTAT10** + AvaSpec-**ULS2048L**,
+spec-echem was brought up on a Metrohm-Autolab rig (Autolab **PGSTAT302N** + AvaSpec-**ULS2048L**,
 2026-08-28). **Read [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md)** — it is the
 cross-session handoff. Headlines: the Autolab connects under **64-bit** Python (no 32/64-bit split,
 unlike Gamry); the SDK 2.1 **does** expose digital I/O (`Instrument.Dio`) plus `Ei` / `LoadProcedure`
@@ -294,7 +294,10 @@ unlike Gamry); the SDK 2.1 **does** expose digital I/O (`Instrument.Dio`) plus `
 (`examples/query_avantes_trigger.py`). So a Python-driven Autolab backend in `potentiostat.py` (the
 analogue of `ToolkitPotentiostat`) is the recommended direction. Open item there: the calibrated
 pixel window (`CAL_START_PX`/`CAL_STOP_PX` in `spectrometer.py`) is hardcoded for the original
-VRS2048CL-EVO and needs to become bench-configurable — a user on the ULS2048L rig needs >1100 nm.
+VRS2048CL-EVO. **Closed 2026-09-04 as not worth changing:** measured with the lamp on, this
+ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm edge and 0 past
+1150 — silicon QE ends by ~1050 nm, so the existing window already reaches past usable signal.
+>1100 nm needs an InGaAs detector, not a config change. See `docs/bench-2026-09-04.md`.
 
 ### Modularization — DONE
 `get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
