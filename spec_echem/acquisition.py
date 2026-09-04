@@ -8,6 +8,44 @@ import time
 logger = logging.getLogger(__name__)
 
 
+# What one spectrum costs BEYOND integration x scan averages: the USB round trip
+# to fetch it, plus the per-spectrum work in the loop below (on_tick pumps the
+# potentiostat, which is itself an instrument call).
+#
+# MEASURED 2026-09-04 on the Metrohm rig (AvaSpec-ULS2048L, 2.6439 ms integration):
+# free-running measure() cost 8.5 / 23.1 / 36.2 / 62.9 / 142.7 ms at 1 / 5 / 10 /
+# 20 / 50 averages — i.e. a FLAT ~10 ms above integration x averages, not a
+# proportional one. In-run, a CV segment asking for 10 ms achieved 29.9 ms, so the
+# loop's own per-spectrum work adds roughly another 20 ms. 30 ms is that total,
+# rounded to one conservative number.
+#
+# It exists so the warning below is honest. Nothing paces on it and no timing
+# depends on it — the acquisition loop is unchanged.
+SPECTRUM_OVERHEAD_S = 0.030
+
+
+def spectrum_cost_seconds(integration_ms, scan_averages):
+    """What one spectrum really costs: integration x averages, plus overhead.
+
+    The number that has to fit inside a segment's delta_time. Pure arithmetic on
+    two numbers so the GUI can call it from its spin boxes, before any hardware
+    exists.
+    """
+    return (float(integration_ms) * int(scan_averages)) / 1000.0 + SPECTRUM_OVERHEAD_S
+
+
+def suggest_scan_averages(integration_ms, delta_time):
+    """The largest scan-averages count that still fits inside delta_time.
+
+    Returns 0 when even a single average cannot fit — then the integration time
+    or the slot itself has to change, and no averaging choice rescues it.
+    """
+    room = float(delta_time) - SPECTRUM_OVERHEAD_S
+    if float(integration_ms) <= 0 or room <= 0:
+        return 0
+    return max(0, int(room * 1000.0 // float(integration_ms)))
+
+
 def _warn_if_cadence_unachievable(spec, delta_time, num_points):
     """Say so when one spectrum takes longer than the gap between spectra.
 
@@ -17,24 +55,45 @@ def _warn_if_cadence_unachievable(spec, delta_time, num_points):
     and the later spectra record a cell that has already stopped. The file looks
     completely normal.
 
-    Invisible on the original rig (0.088 ms x 200 averages = 17.6 ms, well inside a
-    100 ms delta_time). A detector with a ~1 ms integration floor makes the same
-    200 averages take ~530 ms, and the arithmetic inverts.
+    Invisible on the original rig (0.088 ms x 200 averages + overhead = ~48 ms,
+    well inside a 100 ms delta_time). A detector with a ~1 ms integration floor
+    makes the same 200 averages take ~530 ms, and the arithmetic inverts.
+
+    Counts SPECTRUM_OVERHEAD_S, without which this stays silent through exactly the
+    case it exists to catch: 2026-09-04, a CV segment asked for 10 ms and got
+    29.9 ms, because integration x averages was only 2.6 ms and the rest was
+    overhead. Two thirds of that file recorded a cell that had already stopped.
     """
     try:
-        per_spectrum = float(spec.per_spectrum_seconds())
+        per_spectrum = float(spec.per_spectrum_seconds()) + SPECTRUM_OVERHEAD_S
     except Exception:  # noqa: BLE001 — a diagnostic must never stop a run
         return
     if per_spectrum <= 0 or per_spectrum < delta_time:
         return
+
+    advice = "Reduce scan averages or the integration time."
+    try:
+        integration_ms, averages = spec.integration_and_averages()
+        fits = suggest_scan_averages(integration_ms, delta_time)
+        if fits >= 1:
+            advice = (f"About {fits} scan averages would fit here "
+                      f"(currently {averages}).")
+        else:
+            advice = (f"Even 1 scan average does not fit at {integration_ms:.4g} ms "
+                      f"integration — lengthen the step instead (a coarser CV step "
+                      f"or a longer delta time).")
+    except Exception:  # noqa: BLE001 — advice is optional, the warning is not
+        pass
+
     logger.warning(
         "Spectra cannot keep the requested cadence: one spectrum takes %.0f ms "
-        "(integration x scan averages) but delta_time is %.0f ms. They will be "
-        "collected every ~%.0f ms instead, so this segment takes ~%.0f s rather "
-        "than ~%.0f s and its later spectra may fall after the electrochemistry "
-        "has finished. Reduce scan averages or the integration time.",
-        per_spectrum * 1000, delta_time * 1000, per_spectrum * 1000,
-        per_spectrum * num_points, delta_time * num_points)
+        "(integration x scan averages + ~%.0f ms overhead) but delta_time is "
+        "%.0f ms. They will be collected every ~%.0f ms instead, so this segment "
+        "takes ~%.0f s rather than ~%.0f s and its later spectra may fall after "
+        "the electrochemistry has finished. %s",
+        per_spectrum * 1000, SPECTRUM_OVERHEAD_S * 1000, delta_time * 1000,
+        per_spectrum * 1000, per_spectrum * num_points, delta_time * num_points,
+        advice)
 
 
 

@@ -16,6 +16,7 @@ import copy
 from pathlib import Path
 
 from spec_echem.experiment import build_segments
+from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
 from spec_echem.data import write_run_metadata, DATA_TYPE_CV
 from spec_echem.logging_config import (configure_run_logging, close_run_logging,
                                        get_run_logger, app_log_path)
@@ -197,6 +198,35 @@ class RunTab(QWidget):
         # Fresh status log per run (mirrors the sequence-progress reset below); the
         # full history is always preserved in each run's own .log file on disk.
         self.status_log.clear()
+
+        # Cadence heads-up. Advisory ONLY — it never stops a run and never changes a
+        # setting. A segment whose spectra cannot keep up still writes a file that
+        # looks completely normal, so this has to arrive before the run, not after.
+        # Fully guarded: this sits in the Start path of a working rig, and a note
+        # that can raise would be worse than no note at all.
+        try:
+            cost = spectrum_cost_seconds(settings.get("integration_time_ms", 0.0),
+                                         settings.get("scan_averages", 1))
+            slow = [seg for seg in segments if cost > seg.delta_time > 0]
+            if slow:
+                tightest = min(slow, key=lambda seg: seg.delta_time)
+                fits = suggest_scan_averages(settings.get("integration_time_ms", 0.0),
+                                             tightest.delta_time)
+                self.log(
+                    f"WARNING: one spectrum takes ~{cost * 1000:.0f} ms, but "
+                    f"{len(slow)} of {len(segments)} step(s) ask for one every "
+                    f"{tightest.delta_time * 1000:.0f} ms or less "
+                    f"(tightest: {tightest.label}). Those steps will run long and "
+                    f"their later spectra may fall after the electrochemistry has "
+                    f"finished.")
+                self.log(
+                    f"         Suggestion: about {fits} scan averages would fit."
+                    if fits >= 1 else
+                    "         Suggestion: even 1 scan average does not fit — use a "
+                    "coarser CV step or a longer delta time.")
+                self.log("         Running anyway — this is advice, not a limit.")
+        except Exception:  # noqa: BLE001 — an advisory must never block Start
+            pass
 
         # Which hardware produced this folder. Connect happens long before Start, when
         # no run log exists yet, so the identities are stashed at Connect and recorded
