@@ -156,31 +156,99 @@ range is known.
 
 ---
 
-## 6. Options, and what each buys
+## 6. The resolution ceiling changes the ranking
 
-| option | relative timing | cost | status |
-|---|---|---|---|
-| **Counter → Pulse (4a)** | sub-ms, INFERRED | NOVA config per template | **recommended, untested** |
-| Wait for DIO (4b) | sub-ms, INFERRED | config + wiring + edge source | fallback |
-| Shrink the preamble | still ±150 ms | trivial | does *not* fix jitter — worth doing for §5, not for timing |
-| Post-hoc correction | ±150 ms controlled, but *known* to ~ms | small code change | meets "know within 40 ms", not "start within" |
-| Status quo | ±150 ms | none | below requirement |
+**MEASURED constraint (Dean, 2026-09-04): spectra on this rig will not go faster than ~100–200 ms,
+and the useful science window is 100 ms to 10 s.** (The Gamry rig may reach ~25 ms if S/N allows.)
 
-**Post-hoc deserves a mention even though it does not meet the stated requirement.** The echem
-trace already records when the waveform truly began, so the real offset is recoverable after the
-fact even when it cannot be commanded beforehand. If the science needs to *know* the alignment
-rather than *impose* it, that is cheap and available now. Worth deciding which the experiment
-actually requires.
+That reverses the earlier reasoning. At a 100 ms ceiling:
+
+- Python-driven `Ei` sampling at ~20–30 ms per point is **5–10× faster than needed** — the firmware
+  recorder's millisecond capability cannot be used, because nothing optical matches it.
+- The procedure's ~0.6 s late start is **6 lost points** at the front of the useful window.
+- The ±150 ms trigger jitter is **1–1.5 spectra** of alignment uncertainty.
+
+So the procedure's advantage is worthless here and its costs are expensive.
+
+**Post-hoc correction, floated earlier, does not work and is withdrawn.** `CalcTime[0]` is on the
+Autolab's clock from procedure start; the pulse time is on the host clock. The unknown is precisely
+the offset between them, so differencing reproduces the ±150 ms rather than removing it. There is no
+event common to both records to anchor against — which is what a hardware edge *is*.
 
 ---
 
-## 7. Recommendation
+## 7. Proposed architecture (agreed in principle 2026-09-04; not yet built)
 
-1. **Fix the conditioning hold first** (§5). It is independent of timing, it affects real samples,
-   and it is two writable parameters.
-2. **Try the counter Pulse** (§4a) on a copy of the stock CV in NOVA, then re-measure the skew with
-   `bench_autolab_coacquire.py`. That is the one change that can reach 1–40 ms.
-3. **Decide whether "know" or "impose"** is the real requirement (§6). It changes how much the
-   remaining jitter matters.
-4. Leave `autolab_trigger_in_procedure` alone until 4a is proven — its guard cannot see a counter,
-   so it would refuse a procedure that works.
+**Python owns potential application, t=0 and the start of spectra. The procedure owns only the
+staircase waveform.**
+
+### CA — doping, dedoping, pre-dedoping: Python-driven via `Ei`
+
+```python
+ei.Setpoint = V
+ei.CellOnOff = On     # the sample's t=0
+spec.measure()        # spectrum 0, free-run — no edge needed
+```
+
+Three consecutive statements. **This makes the trigger problem disappear for these segments**: no
+DIO, no procedure preamble, no jitter, nothing lost at the front of the window. It restores the
+original notebook architecture, where `timeStamp[0]` *is* potential application and every later
+spectrum inherits a correct offset from the Avantes device clock.
+
+`pump()` already accumulates `(t, E, I)` per spectrum into `_live_samples` and `live_data()` already
+builds an `EchemData` from them — so making that the *recorded* trace rather than a live-plot
+convenience is a small change.
+
+### CV: keep the procedure, but strip its preamble
+
+A staircase hand-rolled in Python is not worth attempting, and CV timing is the looser case (±150 ms
+across a 4–40 s sweep is ~1.5 spectra). But `[2] Set potential` and `[3] Set cell` should be
+**deleted from the `.nox`** so Python applies the potential and switches the cell on itself, exactly
+as for CA. The procedure then only sweeps.
+
+Consequence: the spectra cover the conditioning period *and* the sweep, with an exact t=0. The echem
+trace still begins at the staircase, so the first ~0.6–0.8 s has spectra but no current — acceptable
+for a CV, where nothing interesting happens at constant potential.
+
+### On the 5 s wait — a scientific choice, not cleanup
+
+`FHWait` exists to equilibrate the film at the initial potential. That may be wanted. What is wrong
+today is that it happens **by accident and unobserved**: the template holds for 5 s after its own
+`Set cell`, and `fire()` energizes even earlier, at whatever `Ei.Setpoint` was left from the previous
+segment. Three ways to fix it:
+
+1. **Drop it** (`FHWait[0]` → ~0). Sweep begins essentially at cell-on. No equilibration.
+2. **Keep it deliberately** and record it as metadata: held at X V for Y s. Honest, but the film's
+   history is still unobserved.
+3. **Make it a real segment** — a short Python-driven CA hold at the initial potential, with spectra,
+   followed by the CV. Fully observed, and it falls out of the CA design above for free.
+
+Option 3 is the one this architecture makes cheap, and it is the only one where the equilibration is
+data rather than a gap.
+
+### Three open questions before building
+
+1. **Cost of one `Ei` scalar read.** The ~10 ms figure is INFERRED from the in-run/free-run spectrum
+   difference, never isolated. Ten lines on the dummy settles it and sets Python's sampling floor.
+2. **Current ranging.** NOVA §9.2 governs ranging *for a measurement command*. With no measurement
+   command running, Python may have to manage `Ei.CurrentRange` itself — real work for a film
+   spanning decades, and clipping if wrong.
+3. **Will a staircase run with the cell already on and no `Set cell` in the procedure**, and does it
+   sweep from the applied potential or re-step to its own initial value? Not answerable from the
+   manual; one run settles it.
+
+Also unknown: whether `Ei.Current` (an instantaneous scalar) is noisier than the `FHLevel` recorder's
+sampled value at these currents. One comparison on the dummy.
+
+### What this does not solve
+
+Cutoffs are measurement-command properties, so a Python-driven hold has none. `Ei.CurrentOverload`
+is readable and `pump()` can check it, but that has to be written deliberately rather than assumed.
+
+---
+
+## 8. Where the counter-Pulse route still matters
+
+If CV timing ever needs to beat ±150 ms, §4a is the mechanism — and it remains the only route to a
+genuinely instrument-timed edge. It is not needed for CA under this architecture, which is the
+larger half of the problem.
