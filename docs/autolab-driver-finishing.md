@@ -79,14 +79,43 @@ Only once Steps 1–3 are clean. **Watch the first doping cycle** rather than st
 away. Stop if you see: the open-cell warning, an overload warning, a cadence warning, or spectra
 that look nothing like the dummy run's shape.
 
+### Step 3.5 — a clean single-step CA `.nox` (worth doing, AFTER Steps 1–3)
+
+The stock `Chrono amperometry.nox` is a **three**-hold template and spec-echem wants one.
+`_neutralise_extra_ca_steps()` zeroes the extras and was verified on hardware (14 s vs 26 s) — but
+it is a guard over a template that is wrong for the purpose. If it ever silently fails on a real
+sample, the cell is driven to steps 2–3's default 0 V for ~10 s after **every** hold: partial
+de-doping between segments, arriving as data rather than as an error. Deleting the extra steps
+removes the failure mode instead of guarding it.
+
+**Order matters.** Do it after a complete run on the stock template, not before — neutralisation is
+proven, so that gives you a known-good baseline to compare against. Then swap the clean template in
+and re-run Step 1. If NOVA fights you, you still have a working pipeline.
+
+**Build it by deleting from the stock `Chrono amperometry.nox`.** Not from scratch, and not from
+`Chrono amperometry fast.nox` — that one uses a different `Levels` / `LevelShortSetpoint` model
+(looked at on 2026-08-31 and rejected), and starting there breaks the parameter map silently. The
+driver addresses `FHSetSetpointPotential` for the hold potential, and `FHLevel` with **duration at
+index 1, interval at index 0**. Keep those two commands intact and the map still holds.
+
+Confirm it worked two ways:
+
+```python
+proc = inst.LoadProcedure(r"...\your_single_step_CA.nox")
+print(list(proc.Commands.IdNames))     # exactly one FHSetSetpointPotential, one FHLevel
+```
+
+and in the run log, the line **`neutralised N extra CA hold step(s)` disappears** — there are no
+extras left to find. Then point `autolab_nox_ca` at it in `config/bench.ini`.
+
 ### Deliberately NOT on this trip
 
-- **`FHDIO` / trigger-in-procedure.** The command could not be found in NOVA, the `PC_Spectral*`
-  procedures could not be found on disk or in the database, and the Python pulse already measures
-  **−51 ms** — fine for 100 ms spectra. It now refuses cleanly with an explanatory message if
-  misconfigured, so nothing is at risk. Revisit only if timing proves inadequate on real data.
-- **A single-step CA `.nox`.** Nice to have; `_neutralise_extra_ca_steps()` was verified on hardware
-  (14 s vs 26 s). Confirm the log line and move on.
+- **`FHDIO` / trigger-in-procedure — and only this.** The command could not be found in NOVA, the
+  `PC_Spectral*` procedures could not be found on disk or in the database, and the Python pulse
+  already measures **−51 ms**, which is fine for 100 ms spectra. It refuses cleanly with an
+  explanatory message if misconfigured, so nothing is at risk by leaving it. This is *adding* a
+  command nobody can locate for ~50 ms; the CA cleanup above is *deleting* two steps you already
+  have, and is worth the time. Different jobs — don't let deferring one defer the other.
 
 ### If it stalls again
 
@@ -222,7 +251,8 @@ loads `CLAUDE.md` automatically. Paste this:
 >   doping cycle.
 > - **Do not** work on `FHDIO` / `autolab_trigger_in_procedure`. The command cannot be found in
 >   NOVA, the `PC_Spectral*` procedures cannot be found at all, and the Python pulse measures
->   −51 ms, which is fine. It is explicitly deferred.
+>   −51 ms, which is fine. It is explicitly deferred. This does **not** defer Step 3.5 (a clean
+>   single-step CA `.nox`) — that is a separate job and is on the list.
 > - Do not change the External or Python (Gamry) paths — that is a working rig at PLU.
 > - Diagnose before changing code. A slow segment looks exactly like a hang: files are only written
 >   at segment end, and `acquire_segment()` now warns when spectra cannot keep the requested
