@@ -139,7 +139,19 @@ class ParametersTab(QWidget):
         self._widgets["data_folder"].textChanged.connect(self._update_full_path)
         self.data_root_edit.textChanged.connect(self._update_full_path)
 
-        sform.addRow(self._check("trigger", "Wait for Gamry trigger"))
+        # NOT Gamry-specific, despite the old label: this arms the spectrometer to
+        # wait for a hardware edge before spectrum 0, whichever potentiostat raises
+        # it (Gamry DIGOUT0 or Autolab P1.A). On 2026-09-04 it was read as "not my
+        # instrument" on the Autolab rig and left off, and spectrum 0 landed ~6 s
+        # before the waveform started — the run's only defect.
+        trigger_check = self._check("trigger", "Wait for hardware trigger")
+        trigger_check.setToolTip(
+            "The potentiostat raises the edge (Gamry DIGOUT0 or Autolab P1.A) and "
+            "the spectrometer waits for it, so optical t=0 matches electrochemical "
+            "t=0.\n\nLeave this ON for co-acquisition. With it off, spectrum 0 is "
+            "taken as soon as the segment starts \u2014 before the potentiostat "
+            "begins its waveform.")
+        sform.addRow(trigger_check)
         layout.addWidget(sample_group)
 
         # --- Cyclic voltammetry ---
