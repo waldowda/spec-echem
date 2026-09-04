@@ -11,6 +11,13 @@ a task list.
 
 ---
 
+> **⚠ Read [`echem-spectra-coordination.md`](echem-spectra-coordination.md) before the next trip.**
+> The NOVA manual (added to `docs/` 2026-09-04) answers the trigger question: the mechanism is a
+> **Counter → Pulse action** on a measurement command (NOVA §9.4.2), not a command — which is why no
+> search of `Commands.IdNames` could ever find it. It also exposed a separate problem: the cell is
+> energized ~6 s before anything is recorded, at a potential nobody chose. That one matters for real
+> samples and should be fixed first.
+
 ## ▶ PLAN FOR THE NEXT UW TRIP
 
 **Goal: one complete co-acquisition run that writes valid files on the 10 kΩ dummy, then an old
