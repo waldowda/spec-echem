@@ -50,6 +50,9 @@ from spec_echem.potentiostat import (
     TOOLKITPY_AVAILABLE, AUTOLAB_AVAILABLE, probe_identity, autolab_identity,
 )
 from spec_echem.settings import DEFAULT_SETTINGS
+from spec_echem.acquisition import (SPECTRUM_OVERHEAD_S, spectrum_cost_seconds,
+                                    suggest_scan_averages)
+from spec_echem.experiment import build_segments
 from spec_echem.spectral_range import recommend_wavelength_range
 from gui.widgets.plot_canvas import MplCanvas
 
@@ -131,6 +134,15 @@ class InstrumentTab(QWidget):
         self.apply_btn.clicked.connect(self.on_apply)
         form.addRow("Integration time:", self.integration_spin)
         form.addRow("Scan averages:", self.averages_spin)
+        # Advisory only. The cost of a spectrum is set here; the step it has to fit
+        # inside is set on the Parameters tab — so the collision between them is
+        # invisible on either tab alone. Nothing below blocks a run, and every path
+        # through it is wrapped: a broken advisory must never break the tab.
+        self.cadence_note = QLabel("—")
+        self.cadence_note.setWordWrap(True)
+        form.addRow("Per spectrum:", self.cadence_note)
+        self.integration_spin.valueChanged.connect(self._update_cadence_note)
+        self.averages_spin.valueChanged.connect(self._update_cadence_note)
         form.addRow(self.apply_btn)
         timing_row = QHBoxLayout()
         self.timing_btn = QPushButton("Run Timing Test")
@@ -559,6 +571,70 @@ class InstrumentTab(QWidget):
         self.win.bench_loaded = sorted(values)
         self.win.apply_settings(settings)
         self._report_bench_state()
+
+    def showEvent(self, event):
+        """Refresh the cadence note whenever this tab comes forward — the step
+        length it compares against lives on the Parameters tab and can change
+        while this tab is hidden."""
+        super().showEvent(event)
+        self._update_cadence_note()
+
+    def _update_cadence_note(self):
+        """What one spectrum costs, against the tightest step in this experiment.
+
+        Advisory: it names the numbers and suggests a scan-averages count that
+        would fit. It never changes a setting and never stops a run. The whole
+        body is guarded — this label is a convenience, and a convenience that can
+        raise would take the Instrument tab down with it.
+        """
+        try:
+            integration = self.integration_spin.value()
+            averages = self.averages_spin.value()
+            cost = spectrum_cost_seconds(integration, averages)
+
+            tightest = None
+            try:
+                segments = build_segments(self.win.collect_settings())
+                if segments:
+                    tightest = min(segments, key=lambda seg: seg.delta_time)
+            except Exception:  # noqa: BLE001 — no experiment defined yet is normal
+                tightest = None
+
+            if tightest is None or tightest.delta_time <= 0:
+                self.cadence_note.setText(f"~{cost * 1000:.0f} ms")
+                self.cadence_note.setStyleSheet("color: #555;")
+                return
+
+            slot = tightest.delta_time
+            fits = suggest_scan_averages(integration, slot)
+            head = (f"~{cost * 1000:.0f} ms "
+                    f"({integration:.4g} ms x {averages} + "
+                    f"{SPECTRUM_OVERHEAD_S * 1000:.0f} ms overhead) vs a "
+                    f"{slot * 1000:.0f} ms step ({tightest.label}).")
+
+            if cost > slot:
+                tail = (f" Does NOT fit: spectra will land ~{cost * 1000:.0f} ms apart"
+                        f" and this step may outlive the electrochemistry.")
+                tail += (f" About {fits} averages would fit." if fits >= 1 else
+                         " Even 1 average does not fit — use a coarser CV step or a"
+                         " longer delta time.")
+                colour = "#b00020"
+            elif cost > 0.8 * slot:
+                tail = (f" Fits, but only {(slot - cost) * 1000:.0f} ms spare"
+                        f" — {fits} averages is the ceiling here.")
+                colour = "#a86400"
+            else:
+                tail = f" Fits (up to {fits} averages)."
+                colour = "#555"
+
+            self.cadence_note.setText(head + tail)
+            self.cadence_note.setStyleSheet(f"color: {colour};")
+        except Exception:  # noqa: BLE001 — advisory only; stay quiet and harmless
+            try:
+                self.cadence_note.setText("—")
+                self.cadence_note.setStyleSheet("color: #555;")
+            except Exception:  # noqa: BLE001
+                pass
 
     def _wrap(self, inner_layout):
         box = QWidget()

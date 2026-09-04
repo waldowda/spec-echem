@@ -268,3 +268,43 @@ def test_start_refuses_without_a_spectrometer(window, monkeypatch):
     window.run_tab.on_start()
 
     assert getattr(window.run_tab, "_worker", None) is None
+
+
+def test_the_cadence_note_says_when_a_spectrum_does_not_fit_the_step(window):
+    """Advisory label: the spectrum's cost is set on this tab, the step it must fit
+    inside on the Parameters tab, so neither tab shows the collision on its own."""
+    tab = window.instrument_tab
+    tab.integration_spin.setValue(2.6439)
+    tab.averages_spin.setValue(200)          # ~559 ms against a 100 ms CV step
+    tab._update_cadence_note()
+    text = tab.cadence_note.text()
+    assert "Does NOT fit" in text
+    assert "averages would fit" in text      # it suggests, rather than only scolding
+
+
+def test_the_cadence_note_is_quiet_when_there_is_room(window):
+    """The working Gamry rig's settings: 0.088 ms x 200 + overhead = ~48 ms in a
+    100 ms step. A warning that fires here would be crying wolf on a good rig."""
+    tab = window.instrument_tab
+    tab.integration_spin.setValue(0.088)
+    tab.averages_spin.setValue(200)
+    tab._update_cadence_note()
+    assert "Fits" in tab.cadence_note.text()
+    assert "NOT" not in tab.cadence_note.text()
+
+
+def test_the_cadence_note_cannot_take_the_tab_down(window, monkeypatch):
+    """It is a convenience. If anything behind it raises, it must go quiet — never
+    propagate into the Instrument tab's construction or its signal handlers."""
+    import gui.tabs.instrument_tab as mod
+    monkeypatch.setattr(mod, "spectrum_cost_seconds",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    tab = window.instrument_tab
+    tab._update_cadence_note()               # must not raise
+    assert tab.cadence_note.text() == "—"
+
+
+def test_the_cadence_note_wraps(window):
+    """Same rule as every other uncontrolled-length label here: it must not be able
+    to drive the window's width."""
+    assert window.instrument_tab.cadence_note.wordWrap() is True
