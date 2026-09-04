@@ -500,14 +500,28 @@ def test_an_open_cell_is_flagged_even_though_the_run_completes(autolab, caplog):
 
 
 def test_trigger_in_procedure_skips_the_python_pulse(autolab):
-    """With an FHDIO step in the .nox the Autolab fires P1.A itself; Python must not
-    also pulse, and does not open the port as an output."""
-    p, inst = autolab(settings=_autolab_settings(autolab_trigger_in_procedure=True))
-    assert p._port is None
+    """With a digital-output step in the .nox the Autolab fires P1.A itself, on its
+    own clock, and Python must not also pulse."""
+    p, inst = autolab(settings=_autolab_settings(autolab_trigger_in_procedure=True),
+                      dio_step=True)
     p.prepare(_cv_segment())
     p.fire()
     assert inst.Ei.Cell is True                      # cell still switched on
-    assert inst.port.rising_edges == 0              # Python did NOT pulse
+    assert inst.port.rising_edges == 0               # Python did NOT pulse
+
+
+def test_trigger_in_procedure_falls_back_when_the_nox_has_no_dio_step(autolab, caplog):
+    """The dangerous case. Setting the flag against a template with no digital-output
+    step would leave nobody to raise the edge: the spectrometer sits armed for a
+    trigger that never comes and the run hangs, looking exactly like the 2026-09-03
+    stall. Pulse from Python instead, and say why."""
+    p, inst = autolab(settings=_autolab_settings(autolab_trigger_in_procedure=True))
+    p.prepare(_cv_segment())
+    with caplog.at_level(logging.WARNING):
+        p.fire()
+
+    assert inst.port.rising_edges == 1               # Python covered for it
+    assert "no digital-output step" in caplog.text
 
 
 def test_close_switches_the_cell_off_and_disconnects(autolab):

@@ -233,7 +233,7 @@ class FakeProcedure:
     `duration` seconds of wall clock, or immediately when duration is 0."""
 
     def __init__(self, path, duration=0.0, points=64, wait_s=5.0, fail=False,
-                 ca_levels=1, current_scale=1.0):
+                 ca_levels=1, current_scale=1.0, dio_step=False):
         self.path = path
         self._duration = duration
         self._points = points
@@ -260,6 +260,13 @@ class FakeProcedure:
             names.append("Record signals (>1 ms)")
             idnames.append(CA_RECORDER_ID)
             self._levels.append(lvl)
+        if dio_step:
+            # A hand-added digital-output step, as NOVA's own spectro-EC procedures
+            # carry (rendered there as Dio_0 / HDio, writing P1.A). Its presence is
+            # what lets the driver leave the trigger to the procedure.
+            items.append(_FakeCommand([0.0]))
+            names.append("P1.A:Write")
+            idnames.append("HDio")
         self.Commands = _FakeList(items, names=names, idnames=idnames)
 
     # --- the SDK surface ---
@@ -353,7 +360,7 @@ class FakeAutolab:
     """Stand-in for EcoChemie.Autolab.Sdk.Instrument."""
 
     def __init__(self, duration=0.0, points=64, wait_s=5.0, fail_measure=False,
-                 ca_levels=1, current_scale=1.0):
+                 ca_levels=1, current_scale=1.0, dio_step=False):
         self.AutolabConnection = _FakeConnection()
         self.Ei = _FakeEi()
         self.port = _FakePort()
@@ -361,6 +368,7 @@ class FakeAutolab:
         self._points = points
         self._wait_s = wait_s
         self._fail_measure = fail_measure
+        self._dio_step = dio_step
         self._ca_levels = ca_levels        # 3 models the stock Chrono amperometry.nox
         self._current_scale = current_scale  # <1 models an open cell
         self.loaded = []              # every .nox path handed to LoadProcedure
@@ -368,7 +376,8 @@ class FakeAutolab:
 
     def LoadProcedure(self, path):
         self.loaded.append(path)
-        return FakeProcedure(path, duration=self._duration, points=self._points,
+        return FakeProcedure(path, dio_step=self._dio_step,
+                             duration=self._duration, points=self._points,
                              wait_s=self._wait_s, fail=self._fail_measure,
                              ca_levels=self._ca_levels,
                              current_scale=self._current_scale)
