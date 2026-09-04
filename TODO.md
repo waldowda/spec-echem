@@ -124,7 +124,21 @@ Design findings live in the `hardware-portability` memory.
     `ToolkitPotentiostat`, all 64-bit, one process) is the recommended direction. Note: NOVA and
     spec-echem can't both own the Avantes over USB.
 
-## Wavelength window is a hardcoded pixel slice, wrong for a different spectrometer (2026-08-28)
+## Wavelength window is a hardcoded pixel slice — CLOSED 2026-09-04, not worth fixing
+
+**CLOSED 2026-09-04 — no change needed, on measured data.** With the lamp on, raw counts across
+all 2048 pixels: peak 24127 at 655.5 nm against a 721-count floor (pixels 0-200, below the optics
+cutoff, where no light can arrive). Signal above that floor is 1120 counts at 1000 nm, 281 at 1050,
+**66 at 1100, 17 at the current 1123.7 nm edge, and 0 past 1150**. Silicon QE is finished by
+~1050 nm, so the existing window already extends past usable signal and widening it toward 1326 nm
+would add ~388 pixels of baseline. Numbers in `bench-2026-09-04.md`.
+
+The premise was backwards: >1100 nm is not reachable by configuration on a silicon CCD. If NIR
+polaron bands matter scientifically, that is an InGaAs spectrometer, not a code change — and only
+then is the rework below worth building.
+
+Original writeup (2026-08-28), kept because the analysis is still correct — only the payoff was
+wrong:
 
 `spec_echem/spectrometer.py` `CAL_START_PX = 395` / `CAL_STOP_PX = 1659` — a fixed `[395:1660]`
 pixel window applied to **every** Avantes, chosen for the original VRS2048CL-EVO's 300–1100 nm optics.
@@ -132,9 +146,12 @@ On an **AvaSpec-ULS2048L** those pixels are **410.2–1123.7 nm**, so ~1124–13
 (a user on that rig needs >1100 nm) and <410 nm is unreachable. `set_wavelength_window()` only crops
 *within* the slice, so the GUI can't offer wider.
 
-- [ ] Make the calibrated pixel window **bench-configurable** (`config/*.ini`, e.g. `cal_start_px` /
-      `cal_stop_px`), **default = current `[395:1660]`** so existing 8-column output is byte-identical
-      unless opted in. Validate against `tests/golden/` and re-confirm through `OECT_processing`.
+- [~] ~~Make the calibrated pixel window bench-configurable~~ — **not doing it.** Closed on data
+      2026-09-04 (above). Revisit only with a detector that can see past 1100 nm; if that day comes,
+      the design Dean chose is: hard limits read per spectrometer from the device at connect, a
+      default window expressed in **nm** rather than pixels, an operator window anywhere inside
+      those limits, and the best part of *that* detector's range preferred over consistency between
+      instruments (a changed row count on the PLU rig is acceptable).
 - [x] **GUI (options A + C, 2026-08-28):** wl spin boxes clamp to the connected spectrometer's
       calibrated span and show it; a saved crop that fits a different detector (`_window_fits`) is
       parked for an explicit Apply, not silently clamped. Does not widen past the slice — see above.
