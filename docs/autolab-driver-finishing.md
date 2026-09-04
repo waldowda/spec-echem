@@ -259,6 +259,9 @@ loads `CLAUDE.md` automatically. Paste this:
 >   cadence. Check the log for that warning first.
 > - Keep `python -m pytest tests/ -q` green (215 passed, 1 skipped as of `88dbd84`).
 > - Commit and push what we learn, and update `docs/autolab-run-api.md` / this file with results.
+> - At the end, write the session up as `docs/bench-<YYYY-MM-DD>.md` following
+>   **"Writing up the session"** below — the three rules there are not stylistic, they each come
+>   from something that cost real time to recover.
 
 ### Things a fresh session gets wrong — tell it these
 
@@ -277,6 +280,38 @@ Learned the expensive way; worth pasting if it starts down one of these paths:
 - The Avantes must be armed for a **hardware** trigger (`m_Trigger_m_Mode = 1`) and fired by a real
   edge. Never substitute a software start for spectrum 0 — an edge before arming is silently
   missed, and a software start throws away the hardware t=0 that the rig exists for.
+
+### Writing up the session
+
+Write `docs/bench-<YYYY-MM-DD>.md` at the end and push it. It complements the per-item updates to
+`autolab-run-api.md` §4 rather than replacing them. Three rules, each earned:
+
+**1. Mark every finding as MEASURED or INFERRED.**
+The `PC_Spectral*` procedures were written up as fact in four files, and the claim traced back to a
+single unverified line — one of the four "confirmations" turned out to be a hardcoded string in our
+own probe script, echoed into a results file and read back as evidence. On 2026-09-03 the procedures
+could not be found on disk or in NOVA's database. A one-word marker per finding prevents that:
+
+```
+MEASURED  CV returned 1640 points, max|I| 1.010e-4 A at +1.000 V (10 kOhm dummy)
+INFERRED  the extra CA steps would drive a real sample to 0 V (not observed on a sample)
+```
+
+**2. Record what did NOT work, not only what did.**
+The dead ends cost the most time and disappear from the record fastest, so they get re-tried.
+`os.add_dll_directory()` for avaspec, the absolute-path DLL preload, "the Autolab SDK has no digital
+I/O" — every one was plausible, every one was wrong, and each was attempted more than once because
+nobody had written down that it had already failed. A "Tried and rejected" section is worth as much
+as the results.
+
+**3. Paste the actual numbers, not a description of them.**
+`1640 pts, ±1.000 V, max|I| 1.010e-4 A` can be checked against Ohm's law by someone who was not
+there. "The CV looked correct" cannot. Include point counts, peak currents, `CalcTime[0]`, the
+cadence line from the run log, the skew, and the exact text of any warning or error. Raw log
+excerpts beat prose summaries of log excerpts.
+
+If a run failed, that write-up is more valuable than a successful one — say what was expected, what
+happened, and what was ruled out.
 
 > **What the tests do and don't prove.** `tests/test_potentiostat.py` drives the driver against
 > `fakes.FakeAutolab`, which encodes the same understanding of the SDK that the driver does. A green
