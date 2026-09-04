@@ -438,6 +438,7 @@ class AutolabPotentiostat(Potentiostat):
         self._overloaded = False
         self._device_lost = False
         self._aborted = False
+        self._dio_step_present = None
         self._pulse_delay = 0.0
         self._max_wait = 60.0
         # When the .nox carries its own FHDIO step (the eventual design — see
@@ -450,11 +451,13 @@ class AutolabPotentiostat(Potentiostat):
 
     def open(self):
         self._inst = open_instrument(self.settings)
-        if self._trigger_in_procedure:
-            self._port = None       # the procedure's FHDIO step drives P1.A
-        else:
-            self._port = open_trigger_port(
-                self._inst, int(self.settings.get("autolab_dio_port", 0)))
+        # Claim the DIO port even when the procedure is meant to fire its own edge.
+        # Claiming it only sets the direction and drives it low, and fire() falls back
+        # to pulsing from Python if the loaded .nox turns out to have no DIO step —
+        # a fallback that needs the port already open. Cheaper than the alternative,
+        # which is a spectrometer armed for an edge nobody sends.
+        self._port = open_trigger_port(
+            self._inst, int(self.settings.get("autolab_dio_port", 0)))
 
     def close(self):
         if self._inst is None:
@@ -488,6 +491,7 @@ class AutolabPotentiostat(Potentiostat):
         Ei.Sampler.Reset() to call.
         """
         self._segment = segment
+        self._dio_step_present = None   # re-checked per procedure
         self._last_data = None
         self._live_samples = []
         self._t0 = None
@@ -507,8 +511,8 @@ class AutolabPotentiostat(Potentiostat):
         _set_cell(self._inst, True)
         self._t0 = time.time()
         self._proc.Measure()          # returns immediately
-        if self._trigger_in_procedure:
-            return                    # the .nox's FHDIO step raises P1.A itself
+        if self._trigger_in_procedure and self._procedure_has_dio_step():
+            return                    # the .nox's DIO step raises P1.A itself
         self._pulse_trigger()
 
     def finish(self, aborted=False):
@@ -715,6 +719,40 @@ class AutolabPotentiostat(Potentiostat):
             ".nox (autolab_trigger_in_procedure).",
             base, AUTOLAB_STANDARD_TEMPLATE_EXTRA_LAG_S)
         return base
+
+    def _procedure_has_dio_step(self):
+        """Does this .nox actually contain a digital-output step?
+
+        `autolab_trigger_in_procedure` tells fire() to stay out of the timing path
+        and let the procedure raise P1.A. If the template has no such step, nothing
+        raises the edge at all: the spectrometer sits armed for a trigger that never
+        comes and the run hangs — indistinguishable from the stall seen on
+        2026-09-03. So verify, and fall back to the Python pulse rather than hang.
+
+        Matched loosely on the IdName because NOVA's own spectro-EC procedures
+        render this step as `Dio_0` / `HDio` (see docs/metrohm-rig-status.md), and
+        the exact IdName the SDK reports for a hand-added step is not yet known.
+        """
+        if self._dio_step_present is not None:
+            return self._dio_step_present
+        try:
+            idnames = list(getattr(self._proc.Commands, "IdNames", []) or [])
+        except Exception:  # noqa: BLE001
+            idnames = []
+        found = [n for n in idnames if "dio" in str(n).lower()]
+        self._dio_step_present = bool(found)
+        if found:
+            get_run_logger().info(
+                "Autolab: procedure carries its own digital-output step (%s) — "
+                "Python will not pulse the trigger.", ", ".join(found))
+        else:
+            get_run_logger().warning(
+                "Autolab: autolab_trigger_in_procedure is set, but this procedure "
+                "has no digital-output step (commands: %s). Falling back to the "
+                "Python pulse — otherwise the spectrometer would wait for an edge "
+                "that never comes. Add the step in NOVA or clear the flag.",
+                ", ".join(str(n) for n in idnames) or "none reported")
+        return self._dio_step_present
 
     def _pulse_trigger(self):
         """Pulse P1.A after the wait window, so the optical and echem clocks start

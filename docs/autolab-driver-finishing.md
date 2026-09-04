@@ -58,6 +58,32 @@
 >   normal. `_warn_if_cadence_unachievable()` now says so at the start of every segment, naming both
 >   numbers. Silent on the Gamry rig (0.088 ms x 200 = 17.6 ms, well inside 100 ms), which is why
 >   this stayed latent for years.
+> - **`autolab_trigger_in_procedure` can no longer hang a run.** It previously told `fire()` to
+>   stay out of the timing path with nothing checking that the `.nox` actually had a digital-output
+>   step — set it against the stock template and no edge is ever raised, so the armed spectrometer
+>   waits forever. `fire()` now looks for a DIO command in the loaded procedure and **falls back to
+>   the Python pulse**, with a warning naming the commands it did find. The DIO port is claimed at
+>   `open()` in both cases, since the fallback needs it.
+>
+> **Finding the step in NOVA (2026-09-03: Dean could not).** "FHDIO" is *our* shorthand, not
+> necessarily NOVA's label — which may be the whole problem. This rig's own `PC_Spectral*`
+> procedures already contain the step, rendered there as **`Dio_0` / `HDio`**, written as
+> **`P1.A:Write`** and pulsed via `HOptionGetSetValuesPulse` (see `metrohm-rig-status.md`). So don't
+> build one from scratch: **open a `PC_Spectral*` procedure, find the step that writes P1.A, and
+> copy it** into a copy of the standard CV — positioned after `FHPreCurrentRangingCV` and before
+> the staircase. Then confirm what the SDK calls it:
+>
+> ```python
+> proc = inst.LoadProcedure(r"...\your_modified.nox")
+> print(list(proc.Commands.IdNames))
+> ```
+>
+> The driver matches any IdName containing "dio" (case-insensitive), so most spellings will work —
+> but that printout is the ground truth, and worth recording here.
+>
+> **This is optional.** The Python-pulse path measures −51 ms skew, which is fine for 100 ms
+> spectra. It buys ~50 ms and removes host-timing jitter. A real-sample run matters more; don't
+> spend bench time on it.
 
 `AutolabPotentiostat` (`spec_echem/potentiostat.py`) is written and test-covered. This is the
 checklist for turning it from "correct as far as we know" into "correct".
