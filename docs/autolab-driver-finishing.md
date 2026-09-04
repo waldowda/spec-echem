@@ -58,12 +58,19 @@
 >   normal. `_warn_if_cadence_unachievable()` now says so at the start of every segment, naming both
 >   numbers. Silent on the Gamry rig (0.088 ms x 200 = 17.6 ms, well inside 100 ms), which is why
 >   this stayed latent for years.
-> - **`autolab_trigger_in_procedure` can no longer hang a run.** It previously told `fire()` to
->   stay out of the timing path with nothing checking that the `.nox` actually had a digital-output
->   step — set it against the stock template and no edge is ever raised, so the armed spectrometer
->   waits forever. `fire()` now looks for a DIO command in the loaded procedure and **falls back to
->   the Python pulse**, with a warning naming the commands it did find. The DIO port is claimed at
->   `open()` in both cases, since the fallback needs it.
+> - **`autolab_trigger_in_procedure` can no longer hang a run — it REFUSES.** It previously told
+>   `fire()` to stay out of the timing path with nothing checking that the `.nox` actually had a
+>   digital-output step; set against the stock template, no edge is ever raised and the armed
+>   spectrometer waits forever. `prepare()` now checks and **raises**, naming the commands it did
+>   find and both ways to fix it.
+>
+>   It deliberately does **not** fall back to a Python pulse (Dean's call, and the right one). A
+>   fallback keeps the run alive but silently changes what the data means: the Python path needs a
+>   measured `autolab_pulse_delay_s`, and someone who configured the procedure to fire has no reason
+>   to have tuned one — so the edge would land at whatever stale value is in `bench.ini`, skewing by
+>   ~1 s on the untuned default. Plausible, mistimed data reported as success is worse than
+>   stopping. The check runs in `prepare()`, before the cell is switched on and before the
+>   spectrometer arms, so it costs a clear error rather than a hung run or a disturbed sample.
 >
 > **Finding the step in NOVA (2026-09-03: Dean could not).** "FHDIO" is *our* shorthand, not
 > necessarily NOVA's label — which may be the whole problem. This rig's own `PC_Spectral*`

@@ -510,18 +510,24 @@ def test_trigger_in_procedure_skips_the_python_pulse(autolab):
     assert inst.port.rising_edges == 0               # Python did NOT pulse
 
 
-def test_trigger_in_procedure_falls_back_when_the_nox_has_no_dio_step(autolab, caplog):
-    """The dangerous case. Setting the flag against a template with no digital-output
-    step would leave nobody to raise the edge: the spectrometer sits armed for a
-    trigger that never comes and the run hangs, looking exactly like the 2026-09-03
-    stall. Pulse from Python instead, and say why."""
-    p, inst = autolab(settings=_autolab_settings(autolab_trigger_in_procedure=True))
-    p.prepare(_cv_segment())
-    with caplog.at_level(logging.WARNING):
-        p.fire()
+def test_trigger_in_procedure_refuses_a_nox_with_no_dio_step(autolab):
+    """The dangerous case, and it must STOP rather than improvise.
 
-    assert inst.port.rising_edges == 1               # Python covered for it
-    assert "no digital-output step" in caplog.text
+    Setting the flag against a template with no digital-output step leaves nobody to
+    raise the edge, so the spectrometer would sit armed forever. Falling back to a
+    Python pulse would keep the run alive but silently change what the data means —
+    that path needs a measured autolab_pulse_delay_s, which someone configuring the
+    procedure to fire has no reason to have tuned, so the edge would land at a stale
+    delay (~1 s off). Plausible, mistimed data reported as success is worse than a
+    clear stop. prepare() runs before the cell is on and before the spectrometer
+    arms, so this costs nothing but the error."""
+    p, inst = autolab(settings=_autolab_settings(autolab_trigger_in_procedure=True))
+
+    with pytest.raises(RuntimeError, match="no digital-output step"):
+        p.prepare(_cv_segment())
+
+    assert inst.Ei.Cell is False                     # nothing was energized
+    assert inst.port.rising_edges == 0               # and no edge improvised
 
 
 def test_close_switches_the_cell_off_and_disconnects(autolab):

@@ -505,13 +505,15 @@ class AutolabPotentiostat(Potentiostat):
         self._cmd = self._command_for(segment)
         self._apply_parameters(segment)
         self._pulse_delay = self._wait_window()
+        if self._trigger_in_procedure:
+            self._require_dio_step()
 
     def fire(self):
         """The spectrometer is armed and waiting for the edge right now."""
         _set_cell(self._inst, True)
         self._t0 = time.time()
         self._proc.Measure()          # returns immediately
-        if self._trigger_in_procedure and self._procedure_has_dio_step():
+        if self._trigger_in_procedure:
             return                    # the .nox's DIO step raises P1.A itself
         self._pulse_trigger()
 
@@ -720,39 +722,47 @@ class AutolabPotentiostat(Potentiostat):
             base, AUTOLAB_STANDARD_TEMPLATE_EXTRA_LAG_S)
         return base
 
-    def _procedure_has_dio_step(self):
-        """Does this .nox actually contain a digital-output step?
+    def _require_dio_step(self):
+        """With autolab_trigger_in_procedure set, refuse a .nox that cannot fire.
 
-        `autolab_trigger_in_procedure` tells fire() to stay out of the timing path
-        and let the procedure raise P1.A. If the template has no such step, nothing
-        raises the edge at all: the spectrometer sits armed for a trigger that never
-        comes and the run hangs — indistinguishable from the stall seen on
-        2026-09-03. So verify, and fall back to the Python pulse rather than hang.
+        The flag says the procedure raises P1.A on its own clock. If the template has
+        no digital-output step, nothing raises the edge: the spectrometer sits armed
+        for a trigger that never comes and the run hangs.
 
-        Matched loosely on the IdName because NOVA's own spectro-EC procedures
-        render this step as `Dio_0` / `HDio` (see docs/metrohm-rig-status.md), and
-        the exact IdName the SDK reports for a hand-added step is not yet known.
+        This RAISES rather than quietly pulsing from Python instead. A fallback would
+        keep the run alive but silently change what the data means — the Python path
+        needs a measured `autolab_pulse_delay_s`, and someone who configured the
+        procedure to fire has no reason to have tuned one, so the fallback would emit
+        the edge at whatever stale delay is in bench.ini (the untuned value skews by
+        ~1 s). Producing plausible, mistimed data while reporting success is worse
+        than stopping.
+
+        Called from prepare(), which runs BEFORE the cell is switched on and before
+        the spectrometer arms — so this costs a clear error, not a hung run or a
+        disturbed sample.
+
+        Matched loosely on the IdName: NOVA renders this step as `Dio_0` / `HDio`
+        (see docs/metrohm-rig-status.md) and the IdName the SDK reports for a
+        hand-added one is not yet known.
         """
-        if self._dio_step_present is not None:
-            return self._dio_step_present
         try:
             idnames = list(getattr(self._proc.Commands, "IdNames", []) or [])
         except Exception:  # noqa: BLE001
             idnames = []
         found = [n for n in idnames if "dio" in str(n).lower()]
-        self._dio_step_present = bool(found)
         if found:
             get_run_logger().info(
-                "Autolab: procedure carries its own digital-output step (%s) — "
-                "Python will not pulse the trigger.", ", ".join(found))
-        else:
-            get_run_logger().warning(
-                "Autolab: autolab_trigger_in_procedure is set, but this procedure "
-                "has no digital-output step (commands: %s). Falling back to the "
-                "Python pulse — otherwise the spectrometer would wait for an edge "
-                "that never comes. Add the step in NOVA or clear the flag.",
-                ", ".join(str(n) for n in idnames) or "none reported")
-        return self._dio_step_present
+                "Autolab: procedure fires its own trigger (%s) — Python stays out "
+                "of the timing path.", ", ".join(str(n) for n in found))
+            return
+        raise RuntimeError(
+            "autolab_trigger_in_procedure is set, but "
+            f"'{os.path.basename(self._nox_for(self._segment))}' has no "
+            "digital-output step, so nothing would raise the Avantes trigger. "
+            f"Commands found: {', '.join(str(n) for n in idnames) or 'none'}. "
+            "Add the P1.A step in NOVA (copy it from a PC_Spectral* procedure), or "
+            "clear autolab_trigger_in_procedure in config/bench.ini to pulse from "
+            "Python instead.")
 
     def _pulse_trigger(self):
         """Pulse P1.A after the wait window, so the optical and echem clocks start
