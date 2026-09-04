@@ -14,6 +14,11 @@ to re-confirm at the bench), Autolab **SDK 2.1**, **64-bit** `SpecEchem` conda e
 
 ---
 
+> **Trigger timing: see [`echem-spectra-coordination.md`](echem-spectra-coordination.md)** (2026-09-04).
+> The Python pulse measures ±150 ms run-to-run against a 1–40 ms requirement, because the edge and
+> the waveform are separated by ~6 s of instrument-side preamble. The NOVA manual's Counter → Pulse
+> action puts the edge inside the measurement loop and is the recommended route.
+
 ## 0. The design decision this all serves
 
 **Use NOVA's standard CV and chronoamperometry procedures, parameterized from Python. Do not
