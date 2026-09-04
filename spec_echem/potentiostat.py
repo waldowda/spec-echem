@@ -271,6 +271,38 @@ AUTOLAB_MAX_WAIT_MARGIN_S = 30.0
 # autolab_pulse_delay_s in config/bench.ini. This is only a log-time hint.
 AUTOLAB_STANDARD_TEMPLATE_EXTRA_LAG_S = 1.0
 
+# How long after FHWait each template actually starts RECORDING. Both stock
+# templates spend ~1 s on setup after the wait expires — the CV on
+# FHPreCurrentRangingCV plus settle, the CA on cell/setpoint settle and starting
+# the sampler — so pulsing at the raw FHWait fires about a second early.
+#
+# MEASURED on this rig against CalcTime[0] — the procedure clock at the first
+# recorded sample — with FHWait = 5.0 s (2026-09-04, 10 kOhm dummy, repeats):
+#   stock CA   6.084 / 5.885 / 5.962 s  -> lag 0.977 s, spread 199 ms
+#   stock CV   5.859 / 5.795 / 5.745 s  -> lag 0.800 s, spread 115 ms
+#   spectro CV 5.684 / 5.579 / 5.608 / 5.534 s -> lag 0.602 s, spread 150 ms
+#
+# Three things that follow, and they bound what this rig can do:
+#   * The templates differ by ~180 ms, so ONE absolute delay cannot serve both —
+#     a CV-derived 5.95 s fires ~170 ms early on every chrono segment.
+#   * The CV's lag is CONDITION-dependent: 0.80 s sweeping +/-0.05 V here but
+#     0.99 s at +/-1 V on 2026-09-03, because FHPreCurrentRangingCV's search
+#     depends on the current it finds. The value below is the +/-1 V one, since
+#     real experiments look more like that than like a 5 uA dummy sweep.
+#   * The RUN-TO-RUN SPREAD (115-199 ms) is as large as the correction. Removing
+#     the ranging step (spectro CV) drops the mean to 0.602 s but leaves the
+#     spread at 150 ms, so the scatter is in the host->instrument start path, not
+#     in ranging, and no .nox edit reaches it.
+# Net: these constants remove the BIAS. The residual is +/-0.1-0.2 s of jitter,
+# irreducible while Python emits the edge. Only a digital-output step inside the
+# procedure would fix it, and 2026-09-04's probe found none available through the
+# SDK (examples/probe_nox_dio.py) — NOVA's P1.A pulse lives inside
+# ExecCommandSpectroTriggered, which exposes no parameters and drives NOVA's own
+# spectrometer, the one thing spec-echem cannot share.
+AUTOLAB_SETUP_LAG_CV_S = 0.99      # stock CV at experiment-like currents
+AUTOLAB_SETUP_LAG_CA_S = 0.98      # stock CA, mean of three
+AUTOLAB_SETUP_LAG_SPECTRO_CV_S = 0.60   # Sung-Joo's CV, if autolab_nox_cv points there
+
 
 class ConfigurationError(RuntimeError):
     """A run was set up wrongly — a missing path, a template that cannot fire, a
@@ -521,7 +553,7 @@ class AutolabPotentiostat(Potentiostat):
         # the real problem.
         if self._trigger_in_procedure:
             self._require_dio_step()
-        self._pulse_delay = self._wait_window()
+        self._pulse_delay = self._wait_window(segment)
 
     def fire(self):
         """The spectrometer is armed and waiting for the edge right now."""
@@ -705,16 +737,46 @@ class AutolabPotentiostat(Potentiostat):
             return s["dedoping_potential"]
         raise ValueError(f"No chrono potential for data_type {segment.data_type}")
 
-    def _wait_window(self):
-        """When to pulse P1.A, measured from Measure(). A measured
-        `autolab_pulse_delay_s` in bench.ini wins; otherwise the procedure's own
-        FHWait duration, read live (a NOVA edit would change it).
+    def _setup_lag(self, segment):
+        """Seconds between FHWait expiring and the template's first recorded sample.
+
+        Per template, because they differ: the CV spends the gap on
+        FHPreCurrentRangingCV plus settle, the CA on cell/setpoint settle and
+        starting the sampler. Measured values and provenance are on
+        AUTOLAB_SETUP_LAG_CV_S / _CA_S above. Overridable per rig, since it is an
+        instrument-and-template property rather than a universal constant.
+        """
+        if segment is not None and segment.data_type == DATA_TYPE_CV:
+            key, default = "autolab_setup_lag_cv_s", AUTOLAB_SETUP_LAG_CV_S
+        else:
+            key, default = "autolab_setup_lag_ca_s", AUTOLAB_SETUP_LAG_CA_S
+        value = self.settings.get(key)
+        return float(default if value is None else value)
+
+    def _wait_window(self, segment=None):
+        """When to pulse P1.A, measured from Measure().
+
+        The procedure's own FHWait, read live so a NOVA edit is picked up, PLUS
+        this template's measured setup lag — the ~1 s it spends between the wait
+        expiring and its first recorded sample. Pulsing at the raw FHWait fires
+        that much early.
+
+        `autolab_pulse_delay_s` still wins if set, as a manual escape hatch, but it
+        is no longer the recommended way: it is a single absolute number, and one
+        number cannot serve both templates (a CV-derived 5.95 s fires 172 ms early
+        on every chrono segment). Prefer leaving it unset and tuning the per-
+        template lags.
 
         Unused when autolab_trigger_in_procedure is set — the .nox fires its own
         edge then.
         """
         override = self.settings.get("autolab_pulse_delay_s")
         if override is not None:
+            get_run_logger().info(
+                "Autolab: pulsing at the manual autolab_pulse_delay_s (%.3f s). "
+                "Unset it to use FHWait + this template's measured setup lag, "
+                "which is per-template and follows a NOVA edit to the wait.",
+                float(override))
             return float(override)
         try:
             wait = self._proc.Commands[AUTOLAB_WAIT_COMMAND]
@@ -724,18 +786,11 @@ class AutolabPotentiostat(Potentiostat):
                 "Autolab: no wait command in this procedure — pulsing the trigger "
                 "immediately, so the spectra lead the electrochemistry.")
             return 0.0
-        # bench_autolab_coacquire.py 2026-09-03: on the standard CV template the
-        # staircase starts ~1 s after FHWait (FHPreCurrentRangingCV + settle), so
-        # the raw wait pulses ~1 s early. Can't correct it here — the lag is
-        # variable — but say so, since a measured autolab_pulse_delay_s or an
-        # in-procedure FHDIO step is the fix.
-        get_run_logger().warning(
-            "Autolab: pulsing at the raw FHWait (%.2f s). On the standard template "
-            "the electrochemistry starts ~%.1f s later — set a measured "
-            "autolab_pulse_delay_s in config/bench.ini, or an FHDIO step in the "
-            ".nox (autolab_trigger_in_procedure).",
-            base, AUTOLAB_STANDARD_TEMPLATE_EXTRA_LAG_S)
-        return base
+        lag = self._setup_lag(segment)
+        get_run_logger().info(
+            "Autolab: pulsing at %.3f s (FHWait %.2f s + %.2f s measured setup lag "
+            "for this template).", base + lag, base, lag)
+        return base + lag
 
     def _require_dio_step(self):
         """With autolab_trigger_in_procedure set, refuse a .nox that cannot fire.

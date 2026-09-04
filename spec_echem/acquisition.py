@@ -46,6 +46,24 @@ def suggest_scan_averages(integration_ms, delta_time):
     return max(0, int(room * 1000.0 // float(integration_ms)))
 
 
+def next_deadline(anchor, index, delta_time, measure_cost):
+    """Host time at which measurement `index + 1` must START to LAND on the grid.
+
+    Absolute, not relative: every deadline is computed from the one anchor, so a
+    slow measurement is absorbed rather than pushing everything after it back.
+    Subtracting `measure_cost` schedules the *completion* — a spectrum's recorded
+    timestamp is written when the scan lands, not when it was asked for.
+
+    Replaces a per-iteration "wait delta_time from the top of this pass", which
+    added each measurement's own duration to the period. MEASURED 2026-09-04:
+    that ran at 100.5-101.3 ms against a 100 ms target and put the optical series
+    303 ms behind a 30 s hold whose Autolab clock was exact (0.000-29.900 s), with
+    the error growing linearly — 54 ms a quarter in, 105 ms at half, 303 ms at the
+    end. Over a 10-minute segment it would be seconds.
+    """
+    return anchor + (index + 1) * delta_time - measure_cost
+
+
 def _warn_if_cadence_unachievable(spec, delta_time, num_points):
     """Say so when one spectrum takes longer than the gap between spectra.
 
@@ -135,16 +153,35 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
     spectra = []
     timestamps = []
 
+    # The schedule is anchored on spectrum 0, once the trigger has actually fired
+    # (below) — NOT on the top of each pass. Anchoring per pass had two costs, both
+    # MEASURED on the Metrohm rig 2026-09-04 and both invisible in a file that looks
+    # normal:
+    #   * spectrum 1 arrived one measurement after spectrum 0 instead of one
+    #     delta_time (37-72 ms against a 100 ms target), because the pass began
+    #     BEFORE measure() blocked ~6 s waiting for the trigger, so its wait was
+    #     already satisfied;
+    #   * the period was delta_time PLUS each measurement's own duration, so the
+    #     optical series drifted +303 ms over a 30 s hold and kept going.
+    anchor = None
+    # What one measurement costs, so a scan is started early enough to LAND on the
+    # grid. Estimated before the first one, then measured from the real thing.
+    try:
+        measure_cost = float(spec.per_spectrum_seconds()) + SPECTRUM_OVERHEAD_S
+    except Exception:  # noqa: BLE001 — a spectrometer that cannot say still runs
+        measure_cost = 0.0
+
     for j in range(num_echem_points):
         if abort_event is not None and abort_event.is_set():
             break
 
-        pretime1 = time.time_ns() / 1e9
+        started = time.time_ns() / 1e9
         # Fire the trigger (on_armed) only for spectrum 0, from inside measure()
         # so the DIGOUT0 edge lands after AVS_Measure() has armed the device.
         result = spec.measure(abort_event, on_armed if j == 0 else None)
         if result is None:  # aborted while waiting for the trigger / data
             break
+        finished = time.time_ns() / 1e9
         timestamp_av, data = result
         pretime = timestamp_av / 1e5  # Avantes units to seconds
         spectra.append(data)
@@ -152,16 +189,26 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
 
         if j == 0:
             spec.set_trigger_mode(0)  # disable trigger after first measurement fires
+            # Anchor here: spectrum 0 has landed, so this instant is the trigger plus
+            # one measurement — the same relationship every later spectrum will have
+            # to its own slot. Anchoring before the trigger wait is what made
+            # spectrum 1 early.
+            anchor = finished
+        else:
+            # Refine from the real thing; it drifts with integration time, averaging
+            # and USB latency, and only the most recent value is relevant.
+            measure_cost = finished - started
 
         if on_tick is not None:
             on_tick()  # pump the Gamry curve so its data accumulates during the run
 
-        time.sleep(0.002)
-        check_time = time.time_ns() / 1e9
-        while (check_time - pretime1) <= (delta_time - 0.0012):
+        deadline = next_deadline(anchor, j, delta_time, measure_cost)
+        while True:
             if abort_event is not None and abort_event.is_set():
                 break
-            check_time = time.time_ns() / 1e9
-            time.sleep(0.5e-3)
+            now = time.time_ns() / 1e9
+            if now >= deadline:
+                break  # already late (see the cadence warning) — go straight on
+            time.sleep(min(0.5e-3, deadline - now))
 
     return spectra, timestamps
