@@ -43,7 +43,7 @@ attenuated enough not to saturate near the floor.
 
 ## NOVA already does synchronized spectro-EC on this rig
 
-The user's existing `.nox` procedures (`Documents\NOVA 2.1\Procedures\PC_SpectralChronoAmperometry_*`,
+The user's existing `.nox` procedures (`Documents\Nova 2.1\Procedures\PC_SpectralChronoAmperometry_*`,
 `PC_spectralCA_CV_BIGPROCEDURE`) show NOVA itself driving **both** instruments:
 
 - `ExecCommandAvantesStart` / `AvantesStop`, `SpectroSingleShot` ("Software triggered spectroscopy",

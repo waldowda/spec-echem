@@ -321,6 +321,10 @@ question. `set_param()` in `autolab_common.py` was fixed the same day (int index
      skew = (DIO-step → first staircase point, sub-ms) + (edge → integration start, ~0.5 ms).
      `AutolabPotentiostat.fire()` then = "start the procedure", no DIO code in Python. Re-run
      `bench_autolab_coacquire.py` (Python not pulsing) to measure the residual.
+     **2026-09-04:** the `PC_Spectral*` procedures were located at
+     `~\Documents\Nova 2.1\Procedures\` and do carry the P1.A pulse; the evidence, and the
+     open question of whether it is a command or an option on one, is in
+     `autolab-driver-finishing.md` — kept in one place on purpose.
 6. **CA template:** doping / dedoping / pre-dedoping are chronoamperometry holds. Pick
    `Standard Nova Procedures\Chrono amperometry.nox` as the template, map its parameter indices
    the same way, decide where the trigger pulse lives.
