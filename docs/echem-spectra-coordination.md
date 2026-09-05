@@ -306,6 +306,56 @@ has to be re-created on `FHLevel` after the deletion.
 
 ---
 
+## 7c. Which DIO pin — and why 0xFF is a trap (2026-09-04)
+
+MEASURED from the NOVA manual §16.3.1.3.1, p.927 — the PGSTAT302N has **DIO48** connectors: two
+25-pin female SUB-D, 24 addressable pins in three sections. **Section A is pins 1–8**, B is 17–24,
+C is 9–16, and pin 25 is digital ground. Each section is independently set to read or write. Write
+lines supply max 2.5 mA; pull-downs usually not needed.
+
+So "P1.A" is a **byte**, not a line.
+
+`_pulse_trigger()` has always written `port.Value = 0xFF` — all eight pins high at once. That is why
+the wired pin never had to be identified, and it has been harmless because nothing else is on the
+port.
+
+**It stops being harmless when the AvaLight-Mini2 shutter is wired.** That lamp is TTL-controlled
+and NOVA's own procedures use the Autolab DIO for lamp/shutter control
+(`metrohm-rig-status.md`). An 0xFF pulse would then move the shutter on **every segment, mid-run** —
+corrupting the optics in a way that reads as sample behaviour rather than as a fault.
+
+### Now configurable, default unchanged
+
+`autolab_dio_mask` (settings + `bench.ini`) selects which pins the pulse drives. It **defaults to
+0xFF**, so nothing changes until the real pin is measured. `examples/autolab_common.pulse()` takes
+the same `mask` argument.
+
+### Finding the pin — `examples/probe_dio_pin.py`
+
+Cell-safe: the potentiostat is never energized and no procedure runs. It arms the Avantes, pulses
+one bit at a time, and reports which bit lands a scan — after first confirming 0xFF works, so a dead
+cable is distinguished from a wrong bit. A hit is re-tested three times before being believed.
+
+Then:
+
+```ini
+# config/bench.ini
+autolab_dio_mask = <the bit>
+```
+
+and the same value as the NOVA counter's **Pulse value**, with **End value 0**. Every other pin on
+the port is then free for the shutter.
+
+**Do this before wiring the AvaLight shutter, not after.** (If the shutter is already connected,
+expect it to click during the walk — which is itself the answer to which bit to avoid.)
+
+One more from §16.3.1.3, worth remembering if unexplained current noise ever appears on a real
+sample: *"There is a chance of introducing a ground loop when connecting external devices to the
+Autolab DIO… higher than expected noise levels during measurements."* The trigger cable stays
+connected permanently, so it is a standing candidate.
+
+---
+
 ## 8. Where the counter-Pulse route still matters
 
 If CV timing ever needs to beat ±150 ms, §4a is the mechanism — and it remains the only route to a

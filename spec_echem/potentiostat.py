@@ -835,18 +835,28 @@ class AutolabPotentiostat(Potentiostat):
             "Python instead.")
 
     def _pulse_trigger(self):
-        """Pulse P1.A after the wait window, so the optical and echem clocks start
-        together. Sleeping here is harmless: the spectrometer is already armed and
-        doing nothing but waiting for this edge. Chunked so an abort still lands."""
+        """Pulse the trigger bit(s) after the wait window, so the optical and echem
+        clocks start together. Sleeping here is harmless: the spectrometer is already
+        armed and doing nothing but waiting for this edge. Chunked so an abort lands.
+
+        Which bits go high is `autolab_dio_mask`. It defaults to 0xFF — ALL EIGHT pins
+        of the port — which is how this has always worked and is why the wired pin
+        never had to be identified. That is safe only while nothing else lives on the
+        port. The AvaLight-Mini2 shutter is TTL-controlled and its line is expected on
+        the Autolab DIO (see metrohm-rig-status.md), so once that is wired, 0xFF would
+        toggle the shutter on every segment — mid-run. Run
+        examples/probe_dio_pin.py to find the real bit, then set the mask.
+        """
         deadline = time.time() + self._pulse_delay
         while time.time() < deadline and not self._aborted:
             time.sleep(min(0.05, max(0.0, deadline - time.time())))
         if self._aborted:
             return
         port = self._port
+        mask = int(self.settings.get("autolab_dio_mask", 0xFF)) & 0xFF
         port.Value = 0
         time.sleep(0.001)
-        port.Value = 0xFF          # rising edge -> the armed Avantes fires
+        port.Value = mask          # rising edge -> the armed Avantes fires
         time.sleep(AUTOLAB_PULSE_WIDTH_S)
         port.Value = 0
 

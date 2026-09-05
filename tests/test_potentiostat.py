@@ -578,3 +578,29 @@ def test_close_switches_the_cell_off_and_disconnects(autolab):
     assert inst.Ei.Cell is False
     assert inst.disconnected is True
     assert inst.port.released is True
+
+
+# --- the trigger bit mask ----------------------------------------------------
+# Driving all eight pins is how this has always worked, and why the wired pin was
+# never identified. It stops being safe once the AvaLight shutter TTL shares the
+# port: an 0xFF pulse would move the shutter mid-segment.
+
+def test_the_pulse_drives_all_pins_by_default(autolab):
+    """Unchanged behaviour until the wired pin is measured."""
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    p.fire()
+    assert 0xFF in inst.port.history
+
+
+def test_a_configured_mask_drives_only_those_pins(autolab):
+    """With the pin known, every other line on the port stays down — which is what
+    lets the shutter share the connector."""
+    p, inst = autolab(settings=_autolab_settings(autolab_dio_mask=0x04))
+    p.prepare(_cv_segment())
+    p.fire()
+
+    assert 0x04 in inst.port.history
+    assert 0xFF not in inst.port.history
+    assert inst.port.rising_edges == 1        # still a real edge
+    assert inst.port.Value == 0               # and left low
