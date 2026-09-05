@@ -165,6 +165,7 @@ def main():
         handle, pixels = open_avantes(avaspec)
         if handle is None:
             return 1
+        ac.describe_dio(inst)          # what ports exist, before touching one
         port = ac.open_dio(inst, DIO_PORT_INDEX)
         if port is None:
             return 1
