@@ -54,6 +54,10 @@ DEFAULT_SETTINGS = {
     "autolab_nox_cv": "",           # standard CV procedure template
     "autolab_nox_ca": "",           # chronoamperometry procedure template
     "autolab_dio_port": 0,          # DioPortsP1 index; 0 = P1.A
+    # Which pins of that port the trigger pulse drives. 0xFF = all eight, the
+    # historical behaviour; safe only while nothing else shares the port. Set a
+    # single bit once examples/probe_dio_pin.py has found the wired pin.
+    "autolab_dio_mask": 0xFF,
     "autolab_pulse_delay_s": None,  # None = FHWait + the template's setup lag
     "autolab_setup_lag_cv_s": None,  # None = AUTOLAB_SETUP_LAG_CV_S (measured)
     "autolab_setup_lag_ca_s": None,  # None = AUTOLAB_SETUP_LAG_CA_S (measured)
