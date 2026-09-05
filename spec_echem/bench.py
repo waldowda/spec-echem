@@ -88,6 +88,7 @@ BENCH_SCHEMA = {
         "autolab_nox_cv": _str,           # standard CV procedure template
         "autolab_nox_ca": _str,           # chronoamperometry procedure template
         "autolab_dio_port": int,          # DioPortsP1 index; 0 = P1.A
+        "autolab_dio_mask": int,          # which pins the pulse drives; 0xFF = all
         "autolab_pulse_delay_s": _opt_float,  # None = FHWait + template setup lag
         "autolab_setup_lag_cv_s": _opt_float,
         "autolab_setup_lag_ca_s": _opt_float,

@@ -168,11 +168,16 @@ def open_dio(inst, index=0):
     return port
 
 
-def pulse(port, width_s=0.002):
-    """low -> high -> low. The RISING edge is what the armed Avantes catches."""
+def pulse(port, width_s=0.002, mask=0xFF):
+    """low -> high -> low. The RISING edge is what the armed Avantes catches.
+
+    `mask` selects which of the port's eight pins go high. 0xFF drives all of them,
+    which is why the wired pin has never had to be identified — and why it is unsafe
+    once anything else (the AvaLight shutter TTL) shares the port.
+    """
     port.Value = 0
     time.sleep(0.001)
-    port.Value = 0xFF
+    port.Value = int(mask) & 0xFF
     time.sleep(width_s)
     port.Value = 0
 
