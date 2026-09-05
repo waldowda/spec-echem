@@ -168,6 +168,41 @@ def open_dio(inst, index=0):
     return port
 
 
+def describe_dio(inst):
+    """List every DIO port the instrument exposes, read-only.
+
+    Nothing has ever enumerated these — `autolab_dio_port = 0` has been an assumption
+    since the first trigger probe, and the 2026-08-31 API report did not capture it.
+    It matters because a DIO48 connector carries THREE independent 8-bit sections on
+    one 25-pin shell (NOVA 16.3.1.3.1: A = pins 1-8, B = 17-24, C = 9-16, pin 25
+    ground). A splitter can take one section to the Avantes and another to the
+    AvaLight shutter, so "same connector" does not mean "same port".
+
+    Reads names, directions and current values. Writes nothing.
+    """
+    say("")
+    say("--- DIO ports " + "-" * 58)
+    for attr in ("DioPortsP1", "DioPortsP2"):
+        ports = safe(lambda a=attr: inst.Dio.__getattribute__(a))
+        if ports is None:
+            say(f"  {attr}: not available")
+            continue
+        n = safe(lambda p=ports: len(p), "?")
+        say(f"  {attr}: {n} port(s)")
+        try:
+            for i, port in enumerate(ports):
+                name = safe(lambda p=port: str(p.PortName), "?")
+                direction = safe(lambda p=port: str(p.PortDirection), "?")
+                value = safe(lambda p=port: int(p.Value), None)
+                shown = "?" if value is None else f"0x{value:02X} (0b{value:08b})"
+                say(f"    [{i}] {name:<10} direction={direction:<8} value={shown}")
+        except Exception as exc:  # noqa: BLE001
+            say(f"    could not iterate: {exc}")
+    say("")
+    say("  autolab_dio_port indexes THIS list. If the trigger and the AvaLight")
+    say("  shutter sit on different ports here, they cannot interfere.")
+
+
 def pulse(port, width_s=0.002, mask=0xFF):
     """low -> high -> low. The RISING edge is what the armed Avantes catches.
 

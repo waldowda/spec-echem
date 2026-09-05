@@ -346,7 +346,34 @@ autolab_dio_mask = <the bit>
 and the same value as the NOVA counter's **Pulse value**, with **End value 0**. Every other pin on
 the port is then free for the shutter.
 
-**Do this before wiring the AvaLight shutter, not after.** (If the shutter is already connected,
+### The UW wiring, and the question it opens (2026-09-04)
+
+MEASURED (Dean, looking at the rig): **one cable leaves the Autolab DIO connector and splits — one
+leg to the Avantes, one to the AvaLight-Mini2.** Dean sets the shutter by hand; the UW group's own
+`.nox` drives it from the Autolab.
+
+But **one connector is not one port.** A DIO48 shell carries three independent 8-bit sections, so a
+splitter can take pins 1–8 to the Avantes and 17–24 to the lamp. Whether the trigger and the shutter
+share a *port* or merely a *shell* decides whether an all-pins pulse can disturb the optics — and
+nothing has tested it. `autolab_dio_port = 0` has been an assumption since the first trigger probe.
+
+Two ways to settle it, cheapest first:
+
+1. **Read the UW procedure.** Their `.nox` already drives the shutter, so it records the DIO
+   connector and port as command parameters. Byte-scan or `Commands.IdNames` — no instrument, no
+   NOVA. If their shutter is on P1 port B and our trigger is P1 port A, the question is closed and
+   the all-pins pulse is harmless.
+2. **Enumerate the ports** — now part of the read-only pass. `query_autolab_run.py` gained **Q9**,
+   and `probe_dio_pin.py` prints the same listing before it walks anything:
+   names, directions and current values for `DioPortsP1[]` and `DioPortsP2[]`. Reads only.
+
+MEASURED, and reassuring for now: the spectra are bright (peak 24127 counts on 09-04), so the lamp's
+**OFF-TTL-ON switch cannot be in TTL** — in TTL the shutter follows the line, which idles low
+(closed) and would go high for only the 2 ms of a pulse. **Predicted consequence: moving that switch
+to TTL with the present code would make the spectra go dark.** Worth knowing in advance rather than
+diagnosing as an optics failure.
+
+**Do this before wiring the AvaLight shutter into a TTL-controlled workflow, not after.** (If the shutter is already connected,
 expect it to click during the walk — which is itself the answer to which bit to avoid.)
 
 One more from §16.3.1.3, worth remembering if unexplained current noise ever appears on a real

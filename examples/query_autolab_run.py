@@ -27,6 +27,8 @@ probe pulses DIO P1.A. Everything else is unknown, because nothing has yet calle
   Q5  Is data readable DURING a run, or only after?   -> live_data()/pump()
   Q6  Can a running measurement be aborted?            -> stop()
   Q7  Is there a liveness check usable mid-run?        -> device_lost()
+  Q9  What DIO ports exist, and which index is which section? -> whether the
+      trigger and the AvaLight shutter can interfere.
   Q8  Does the procedure already contain a DIO pulse?  -> then the .nox fires the
       Avantes trigger itself, the way DIGOUT0 lives inside a .GSequence, and
       fire() becomes simply "start the procedure".
@@ -501,6 +503,43 @@ def inspect_sampler(inst):
     say("data.EchemData(time, potential, current). Note which members give arrays.")
 
 
+def inspect_dio(inst):
+    """Q9: what DIO ports exist, and which index is which?
+
+    `autolab_dio_port = 0` has been an assumption since the first trigger probe, and
+    this report did not capture the ports on 2026-08-31. It matters because a DIO48
+    connector carries THREE independent 8-bit sections on one 25-pin shell (NOVA
+    16.3.1.3.1: A = pins 1-8, B = 17-24, C = 9-16, pin 25 ground). At the UW rig one
+    cable leaves the Autolab and splits to the Avantes and the AvaLight-Mini2, so
+    whether the trigger and the shutter share a port — or merely a shell — decides
+    whether driving all eight pins can disturb the optics.
+
+    Read-only: names, directions and current values. Nothing is written.
+    """
+    rule("Q9 — DIO ports (which index is which section?)")
+    dump_members(_safe(lambda: inst.Dio, None), "Instrument.Dio")
+    for attr in ("DioPortsP1", "DioPortsP2"):
+        ports = _safe(lambda a=attr: getattr(inst.Dio, a), None)
+        if ports is None or isinstance(ports, str):
+            say(f"  {attr}: not available")
+            continue
+        say("")
+        say(f"  {attr}: {_safe(lambda p=ports: len(p), '?')} port(s)")
+        try:
+            for i, port in enumerate(ports):
+                name = _safe(lambda p=port: str(p.PortName), "?")
+                direction = _safe(lambda p=port: str(p.PortDirection), "?")
+                value = _safe(lambda p=port: int(p.Value), None)
+                shown = "?" if value is None else f"0x{value:02X} (0b{value:08b})"
+                say(f"    [{i}] {name:<10} direction={direction:<8} value={shown}")
+        except Exception as exc:  # noqa: BLE001
+            say(f"    could not iterate: {exc}")
+    say("")
+    say("  The driver's autolab_dio_port indexes this list. If the trigger line and")
+    say("  the AvaLight shutter are on DIFFERENT ports here, they cannot interfere")
+    say("  and the all-pins pulse is harmless. If the same, the trigger mask matters.")
+
+
 def inspect_abort_and_liveness(inst, proc=None):
     """Q6/Q7: aborting a run, and noticing a vanished instrument."""
     rule("Q6/Q7 — abort and liveness")
@@ -541,6 +580,7 @@ def main():
         dump_members(inst, "Instrument")
         proc = inspect_procedure(inst)
         inspect_sampler(inst)
+        inspect_dio(inst)
         inspect_abort_and_liveness(inst, proc)
         hold_potential(inst)
         run_procedure(inst, proc)
