@@ -221,9 +221,17 @@ class _FakeSignal:
         self.ValueAsObject = list(values)
 
 
+# Input parameter keys for the CV staircase, from the Autolab SDK manual §6.2, in the
+# index order MEASURED on the rig (which is NOT the manual's list order — see
+# potentiostat.CV_PARAMS).
+CV_PARAM_KEYS = ["Start value", "Upper vertex", "Lower vertex", "Step",
+                 "NrOfStopCrossings", "Stop value", "Scanrate"]
+
+
 class _FakeCommand:
-    def __init__(self, values):
-        self.CommandParameters = _FakeList([_FakeParameter(v) for v in values])
+    def __init__(self, values, param_keys=None):
+        self.CommandParameters = _FakeList(
+            [_FakeParameter(v) for v in values], idnames=param_keys)
         self.Signals = _FakeList([], idnames=[])
 
     def _publish(self, channels):
@@ -245,7 +253,7 @@ class FakeProcedure:
         self._current_scale = current_scale   # <1 models an open cell (near-zero I)
         self._started = None
         self._aborted = False
-        cv = _FakeCommand(list(_CV_DEFAULTS))
+        cv = _FakeCommand(list(_CV_DEFAULTS), param_keys=list(CV_PARAM_KEYS))
         wait = _FakeCommand(list(_WAIT_DEFAULTS))
         wait.CommandParameters[0].ValueAsObject = wait_s
         # The CA template is 3 (setpoint -> FHLevel -> plot) blocks on the rig;
