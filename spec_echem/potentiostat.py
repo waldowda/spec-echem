@@ -244,6 +244,26 @@ CV_IDX_CROSSINGS = 4      # Int; 2 per full cycle (phase 3: 4 -> 2 cycles, point
 CV_IDX_STOP = 5
 CV_IDX_SCANRATE = 6       # V/s in the SDK, even though NOVA's UI shows mV/s
 
+# Parameter KEYS from the Autolab SDK manual §6.2 ("Input command parameter names",
+# the copy shipped with SDK 2.1). Names are preferred over positions: an index is a
+# position in a list, and editing a template can move it silently, whereas a key
+# names the thing itself. Each is paired with the index MEASURED on the rig
+# 2026-09-03 as the fallback.
+#
+# NOTE the manual's list order is NOT the index order — it shows eight parameters
+# with "Interval time" fifth, while this instrument reports seven and index 4 is
+# demonstrably the crossing count (setting it to 4 doubled the points and drove
+# ScanNumber to 2). So the keys are adopted; the ordering is not.
+CV_PARAMS = {
+    "start":     ("Start value",       CV_IDX_START),
+    "upper":     ("Upper vertex",      CV_IDX_UPPER),
+    "lower":     ("Lower vertex",      CV_IDX_LOWER),
+    "step":      ("Step",              CV_IDX_STEP),
+    "crossings": ("NrOfStopCrossings", CV_IDX_CROSSINGS),
+    "stop":      ("Stop value",        CV_IDX_STOP),
+    "scanrate":  ("Scanrate",          CV_IDX_SCANRATE),
+}
+
 # Chronoamperometry (doping / dedoping / pre-dedoping) — CONFIRMED on the rig
 # 2026-09-03 (bench_autolab_ca.py, each index verified against recorded data).
 # `Chrono amperometry.nox` is a THREE-step template:
@@ -482,6 +502,7 @@ class AutolabPotentiostat(Potentiostat):
         self._device_lost = False
         self._aborted = False
         self._dio_step_present = None
+        self._named_params = False
         self._pulse_delay = 0.0
         self._max_wait = 60.0
         # When the .nox carries its own FHDIO step (the eventual design — see
@@ -650,14 +671,17 @@ class AutolabPotentiostat(Potentiostat):
     def _apply_parameters(self, segment):
         s = self.settings
         if segment.data_type == DATA_TYPE_CV:
-            self._set(self._cmd, CV_IDX_START, s["cv_initial_v"])
-            self._set(self._cmd, CV_IDX_UPPER, s["cv_limit1_v"])
-            self._set(self._cmd, CV_IDX_LOWER, s["cv_limit2_v"])
-            self._set(self._cmd, CV_IDX_STOP, s["cv_final_v"])
-            self._set(self._cmd, CV_IDX_STEP, s["cv_step_size"] / 1000.0)      # mV -> V
-            self._set(self._cmd, CV_IDX_SCANRATE, s["cv_scan_rate"] / 1000.0)  # mV/s -> V/s
+            self._set(self._cmd, CV_IDX_START, s["cv_initial_v"], key=CV_PARAMS["start"][0])
+            self._set(self._cmd, CV_IDX_UPPER, s["cv_limit1_v"], key=CV_PARAMS["upper"][0])
+            self._set(self._cmd, CV_IDX_LOWER, s["cv_limit2_v"], key=CV_PARAMS["lower"][0])
+            self._set(self._cmd, CV_IDX_STOP, s["cv_final_v"], key=CV_PARAMS["stop"][0])
+            self._set(self._cmd, CV_IDX_STEP, s["cv_step_size"] / 1000.0,
+                      key=CV_PARAMS["step"][0])                    # mV -> V
+            self._set(self._cmd, CV_IDX_SCANRATE, s["cv_scan_rate"] / 1000.0,
+                      key=CV_PARAMS["scanrate"][0])                # mV/s -> V/s
             # 2 crossings per full cycle — bench_autolab_cv.py phase 3 confirms.
-            self._set(self._cmd, CV_IDX_CROSSINGS, 2 * int(s["cv_cycles"]))
+            self._set(self._cmd, CV_IDX_CROSSINGS, 2 * int(s["cv_cycles"]),
+                      key=CV_PARAMS["crossings"][0])
             return
         # Chrono hold: potential on the SETPOINT command, duration + interval on the
         # FHLevel recorder (self._cmd). Potentials are the same settings as the Gamry
@@ -707,24 +731,46 @@ class AutolabPotentiostat(Potentiostat):
                 "Autolab: neutralised %d extra CA hold step(s) so only step 1 runs.",
                 zeroed)
 
-    def _set(self, cmd, index, value):
-        """Write one parameter by index and verify it stuck — a silently ignored
-        potential would run the wrong experiment on a real sample.
+    def _resolve_param(self, cmd, key, index):
+        """The parameter object, by KEY if this SDK allows it, else by index.
 
-        `list(cmd.CommandParameters)[index]`, not `[index]` directly: this SDK's
-        CommandParameterList rejects a bare Python int in get_Item ("No method
-        matches given arguments"), proven on the rig 2026-09-03. Iteration works.
+        A key names the parameter; an index names a position, and a template edit can
+        move a position without saying so. The SDK manual §6.2 documents the keys, and
+        the manual's own examples index `Commands[...]` and `Signals[...]` by name, so
+        the list is expected to accept a string. That has never been confirmed on this
+        instrument, hence the fallback and the one-time log line saying which route won.
+
+        `list(cmd.CommandParameters)[index]`, not `[index]`: this SDK's
+        CommandParameterList rejects a bare Python int in get_Item ("No method matches
+        given arguments"), proven on the rig 2026-09-03. Iteration works.
         """
+        if key is not None:
+            try:
+                prm = cmd.CommandParameters[key]
+                if prm is not None:
+                    if not self._named_params:
+                        self._named_params = True
+                        get_run_logger().info(
+                            "Autolab: parameters resolve by name (SDK manual §6.2) — "
+                            "index fallback not needed.")
+                    return prm
+            except Exception:  # noqa: BLE001 — the SDK may only accept positions
+                pass
         if index is None:
             raise NotImplementedError(
-                "An Autolab parameter index is still unknown — see "
-                "docs/autolab-driver-finishing.md.")
-        prm = list(cmd.CommandParameters)[index]
+                f"Autolab parameter {key!r} has no known index and the name did not "
+                "resolve — see docs/autolab-driver-finishing.md.")
+        return list(cmd.CommandParameters)[index]
+
+    def _set(self, cmd, index, value, key=None):
+        """Write one parameter and verify it stuck — a silently ignored potential
+        would run the wrong experiment on a real sample."""
+        prm = self._resolve_param(cmd, key, index)
         prm.ValueAsObject = value
         back = prm.ValueAsObject
         if abs(float(back) - float(value)) > 1e-9:
             raise RuntimeError(
-                f"Autolab parameter [{index}] did not take: wrote {value}, "
+                f"Autolab parameter {key or index!r} did not take: wrote {value}, "
                 f"read back {back}.")
 
     def _chrono_potential(self, segment):

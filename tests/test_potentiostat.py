@@ -604,3 +604,45 @@ def test_a_configured_mask_drives_only_those_pins(autolab):
     assert 0xFF not in inst.port.history
     assert inst.port.rising_edges == 1        # still a real edge
     assert inst.port.Value == 0               # and left low
+
+
+# --- parameters by name (SDK manual §6.2) ------------------------------------
+# An index is a position and a template edit can move it silently; a key names the
+# parameter itself. The driver prefers the key and falls back to the measured index,
+# because whether THIS SDK accepts a string has never been confirmed on hardware.
+
+def test_parameters_resolve_by_name_when_the_sdk_allows_it(autolab):
+    """The decisive test: the fake's parameters are ordered so that name lookup and
+    index lookup would give DIFFERENT answers. If the values land correctly, the
+    name path is genuinely in use rather than the fallback quietly covering."""
+    from spec_echem import fakes
+
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    keys = list(p._cmd.CommandParameters.IdNames)
+    assert keys == fakes.CV_PARAM_KEYS          # the fake exposes documented names
+
+    # Scan rate is index 6; ask for it by name and confirm it reaches that slot.
+    p._set(p._cmd, None, 0.25, key="Scanrate")
+    assert p._cmd.CommandParameters[6].ValueAsObject == 0.25
+
+
+def test_an_sdk_without_names_falls_back_to_the_measured_index(autolab, monkeypatch):
+    """If CommandParameters refuses a string, the bench-measured indices still work —
+    which is the situation until the rig confirms otherwise."""
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+
+    def no_names(key):
+        raise TypeError("No method matches given arguments")
+    monkeypatch.setattr(p._cmd.CommandParameters, "__getitem__", no_names)
+
+    prm = p._resolve_param(p._cmd, "Scanrate", potentiostat.CV_IDX_SCANRATE)
+    assert prm is not None                       # resolved despite the refusal
+
+
+def test_a_parameter_with_neither_a_name_nor_an_index_fails_loudly(autolab):
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    with pytest.raises(NotImplementedError, match="autolab-driver-finishing"):
+        p._resolve_param(p._cmd, "NoSuchParameter", None)
