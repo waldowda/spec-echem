@@ -342,3 +342,33 @@ DIGOUT0 handshake confirmed. Remaining items:
         optionally auto-close for "Collect Dark" and auto-open for "Collect Reference".
       - Ties to the existing dark/ref Collect/Save/Load controls and the linearity/saturation TODO
         (a stable, known lamp state helps keep reference counts in the linear regime).
+
+## Future — "import a .nox and run it" as a first-class feature (Dean, 2026-09-06; not now)
+
+Today the Autolab templates are two paths in `config/bench.ini` (`autolab_nox_cv`,
+`autolab_nox_ca`), hand-edited in NOVA, with the driver writing known parameters into known
+commands. The idea: let the GUI **import an arbitrary `.nox`**, show what is in it, and run it.
+
+Why it is plausible rather than fanciful: this is all any Python wrapper does. Two independent
+projects (`shuayliu/pyMetrohmAUTOLAB`, `helgestein/metrohm_autolab_python`) and the vendor's own
+manual converge on load-a-procedure-and-execute-it — there is no lower-level waveform API to find.
+So an import-and-run feature is not a workaround, it is the SDK's actual model surfaced to the user.
+
+What it would need:
+
+- **Introspection at import.** `Commands.IdNames` and, per command, `CommandParameters.IdNames`
+  (see the read-only pass) — enough to render an editable list without knowing the technique.
+- **A mapping from procedure to spec-echem segment.** The driver currently assumes "CV template ⇒
+  DATA_TYPE_CV" and writes named parameters. An arbitrary `.nox` needs the user to say what it is,
+  or the segment type inferred from the commands it contains.
+- **Where the trigger goes.** A hand-supplied procedure may or may not carry a digital-output step;
+  `_require_dio_step()` already refuses the mismatch, and that check becomes load-bearing.
+- **Reading the data back generically.** `cmd.Signals` names vary by command
+  (`EI_0.CalcCurrent` on a staircase, the same on `FHLevel`) — needs a channel map rather than the
+  current fixed three.
+
+Real appeal: it would let a user run *their* electrochemistry with spec-echem's spectroscopy,
+instead of only the two techniques the driver knows. It also subsumes the single-step-CA and
+template-swap work, which are both special cases of "point it at a different `.nox`".
+
+Prerequisite: the read-only introspection pass, which is already planned.
