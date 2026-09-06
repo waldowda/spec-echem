@@ -18,187 +18,99 @@ a task list.
 > energized ~6 s before anything is recorded, at a potential nobody chose. That one matters for real
 > samples and should be fixed first.
 
-## ▶ PLAN FOR THE NEXT UW TRIP
+## ▶ PLAN FOR THE NEXT UW TRIP (written 2026-09-06)
 
-**Goal: one complete co-acquisition run that writes valid files on the 10 kΩ dummy, then an old
-sample.** Not a good sample.
+**Goal: the first real sample.** Steps 1–3 of the previous plan are done — the pipeline produced a
+complete run folder on 2026-09-04 and its files match the golden format. What is missing is a run on
+a film.
 
-### Before you go — pre-flight, no instrument needed
+**Ordering principle: do everything the dummy can answer before the sample goes in, and swap the
+cell once.** The read-only work needs no cell at all, so it costs nothing to front-load.
+
+---
+
+### 0 — At the desk, before you leave
 
 ```
 git pull
 python -c "from spec_echem.build_info import build_id; print(build_id())"
 ```
 
-Then fix the thing that most likely caused the 2026-09-03 stall. **`scan_averages = 200` cannot
-work on this detector.** The arithmetic:
+Then check `config/bench.ini`:
+
+- `scan_averages` — must satisfy `integration_ms × averages + ~30 ms < the smallest slot`. At this
+  rig's ~2.6 ms integration and a 100 ms slot, **20** fits with room. `acquire_segment()` warns if
+  not, so this is belt-and-braces.
+- **`trigger` must be `true`.** On 2026-09-04 the run went out with `trigger: false` and spectrum 0
+  free-ran ~6 s ahead of the waveform. The checkbox is now labelled "Wait for hardware trigger"
+  rather than "Gamry", but **a saved settings JSON can still carry `false`** — if you load
+  `20260904_settings_test_001.json`, re-tick it.
+
+### 1 — Read-only pass, no cell, ~10 minutes
 
 ```
-per spectrum  = integration_time_ms x scan_averages   <- WALL CLOCK, not exposure
-CV slot       = cv_step_size / cv_scan_rate           <- DERIVED, not a free setting
-chrono slot   = chrono_delta_time
+python examples\query_autolab_run.py        # ENERGIZE_CELL stays False
 ```
 
-**"Per spectrum" is how long one averaged spectrum takes to collect — it is NOT the integration
-time.** The integration time does not change here: it stays wherever the Linearity Check put it
-(~2.64 ms on this rig, for ~85% ADC fill). Setting *that* to 53 ms would over-expose by ~20× and
-clip every peak flat. `scan_averages` only decides how many of those 2.64 ms readouts get averaged
-into one spectrum, and therefore what the spectrum costs in wall clock.
+Three answers, none of which risk anything:
 
-At this rig's ~2.64 ms integration, 200 averages is **528 ms** per spectrum against a **100 ms**
-slot (10 mV step / 100 mV/s). Set **`scan_averages = 20`** in `config/bench.ini` → 53 ms, which
-fits both slots with margin. *(Set to 20 on the rig box 2026-09-04 — confirm it is still 20 before
-you run, since "Save as defaults" after a Linearity Check rewrites this file.)*
+- **`CommandParameters.IdNames`** (Q2, new) — does this SDK accept string keys? Two independent
+  sources say it should (SDK manual §6.2; helgestein/metrohm_autolab_python on a PGSTAT302N), and it
+  has never been confirmed here. **It also hands over the chrono parameter keys**, which the manual
+  never documents — it gives CV as its only example.
+- **DIO port map** (Q9, new) — how many ports `DioPortsP1[]`/`DioPortsP2[]` hold and what the SDK
+  calls them. `autolab_dio_port = 0` has been an assumption since the first trigger probe.
+- Whether any loaded procedure carries a digital-output command (Q8).
 
-| averages | per spectrum (2.64 ms each) | fits a 100 ms slot? |
-|---|---|---|
-| 200 | 528 ms | no — 5× over |
-| 50 | 132 ms | no |
-| 20 | 53 ms | **yes** |
-| 5 | 13 ms | yes |
+### 2 — Dummy resistor in. Everything that needs a cell but not a sample.
 
-That is a real tradeoff, not free: optical S/N falls as √N, so 200 → 20 costs about 3.2×. If the
-spectra are too noisy, **raise `cv_step_size`** (a coarser CV, a longer slot) rather than putting
-averages back — the CV slot is derived from step ÷ rate, so a 20 mV step at 100 mV/s gives a 200 ms
-slot and room for ~70 averages. Coarser potential resolution, better optical S/N. Your call which
-matters more for the sample.
+**2a. Which pin fires the trigger** — `python examples\probe_dio_pin.py`. Cell-safe (DIO only).
+Walks the eight bits and reports which one lands a scan. Gives `autolab_dio_mask`, and the Pulse
+value for a NOVA counter. Do it before the AvaLight shutter is ever put on TTL.
 
-`acquire_segment()` warns at the start of every segment if it still does not fit, naming both
-numbers — so this cannot silently repeat.
+**2b. Finish Step 3 — a GUI run with the trigger ON.** Everything else in `20260904_test1` was
+clean; this is the last piece. Confirm the metadata records `trigger: true` afterwards.
 
-**This pre-flight is tested at Step 3, not Step 1.** `bench_autolab_fullrun.py` sets its own
-`scan_averages = 1` and its own CV, so it runs clean whatever `bench.ini` says. The GUI is what
-reads `bench.ini`, and the GUI is where the stall happened.
+**2c. Abort once, mid-run.** The SDK side is measured (`autolab-run-api.md` §4.3) but **the driver's
+button-to-`stop()` path has never run on hardware.** Better to discover that on a resistor.
 
-### Step 1 — headless full run, dummy resistor
+**2d. Two measurements for the `Ei` question** (see `echem-spectra-coordination.md` §7):
 
-```
-python examples\bench_autolab_fullrun.py
-```
+- **Cost of one `Ei` scalar read.** Ten lines: read `Ei.Current` in a tight loop and time it. The
+  ~10 ms figure is *inferred* from an in-run/free-run subtraction and has never been isolated. It
+  sets the sampling floor for a Python-driven CA.
+- **Is `Ei.Current` noisier than the `FHLevel` recorder?** Same potential, same duration, compare
+  the scatter. The recorder may average where the scalar is instantaneous.
 
-Same pipeline as the GUI (`build_segments` → `run_one_segment` per segment) with none of the GUI's
-variables, so iterate here. **It is a file-shape test, not a cadence test:** the script forces
-`scan_averages = 1` (~2.6 ms per spectrum) and a short CV — 5 mV at 500 mV/s, a 10 ms slot — plus
-0.25 s chrono slots, so no cadence warning is expected regardless of `bench.ini`.
+Those two decide whether the CA redesign is worth its unsolved parts — current ranging especially,
+which is a measurement-command property and would become Python's job.
 
-In the log, want to see:
+### 3 — Sample in. Do not swap back.
 
-- **`neutralised N extra CA hold step(s)`** — proves the 3-step stock CA template is tamed; without
-  it a real sample gets driven to 0 V for ~10 s after every hold
-- **no open-cell warning** — peak current should be ~100 µA at 1 V through the 10 kΩ
-- `Run finished: done.`
+An **old** sample. Watch the first doping cycle rather than starting it and walking away.
 
-### Step 2 — check the files it wrote
+Stop if you see: the open-cell warning, an overload warning, a cadence warning, or spectra that look
+nothing like the dummy run's shape.
 
-Against [`data-format.md`](data-format.md): 8 columns in the spectra files, and the echem `.txt`
-(`CV.txt`, `steps(N).txt`, …). Compare shapes against `tests/golden/`. **This has never been done
-for the Autolab path** — it is the actual acceptance test, more than any single instrument reading.
+**Known limitation, accepted for this run:** the cell is energized ~5–6 s before the chrono recorder
+starts, at the template's conditioning potential. On a film that is unrecorded polarization before
+every segment. It is the reason for the `Ei` work — but it does not block a first sample, and
+**for CV it does not matter at all**, since cycle 1 is discarded by practice anyway.
 
-### Step 3 — the same run through the GUI
+### 4 — Only if there is time
 
-`python -m gui`, Autolab mode, same experiment. Files should match Step 1's. This is where
-2026-09-03 failed; the `NameError` is fixed and now smoke-tested, so it should reach acquisition.
+**A single-step CA `.nox`** (old Step 3.5 — still worth doing, details below). Build it by deleting
+the extra `FHLevel` steps from the stock `Chrono amperometry.nox`, not from scratch and not from
+"fast". Confirmation: `neutralised N extra CA hold step(s)` disappears from the log.
 
-This step, unlike Step 1, runs on `bench.ini`'s real `scan_averages`. **Check the log for the
-cadence warning before you blame anything else** — if it is there, the pre-flight number is still
-wrong.
+### Explicitly NOT on this trip
 
-Then, at the end of a *dummy* run, **press Abort once** and start the next segment. The SDK side of
-this is measured (`autolab-run-api.md` §4.3: `Abort()` settles in ~1.3 s, `.Signals` comes back
-completely empty, the next run is full-length with no reconnect) — what has never run on hardware
-is the driver's own path from the GUI button through `stop()`. Ten seconds to check, and Abort is a
-button students will press.
-
-### Step 3.5 — a clean single-step CA `.nox` (worth doing, AFTER Steps 1–3)
-
-The stock `Chrono amperometry.nox` is a **three**-hold template and spec-echem wants one.
-`_neutralise_extra_ca_steps()` zeroes the extras and was verified on hardware (14 s vs 26 s) — but
-it is a guard over a template that is wrong for the purpose. If it ever silently fails on a real
-sample, the cell is driven to steps 2–3's default 0 V for ~10 s after **every** hold: partial
-de-doping between segments, arriving as data rather than as an error. Deleting the extra steps
-removes the failure mode instead of guarding it.
-
-**Order matters.** Do it after a complete run on the stock template, not before — neutralisation is
-proven, so that gives you a known-good baseline to compare against. Then swap the clean template in
-and re-run Step 1. If NOVA fights you, you still have a working pipeline.
-
-**Two candidate bases, both by deleting rather than building from scratch.** Not from
-`Chrono amperometry fast.nox` — that one uses a different `Levels` / `LevelShortSetpoint` model
-(looked at on 2026-08-31 and rejected), and starting there breaks the parameter map silently.
-Whichever base you take, the driver addresses `FHSetSetpointPotential` for the hold potential and
-`FHLevel` with **duration at index 1, interval at index 0**. Keep those two commands intact and the
-map still holds.
-
-- **The stock `Chrono amperometry.nox`** — delete holds 2 and 3. Known parameter map, nothing else
-  in the procedure, lowest risk.
-- **`PC_SpectralChronoAmperometry_0.36-0.8V.nox`** (in the NOVA procedures folder, see below) —
-  Dean's route, and the more interesting one: it is a *working* spectro-EC procedure, so it already
-  carries the P1.A trigger pulse. But it also drives the Avantes itself
-  (`ExecCommandAvantesStart` / `SpectroTriggered` / `HOptionGetSpectrum`) and NOVA and spec-echem
-  **cannot both own the spectrometer over USB** — so every Avantes command has to come out, plus
-  the CV steps (`FHCyclicVoltammetry` strings are present) and the extra holds. Re-print
-  `Commands.IdNames` and re-verify the two parameter indices afterwards: this base has not been
-  through the SDK, and a silently different index runs the wrong potential.
-
-Either way, do the 2-minute read-only SDK check below before committing to a base.
-
-Confirm it worked two ways:
-
-```python
-proc = inst.LoadProcedure(r"...\your_single_step_CA.nox")
-print(list(proc.Commands.IdNames))     # exactly one FHSetSetpointPotential, one FHLevel
-```
-
-and in the run log, the line **`neutralised N extra CA hold step(s)` disappears** — there are no
-extras left to find. Then point `autolab_nox_ca` at it in `config/bench.ini`.
-
-### Step 3.6 — swap the CV template (optional, same rule as 3.5)
-
-`autolab_nox_cv` still points at the stock `Cyclic voltammetry.nox`. Sung-Joo's
-`spectroelectrochem_CV.nox` is the protocol-equivalent base — fixed current range, no
-`FHPreCurrentRangingCV` — which would also remove the ~50 ms of ranging wobble that sets the
-current trigger skew. **Located 2026-09-04** in the NOVA procedures folder (below), alongside a
-`spectroelectrochem_doping.nox`. A byte-level string scan shows no `FHPreCurrentRangingCV` (as
-expected) and **no DIO strings either** — so this base does not solve the trigger, it only removes
-the ranging gap. It has never been run through the SDK, and the parameter map is only known for the
-stock template, so:
-
-- do it **after** Steps 1–3 are clean, never before;
-- `print(list(proc.Commands.IdNames))` first, and check the CV command and its parameter indices
-  still match `CV_IDX_*` in `potentiostat.py`;
-- re-run Step 1 against it and compare the files to the known-good baseline.
-
-Skip it without regret if time is short — the stock template works.
-
-### Step 4 — an old sample
-
-Only once Steps 1–3 are clean. **Watch the first doping cycle** rather than starting it and walking
-away. Stop if you see: the open-cell warning, an overload warning, a cadence warning, or spectra
-that look nothing like the dummy run's shape.
-
-### Deliberately NOT on this trip
-
-- **`FHDIO` / trigger-in-procedure.** The command could not be found in NOVA, the `PC_Spectral*`
-  procedures could not be found on disk or in the database, and the Python pulse already measures
-  **−51 ms**, which is fine for 100 ms spectra. It refuses cleanly with an explanatory message if
-  misconfigured, so nothing is at risk by leaving it. This is *adding* a command nobody can locate
-  for ~50 ms; the CA cleanup above is *deleting* two steps you already have, and is worth the time.
-  Different jobs — don't let deferring one defer the other. Background in the appendix.
-- **Re-running the USB-pull test.** It wedged the SDK session last time and needed a power cycle
-  (`autolab-run-api.md` §4.7). The limitation is recorded; re-testing costs bench time and a reboot
-  to learn nothing new.
-
-### If it stalls again
-
-1. Is there a **cadence warning** in the log? → the pre-flight arithmetic is still wrong.
-2. Did **spectrum 0** ever land? → a trigger problem, not a speed problem. `query_avantes_trigger.py`
-   still passing isolates the cable.
-3. Neither? → capture `{folder}/{folder}.log` in full and push it; the run log records per-segment
-   cadence and every warning.
-
-Remember files are only written at **segment end** — a slow segment looks exactly like a hang.
-
----
+- **`FHDIO` / `autolab_trigger_in_procedure`** — closed. No procedure on that machine has a
+  digital-output command; NOVA's P1.A pulse lives inside `ExecCommandSpectroTriggered`, which drives
+  NOVA's own spectrometer. The mechanism, if it is ever wanted, is a **Counter → Pulse action**
+  (NOVA §9.4.2) — a property of a measurement command, not a command.
+- **Building the `Ei`-driven CA.** Measure first (2d), then decide.
+- **The CV path.** It needs nothing. Keep the template, the preamble and the −51 ms pulse.
 
 ## Starting a Claude Code session on the rig
 
