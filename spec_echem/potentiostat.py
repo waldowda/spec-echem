@@ -279,6 +279,16 @@ CA_IDX_POTENTIAL = 0     # on FHSetSetpointPotential
 CA_IDX_DURATION = 1      # on FHLevel  (default 5.0 s)
 CA_IDX_INTERVAL = 0      # on FHLevel  (default 0.01 s); FHLevel[2] is a bool, left alone
 
+# Candidate parameter KEYS, from helgestein/metrohm_autolab_python's working example
+# on a PGSTAT302N. UNVERIFIED on this rig, and adopted only as name hints in front of
+# the measured indices: that example drives CVLinearScanAdc164 (a true linear sweep)
+# rather than the staircase, and key spellings differ per command — "StartValue"
+# there vs "Start value" in SDK manual §6.2. Keys cannot be guessed across commands,
+# so `.IdNames` per command is the only reliable source and the index still backs
+# every one of these.
+CA_KEY_POTENTIAL = "Setpoint value"     # on FHSetSetpointPotential
+WAIT_KEY_DURATION = "Time"              # on FHWait
+
 # Pulse the trigger this long, and give up on a segment after this.
 AUTOLAB_PULSE_WIDTH_S = 0.002
 AUTOLAB_MAX_WAIT_MARGIN_S = 30.0
@@ -687,7 +697,8 @@ class AutolabPotentiostat(Potentiostat):
         # FHLevel recorder (self._cmd). Potentials are the same settings as the Gamry
         # path — a doping cycle is start + run_number * step.
         setpoint = self._proc.Commands[CA_SETPOINT_COMMAND]
-        self._set(setpoint, CA_IDX_POTENTIAL, self._chrono_potential(segment))
+        self._set(setpoint, CA_IDX_POTENTIAL, self._chrono_potential(segment),
+                  key=CA_KEY_POTENTIAL)
         hold = (s["prededoping_time"] if segment.data_type == DATA_TYPE_PREDEDOPING
                 else s["chrono_time"])
         self._set(self._cmd, CA_IDX_DURATION, hold)
@@ -826,7 +837,8 @@ class AutolabPotentiostat(Potentiostat):
             return float(override)
         try:
             wait = self._proc.Commands[AUTOLAB_WAIT_COMMAND]
-            base = float(list(wait.CommandParameters)[0].ValueAsObject)
+            base = float(self._resolve_param(
+                wait, WAIT_KEY_DURATION, 0).ValueAsObject)
         except Exception:  # noqa: BLE001
             get_run_logger().warning(
                 "Autolab: no wait command in this procedure — pulsing the trigger "
