@@ -199,6 +199,24 @@ spectrum inherits a correct offset from the Avantes device clock.
 builds an `EchemData` from them — so making that the *recorded* trace rather than a live-plot
 convenience is a small change.
 
+### Why CV tolerates all of this and CA does not (Dean, 2026-09-06)
+
+**CV is run as ~3 cycles and the steady-state cycle — the second or third — is what gets analysed.**
+Cycle 1 is discarded by practice. So the conditioning hold, the ranging, and whatever the film does
+during the first sweep are all in the part that was going to be thrown away regardless. The preamble
+is free.
+
+The jitter is cheap for the same structural reason: **in a CV, a spectrum can be located by its
+potential.** The echem trace says where the sweep was, so a timing offset is recoverable from the
+data after the fact.
+
+**Neither is true of a chronoamperometric step.** The potential is constant, so nothing in the trace
+re-anchors a spectrum, and the transient's shape *is* the measurement — the part that a late start
+destroys rather than merely shifts. Same jitter, completely different cost.
+
+That is the whole argument for splitting the two, and it is a scientific argument rather than a
+technical one.
+
 ### CV: keep the procedure, but strip its preamble
 
 A staircase hand-rolled in Python is not worth attempting, and CV timing is the looser case (±150 ms
