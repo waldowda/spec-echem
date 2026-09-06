@@ -295,6 +295,17 @@ def inspect_procedure(inst):
                 params = _safe(lambda c=cmd: c.CommandParameters, None)
                 if params is None or isinstance(params, str):
                     continue
+                # The parameter KEYS, if the list exposes them. Two independent
+                # sources say it should: SDK manual §6.2, and
+                # helgestein/metrohm_autolab_python, which writes
+                # `CommandParameters[param].Value` and reads
+                # `CommandParameters.IdNames` on a PGSTAT302N. Never confirmed on
+                # THIS rig, and it is what would retire the positional index map —
+                # and hand over the CA keys, which the manual never documents.
+                for label in ("IdNames", "Names"):
+                    got = _safe(lambda l=label: list(getattr(params, l)), None)
+                    if got:
+                        say(f"       CommandParameters.{label} = {got}")
                 for prm in params:
                     _, pn = _first_attr(prm, ("Name", "ParameterName", "IdName",
                                               "Id", "CommandParameterName"))
