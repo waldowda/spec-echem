@@ -162,6 +162,72 @@ Other writable Doubles: `FHSetSetpointPotential` param [0] (**preconditioning po
 
 ---
 
+## 1b. Parameters have documented NAMES — SDK manual §6.2 (read 2026-09-06)
+
+The Autolab SDK user manual (`Autolab SDK Manual/` in the parent folder — the copy shipped with
+**2.1**, whatever its text says about 1.11) documents parameter **keys**, so the index map is not the
+only address available.
+
+**§6.2 — Input command parameter names, Cyclic voltammetry:**
+
+| Parameter name | Key |
+|---|---|
+| Start value (V) | `Start value` |
+| Upper vertex potential (V) | `Upper vertex` |
+| Lower vertex potential (V) | `Lower vertex` |
+| Step potential (V) | `Step` |
+| Interval time (s) | `Interval time` |
+| Number of stop crossings | `NrOfStopCrossings` |
+| Stop potential (V) | `Stop value` |
+| Scan rate (V/s) | `Scanrate` |
+
+⚠️ **The manual's list order is NOT the index order.** It shows eight parameters with
+`Interval time` fifth; this instrument reports seven, and index 4 is demonstrably the crossing count
+(§4.1 — setting it to 4 doubled the points and drove `ScanNumber` to 2). Adopting the ordering would
+have written the scan rate into the wrong slot. **Adopt the keys, not the ordering.**
+
+**§6.3 — Output parameter keys** confirm every channel the driver already reads:
+`EI_0.CalcPotential`, `EI_0.CalcCurrent`, `CalcTime`, `SetpointApplied`. Independent agreement with
+the bench.
+
+**§6.1 — Command keys** confirms `FHLevel` = "Record signals (> 1 ms)", which is why the chrono
+template uses it rather than something named for chronoamperometry. Also lists `FHLinearSweep`,
+`FHCyclicVoltammetryGalvanostatic`, `RecordLevelsContainer` (Chrono methods), and others.
+
+**§6.4 — Types**: `CommandParameterBool`, `Double`, `Int`, `OnOff`, `DoubleList`. (The manual's
+parenthetical descriptions are scrambled — `OnOff` "returns double array" and `DoubleList` "returns
+enum" are plainly swapped. Trust the type names.)
+
+### What the driver does with this (`4272a53`)
+
+`CV_PARAMS` pairs each documented key with its measured index, and `_resolve_param()` tries the
+**key first**, falling back to the index if this SDK will not accept a string. It logs once per run
+which route won.
+
+**Whether SDK 2.1 accepts a string key is NOT confirmed on the instrument** — so the fallback is
+load-bearing, not decorative. One read-only line settles it:
+
+```python
+print(list(proc.Commands["FHCyclicVoltammetry2"].CommandParameters.Names))
+```
+
+CA keys are not in the manual (only CV is given as the example), so chrono stays index-addressed
+until that printout reveals them.
+
+### Also worth having — §6.5 current-follower bandwidth (PGSTAT302N)
+
+| range | bandwidth | | range | bandwidth |
+|---|---|---|---|---|
+| 1 A – 1 mA | 5 MHz | | 10 µA | 100 kHz |
+| 100 µA | 1 MHz | | 1 µA | 10 kHz |
+| | | | **100 nA** | **1 kHz** |
+
+At 100–200 ms sampling this is never a constraint — even the lowest range is ~100× faster than the
+optics. Recorded so nobody has to wonder later. The same section repeats the ground-loop warning for
+external connections on the DIO.
+
+---
+
 ## 2. Dummy-cell validation — PASSED (10 kΩ 1%, 2026-08-31)
 
 Wiring (2-electrode): **W + WS (red) on one leg**, **RE (blue) + CE (black) on the other leg**.
