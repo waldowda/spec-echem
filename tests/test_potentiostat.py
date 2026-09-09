@@ -461,7 +461,7 @@ def test_live_data_accumulates_the_scalar_samples(autolab):
     p.prepare(_cv_segment())
     p.fire()
     assert p.live_data() is None                  # nothing sampled yet
-    inst.Ei.Potential, inst.Ei.Current = 0.25, 1e-5
+    inst.Ei.true_potential, inst.Ei.true_current = 0.25, 1e-5
     p.pump()
     p.pump()
 
@@ -914,3 +914,267 @@ def test_the_edge_is_anchored_on_cell_on_not_on_pulse_entry(autolab):
     # deadline at _pulse_trigger entry would give.
     assert p._t_measure_returned - p._t_cell_on == pytest.approx(0.20, abs=0.05)
     assert p._t_edge - p._t_cell_on == pytest.approx(0.30, abs=0.06)
+
+
+# --- FHLevel UseFastOptions --------------------------------------------------
+
+def test_fast_options_is_left_alone_by_default(autolab):
+    """None means the .nox keeps its own value — this is an experiment, not a
+    default the driver imposes on every rig."""
+    p, inst = autolab()
+    p.prepare(_doping_segment())
+    assert list(p._cmd.CommandParameters)[potentiostat.CA_IDX_FAST].ValueAsObject is False
+
+
+def test_fast_options_can_be_turned_on(autolab, caplog):
+    p, inst = autolab(settings=_autolab_settings(autolab_ca_fast_options=True))
+    with caplog.at_level(logging.INFO):
+        p.prepare(_doping_segment())
+    assert list(p._cmd.CommandParameters)[potentiostat.CA_IDX_FAST].ValueAsObject is True
+    assert "UseFastOptions" in caplog.text
+
+
+def test_a_refused_fast_option_warns_but_does_not_kill_the_run(autolab, caplog):
+    """An optimisation the SDK rejects must not cost a sample. Contrast the
+    potentials, where a silently ignored write DOES abort."""
+    p, inst = autolab(settings=_autolab_settings(autolab_ca_fast_options=True))
+    p.prepare(_doping_segment())
+
+    def refuse(*a, **k):
+        raise RuntimeError("fake: this build has no fast options")
+    monkey = p._set
+    p._set = lambda cmd, idx, val, key=None: (
+        refuse() if key == potentiostat.CA_KEY_FAST else monkey(cmd, idx, val, key=key))
+
+    with caplog.at_level(logging.WARNING):
+        p._apply_fast_options()
+    assert "could not set FHLevel UseFastOptions" in caplog.text
+
+
+def test_it_is_a_chrono_parameter_only(autolab):
+    """FHLevel does not exist in the CV template; asking for fast options on a CV
+    segment must not touch the staircase."""
+    p, inst = autolab(settings=_autolab_settings(autolab_ca_fast_options=True))
+    p.prepare(_cv_segment())
+    keys = list(p._cmd.CommandParameters.IdNames)
+    assert potentiostat.CA_KEY_FAST not in keys      # the CV command, untouched
+
+
+# ===========================================================================
+# Ei MODE — Python drives the chrono hold, no procedure at all.
+#
+# Why it exists: the .nox spends ~0.93 s walking FHGetSetValues ->
+# FHSetSetpointPotential -> FHSwitchCell before FHLevel records anything
+# (MEASURED 20260909_test6/7), UseFastOptions moved it by nothing (test8), and
+# Dean's requirement is cell-on to data inside one delta_time. There is no
+# parameter that gets there; removing the procedure is the only route.
+# ===========================================================================
+
+@pytest.fixture
+def ei_autolab(autolab, monkeypatch):
+    """Ei mode with the SDK's enum setters stubbed — there is no EcoChemie assembly
+    to import off the rig, which is the whole reason _set_ei_mode exists."""
+    def make(**over):
+        monkeypatch.setattr(potentiostat, "_set_ei_mode",
+                            lambda ei, potentiostatic=True: setattr(
+                                ei, "Mode", "Potentiostatic"))
+        monkeypatch.setattr(potentiostat, "_set_current_range",
+                            lambda ei, name: setattr(ei, "CurrentRange", name or None))
+        s = _autolab_settings(autolab_ca_mode="ei", **over)
+        return autolab(settings=s)
+    return make
+
+
+def test_a_chrono_segment_loads_no_procedure_at_all(ei_autolab):
+    """The point of the mode. If a .nox is loaded, its startup is still being paid."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    assert p._ei_mode is True
+    assert p._proc is None
+    assert inst.loaded == []                  # LoadProcedure never called
+
+
+def test_cv_still_uses_the_procedure_in_ei_mode(ei_autolab):
+    """The staircase is a real waveform worth having the instrument generate, and the
+    CV path already meets spec. Ei mode must not quietly take it over."""
+    p, inst = ei_autolab()
+    p.prepare(_cv_segment())
+    assert p._ei_mode is False
+    assert p._proc is not None
+    assert inst.loaded == ["cv.nox"]
+
+
+def test_the_potential_is_applied_before_the_cell_closes(ei_autolab):
+    """Configuring while the cell is OPEN is what moves the ~0.7 s off the clock —
+    and it means the cell closes already at the segment's potential."""
+    p, inst = ei_autolab()
+    seg = _doping_segment()
+    p.prepare(seg)
+
+    assert inst.Ei.Cell is False                       # still open...
+    assert inst.Ei.Setpoint == pytest.approx(p._chrono_potential(seg))   # ...already set
+    assert inst.Ei.Mode == "Potentiostatic"
+
+
+def test_the_edge_is_not_delayed_in_ei_mode(ei_autolab):
+    """There is no procedure startup to predict, so there is nothing to wait for.
+    The .nox path had to guess ~0.93 s and could never beat the instrument's own
+    +-35 ms scatter; here the same thread closes the cell and raises the edge."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    assert p._pulse_delay == 0.0
+
+    p.fire()
+    assert inst.Ei.Cell is True
+    assert inst.port.rising_edges == 1
+    assert (p._t_edge - p._t_cell_on) < 0.050          # well inside one delta_time
+
+
+def test_the_data_comes_from_what_python_sampled(ei_autolab):
+    """pump() already read Ei every spectrum; in this mode those samples ARE the
+    trace rather than a discarded sideline."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+    for i in range(5):
+        inst.Ei.true_potential = 0.100
+        inst.Ei.true_current = 1.0e-05 + i * 1e-9
+        p.pump()
+    p.finish()
+
+    d = p.last_data()
+    assert d is not None
+    assert len(d.current) == 5
+    assert d.time[0] == 0.0                            # rebased, as .Signals is
+    assert list(d.current) == pytest.approx(
+        [1.0e-05 + i * 1e-9 for i in range(5)])
+    assert inst.Ei.Cell is False                       # and the cell is off
+
+
+def test_an_aborted_ei_segment_keeps_no_data(ei_autolab):
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+    inst.Ei.true_potential, inst.Ei.true_current = 0.1, 1e-5
+    p.pump()
+    p.finish(aborted=True)
+    assert p.last_data() is None
+    assert inst.Ei.Cell is False
+
+
+def test_a_segment_that_never_sampled_says_so(ei_autolab, caplog):
+    """No samples means the acquisition loop never ran — silence would write an
+    empty echem file beside a full set of spectra."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+    with caplog.at_level(logging.WARNING):
+        p.finish()
+    assert p.last_data() is None
+    assert "no live samples" in caplog.text
+
+
+def test_an_unknown_ca_mode_is_refused_at_construction(autolab):
+    with pytest.raises(ValueError, match="autolab_ca_mode"):
+        autolab(settings=_autolab_settings(autolab_ca_mode="magic"))
+
+
+def test_dac_rounding_on_the_setpoint_is_accepted(ei_autolab):
+    """The rig applied 0.09994506835937 for a requested 0.1 V — 55 uV of DAC step.
+    Ei.Setpoint is hardware, not a software value like the procedure's parameters,
+    so an exact comparison rejects a perfectly good write."""
+    p, inst = ei_autolab()
+
+    class SnappingEi:
+        """Quantises like the real DAC."""
+        def __init__(self, real): self._r = real
+        def __getattr__(self, k): return getattr(self._r, k)
+        def __setattr__(self, k, v):
+            if k == "_r": return object.__setattr__(self, k, v)
+            if k == "Setpoint": v = round(v * 65536) / 65536 - 5.5e-5
+            setattr(self._r, k, v)
+    inst.Ei = SnappingEi(inst.Ei)
+
+    seg = _doping_segment()
+    p.prepare(seg)                                  # must not raise
+    want = p._chrono_potential(seg)
+    assert abs(float(inst.Ei.Setpoint) - want) < potentiostat.AUTOLAB_SETPOINT_TOL_V
+    assert float(inst.Ei.Setpoint) != want          # genuinely snapped, not exact
+
+
+def test_a_setpoint_that_is_actually_ignored_still_fails(ei_autolab):
+    """The check has to keep catching the failure worth catching: a write the SDK
+    drops, which would run the segment at the wrong potential on a real film."""
+    p, inst = ei_autolab()
+
+    class DeafEi:
+        def __init__(self, real): self._r = real
+        def __getattr__(self, k): return getattr(self._r, k)
+        def __setattr__(self, k, v):
+            if k == "_r": return object.__setattr__(self, k, v)
+            if k == "Setpoint": v = 0.0             # silently dropped
+            setattr(self._r, k, v)
+    inst.Ei = DeafEi(inst.Ei)
+
+    with pytest.raises(RuntimeError, match="not DAC rounding"):
+        p.prepare(_doping_segment())
+
+
+# --- the latch ---------------------------------------------------------------
+# Ei.Current is not live. It holds whatever Ei.Sampler.Sample() last loaded, PROVEN
+# on the rig 2026-09-09: held at 0.2 V, a bare read returned the 0.1 V value exactly.
+# 20260909_test11 recorded 300 identical rows per segment because nothing sampled.
+
+def test_pump_samples_before_it_reads(ei_autolab):
+    """Without this the driver reads a latch loaded at connect time, forever."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+
+    inst.Ei.true_potential, inst.Ei.true_current = 0.100, 1.0e-05
+    p.pump()
+    assert inst.Ei.Sampler.samples == 1
+    assert p._live_samples[-1][2] == pytest.approx(1.0e-05)
+
+
+def test_the_trace_follows_a_changing_current(ei_autolab):
+    """The failure test11 shipped: every row identical. A driver that never samples
+    still produces a plausible-looking file, so the test has to watch the values
+    MOVE, not merely exist."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+    for i in range(5):
+        inst.Ei.true_potential = 0.100
+        inst.Ei.true_current = 1.0e-05 + i * 2e-7      # a decaying-transient stand-in
+        p.pump()
+    p.finish()
+
+    got = list(p.last_data().current)
+    assert got == pytest.approx([1.0e-05 + i * 2e-7 for i in range(5)])
+    assert len(set(got)) == 5                          # genuinely five distinct values
+
+
+def test_overload_is_checked_against_a_fresh_sample(ei_autolab):
+    """The flags ride on the same latch, so this check has never been able to fire in
+    EITHER mode — a segment could overload and be written as ordinary."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+    inst.Ei.CurrentOverload = True
+    p.pump()
+    assert p._overloaded is True
+
+
+def test_a_sampler_that_refuses_does_not_sink_the_segment(ei_autolab):
+    """A stale reading is bad; a lost segment is worse. Best-effort by design."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+
+    def boom():
+        raise RuntimeError("fake: sampler busy")
+    inst.Ei.Sampler.Sample = boom
+
+    p.pump()                                            # must not raise
+    assert len(p._live_samples) == 1

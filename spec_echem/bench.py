@@ -54,6 +54,14 @@ def _bool(raw):
     raise ValueError(f"expected true/false, got {raw!r}")
 
 
+def _opt_bool(raw):
+    """A bool, or None for an empty value (= leave whatever the .nox carries)."""
+    raw = raw.strip()
+    if not raw or raw.lower() in ("none", "default", "template"):
+        return None
+    return _bool(raw)
+
+
 def _str(raw):
     return raw.strip()
 
@@ -94,6 +102,9 @@ BENCH_SCHEMA = {
         # would reject that, warn, and silently fall back to all eight pins.
         "autolab_dio_mask": parse_dio_mask,  # which pins the pulse drives; 0xFF = all
         "autolab_wait_s": _opt_float,     # write FHWait; blank = leave the .nox alone
+        "autolab_ca_fast_options": _opt_bool,  # FHLevel UseFastOptions; blank = leave
+        "autolab_ca_mode": _str,          # "procedure" (default) or "ei"
+        "autolab_current_range": _str,    # Ei mode only, e.g. CR10_1mA; blank = leave
         "autolab_pulse_delay_s": _opt_float,  # None = FHWait + template setup lag
         "autolab_setup_lag_cv_s": _opt_float,
         "autolab_setup_lag_ca_s": _opt_float,

@@ -93,6 +93,18 @@ DEFAULT_SETTINGS = {
     # potential for those 5 s with nothing recording, and the steepest part of the
     # transient is lost. Set this to shrink or remove that window.
     "autolab_wait_s": None,
+    # FHLevel's "Use fast options" bool. None = leave the .nox alone (it ships
+    # False). True is an experiment: see AutolabPotentiostat._apply_fast_options.
+    "autolab_ca_fast_options": None,
+    # Who runs a chrono hold. "procedure" loads the .nox for every segment (shipped
+    # behaviour); "ei" drives doping/dedoping/pre-dedoping from Python via Ei and
+    # leaves CV on the procedure. Ei exists because the .nox spends ~0.93 s reaching
+    # its recorder (measured 2026-09-09) and nothing configurable shortens it.
+    "autolab_ca_mode": "procedure",
+    # Fixed current range for Ei mode, e.g. "CR10_1mA". Blank = leave whatever the
+    # instrument has. The procedure sets this itself via FHGetSetValues; with no
+    # procedure, it becomes Python's job.
+    "autolab_current_range": "",
     "autolab_pulse_delay_s": None,  # None = FHWait + the template's setup lag
     "autolab_setup_lag_cv_s": None,  # None = AUTOLAB_SETUP_LAG_CV_S (measured)
     "autolab_setup_lag_ca_s": None,  # None = AUTOLAB_SETUP_LAG_CA_S (measured)
