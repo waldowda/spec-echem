@@ -54,10 +54,19 @@ python examples\query_autolab_run.py        # ENERGIZE_CELL stays False
 
 Three answers, none of which risk anything:
 
-- **`CommandParameters.IdNames`** (Q2, new) — does this SDK accept string keys? Two independent
-  sources say it should (SDK manual §6.2; helgestein/metrohm_autolab_python on a PGSTAT302N), and it
-  has never been confirmed here. **It also hands over the chrono parameter keys**, which the manual
-  never documents — it gives CV as its only example.
+- **`CommandParameters.IdNames`** (Q2, new) — what each parameter position is actually called.
+  Two independent sources say the member exists (SDK manual §6.2;
+  helgestein/metrohm_autolab_python on a PGSTAT302N), and it has never been confirmed here.
+  **It also hands over the chrono parameter keys**, which the manual never documents — it gives CV
+  as its only example.
+
+  Note the driver no longer needs this SDK to *accept* string keys, as of 2026-09-09. It writes by
+  the bench-measured index and uses `IdNames` to CHECK that the position still means what it meant
+  (`_resolve_param`). So the pass has three possible outcomes, all useful: the names agree with the
+  measured indices (the log says `confirmed by IdNames`, and nothing needs doing); they disagree
+  (the log says `MISMATCH`, the write still goes to the measured index, and the constants in
+  `potentiostat.py` want re-measuring before the sample goes in); or the member is absent (the log
+  says `no IdNames on this command`, which is simply the situation before this trip).
 - **DIO port map** (Q9, new) — how many ports `DioPortsP1[]`/`DioPortsP2[]` hold and what the SDK
   calls them. `autolab_dio_port = 0` has been an assumption since the first trigger probe.
 - Whether any loaded procedure carries a digital-output command (Q8).

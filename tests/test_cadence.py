@@ -233,3 +233,43 @@ def test_deadlines_are_absolute_not_cumulative():
     # The 100th deadline depends only on the anchor, never on how it got there.
     assert next_deadline(1000.0, 99, 0.1, 0.04) == pytest.approx(1010.0 - 0.04)
     assert next_deadline(1000.0, 0, 0.1, 0.04) == pytest.approx(1000.1 - 0.04)
+
+
+# --- the edge -> spectrum-0 mark ---------------------------------------------
+# acquire_segment is the only place that knows when spectrum 0 LANDED in Python's
+# clock. The Avantes stamps spectra on its own device clock, which has no known
+# offset to Python's, so without this hand-off nothing in the system can say whether
+# the detector waited for the trigger edge — only that the numbers looked plausible.
+
+def test_spectrum_zero_hands_back_a_perf_counter_mark(monkeypatch):
+    import time as _time
+    from spec_echem import acquisition as acq
+
+    clock = _Clock()
+    monkeypatch.setattr(acq.time, "time_ns", clock.time_ns)
+    monkeypatch.setattr(acq.time, "sleep", clock.sleep)
+    spec = _ClockSpectrometer(clock, cost=0.040, trigger_wait=5.95)
+
+    marks = []
+    before = _time.perf_counter()
+    acq.acquire_segment(spec, 6, delta_time=0.100, trigger=True,
+                        on_armed=lambda: None,
+                        on_first_spectrum=marks.append)
+    after = _time.perf_counter()
+
+    assert len(marks) == 1                      # spectrum 0 only, not every spectrum
+    assert before <= marks[0] <= after          # a real perf_counter reading
+
+
+def test_no_callback_is_fine(monkeypatch):
+    """External mode passes nothing; acquisition must not care."""
+    from spec_echem import acquisition as acq
+
+    clock = _Clock()
+    monkeypatch.setattr(acq.time, "time_ns", clock.time_ns)
+    monkeypatch.setattr(acq.time, "sleep", clock.sleep)
+    spec = _ClockSpectrometer(clock, cost=0.040, trigger_wait=5.95)
+
+    spectra, ts = acq.acquire_segment(spec, 3, delta_time=0.100, trigger=True,
+                                      on_armed=lambda: None)
+    assert len(ts) == 3

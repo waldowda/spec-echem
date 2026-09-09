@@ -1,0 +1,276 @@
+
+========================================================================
+AUTOLAB — CAN PYTHON RUN ELECTROCHEMISTRY?
+========================================================================
+when          : 2026-09-09 11:54:22
+python        : 3.13.15 (64-bit)
+ENERGIZE_CELL : False
+NOX           : C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Chrono amperometry.nox
+Connected OK — cell NOT switched on.
+
+--- Instrument ----------------------------------------------------------
+  .NET type: EcoChemie.Autolab.Sdk.Instrument
+  properties (10):
+    [r ] Adc: ADC
+    [rw] AutolabConnection: AutolabConnection
+    [r ] BAModule: BAModule
+    [r ] Dac: DAC
+    [r ] Dio: DIO
+    [rw] Ei: EI
+    [r ] Fra: FraManualControlCommand
+    [r ] GetSignals: String[]
+    [rw] HardwareSetupFile: String
+    [r ] Mux: MUX
+  methods (13): Connect, CreateSampler, CreateVirtualInstrument, Disconnect, Dispose, Equals, GetFraModule, GetHashCode, GetSignal, GetType, LoadProcedure, Register, ToString
+
+========================================================================
+Q1/Q2 — the procedure route (LoadProcedure / parameters)
+========================================================================
+LoadProcedure OK: Chrono amperometry.nox
+  LoadProcedure() returned: <EcoChemie.Autolab.Sdk.IProcedure object at 0x000002663C634140> (IProcedure)
+  inst.Procedure -> <error: 'Instrument' object has no attribute 'Procedure'>
+  inst.get_Procedure() -> <error: 'Instrument' object has no attribute 'get_Procedure'>
+  procedure handle resolved via: LoadProcedure() return value
+
+--- procedure handle ----------------------------------------------------
+  .NET type: EcoChemie.Autolab.Sdk.Procedure
+  properties (5):
+    [r ] Commands: ProcedureCommandList
+    [rw] FileName: String
+    [r ] FraCommands: FraCommandList
+    [r ] IsMeasuring: Boolean
+    [r ] ProcedureDescription: ProcedureDescription
+  methods (15): Abort, Clone, Continue, Edit, Equals, GetHashCode, GetType, Hold, Load, Measure, MeasureAsync, Save, SaveAs, Skip, ToString
+
+Q2 — parameter access. Looking for a command tree we can write into:
+  Procedure.Commands exists -> <class 'EcoChemie.Autolab.Sdk.ProcedureCommandList'>
+
+--- Procedure.Commands --------------------------------------------------
+  .NET type: EcoChemie.Autolab.Sdk.ProcedureCommandList
+  properties (3):
+    [r ] IdNames: String[]
+    [r ] Item: Command
+    [r ] Names: String[]
+  methods (7): Contains, ContainsId, Equals, GetEnumerator, GetHashCode, GetType, ToString
+  Commands.Names   = ['Chrono amperometry', 'Autolab control', 'Set potential', 'Set cell', 'Wait time (s)', 'Record signals (>1 ms)', 'i vs t', 'Set potential', 'Record signals (>1 ms)', 'i vs t', 'Set potential', 'Record signals (>1 ms)', 'i vs t', 'Set cell']
+  Commands.IdNames = ['ExtendedSequence', 'FHGetSetValues', 'FHSetSetpointPotential', 'FHSwitchCell', 'FHWait', 'FHLevel', 'PlotsIvst', 'FHSetSetpointPotential', 'FHLevel', 'PlotsIvst', 'FHSetSetpointPotential', 'FHLevel', 'PlotsIvst', 'FHSwitchCell']
+
+--- Commands[0] (a Command) ---------------------------------------------
+  .NET type: EcoChemie.Autolab.Sdk.Command
+  properties (2):
+    [r ] CommandParameters: CommandParameterList
+    [r ] Signals: CommandParameterSignalList
+  methods (5): Dispose, Equals, GetHashCode, GetType, ToString
+    [0] Chrono amperometry
+    [1] Autolab control
+       CommandParameters.IdNames = ['EI_0.Mode', 'EI_0.Bandwidth', 'EI_0.CurrentRange']
+       CommandParameters.Names = ['WE(1).Mode', 'WE(1).Bandwidth', 'WE(1).Current range']
+         param CommandParameterMode = Potentiostatic
+         param CommandParameterBandwidth = High_Stability
+         param CommandParameterCurrentRange = CR10_1mA
+    [2] Set potential
+       CommandParameters.IdNames = ['Setpoint value']
+       CommandParameters.Names = ['Potential (V)']
+         param CommandParameterDouble = 0.0
+    [3] Set cell
+       CommandParameters.IdNames = ['EI_0.Cell']
+       CommandParameters.Names = ['WE(1).Cell']
+         param CommandParameterOnOff = On
+    [4] Wait time (s)
+       CommandParameters.IdNames = ['Time']
+       CommandParameters.Names = ['Duration (s)']
+         param CommandParameterDouble = 5.0
+    [5] Record signals (>1 ms)
+       CommandParameters.IdNames = ['Interval time in µs', 'Duration', 'UseFastOptions']
+       CommandParameters.Names = ['Interval time (s)', 'Duration (s)', 'Use fast options']
+         param CommandParameterDouble = 0.01
+         param CommandParameterDouble = 5.0
+         param CommandParameterBool = False
+    [6] i vs t
+       CommandParameters.IdNames = ['X', 'Y', 'Z']
+       CommandParameters.Names = ['X', 'Y', 'Z']
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+    [7] Set potential
+       CommandParameters.IdNames = ['Setpoint value']
+       CommandParameters.Names = ['Potential (V)']
+         param CommandParameterDouble = 0.5
+    [8] Record signals (>1 ms)
+       CommandParameters.IdNames = ['Interval time in µs', 'Duration', 'UseFastOptions']
+       CommandParameters.Names = ['Interval time (s)', 'Duration (s)', 'Use fast options']
+         param CommandParameterDouble = 0.01
+         param CommandParameterDouble = 5.0
+         param CommandParameterBool = False
+    [9] i vs t
+       CommandParameters.IdNames = ['X', 'Y', 'Z']
+       CommandParameters.Names = ['X', 'Y', 'Z']
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+    [10] Set potential
+       CommandParameters.IdNames = ['Setpoint value']
+       CommandParameters.Names = ['Potential (V)']
+         param CommandParameterDouble = -0.5
+    [11] Record signals (>1 ms)
+       CommandParameters.IdNames = ['Interval time in µs', 'Duration', 'UseFastOptions']
+       CommandParameters.Names = ['Interval time (s)', 'Duration (s)', 'Use fast options']
+         param CommandParameterDouble = 0.01
+         param CommandParameterDouble = 5.0
+         param CommandParameterBool = False
+    [12] i vs t
+       CommandParameters.IdNames = ['X', 'Y', 'Z']
+       CommandParameters.Names = ['X', 'Y', 'Z']
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+    [13] Set cell
+       CommandParameters.IdNames = ['EI_0.Cell']
+       CommandParameters.Names = ['WE(1).Cell']
+         param CommandParameterOnOff = Off
+
+Q2 ANSWER: YES — 13 parameter(s) took a written value and read
+  it back. A single standard NOVA CV/CA procedure can be re-parameterized
+  per cycle, which is what the incrementing doping potential needs.
+    writable: Set potential.CommandParameterDouble
+    writable: Wait time (s).CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterBool
+    writable: Set potential.CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterBool
+    writable: Set potential.CommandParameterDouble
+
+Q8: no digital-I/O command found in this procedure. Either add a P1.A pulse
+  in NOVA (see the PC_Spectral* procedures, which have one), or have Python
+  pulse DIO before starting the run.
+
+========================================================================
+Q4 — Sampler / signal arrays
+========================================================================
+
+--- Instrument.Ei.Sampler -----------------------------------------------
+  .NET type: EcoChemie.Autolab.Sdk.Sampler
+  properties (1):
+    [r ] GetSignals: String[]
+  methods (9): Contains, Equals, GetHashCode, GetSignal, GetType, Release, Reset, Sample, ToString
+
+  Instrument.GetSignals -> ['External(1).External 1', 'External(1).External 2', 'WE(1).Potential', 'WE(1).Current', 'WE(1).Power', 'WE(1).Resistance', 'WE(1).Charge']
+
+We need per-sample TIME, POTENTIAL and CURRENT to build a
+data.EchemData(time, potential, current). Note which members give arrays.
+
+========================================================================
+Q9 — DIO ports (which index is which section?)
+========================================================================
+
+--- Instrument.Dio ------------------------------------------------------
+  .NET type: EcoChemie.Autolab.Sdk.DIO
+  properties (5):
+    [rw] DioPort: DioPort
+    [rw] DioPortDirection: DioPortDirection
+    [r ] DioPortsP1: DioPort[]
+    [r ] DioPortsP2: DioPort[]
+    [rw] Value: Byte
+  methods (4): Equals, GetHashCode, GetType, ToString
+
+  DioPortsP1: 5 port(s)
+    [0] Port_A     direction=Output   value=0x00 (0b00000000)
+    [1] Port_B     direction=Output   value=0x00 (0b00000000)
+    [2] Port_C     direction=Output   value=0x00 (0b00000000)
+    [3] Port_C_Upper direction=Output   value=0x00 (0b00000000)
+    [4] Port_C_Lower direction=Output   value=0x00 (0b00000000)
+
+  DioPortsP2: 5 port(s)
+    [0] Port_A     direction=Output   value=0x00 (0b00000000)
+    [1] Port_B     direction=Output   value=0x00 (0b00000000)
+    [2] Port_C     direction=Output   value=0x00 (0b00000000)
+    [3] Port_C_Upper direction=Output   value=0x00 (0b00000000)
+    [4] Port_C_Lower direction=Output   value=0x00 (0b00000000)
+
+  The driver's autolab_dio_port indexes this list.
+
+  MEASURED 2026-09-09: five ports per connector — Port_A, Port_B, Port_C,
+  Port_C_Upper, Port_C_Lower — on each of P1 and P2. A different INDEX is
+  therefore NOT automatically an independent line: C_Upper and C_Lower are
+  the two nibbles OF Port_C, so driving C also drives both, and driving
+  either moves half of C. Independent pairs are A/B/C within a connector,
+  and anything on P2 versus anything on P1.
+
+========================================================================
+Q6/Q7 — abort and liveness
+========================================================================
+  Instrument.Abort: ABSENT
+  Instrument.Stop: ABSENT
+  Instrument.StopMeasurement: ABSENT
+  Instrument.IsMeasuring: ABSENT
+
+  Abort/pause/liveness live on the PROCEDURE object (from LoadProcedure),
+  not the Instrument:
+    Procedure.Abort: present
+    Procedure.Hold: present
+    Procedure.Continue: present
+    Procedure.Skip: present
+    Procedure.IsMeasuring: present
+
+  AutolabConnection.IsConnected is the obvious liveness check for
+  device_lost(); whether it goes False on a yanked USB cable is worth one
+  deliberate test (pull the cable mid-hold) — the Gamry equivalent was
+  hard-won and caught a silently truncated data file.
+
+--- AutolabConnection ---------------------------------------------------
+  .NET type: EcoChemie.Autolab.Sdk.AutolabConnection
+  properties (4):
+    [rw] AutolabConnection_sdk: AutolabConnection
+    [rw] DeviceAddress: Int16
+    [rw] EmbeddedExeFileToStart: String
+    [r ] IsConnected: Boolean
+  methods (7): DetermineAppName, DetermineExeFilename, Equals, GetHashCode, GetType, SetEntryAssembly, ToString
+
+========================================================================
+Q3/Q4/Q5 — direct Ei hold, data shape, data-during-run
+========================================================================
+
+--- Instrument.Ei -------------------------------------------------------
+  .NET type: EcoChemie.Autolab.Sdk.EI
+  properties (19):
+    [rw] Bandwidth: EIBandwidth
+    [r ] Cell: Boolean
+    [rw] CellOnOff: EICellOnOff
+    [r ] Current: Double
+    [r ] CurrentOverload: Boolean
+    [rw] CurrentRange: EICurrentRange
+    [r ] EiStatusSupportedFor: String[]
+    [rw] EnableDsgInput: Boolean
+    [rw] IRCompensation: IRCompOnOff
+    [rw] IRCompensationValue: Double
+    [r ] ManualCellSwitch: Boolean
+    [rw] Mode: EIMode
+    [r ] Oscillation: Boolean
+    [r ] Potential: Double
+    [r ] PotentialApplied: Double
+    [r ] PotentialOverload: Boolean
+    [rw] Sampler: Sampler
+    [rw] Setpoint: Double
+    [r ] TemperatureOverload: Boolean
+  methods (4): Equals, GetHashCode, GetType, ToString
+
+Hold skipped (ENERGIZE_CELL = False). Reflection above still answers
+what Ei exposes; flip the flag with a dummy cell to answer Q3/Q4/Q5.
+
+========================================================================
+Q1 (live) — Procedure.Measure() timing / blocking / recorded data
+========================================================================
+Skipped (needs ENERGIZE_CELL = True and a NOX path).
+final cell-off via EI.EICellOnOff.Off; Ei.Cell = False
+
+Disconnected.
+
+========================================================================
+NEXT
+========================================================================
+Commit autolab_api_report.txt and push it — that file is what the driver
+gets written from. The decisive answers are Q2 (can a .nox be
+parameterized) and Q1 (does Measure() block).

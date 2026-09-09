@@ -49,6 +49,8 @@ PULSE_WIDTH_S = 0.002
 INTEGRATION_MS = 5.0        # keep above the detector floor (ULS2048L ~1.05 ms)
 SCAN_TIMEOUT_S = 4.0        # per bit; a miss should fail fast, not stall the probe
 CONFIRM_REPEATS = 3         # re-test a hit this many times, to rule out a fluke
+FAST_HIT_MS = 100.0         # slower than this is the device misbehaving, not a pin
+SETTLE_S = 0.05             # let the detector go idle between arms
 
 TRIGGER_MODE_HARDWARE = 1
 TRIGGER_SOURCE_EXTERNAL, TRIGGER_SOURCETYPE_EDGE = 0, 0
@@ -88,6 +90,22 @@ def open_avantes(avaspec):
     return handle, pixels
 
 
+def stop(avaspec, handle):
+    """Put the detector back in a known idle state.
+
+    The 2026-09-09 run wedged here: three arm/measure/read cycles worked, then every
+    remaining AVS_PrepareMeasure failed and six of eight bits were never tested.
+    AVS_StopMeasure exists in the SDK and was called nowhere in this repo — an armed
+    device that never saw its edge just stays armed, and the next PrepareMeasure
+    lands on a busy device.
+    """
+    try:
+        avaspec.AVS_StopMeasure(handle)
+    except Exception as exc:  # noqa: BLE001
+        say(f"    (AVS_StopMeasure raised: {exc})")
+    time.sleep(SETTLE_S)
+
+
 def arm(avaspec, handle, pixels):
     cfg = avaspec.MeasConfigType()
     cfg.m_StartPixel = 0
@@ -108,9 +126,17 @@ def arm(avaspec, handle, pixels):
     cfg.m_Control_m_LaserWidth = 0
     cfg.m_Control_m_LaserWaveLength = 0.0
     cfg.m_Control_m_StoreToRam = 0
-    if avaspec.AVS_PrepareMeasure(handle, cfg) < 0:
-        return False
-    return avaspec.AVS_Measure(handle, 0, 1) >= 0
+    # Always from idle, and one retry: a single stuck arm should not silently convert
+    # the six bits after it into "skipped" and get reported as a result.
+    for attempt in (1, 2):
+        stop(avaspec, handle)
+        if avaspec.AVS_PrepareMeasure(handle, cfg) < 0:
+            continue
+        if avaspec.AVS_Measure(handle, 0, 1) >= 0:
+            return True
+        if attempt == 1:
+            say("    (arm failed; stopping the detector and retrying once)")
+    return False
 
 
 def scan_landed(avaspec, handle, timeout):
@@ -129,22 +155,34 @@ def scan_landed(avaspec, handle, timeout):
 
 
 def try_bit(avaspec, handle, pixels, port, mask):
-    """Arm, pulse only `mask`, report whether the detector fired."""
+    """Arm, pulse only `mask`, and classify what came back.
+
+    -> "fired" | "slow" | "no" | "unarmable"
+
+    "slow" is its own answer, not a hit. A hardware trigger lands in about one
+    integration time plus the poll interval — 0xFF and 0x01 both came back inside
+    0.5 ms on 2026-09-09, while the bogus 0x02 "hit" took 1101.9 ms, three orders of
+    magnitude out, immediately before the detector wedged. Anything that slow is the
+    device misbehaving, not a pin firing.
+    """
+    label = f"bit 0x{mask:02X} (pin {mask.bit_length()})"
     if not arm(avaspec, handle, pixels):
-        say(f"    bit 0x{mask:02X}: could not arm — skipped")
-        return None
+        say(f"    {label}: COULD NOT ARM — untested")
+        return "unarmable"
     ac.pulse(port, PULSE_WIDTH_S, mask=mask)
     waited = scan_landed(avaspec, handle, SCAN_TIMEOUT_S)
     if waited is None:
-        say(f"    bit 0x{mask:02X} (pin {mask.bit_length()}): no scan")
-        # The device is still armed and will sit there; release it with an all-pins
-        # pulse so the next bit starts from a clean state.
-        ac.pulse(port, PULSE_WIDTH_S, mask=0xFF)
-        scan_landed(avaspec, handle, SCAN_TIMEOUT_S)
-        return False
-    say(f"    bit 0x{mask:02X} (pin {mask.bit_length()}): FIRED "
-        f"after {waited * 1000:.1f} ms")
-    return True
+        say(f"    {label}: no scan")
+        stop(avaspec, handle)          # it is still armed; do not leave it that way
+        return "no"
+    if waited * 1000.0 > FAST_HIT_MS:
+        say(f"    {label}: scan after {waited * 1000:.1f} ms — TOO SLOW to be the "
+            f"trigger (>{FAST_HIT_MS:.0f} ms); treating as suspect, not a hit")
+        stop(avaspec, handle)
+        return "slow"
+    say(f"    {label}: FIRED after {waited * 1000:.1f} ms")
+    stop(avaspec, handle)
+    return "fired"
 
 
 def main():
@@ -171,7 +209,7 @@ def main():
             return 1
 
         rule("SANITY — all eight pins (what the driver does today)")
-        if try_bit(avaspec, handle, pixels, port, 0xFF) is not True:
+        if try_bit(avaspec, handle, pixels, port, 0xFF) != "fired":
             say("")
             say("  0xFF did not fire the detector, so nothing below will either.")
             say("  Fix that first: check the cable, DIO_PORT_INDEX, and that")
@@ -179,24 +217,54 @@ def main():
             return 1
 
         rule("WALKING THE EIGHT BITS")
-        hits = []
+        hits, slow, untested = [], [], []
         for bit in range(8):
             mask = 1 << bit
-            if try_bit(avaspec, handle, pixels, port, mask):
+            result = try_bit(avaspec, handle, pixels, port, mask)
+            if result == "fired":
                 hits.append(mask)
+            elif result == "slow":
+                slow.append(mask)
+            elif result == "unarmable":
+                untested.append(mask)
+                if len(untested) >= 2:
+                    say("")
+                    say("  Two bits in a row could not be armed. STOPPING: every")
+                    say("  remaining bit would report the same thing, and six")
+                    say("  untested bits reported as 'no scan' is how the")
+                    say("  2026-09-09 run produced a wrong answer.")
+                    break
+
+        # A closing control. If the rig stopped working part-way through the walk,
+        # every 'no scan' above is meaningless — and the only way to know is to prove
+        # the trigger still works NOW, with the pulse that is known to fire it.
+        rule("CLOSING SANITY — does 0xFF still fire it?")
+        still_ok = try_bit(avaspec, handle, pixels, port, 0xFF) == "fired"
+        if not still_ok:
+            say("")
+            say("  It does NOT. The detector or the DIO link stopped working during")
+            say("  the walk, so the results above are VOID — a bit that showed")
+            say("  'no scan' may simply have been pulsed at a dead instrument.")
+            say("  Power-cycle both and re-run before believing anything here.")
 
         rule("RESULT")
-        if not hits:
+        if untested:
+            say(f"  UNTESTED (could not arm): {[hex(m) for m in untested]}")
+        if slow:
+            say(f"  SUSPECT (fired, but too slowly): {[hex(m) for m in slow]}")
+        if not still_ok:
+            say("  VOID — the closing sanity check failed. See above.")
+        elif not hits:
             say("  No single bit fired it, but 0xFF did. The trigger may need more")
             say("  than one line, or the edge may be on a pin this port does not")
             say("  cover — try DIO_PORT_INDEX 1, 2, ... for ports B and C.")
-        elif len(hits) == 1:
+        elif len(hits) == 1 and not untested:
             mask = hits[0]
             say(f"  The trigger line is bit 0x{mask:02X} — pin {mask.bit_length()} "
                 f"of port index {DIO_PORT_INDEX}.")
             say("")
             say(f"  Confirming {CONFIRM_REPEATS}x...")
-            ok = sum(bool(try_bit(avaspec, handle, pixels, port, mask))
+            ok = sum(try_bit(avaspec, handle, pixels, port, mask) == "fired"
                      for _ in range(CONFIRM_REPEATS))
             say(f"  fired {ok}/{CONFIRM_REPEATS} times.")
             if ok == CONFIRM_REPEATS:
@@ -205,6 +273,12 @@ def main():
                 say(f"  and use Pulse value {mask} / End value 0 for a NOVA counter.")
                 say("  Every other pin on the port is then free for the AvaLight")
                 say("  shutter without the trigger disturbing it.")
+            else:
+                say("  NOT confirmed — do not set the mask on this evidence.")
+        elif len(hits) == 1:
+            say(f"  Only bit 0x{hits[0]:02X} fired, but {len(untested)} bit(s) were")
+            say("  never tested, so this is a candidate and not an answer.")
+            say("  Re-run once the arming problem is fixed.")
         else:
             say(f"  More than one bit fired it: {[hex(h) for h in hits]}.")
             say("  Either several pins are strapped together, or a previous pulse")

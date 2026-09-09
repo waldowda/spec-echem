@@ -117,7 +117,8 @@ def _warn_if_cadence_unachievable(spec, delta_time, num_points):
 
 
 def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
-                    abort_event=None, on_armed=None, on_tick=None):
+                    abort_event=None, on_armed=None, on_tick=None,
+                    on_first_spectrum=None):
     """
     Collect a segment of spectra from the spectrometer.
 
@@ -127,6 +128,11 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
         delta_time: Target seconds between spectrum acquisitions
         trigger: If True, wait for hardware trigger on first measurement
         abort_event: threading.Event — if set, stops acquisition immediately
+        on_first_spectrum: optional callable, given time.perf_counter() at the
+            instant spectrum 0 LANDED. The potentiostat marks the trigger edge on
+            the same clock, so the difference answers whether the spectrometer
+            really waited for that edge or was already holding data. Nothing else
+            in the system relates the Avantes device clock to Python's.
         on_armed: optional callable passed into measure() for spectrum 0, so it
             fires from INSIDE measure() — right after AVS_Measure() has armed the
             device and before it polls. In Python-controlled mode this raises
@@ -187,6 +193,8 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
         spectra.append(data)
         timestamps.append(pretime)
 
+        if j == 0 and on_first_spectrum is not None:
+            on_first_spectrum(time.perf_counter())
         if j == 0:
             spec.set_trigger_mode(0)  # disable trigger after first measurement fires
             # Anchor here: spectrum 0 has landed, so this instant is the trigger plus

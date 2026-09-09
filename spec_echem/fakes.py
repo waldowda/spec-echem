@@ -227,6 +227,12 @@ class _FakeSignal:
 CV_PARAM_KEYS = ["Start value", "Upper vertex", "Lower vertex", "Step",
                  "NrOfStopCrossings", "Stop value", "Scanrate"]
 
+# The chrono commands, read off the same rig on 2026-09-09. The interval key carries
+# MICRO SIGN (U+00B5), and its "in µs" is a vendor mislabel — the value is seconds.
+CA_LEVEL_KEYS = ["Interval time in µs", "Duration", "UseFastOptions"]
+CA_SETPOINT_KEYS = ["Setpoint value"]
+WAIT_PARAM_KEYS = ["Time"]
+
 
 class _FakeCommand:
     def __init__(self, values, param_keys=None):
@@ -245,8 +251,9 @@ class FakeProcedure:
     `duration` seconds of wall clock, or immediately when duration is 0."""
 
     def __init__(self, path, duration=0.0, points=64, wait_s=5.0, fail=False,
-                 ca_levels=1, current_scale=1.0, dio_step=False):
+                 ca_levels=1, current_scale=1.0, dio_step=False, measure_cost=0.0):
         self.path = path
+        self._measure_cost = measure_cost
         self._duration = duration
         self._points = points
         self._fail = fail
@@ -254,7 +261,7 @@ class FakeProcedure:
         self._started = None
         self._aborted = False
         cv = _FakeCommand(list(_CV_DEFAULTS), param_keys=list(CV_PARAM_KEYS))
-        wait = _FakeCommand(list(_WAIT_DEFAULTS))
+        wait = _FakeCommand(list(_WAIT_DEFAULTS), param_keys=list(WAIT_PARAM_KEYS))
         wait.CommandParameters[0].ValueAsObject = wait_s
         # The CA template is 3 (setpoint -> FHLevel -> plot) blocks on the rig;
         # ca_levels lets a test model that so _neutralise_extra_ca_steps has extras
@@ -264,10 +271,12 @@ class FakeProcedure:
         idnames = [CV_COMMAND_ID, WAIT_COMMAND_ID]
         self._levels = []
         for _ in range(max(1, ca_levels)):
-            items.append(_FakeCommand(list(_SETPOINT_DEFAULTS)))
+            items.append(_FakeCommand(list(_SETPOINT_DEFAULTS),
+                                      param_keys=list(CA_SETPOINT_KEYS)))
             names.append("Set potential")
             idnames.append(CA_SETPOINT_ID)
-            lvl = _FakeCommand(list(_LEVEL_DEFAULTS))
+            lvl = _FakeCommand(list(_LEVEL_DEFAULTS),
+                               param_keys=list(CA_LEVEL_KEYS))
             items.append(lvl)
             names.append("Record signals (>1 ms)")
             idnames.append(CA_RECORDER_ID)
@@ -285,6 +294,11 @@ class FakeProcedure:
     def Measure(self):
         if self._fail:
             raise RuntimeError("fake: Measure() refused")
+        # Measure() is NOT free on the rig: it returned 0.128-0.287 s after cell ON
+        # across test6's six segments. measure_cost models that, so a test can tell
+        # a trigger anchored on cell ON from one anchored after Measure() returns.
+        if self._measure_cost:
+            time.sleep(self._measure_cost)
         self._started = time.time()
         self._aborted = False
 
@@ -372,7 +386,8 @@ class FakeAutolab:
     """Stand-in for EcoChemie.Autolab.Sdk.Instrument."""
 
     def __init__(self, duration=0.0, points=64, wait_s=5.0, fail_measure=False,
-                 ca_levels=1, current_scale=1.0, dio_step=False):
+                 ca_levels=1, current_scale=1.0, dio_step=False, measure_cost=0.0):
+        self._measure_cost = measure_cost
         self.AutolabConnection = _FakeConnection()
         self.Ei = _FakeEi()
         self.port = _FakePort()
@@ -392,7 +407,8 @@ class FakeAutolab:
                              duration=self._duration, points=self._points,
                              wait_s=self._wait_s, fail=self._fail_measure,
                              ca_levels=self._ca_levels,
-                             current_scale=self._current_scale)
+                             current_scale=self._current_scale,
+                             measure_cost=self._measure_cost)
 
     def Disconnect(self):
         self.AutolabConnection.IsConnected = False

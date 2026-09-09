@@ -2,9 +2,9 @@
 ========================================================================
 AUTOLAB — CAN PYTHON RUN ELECTROCHEMISTRY?
 ========================================================================
-when          : 2026-08-31 13:51:08
+when          : 2026-09-09 11:59:43
 python        : 3.13.15 (64-bit)
-ENERGIZE_CELL : True
+ENERGIZE_CELL : False
 NOX           : C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Cyclic voltammetry.nox
 Connected OK — cell NOT switched on.
 
@@ -27,7 +27,7 @@ Connected OK — cell NOT switched on.
 Q1/Q2 — the procedure route (LoadProcedure / parameters)
 ========================================================================
 LoadProcedure OK: Cyclic voltammetry.nox
-  LoadProcedure() returned: <EcoChemie.Autolab.Sdk.IProcedure object at 0x0000020825A338C0> (IProcedure)
+  LoadProcedure() returned: <EcoChemie.Autolab.Sdk.IProcedure object at 0x0000015B964209C0> (IProcedure)
   inst.Procedure -> <error: 'Instrument' object has no attribute 'Procedure'>
   inst.get_Procedure() -> <error: 'Instrument' object has no attribute 'get_Procedure'>
   procedure handle resolved via: LoadProcedure() return value
@@ -63,17 +63,27 @@ Q2 — parameter access. Looking for a command tree we can write into:
   methods (5): Dispose, Equals, GetHashCode, GetType, ToString
     [0] Cyclic voltammetry
     [1] Autolab control
+       CommandParameters.IdNames = ['EI_0.Mode', 'EI_0.Bandwidth', 'EI_0.CurrentRange']
+       CommandParameters.Names = ['WE(1).Mode', 'WE(1).Bandwidth', 'WE(1).Current range']
          param CommandParameterMode = Potentiostatic
          param CommandParameterBandwidth = High_Stability
          param CommandParameterCurrentRange = CR10_1mA
     [2] Set potential
+       CommandParameters.IdNames = ['Setpoint value']
+       CommandParameters.Names = ['Potential (V)']
          param CommandParameterDouble = 0.0
     [3] Set cell
+       CommandParameters.IdNames = ['EI_0.Cell']
+       CommandParameters.Names = ['WE(1).Cell']
          param CommandParameterOnOff = On
     [4] Wait time (s)
+       CommandParameters.IdNames = ['Time']
+       CommandParameters.Names = ['Duration (s)']
          param CommandParameterDouble = 5.0
     [5] Optimize current range
     [6] CV staircase
+       CommandParameters.IdNames = ['Start value', 'Upper vertex', 'Lower vertex', 'Step', 'NrOfStopCrossings', 'Stop value', 'Scanrate']
+       CommandParameters.Names = ['Start potential (V)', 'Upper vertex potential (V)', 'Lower vertex potential (V)', 'Step potential (V)', 'Number of stop crossings', 'Stop potential (V)', 'Scan rate (V/s)']
          param CommandParameterDouble = 0.0
          param CommandParameterDouble = 1.0
          param CommandParameterDouble = -1.0
@@ -82,10 +92,14 @@ Q2 — parameter access. Looking for a command tree we can write into:
          param CommandParameterDouble = 0.0
          param CommandParameterDouble = 0.09999999999999999
     [7] i vs E
+       CommandParameters.IdNames = ['X', 'Y', 'Z']
+       CommandParameters.Names = ['X', 'Y', 'Z']
          param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
          param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
          param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
     [8] Set cell
+       CommandParameters.IdNames = ['EI_0.Cell']
+       CommandParameters.Names = ['WE(1).Cell']
          param CommandParameterOnOff = Off
 
 Q2 ANSWER: YES — 8 parameter(s) took a written value and read
@@ -118,6 +132,43 @@ Q4 — Sampler / signal arrays
 
 We need per-sample TIME, POTENTIAL and CURRENT to build a
 data.EchemData(time, potential, current). Note which members give arrays.
+
+========================================================================
+Q9 — DIO ports (which index is which section?)
+========================================================================
+
+--- Instrument.Dio ------------------------------------------------------
+  .NET type: EcoChemie.Autolab.Sdk.DIO
+  properties (5):
+    [rw] DioPort: DioPort
+    [rw] DioPortDirection: DioPortDirection
+    [r ] DioPortsP1: DioPort[]
+    [r ] DioPortsP2: DioPort[]
+    [rw] Value: Byte
+  methods (4): Equals, GetHashCode, GetType, ToString
+
+  DioPortsP1: 5 port(s)
+    [0] Port_A     direction=Output   value=0x00 (0b00000000)
+    [1] Port_B     direction=Output   value=0x00 (0b00000000)
+    [2] Port_C     direction=Output   value=0x00 (0b00000000)
+    [3] Port_C_Upper direction=Output   value=0x00 (0b00000000)
+    [4] Port_C_Lower direction=Output   value=0x00 (0b00000000)
+
+  DioPortsP2: 5 port(s)
+    [0] Port_A     direction=Output   value=0x00 (0b00000000)
+    [1] Port_B     direction=Output   value=0x00 (0b00000000)
+    [2] Port_C     direction=Output   value=0x00 (0b00000000)
+    [3] Port_C_Upper direction=Output   value=0x00 (0b00000000)
+    [4] Port_C_Lower direction=Output   value=0x00 (0b00000000)
+
+  The driver's autolab_dio_port indexes this list.
+
+  MEASURED 2026-09-09: five ports per connector — Port_A, Port_B, Port_C,
+  Port_C_Upper, Port_C_Lower — on each of P1 and P2. A different INDEX is
+  therefore NOT automatically an independent line: C_Upper and C_Lower are
+  the two nibbles OF Port_C, so driving C also drives both, and driving
+  either moves half of C. Independent pairs are A/B/C within a connector,
+  and anything on P2 versus anything on P1.
 
 ========================================================================
 Q6/Q7 — abort and liveness
@@ -177,135 +228,13 @@ Q3/Q4/Q5 — direct Ei hold, data shape, data-during-run
     [r ] TemperatureOverload: Boolean
   methods (4): Equals, GetHashCode, GetType, ToString
 
-Holding 0.0 V for 3.0 s. DUMMY / EMPTY CELL ONLY.
-  cell ON via EI.EICellOnOff.On; Ei.Cell = True
-  t= 0.02s  E=0.0  I=-1.7028808593750054e-09  overload(P,I)=(False, False)
-  t= 0.24s  E=0.0  I=-1.7028808593750054e-09  overload(P,I)=(False, False)
-  t= 0.46s  E=0.0  I=-1.7028808593750054e-09  overload(P,I)=(False, False)
-  t= 0.68s  E=0.0  I=-1.7028808593750054e-09  overload(P,I)=(False, False)
-  t= 0.90s  E=0.0  I=-1.7028808593750054e-09  overload(P,I)=(False, False)
-Held OK; polled 14 times.
-  Q4: if E and I read back as numbers above, a software-timed chrono is
-      possible with no .nox at all. (Empty cell -> expect railed values
-      and overload flags; that only proves the read path, not the data.)
-  Q5: values changing across polls == data IS available during a run.
-Cell switched OFF via EI.EICellOnOff.Off; Ei.Cell = False
+Hold skipped (ENERGIZE_CELL = False). Reflection above still answers
+what Ei exposes; flip the flag with a dummy cell to answer Q3/Q4/Q5.
 
 ========================================================================
 Q1 (live) — Procedure.Measure() timing / blocking / recorded data
 ========================================================================
-Running the procedure via Procedure.Measure(). Cell WILL be energized.
-  MeasureAsync present: False
-Procedure.Measure() returned after 0.28 s; IsMeasuring=True
-  -> Measure() is NON-BLOCKING (returns immediately). Q1 ANSWER: the
-     driver polls Procedure.IsMeasuring; no dedicated thread needed.
-  polling Ei live scalars + IsMeasuring while it runs:
-       0.3s  E=-2.7465820312502776e-05  I=-1.7028808593750054e-09
-       6.4s  E=0.026928710937500003  I=2.7023315429687497e-06
-       6.9s  E=0.063232421875  I=9.109497070312501e-06
-       7.4s  E=0.121795654296875  I=1.23138427734375e-05
-       7.9s  E=0.182586669921875  I=1.8460083007812503e-05
-       8.4s  E=0.24090576171875  I=2.4368286132812503e-05
-       8.9s  E=0.270172119140625  I=2.7337646484375e-05
-       9.4s  E=0.329315185546875  I=3.3258056640625e-05
-       9.9s  E=0.3900146484375  I=3.94256591796875e-05
-      10.4s  E=0.421875  I=4.2654418945312505e-05
-      10.9s  E=0.477996826171875  I=4.8248291015625006e-05
-      11.4s  E=0.53680419921875  I=5.419921875e-05
-      11.9s  E=0.569122314453125  I=5.7403564453125e-05
-      12.4s  E=0.625579833984375  I=6.3323974609375e-05
-      12.9s  E=0.68536376953125  I=6.9244384765625e-05
-      13.4s  E=0.714202880859375  I=7.2174072265625e-05
-      13.9s  E=0.7745361328125  I=7.830810546875001e-05
-      14.4s  E=0.831298828125  I=8.4014892578125e-05
-      14.9s  E=0.89141845703125  I=8.990478515625e-05
-      15.4s  E=0.91522216796875  I=9.2620849609375e-05
-      15.9s  E=0.97625732421875  I=9.881591796875e-05
-      16.4s  E=0.95855712890625  I=9.68017578125e-05
-      16.9s  E=0.9295654296875  I=9.38720703125e-05
-      17.4s  E=0.870361328125  I=8.795166015625e-05
-      17.9s  E=0.809326171875  I=8.175659179687501e-05
-      18.4s  E=0.782470703125  I=7.904052734375001e-05
-      18.9s  E=0.721771240234375  I=7.290649414062501e-05
-      19.4s  E=0.663238525390625  I=6.698608398437501e-05
-      19.9s  E=0.636444091796875  I=6.427001953125001e-05
-      20.4s  E=0.575469970703125  I=5.8135986328125e-05
-      20.9s  E=0.5145263671875  I=5.1971435546875e-05
-      21.4s  E=0.485260009765625  I=4.9017333984375e-05
-      21.9s  E=0.4267578125  I=4.30999755859375e-05
-      22.4s  E=0.36578369140625  I=3.6962890625e-05
-      22.9s  E=0.336517333984375  I=3.399658203125e-05
-      23.5s  E=0.275543212890625  I=2.78350830078125e-05
-      24.0s  E=0.214599609375  I=2.169189453125e-05
-      24.5s  E=0.158477783203125  I=1.6009521484375002e-05
-      25.0s  E=0.1317138671875  I=1.3308715820312501e-05
-      25.5s  E=0.072967529296875  I=7.3944091796875005e-06
-      26.0s  E=0.014743041992187497  I=1.485595703125e-06
-      26.5s  E=-0.043771362304687506  I=-4.4305419921875e-06
-      27.0s  E=-0.073028564453125  I=-7.3791503906250005e-06
-      27.5s  E=-0.131378173828125  I=-1.3281250000000001e-05
-      28.0s  E=-0.187408447265625  I=-1.8957519531250003e-05
-      28.5s  E=-0.218963623046875  I=-2.2155761718750003e-05
-      29.0s  E=-0.277374267578125  I=-2.8057861328125003e-05
-      29.5s  E=-0.338897705078125  I=-3.4228515625000005e-05
-      30.0s  E=-0.370574951171875  I=-3.7429809570312504e-05
-      30.5s  E=-0.431640625  I=-4.35699462890625e-05
-      31.0s  E=-0.490081787109375  I=-4.9487304687500005e-05
-      31.5s  E=-0.516876220703125  I=-5.2154541015625e-05
-      32.0s  E=-0.57537841796875  I=-5.8074951171875e-05
-      32.5s  E=-0.6339111328125  I=-6.396484375e-05
-      33.0s  E=-0.6923828125  I=-6.988525390625e-05
-      33.5s  E=-0.721710205078125  I=-7.2845458984375e-05
-      34.0s  E=-0.7806396484375  I=-7.8765869140625e-05
-      34.5s  E=-0.838623046875  I=-8.465576171875e-05
-      35.0s  E=-0.86883544921875  I=-8.7615966796875e-05
-      35.5s  E=-0.92742919921875  I=-9.3536376953125e-05
-      36.0s  E=-0.98663330078125  I=-9.945678710937501e-05
-      36.5s  E=-0.95672607421875  I=-9.6466064453125e-05
-      37.0s  E=-0.92681884765625  I=-9.3536376953125e-05
-      37.5s  E=-0.86639404296875  I=-8.7371826171875e-05
-      38.0s  E=-0.8343505859375  I=-8.416748046875e-05
-      38.5s  E=-0.77301025390625  I=-7.8033447265625e-05
-      39.0s  E=-0.711944580078125  I=-7.1868896484375e-05
-      39.5s  E=-0.68267822265625  I=-6.890869140625e-05
-      40.0s  E=-0.61932373046875  I=-6.25e-05
-      40.5s  E=-0.558380126953125  I=-5.633544921875e-05
-      41.0s  E=-0.529144287109375  I=-5.3375244140625e-05
-      41.5s  E=-0.468109130859375  I=-4.7265625000000005e-05
-      42.0s  E=-0.40966796875  I=-4.1351318359375e-05
-      42.5s  E=-0.38037109375  I=-3.8412475585937505e-05
-      43.0s  E=-0.321868896484375  I=-3.24981689453125e-05
-      43.5s  E=-0.2633056640625  I=-2.65777587890625e-05
-      44.0s  E=-0.234039306640625  I=-2.04315185546875e-05
-      44.5s  E=-0.17303466796875  I=-1.74591064453125e-05
-      45.0s  E=-0.112091064453125  I=-1.13189697265625e-05
-      45.5s  E=-0.080322265625  I=-8.126831054687501e-06
-      46.0s  E=-0.021810913085937494  I=-2.21099853515625e-06
-      46.5s  E=0.00011901855468750278  I=8.605957031249944e-09
-  run finished after 48.0 s (IsMeasuring=False)
-
---- CV staircase .Signals (after run) -----------------------------------
-  .NET type: EcoChemie.Autolab.Sdk.CommandParameterSignalList
-  properties (4):
-    [r ] Command: IExecCommand
-    [r ] IdNames: String[]
-    [r ] Item: CommandParameter
-    [r ] Names: String[]
-  methods (6): Contains, ContainsId, Equals, GetHashCode, GetType, ToString
-  .Signals.Names   = ['Potential applied', 'Time', 'WE(1).Current', 'Scan', 'WE(1).Potential', 'Index', 'Q+', 'Q-']
-  .Signals.IdNames = ['SetpointApplied', 'CalcTime', 'EI_0.CalcCurrent', 'ScanNumber', 'EI_0.CalcPotential', 'Index', 'QPlus', 'QMin']
-    signal[0] 'Potential applied': 1640 pts, first=[0.00244140625, 0.0048828125, 0.00732421875] last=[-0.0048828125, -0.00244140625, 0.0]
-    signal[1] 'Time': 1640 pts, first=[5.98195698489701, 6.006370984835371, 6.030784984773732] last=[45.94767488399327, 45.97208888393163, 45.996502883869994]
-    signal[2] 'WE(1).Current': 1640 pts, first=[2.5537109375e-07, 4.7943115234375e-07, 7.473754882812499e-07] last=[-4.85565185546875e-07, -2.5650024414062503e-07, 8.605957031249944e-09]
-    signal[3] 'Scan': 1640 pts, first=[1, 1, 1] last=[1, 1, 1]
-    signal[4] 'WE(1).Potential': 1640 pts, first=[0.0025573730468750056, 0.0049346923828124944, 0.0074371337890624944] last=[-0.0047546386718750056, -0.0022918701171874972, 0.00011901855468750278]
-    signal[5] 'Index': 1640 pts, first=[1, 2, 3] last=[1638, 1639, 1640]
-    signal[6] 'Q+': 0 pts, first=[] last=[]
-    signal[7] 'Q-': 0 pts, first=[] last=[]
-
-  Q4: a signal with N points and a matching E/I pair -> maps to
-      data.EchemData(time, potential, current). No 'time' signal in the
-      list means time is index x interval (or a Time signal id).
+Skipped (needs ENERGIZE_CELL = True and a NOX path).
 final cell-off via EI.EICellOnOff.Off; Ei.Cell = False
 
 Disconnected.

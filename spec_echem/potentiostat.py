@@ -45,6 +45,7 @@ from spec_echem.data import (
     EchemData, _echem_dta_path,
 )
 from spec_echem.logging_config import get_run_logger
+from spec_echem.settings import parse_dio_mask
 
 try:
     import toolkitpy as tkp
@@ -181,6 +182,17 @@ class Potentiostat:
         """
         pass
 
+    def note_first_spectrum(self, t_perf):
+        """Called with time.perf_counter() when spectrum 0 LANDED.
+
+        The one fact that ties the optical side to the electrical one. The Avantes
+        stamps its spectra on its OWN device clock, which has no known offset to
+        Python's, so without this mark the run can never say whether the detector
+        waited for the trigger edge or was already holding data. Backends that do
+        not raise the edge themselves have nothing to compare it to and ignore it.
+        """
+        pass
+
     def device_lost(self):
         """
         True if the instrument stopped responding partway through the last segment,
@@ -245,10 +257,10 @@ CV_IDX_STOP = 5
 CV_IDX_SCANRATE = 6       # V/s in the SDK, even though NOVA's UI shows mV/s
 
 # Parameter KEYS from the Autolab SDK manual §6.2 ("Input command parameter names",
-# the copy shipped with SDK 2.1). Names are preferred over positions: an index is a
-# position in a list, and editing a template can move it silently, whereas a key
-# names the thing itself. Each is paired with the index MEASURED on the rig
-# 2026-09-03 as the fallback.
+# the copy shipped with SDK 2.1), each paired with the index MEASURED on the rig
+# 2026-09-03. The INDEX is what gets written; the key is what checks it against the
+# command's own IdNames, so a template edit that moves a parameter is caught instead
+# of silently followed. See _resolve_param for why that direction and not the other.
 #
 # NOTE the manual's list order is NOT the index order — it shows eight parameters
 # with "Interval time" fifth, while this instrument reports seven and index 4 is
@@ -279,15 +291,23 @@ CA_IDX_POTENTIAL = 0     # on FHSetSetpointPotential
 CA_IDX_DURATION = 1      # on FHLevel  (default 5.0 s)
 CA_IDX_INTERVAL = 0      # on FHLevel  (default 0.01 s); FHLevel[2] is a bool, left alone
 
-# Candidate parameter KEYS, from helgestein/metrohm_autolab_python's working example
-# on a PGSTAT302N. UNVERIFIED on this rig, and adopted only as name hints in front of
-# the measured indices: that example drives CVLinearScanAdc164 (a true linear sweep)
-# rather than the staircase, and key spellings differ per command — "StartValue"
-# there vs "Start value" in SDK manual §6.2. Keys cannot be guessed across commands,
-# so `.IdNames` per command is the only reliable source and the index still backs
-# every one of these.
-CA_KEY_POTENTIAL = "Setpoint value"     # on FHSetSetpointPotential
-WAIT_KEY_DURATION = "Time"              # on FHWait
+# Parameter KEYS — READ OFF THE RIG 2026-09-09 (examples/autolab_api_report.txt and
+# autolab_api_report_chrono_amperometry.txt), no longer guesses. Every one agrees
+# with the index measured on 2026-09-03, so the cross-check confirms rather than
+# corrects. Confirmed on BOTH templates where the command appears in both.
+CA_KEY_POTENTIAL = "Setpoint value"     # on FHSetSetpointPotential (CV + CA .nox)
+WAIT_KEY_DURATION = "Time"              # on FHWait                 (CV + CA .nox)
+CA_KEY_DURATION = "Duration"            # on FHLevel
+CA_KEY_INTERVAL = "Interval time in µs"   # on FHLevel
+
+# That key is MICRO SIGN (U+00B5), not Greek small mu (U+03BC) — verified from the
+# report's bytes. Get it wrong and the cross-check reports a spurious MISMATCH.
+#
+# And do not believe the name: the IdName says microseconds, the display name
+# ('Interval time (s)') says seconds, and the template ships 0.01 — which is 10 ms
+# as seconds and an impossible 10 ps as microseconds. The driver writes
+# segment.delta_time in SECONDS, which is what the recorded data agrees with
+# (2026-09-03/04). The vendor's IdName is simply mislabelled.
 
 # Pulse the trigger this long, and give up on a segment after this.
 AUTOLAB_PULSE_WIDTH_S = 0.002
@@ -329,8 +349,17 @@ AUTOLAB_STANDARD_TEMPLATE_EXTRA_LAG_S = 1.0
 # SDK (examples/probe_nox_dio.py) — NOVA's P1.A pulse lives inside
 # ExecCommandSpectroTriggered, which exposes no parameters and drives NOVA's own
 # spectrometer, the one thing spec-echem cannot share.
-AUTOLAB_SETUP_LAG_CV_S = 0.99      # stock CV at experiment-like currents
-AUTOLAB_SETUP_LAG_CA_S = 0.98      # stock CA, mean of three
+# Procedure start -> the recorder's FIRST SAMPLE, i.e. CalcTime[0]. MEASURED with
+# FHWait = 0 on 2026-09-09 (20260909_test6, cell-on-anchored):
+#   CA  0.974 0.906 0.901 0.914 0.955  -> mean 0.930
+#   CV  1.162
+# The earlier 0.98 / 0.99 pair was measured at FHWait = 5.0 and is stale for a zero
+# wait; note the two moved in OPPOSITE directions, which is why one number cannot
+# serve both templates. The ~0.23 s that CV costs above CA is one extra command,
+# FHPreCurrentRangingCV ("Optimize current range") — so this lag is a sum of
+# per-command overheads, and deleting commands is what shortens it.
+AUTOLAB_SETUP_LAG_CV_S = 1.16      # stock CV, FHWait 0
+AUTOLAB_SETUP_LAG_CA_S = 0.93      # stock CA, FHWait 0, mean of five
 AUTOLAB_SETUP_LAG_SPECTRO_CV_S = 0.60   # Sung-Joo's CV, if autolab_nox_cv points there
 
 
@@ -430,6 +459,26 @@ def echem_from_signals(cmd):
     )
 
 
+def raw_first_calctime(cmd):
+    """CalcTime[0] as the instrument reported it, BEFORE echem_from_signals rebases
+    the trace to start at zero.
+
+    That rebase is right for the data file and wrong for diagnostics: this number is
+    the recorder's own account of how long after the procedure started it took its
+    first sample, which is the quantity the 5-6 s question turns on. Returns None if
+    the signal is not there.
+    """
+    sigs = getattr(cmd, "Signals", None)
+    if sigs is None:
+        return None
+    idnames = list(getattr(sigs, "IdNames", []) or [])
+    for i, sg in enumerate(sigs):
+        if i < len(idnames) and idnames[i] == "CalcTime":
+            vals = list(sg.ValueAsObject)
+            return float(vals[0]) if vals else None
+    return None
+
+
 def autolab_identity(settings):
     """Connect to the Autolab briefly, report what answered, and disconnect.
 
@@ -512,7 +561,7 @@ class AutolabPotentiostat(Potentiostat):
         self._device_lost = False
         self._aborted = False
         self._dio_step_present = None
-        self._named_params = False
+        self._named_params = set()     # keys already reported in the run log
         self._pulse_delay = 0.0
         self._max_wait = 60.0
         # When the .nox carries its own FHDIO step (the eventual design — see
@@ -520,6 +569,12 @@ class AutolabPotentiostat(Potentiostat):
         # clock and Python must NOT pulse. fire() then just starts the procedure.
         self._trigger_in_procedure = bool(
             self.settings.get("autolab_trigger_in_procedure", False))
+        # Which pins the pulse drives. Resolved HERE, at construction, and not in
+        # _pulse_trigger(): by the time that runs the spectrometer is already armed
+        # and waiting for an edge, which is the worst moment to discover the mask
+        # cannot produce one. A bad value should stop the run before it starts.
+        self._dio_mask = parse_dio_mask(
+            self.settings.get("autolab_dio_mask", 0xFF))
 
     # --- lifecycle ------------------------------------------------------
 
@@ -572,11 +627,16 @@ class AutolabPotentiostat(Potentiostat):
         self._overloaded = False
         self._device_lost = False
         self._aborted = False
+        # Fresh marks per segment: a stale one would have _report_timing
+        # describing the PREVIOUS segment's handshake as this one's.
+        self._t_cell_on = self._t_measure_returned = self._t_edge = None
+        self._t_spectrum0 = None
         self._max_wait = segment.num_points * segment.delta_time * 3.0 + \
             AUTOLAB_MAX_WAIT_MARGIN_S
 
         self._proc = self._inst.LoadProcedure(self._nox_for(segment))
         self._cmd = self._command_for(segment)
+        self._apply_wait()          # before _wait_window() reads FHWait back
         self._apply_parameters(segment)
         # Check the trigger arrangement BEFORE working out a pulse delay: when the
         # procedure fires its own edge there is no Python pulse to schedule, and
@@ -587,10 +647,22 @@ class AutolabPotentiostat(Potentiostat):
         self._pulse_delay = self._wait_window(segment)
 
     def fire(self):
-        """The spectrometer is armed and waiting for the edge right now."""
+        """The spectrometer is armed and waiting for the edge right now.
+
+        Every wall-clock mark the handshake has is taken here, so the run log can
+        state the alignment rather than have it inferred from the template. Cell-on
+        is the origin because that is the moment the experiment starts happening to
+        the sample — everything the recorder misses is measured from here.
+        """
         _set_cell(self._inst, True)
+        # perf_counter for the diagnostics, not time.time(): both read in 58 ns on
+        # this box (measured), but time.time() is adjustable and non-monotonic, so an
+        # NTP correction mid-segment would silently corrupt a six-second measurement.
+        # _t0 stays wall-clock — it is the .dta file's absolute start stamp.
+        self._t_cell_on = time.perf_counter()
         self._t0 = time.time()
         self._proc.Measure()          # returns immediately
+        self._t_measure_returned = time.perf_counter()
         if self._trigger_in_procedure:
             return                    # the .nox's DIO step raises P1.A itself
         self._pulse_trigger()
@@ -612,6 +684,7 @@ class AutolabPotentiostat(Potentiostat):
         except ValueError as exc:
             get_run_logger().warning("Autolab: %s", exc)
             self._last_data = None
+        self._report_timing()
         self._report_segment_health()
 
     def stop(self):
@@ -678,6 +751,35 @@ class AutolabPotentiostat(Potentiostat):
             return self._proc.Commands[AUTOLAB_CV_COMMAND]
         return self._proc.Commands[CA_RECORDER_COMMAND]
 
+    def _apply_wait(self):
+        """Write the template's FHWait, if this rig asks for a different one.
+
+        Why it matters for chrono: the driver writes the DOPING potential into the
+        setpoint command at position 2, and the cell switches on at position 3 —
+        BEFORE this wait. So the stock 5 s is not a settling period at rest, it is
+        five seconds of the actual experiment happening with nothing recording, and
+        on a film that is the steepest part of the doping transient.
+
+        Left alone (None) the .nox keeps whatever NOVA saved. _wait_window() reads
+        FHWait back afterwards, so the trigger delay follows this automatically.
+        """
+        want = self.settings.get("autolab_wait_s")
+        if want is None:
+            return
+        try:
+            wait = self._proc.Commands[AUTOLAB_WAIT_COMMAND]
+        except Exception as exc:  # noqa: BLE001
+            get_run_logger().warning(
+                "Autolab: autolab_wait_s is set but this procedure has no %s "
+                "command (%s); leaving the template's own timing alone.",
+                AUTOLAB_WAIT_COMMAND, exc)
+            return
+        self._set(wait, 0, float(want), key=WAIT_KEY_DURATION)
+        get_run_logger().info(
+            "Autolab: FHWait set to %.3f s (was the template's own value). The cell "
+            "is live at the segment potential for this long before recording starts.",
+            float(want))
+
     def _apply_parameters(self, segment):
         s = self.settings
         if segment.data_type == DATA_TYPE_CV:
@@ -701,11 +803,12 @@ class AutolabPotentiostat(Potentiostat):
                   key=CA_KEY_POTENTIAL)
         hold = (s["prededoping_time"] if segment.data_type == DATA_TYPE_PREDEDOPING
                 else s["chrono_time"])
-        self._set(self._cmd, CA_IDX_DURATION, hold)
-        self._set(self._cmd, CA_IDX_INTERVAL, segment.delta_time)
-        self._neutralise_extra_ca_steps()
+        self._set(self._cmd, CA_IDX_DURATION, hold, key=CA_KEY_DURATION)
+        self._set(self._cmd, CA_IDX_INTERVAL, segment.delta_time,
+                  key=CA_KEY_INTERVAL)
+        self._neutralise_extra_ca_steps(segment)
 
-    def _neutralise_extra_ca_steps(self):
+    def _neutralise_extra_ca_steps(self, segment):
         """`Chrono amperometry.nox` has THREE FHLevel hold steps; spec-echem wants
         one. Zero the duration of every FHLevel after the first so only step 1
         holds — otherwise a real sample gets driven to steps 2-3's default 0 V for
@@ -730,52 +833,143 @@ class AutolabPotentiostat(Potentiostat):
         zeroed = 0
         for pos in extras:
             try:
-                prm = list(commands[pos].CommandParameters)[CA_IDX_DURATION]
+                prm = self._resolve_param(
+                    commands[pos], CA_KEY_DURATION, CA_IDX_DURATION)
                 prm.ValueAsObject = 0.0
                 zeroed += 1
             except Exception as exc:  # noqa: BLE001
                 get_run_logger().warning(
                     "Autolab: extra CA hold step at position %d not neutralised: "
                     "%s", pos, exc)
+
+        # Zeroing the RECORDERS is not enough. Each extra hold has its own setpoint
+        # command (+0.5 V and -0.5 V in the stock template), and those still execute
+        # with the cell on — so a film got two unrecorded half-volt excursions after
+        # every doping cycle, writing nothing because the recorders are zero-length.
+        # Invisible on a resistor, which is why it survived this long. Park them at
+        # the segment's own potential so the cell simply does not move.
+        held = self._chrono_potential(segment)
+        setpoints = [i for i, idn in enumerate(idnames) if idn == CA_SETPOINT_COMMAND]
+        parked = 0
+        for pos in setpoints[1:]:
+            try:
+                prm = self._resolve_param(
+                    commands[pos], CA_KEY_POTENTIAL, CA_IDX_POTENTIAL)
+                prm.ValueAsObject = held
+                parked += 1
+            except Exception as exc:  # noqa: BLE001
+                get_run_logger().warning(
+                    "Autolab: extra CA setpoint at position %d not parked (%s); the "
+                    "cell may be driven to the template's own potential after this "
+                    "segment.", pos, exc)
+        if parked:
+            get_run_logger().info(
+                "Autolab: parked %d trailing setpoint(s) at %+.3f V so the ignored "
+                "steps cannot move the cell.", parked, held)
         if zeroed:
             get_run_logger().info(
                 "Autolab: neutralised %d extra CA hold step(s) so only step 1 runs.",
                 zeroed)
 
-    def _resolve_param(self, cmd, key, index):
-        """The parameter object, by KEY if this SDK allows it, else by index.
+    def _id_names(self, cmd):
+        """This command's parameter keys, in list order, or None if it has none.
 
-        A key names the parameter; an index names a position, and a template edit can
-        move a position without saying so. The SDK manual §6.2 documents the keys, and
-        the manual's own examples index `Commands[...]` and `Signals[...]` by name, so
-        the list is expected to accept a string. That has never been confirmed on this
-        instrument, hence the fallback and the one-time log line saying which route won.
+        The one authoritative source for what each position IS. The SDK manual's
+        §6.2 table is not: it lists eight parameters for the staircase with
+        "Interval time" fifth, and this instrument reports seven.
+        """
+        try:
+            names = [str(n) for n in cmd.CommandParameters.IdNames]
+        except Exception:  # noqa: BLE001 — plenty of SDKs expose no such member
+            return None
+        return names or None
+
+    def _resolve_param(self, cmd, key, index):
+        """The parameter object at the MEASURED index, with the key used to CHECK it.
+
+        The tempting design is the other way round — prefer the documented name,
+        fall back to the index — on the grounds that an index is a position and a
+        template edit can move a position silently. The goal is right; the direction
+        is wrong, for two reasons:
+
+        1. The indices are the trustworthy half. Each was verified against recorded
+           data on this rig 2026-09-03 (setting CV_IDX_CROSSINGS to 4 doubled the
+           points and drove ScanNumber to 2). The names come from a manual that
+           demonstrably does not describe these commands, and the chrono keys are
+           guesses from another project driving a DIFFERENT command.
+        2. `_set()` cannot catch a bad name. It writes and reads back the SAME
+           object, so a key that resolves to the wrong parameter verifies perfectly
+           and runs the wrong experiment on a real film.
+
+        A wrong key that RAISES is harmless. A wrong key that RESOLVES is silent.
+        So: the write always lands where the bench measured, and `IdNames` is used to
+        confirm the position still means what it meant — which is exactly the
+        protection the name-first version was reaching for, failing loudly instead of
+        quietly relocating the write.
 
         `list(cmd.CommandParameters)[index]`, not `[index]`: this SDK's
         CommandParameterList rejects a bare Python int in get_Item ("No method matches
         given arguments"), proven on the rig 2026-09-03. Iteration works.
         """
-        if key is not None:
-            try:
-                prm = cmd.CommandParameters[key]
-                if prm is not None:
-                    if not self._named_params:
-                        self._named_params = True
-                        get_run_logger().info(
-                            "Autolab: parameters resolve by name (SDK manual §6.2) — "
-                            "index fallback not needed.")
-                    return prm
-            except Exception:  # noqa: BLE001 — the SDK may only accept positions
-                pass
+        names = self._id_names(cmd)
+
+        # No measured index: the name is all there is. Only correct because it is
+        # checked against IdNames rather than handed blindly to the SDK.
         if index is None:
+            if names is not None and key in names:
+                self._log_route(key, "resolved by NAME (no measured index)")
+                return list(cmd.CommandParameters)[names.index(key)]
             raise NotImplementedError(
                 f"Autolab parameter {key!r} has no known index and the name did not "
                 "resolve — see docs/autolab-driver-finishing.md.")
+
+        if key is not None and names is not None:
+            at_index = names[index] if index < len(names) else None
+            if at_index == key:
+                self._log_route(
+                    key, f"confirmed by IdNames at the measured index {index}")
+            else:
+                # Loud, and once per key: the template moved under us, or the key is
+                # wrong. Either way the measured index is the half that was checked
+                # against real data, so it still wins — but nobody should find this
+                # out by reading a strange voltammogram.
+                elsewhere = (f"the key sits at index {names.index(key)}"
+                             if key in names else "the key is not in this list at all")
+                self._log_route(
+                    key,
+                    f"MISMATCH: index {index} is named {at_index!r}, not {key!r} "
+                    f"({elsewhere}). Using the bench-measured index {index}. If the "
+                    f".nox template was edited, re-measure before trusting this run.",
+                    warn=True)
+        elif key is not None:
+            self._log_route(
+                key, f"no IdNames on this command; using the measured index {index}")
+
         return list(cmd.CommandParameters)[index]
+
+    def _log_route(self, key, message, warn=False):
+        """Say how each parameter was resolved — once per key, per run.
+
+        Per KEY and not once per run: name support is a property of each command's
+        parameter list, so "the CV staircase carries IdNames" says nothing about
+        FHWait. A single global flag would report the first success as though it had
+        settled the whole question.
+        """
+        if key in self._named_params:
+            return
+        self._named_params.add(key)
+        log = get_run_logger()
+        (log.warning if warn else log.info)(
+            "Autolab: parameter %r — %s", key, message)
 
     def _set(self, cmd, index, value, key=None):
         """Write one parameter and verify it stuck — a silently ignored potential
-        would run the wrong experiment on a real sample."""
+        would run the wrong experiment on a real sample.
+
+        Note what this check CANNOT do: it writes and reads back the same object, so
+        it proves the SDK accepted the value, never that the object was the right
+        parameter. Guarding the position is _resolve_param's job.
+        """
         prm = self._resolve_param(cmd, key, index)
         prm.ValueAsObject = value
         back = prm.ValueAsObject
@@ -828,6 +1022,18 @@ class AutolabPotentiostat(Potentiostat):
         edge then.
         """
         override = self.settings.get("autolab_pulse_delay_s")
+        if override is not None and self.settings.get("autolab_wait_s") is not None:
+            # These two contradict each other. autolab_pulse_delay_s is an absolute
+            # number measured against whatever FHWait the template had at the time;
+            # once the wait is rewritten it is stale by exactly the amount it moved,
+            # and honouring it would fire the trigger seconds away from the recorder.
+            # The derived value is self-consistent by construction, so it wins.
+            get_run_logger().warning(
+                "Autolab: ignoring autolab_pulse_delay_s (%.3f s) because "
+                "autolab_wait_s (%.3f s) rewrites the wait it was measured against. "
+                "Using FHWait + the measured setup lag instead.",
+                float(override), float(self.settings["autolab_wait_s"]))
+            override = None
         if override is not None:
             get_run_logger().info(
                 "Autolab: pulsing at the manual autolab_pulse_delay_s (%.3f s). "
@@ -905,16 +1111,23 @@ class AutolabPotentiostat(Potentiostat):
         toggle the shutter on every segment — mid-run. Run
         examples/probe_dio_pin.py to find the real bit, then set the mask.
         """
-        deadline = time.time() + self._pulse_delay
-        while time.time() < deadline and not self._aborted:
-            time.sleep(min(0.05, max(0.0, deadline - time.time())))
+        # Anchored on cell ON — the same origin the delay was MEASURED against —
+        # not on entry to this function. Measure() returns 0.128-0.287 s after cell
+        # ON (test6, six segments), and anchoring here added every bit of that on
+        # top: the edge landed ~0.21 s AFTER the recorder's first sample on every
+        # chrono segment. That is spectra trailing echem, written into real files.
+        origin = getattr(self, "_t_cell_on", None) or time.perf_counter()
+        deadline = origin + self._pulse_delay
+        while time.perf_counter() < deadline and not self._aborted:
+            time.sleep(min(0.05, max(0.0, deadline - time.perf_counter())))
         if self._aborted:
             return
         port = self._port
-        mask = int(self.settings.get("autolab_dio_mask", 0xFF)) & 0xFF
+        mask = self._dio_mask
         port.Value = 0
         time.sleep(0.001)
         port.Value = mask          # rising edge -> the armed Avantes fires
+        self._t_edge = time.perf_counter()
         time.sleep(AUTOLAB_PULSE_WIDTH_S)
         port.Value = 0
 
@@ -944,6 +1157,48 @@ class AutolabPotentiostat(Potentiostat):
                 self._proc.Abort()
         except Exception as exc:  # noqa: BLE001
             get_run_logger().warning("Autolab Abort() failed: %s", exc)
+
+    def note_first_spectrum(self, t_perf):
+        self._t_spectrum0 = t_perf
+
+    def _report_timing(self):
+        """State the handshake in wall-clock, from cell-on.
+
+        Written because every claim about the 5-6 s gap so far has been INFERRED
+        from the template's FHWait plus a measured setup-lag constant, which is
+        exactly the reasoning examples/diag_trigger_timing.py exists to refuse. The
+        numbers here are taken, not derived, and CalcTime[0] is the instrument's own
+        account of when its recorder started — so the two can be checked against
+        each other on any run.
+        """
+        t0 = getattr(self, "_t_cell_on", None)
+        if t0 is None:
+            return
+        parts = []
+        edge = getattr(self, "_t_edge", None)
+        spec0 = getattr(self, "_t_spectrum0", None)
+        for label, mark in (("Measure() returned", getattr(self, "_t_measure_returned", None)),
+                            ("trigger edge", edge),
+                            ("spectrum 0 landed", spec0)):
+            if mark is not None:
+                parts.append(f"{label} +{mark - t0:.3f} s")
+        if edge is not None and spec0 is not None:
+            # The decisive one. A few ms means the detector genuinely sat waiting for
+            # the edge; ~0 or negative means it was already holding a scan and the
+            # alignment is luck, not hardware.
+            parts.append(f"EDGE -> spectrum 0 {(spec0 - edge) * 1000:+.1f} ms")
+        raw = None
+        try:
+            raw = raw_first_calctime(self._cmd)
+        except Exception:  # noqa: BLE001 — diagnostics must never break a run
+            pass
+        if raw is not None:
+            parts.append(f"recorder's own CalcTime[0] {raw:.3f} s")
+        if not parts:
+            return
+        get_run_logger().info(
+            "%s timing, from cell ON: %s.",
+            getattr(self._segment, "label", "?"), " | ".join(parts))
 
     def _report_segment_health(self):
         """Say so when a segment finished but should not be trusted. The Gamry

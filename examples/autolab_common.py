@@ -199,8 +199,10 @@ def describe_dio(inst):
         except Exception as exc:  # noqa: BLE001
             say(f"    could not iterate: {exc}")
     say("")
-    say("  autolab_dio_port indexes THIS list. If the trigger and the AvaLight")
-    say("  shutter sit on different ports here, they cannot interfere.")
+    say("  autolab_dio_port indexes THIS list. MEASURED 2026-09-09: five ports per")
+    say("  connector (A, B, C, C_Upper, C_Lower) on each of P1 and P2 — and C_Upper")
+    say("  and C_Lower are the NIBBLES of C, not separate lines. So 'different port")
+    say("  index' means independent only for A/B/C, or across P1 and P2.")
 
 
 def pulse(port, width_s=0.002, mask=0xFF):
