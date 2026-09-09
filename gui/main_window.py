@@ -34,6 +34,7 @@ class MainWindow(QMainWindow):
         self.settings = DEFAULT_SETTINGS.copy()
         bench_values, self.bench_warnings = load_bench_defaults()
         apply_bench_defaults(self.settings, bench_values)
+        self.bench_values = bench_values      # kept: bench_base() rebuilds from these
         self.bench_loaded = sorted(bench_values)
         self.spec = None
         self.dark = None
@@ -73,6 +74,16 @@ class MainWindow(QMainWindow):
         self.instrument_tab.collect_into(self.settings)
         self.parameters_tab.collect_into(self.settings)
         return self.settings
+
+    def bench_base(self):
+        """Code defaults + lab defaults + THIS machine — the layer a loaded
+        experiment JSON is supposed to sit on top of, per the precedence at the top
+        of __init__. Rebuilt fresh rather than reusing self.settings, so loading a
+        file is a clean state and not the current edits with the file smeared over.
+        """
+        base = DEFAULT_SETTINGS.copy()
+        apply_bench_defaults(base, self.bench_values)
+        return base
 
     def apply_settings(self, settings):
         """Push a settings dict into every input tab's widgets."""

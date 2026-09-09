@@ -611,34 +611,70 @@ def test_a_configured_mask_drives_only_those_pins(autolab):
 # parameter itself. The driver prefers the key and falls back to the measured index,
 # because whether THIS SDK accepts a string has never been confirmed on hardware.
 
-def test_parameters_resolve_by_name_when_the_sdk_allows_it(autolab):
-    """The decisive test: the fake's parameters are ordered so that name lookup and
-    index lookup would give DIFFERENT answers. If the values land correctly, the
-    name path is genuinely in use rather than the fallback quietly covering."""
+def test_the_write_lands_on_the_measured_index_and_the_name_confirms_it(autolab, caplog):
+    """The normal case: IdNames agrees with the bench-measured position, so the write
+    goes where it was measured and the log records the confirmation."""
+    from spec_echem import fakes
+
+    p, inst = autolab()
+    with caplog.at_level(logging.INFO):
+        p.prepare(_cv_segment())
+
+    assert list(p._cmd.CommandParameters.IdNames) == fakes.CV_PARAM_KEYS
+    params = list(p._cmd.CommandParameters)
+    assert params[potentiostat.CV_IDX_SCANRATE].ValueAsObject == pytest.approx(0.1)
+    assert "confirmed by IdNames" in caplog.text
+
+
+def test_a_name_index_mismatch_keeps_the_measured_index_and_warns(autolab, caplog):
+    """The case the whole design turns on. If IdNames says index 6 is not 'Scanrate',
+    something moved — or the key was wrong to begin with. The index is the half that
+    was verified against recorded data, so the write still goes there; what must NOT
+    happen is following the name silently onto another parameter."""
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+
+    # The manual's own ordering, which is NOT this instrument's: shift the names so
+    # every key lands one slot off.
+    names = list(p._cmd.CommandParameters.IdNames)
+    p._cmd.CommandParameters.IdNames = names[1:] + names[:1]
+    p._named_params.clear()                       # let it report again
+
+    with caplog.at_level(logging.WARNING):
+        p._set(p._cmd, potentiostat.CV_IDX_SCANRATE, 0.25, key="Scanrate")
+
+    assert list(p._cmd.CommandParameters)[potentiostat.CV_IDX_SCANRATE]         .ValueAsObject == 0.25                    # the measured slot, not the named one
+    assert "MISMATCH" in caplog.text
+    assert "Scanrate" in caplog.text
+
+
+def test_a_command_without_idnames_still_writes_by_measured_index(autolab, caplog):
+    """Not every command names its parameters — 'Optimize current range' and the
+    ExtendedSequence wrapper both come back bare on the rig. That is not an error,
+    it is the situation the driver started in, and it should say so once rather
+    than fail."""
     from spec_echem import fakes
 
     p, inst = autolab()
     p.prepare(_cv_segment())
-    keys = list(p._cmd.CommandParameters.IdNames)
-    assert keys == fakes.CV_PARAM_KEYS          # the fake exposes documented names
+    bare = fakes._FakeCommand([1.0, 2.0])          # no param_keys
+    assert not list(bare.CommandParameters.IdNames)
 
-    # Scan rate is index 6; ask for it by name and confirm it reaches that slot.
-    p._set(p._cmd, None, 0.25, key="Scanrate")
-    assert p._cmd.CommandParameters[6].ValueAsObject == 0.25
+    with caplog.at_level(logging.INFO):
+        prm = p._resolve_param(bare, "Duration", 1)
+
+    assert prm is list(bare.CommandParameters)[1]
+    assert "no IdNames on this command" in caplog.text
 
 
-def test_an_sdk_without_names_falls_back_to_the_measured_index(autolab, monkeypatch):
-    """If CommandParameters refuses a string, the bench-measured indices still work —
-    which is the situation until the rig confirms otherwise."""
+def test_a_key_with_no_measured_index_resolves_through_idnames(autolab):
+    """The one place a name alone decides the slot — and only because it is looked up
+    in the command's own IdNames, never handed to the SDK as a guess."""
     p, inst = autolab()
     p.prepare(_cv_segment())
 
-    def no_names(key):
-        raise TypeError("No method matches given arguments")
-    monkeypatch.setattr(p._cmd.CommandParameters, "__getitem__", no_names)
-
-    prm = p._resolve_param(p._cmd, "Scanrate", potentiostat.CV_IDX_SCANRATE)
-    assert prm is not None                       # resolved despite the refusal
+    p._set(p._cmd, None, 0.25, key="Scanrate")
+    assert list(p._cmd.CommandParameters)[potentiostat.CV_IDX_SCANRATE]         .ValueAsObject == 0.25
 
 
 def test_a_parameter_with_neither_a_name_nor_an_index_fails_loudly(autolab):
@@ -646,3 +682,235 @@ def test_a_parameter_with_neither_a_name_nor_an_index_fails_loudly(autolab):
     p.prepare(_cv_segment())
     with pytest.raises(NotImplementedError, match="autolab-driver-finishing"):
         p._resolve_param(p._cmd, "NoSuchParameter", None)
+
+
+# --- the Abort button --------------------------------------------------------
+# gui/workers.py calls potentiostat.stop() when the student confirms Abort. Nothing
+# in this suite had ever called it, and docs/autolab-driver-finishing.md step 2c says
+# it has never run on hardware either — so until now the path had no exercise of any
+# kind. The fakes can drive all of it except the SDK's own Abort() semantics.
+
+def test_the_abort_button_stops_a_running_procedure_and_kills_the_cell(autolab):
+    p, inst = autolab(duration=5.0, points=10)
+    p.prepare(_cv_segment())
+    p.fire()
+    assert p._proc.IsMeasuring is True            # a run genuinely in flight
+    assert inst.Ei.Cell is True
+
+    p.stop()                                      # <- what the Abort button reaches
+
+    assert p._proc.IsMeasuring is False           # the procedure was told to stop
+    p.finish(aborted=True)
+    assert inst.Ei.Cell is False                  # and the cell did not stay live
+    assert p.last_data() is None                  # a partial segment keeps no data
+
+
+def test_abort_while_waiting_out_the_pulse_delay_sends_no_edge(autolab):
+    """The delay is where an abort most often lands: fire() sits in _pulse_trigger
+    for seconds with the spectrometer armed. Aborting there must leave the trigger
+    line alone — an edge sent on the way out would start a segment nobody is
+    collecting."""
+    import threading
+
+    p, inst = autolab(duration=5.0, points=10,
+                      settings=_autolab_settings(autolab_pulse_delay_s=5.0))
+    p.prepare(_cv_segment())
+
+    threading.Timer(0.05, p.stop).start()
+    t0 = time.time()
+    p.fire()                                      # blocks in the chunked delay
+    elapsed = time.time() - t0
+
+    assert elapsed < 2.0                          # returned early, not after 5 s
+    assert inst.port.rising_edges == 0            # and never pulsed
+    assert inst.port.Value == 0
+
+
+# --- the mask is a mask, however it is written -------------------------------
+# probe_dio_pin.py's whole output is a number to put in bench.ini. Writing it the
+# way a mask is written must not quietly restore the all-eight-pins default.
+
+def test_a_hex_mask_from_a_bench_file_is_honoured(autolab):
+    p, inst = autolab(settings=_autolab_settings(autolab_dio_mask="0x04"))
+    p.prepare(_cv_segment())
+    p.fire()
+    assert 0x04 in inst.port.history
+    assert 0xFF not in inst.port.history
+
+
+def test_a_mask_that_can_send_no_edge_is_refused_before_the_run(autolab):
+    """0 would pulse low -> low -> low and hang the segment on a wait-timeout with
+    nothing saying why. Better to refuse it at construction, before anything is
+    armed."""
+    with pytest.raises(ValueError, match="never sees an edge"):
+        autolab(settings=_autolab_settings(autolab_dio_mask=0))
+
+
+def test_the_chrono_keys_confirm_against_the_rigs_idnames(autolab, caplog):
+    """The chrono keys were guesses until 2026-09-09; they are now read off the
+    instrument, micro sign and all. If any of them drifts — a typo, or the Greek mu
+    for the micro sign — this says MISMATCH instead of confirming."""
+    from spec_echem import fakes
+
+    p, inst = autolab()
+    with caplog.at_level(logging.INFO):
+        p.prepare(_doping_segment())
+
+    assert list(p._cmd.CommandParameters.IdNames) == fakes.CA_LEVEL_KEYS
+    assert "MISMATCH" not in caplog.text
+    for key in (potentiostat.CA_KEY_POTENTIAL, potentiostat.CA_KEY_DURATION,
+                potentiostat.CA_KEY_INTERVAL):
+        assert f"{key!r} — confirmed by IdNames" in caplog.text
+
+
+# --- the FHWait window -------------------------------------------------------
+# The stock CA template waits 5 s between switching the cell on and starting the
+# recorder — and the driver has already written the DOPING potential into the
+# setpoint command that runs before it. So those 5 s are the experiment happening
+# unrecorded, not a settling period at rest.
+
+def test_the_template_wait_is_left_alone_by_default(autolab):
+    """None means 'whatever the .nox says' — the driver does not silently retime
+    someone's procedure."""
+    p, inst = autolab(wait_s=5.0)
+    p.prepare(_doping_segment())
+    wait = p._proc.Commands[potentiostat.AUTOLAB_WAIT_COMMAND]
+    assert list(wait.CommandParameters)[0].ValueAsObject == 5.0
+
+
+def test_autolab_wait_s_rewrites_the_template_wait(autolab):
+    p, inst = autolab(wait_s=5.0, settings=_autolab_settings(autolab_wait_s=0.0))
+    p.prepare(_doping_segment())
+    wait = p._proc.Commands[potentiostat.AUTOLAB_WAIT_COMMAND]
+    assert list(wait.CommandParameters)[0].ValueAsObject == 0.0
+
+
+def test_the_trigger_delay_follows_the_rewritten_wait(autolab):
+    """The delay is derived from FHWait, so shrinking the wait must move the edge
+    with it — otherwise the spectra would start seconds after the echem."""
+    p, inst = autolab(wait_s=5.0, settings=_autolab_settings(
+        autolab_wait_s=0.0, autolab_pulse_delay_s=None))
+    p.prepare(_doping_segment())
+    assert p._pulse_delay == pytest.approx(potentiostat.AUTOLAB_SETUP_LAG_CA_S)
+
+
+def test_a_stale_manual_pulse_delay_is_ignored_when_the_wait_is_rewritten(autolab, caplog):
+    """autolab_pulse_delay_s is an absolute number measured against the OLD wait.
+    Honouring it after rewriting the wait would fire the trigger ~5 s from the
+    recorder — the exact failure the delay exists to prevent."""
+    p, inst = autolab(wait_s=5.0, settings=_autolab_settings(
+        autolab_wait_s=0.0, autolab_pulse_delay_s=5.95))
+    with caplog.at_level(logging.WARNING):
+        p.prepare(_doping_segment())
+
+    assert "ignoring autolab_pulse_delay_s" in caplog.text
+    assert p._pulse_delay == pytest.approx(potentiostat.AUTOLAB_SETUP_LAG_CA_S)
+    assert p._pulse_delay != pytest.approx(5.95)
+
+
+# --- measured, not inferred --------------------------------------------------
+
+def test_the_handshake_is_reported_in_wall_clock(autolab, caplog):
+    """Every statement about the cell-on-to-data gap has been inferred from the
+    template until now. These marks are taken."""
+    p, inst = autolab(points=6)
+    p.prepare(_doping_segment())
+    p.fire()
+    with caplog.at_level(logging.INFO):
+        p.finish()
+
+    assert "timing, from cell ON" in caplog.text
+    assert "Measure() returned" in caplog.text
+    assert "trigger edge" in caplog.text
+    assert p._t_edge >= p._t_cell_on
+
+
+def test_timing_marks_do_not_leak_between_segments(autolab):
+    """A stale mark would report the previous segment's handshake as this one's."""
+    p, inst = autolab(points=6)
+    p.prepare(_doping_segment()); p.fire(); p.finish()
+    assert p._t_edge is not None
+    p.prepare(_doping_segment())
+    assert p._t_cell_on is None and p._t_edge is None
+
+
+def test_the_edge_to_spectrum_0_gap_is_reported(autolab, caplog):
+    """The number that says whether the detector actually waited for the edge.
+    Nothing in the system related the Avantes device clock to Python's before this,
+    which is why the question could only ever be argued."""
+    import time as _time
+
+    p, inst = autolab(points=6)
+    p.prepare(_doping_segment())
+    p.fire()
+    p.note_first_spectrum(p._t_edge + 0.004)      # as acquisition would, 4 ms later
+    with caplog.at_level(logging.INFO):
+        p.finish()
+
+    assert "EDGE -> spectrum 0" in caplog.text
+    assert "+4.0 ms" in caplog.text
+
+
+def test_no_spectrum_mark_means_no_edge_gap_claimed(autolab, caplog):
+    """External mode and the no-trigger path have nothing to compare; the line must
+    simply omit the number rather than invent one."""
+    p, inst = autolab(points=6)
+    p.prepare(_doping_segment())
+    p.fire()
+    with caplog.at_level(logging.INFO):
+        p.finish()
+
+    assert "timing, from cell ON" in caplog.text
+    assert "EDGE -> spectrum 0" not in caplog.text
+
+
+# --- the trailing setpoints --------------------------------------------------
+# Zeroing the extra FHLevel durations stops them RECORDING. It does not stop the
+# setpoint commands beside them applying +0.5 V and -0.5 V with the cell still on.
+# Nothing is written (the recorders are zero-length), so on a film this was two
+# unrecorded half-volt excursions after every doping cycle.
+
+def test_trailing_setpoints_are_parked_at_the_segment_potential(autolab, caplog):
+    from spec_echem.fakes import CA_SETPOINT_ID
+
+    p, inst = autolab(ca_levels=3)                 # the stock 3-block template
+    seg = _doping_segment()
+    with caplog.at_level(logging.INFO):
+        p.prepare(seg)
+
+    held = p._chrono_potential(seg)
+    idnames = list(p._proc.Commands.IdNames)
+    cmds = list(p._proc.Commands)
+    setpoints = [i for i, n in enumerate(idnames) if n == CA_SETPOINT_ID]
+    assert len(setpoints) == 3                     # one per block, as on the rig
+    for pos in setpoints:
+        got = list(cmds[pos].CommandParameters)[potentiostat.CA_IDX_POTENTIAL]
+        assert got.ValueAsObject == pytest.approx(held), f"command {pos} still moves the cell"
+    assert "parked 2 trailing setpoint" in caplog.text
+
+
+def test_a_single_step_template_needs_no_parking(autolab, caplog):
+    """A purpose-built one-block .nox has nothing trailing; this must be a no-op."""
+    p, inst = autolab(ca_levels=1)
+    with caplog.at_level(logging.INFO):
+        p.prepare(_doping_segment())
+    assert "parked" not in caplog.text
+
+
+# --- the edge is anchored on cell ON -----------------------------------------
+
+def test_the_edge_is_anchored_on_cell_on_not_on_pulse_entry(autolab):
+    """Measure() returns 0.128-0.287 s after cell ON on the rig. Anchoring the
+    deadline at _pulse_trigger entry added all of it, putting the edge ~0.21 s after
+    the recorder's first sample."""
+    import time as _time
+
+    p, inst = autolab(points=6, measure_cost=0.20,      # as costly as the real rig
+                      settings=_autolab_settings(autolab_pulse_delay_s=0.30))
+    p.prepare(_cv_segment())
+    p.fire()
+
+    # 0.30 s after CELL ON — not 0.20 + 0.30 = 0.50, which is what anchoring the
+    # deadline at _pulse_trigger entry would give.
+    assert p._t_measure_returned - p._t_cell_on == pytest.approx(0.20, abs=0.05)
+    assert p._t_edge - p._t_cell_on == pytest.approx(0.30, abs=0.06)

@@ -292,7 +292,9 @@ class ParametersTab(QWidget):
         path, _ = QFileDialog.getOpenFileName(self, "Load Settings", start, "JSON files (*.json)")
         if not path:
             return
-        settings = load_settings(path)
+        # bench_base(), not the bare default: a file that predates a bench key must
+        # not silently revert this rig's value for it.
+        settings = load_settings(path, base=self.win.bench_base())
         self.win.apply_settings(settings)
 
     def on_save(self):

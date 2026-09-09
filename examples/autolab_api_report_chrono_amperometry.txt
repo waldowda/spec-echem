@@ -2,10 +2,10 @@
 ========================================================================
 AUTOLAB — CAN PYTHON RUN ELECTROCHEMISTRY?
 ========================================================================
-when          : 2026-09-09 11:59:43
+when          : 2026-09-09 11:54:22
 python        : 3.13.15 (64-bit)
 ENERGIZE_CELL : False
-NOX           : C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Cyclic voltammetry.nox
+NOX           : C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Chrono amperometry.nox
 Connected OK — cell NOT switched on.
 
 --- Instrument ----------------------------------------------------------
@@ -26,8 +26,8 @@ Connected OK — cell NOT switched on.
 ========================================================================
 Q1/Q2 — the procedure route (LoadProcedure / parameters)
 ========================================================================
-LoadProcedure OK: Cyclic voltammetry.nox
-  LoadProcedure() returned: <EcoChemie.Autolab.Sdk.IProcedure object at 0x0000015B964209C0> (IProcedure)
+LoadProcedure OK: Chrono amperometry.nox
+  LoadProcedure() returned: <EcoChemie.Autolab.Sdk.IProcedure object at 0x000002663C634140> (IProcedure)
   inst.Procedure -> <error: 'Instrument' object has no attribute 'Procedure'>
   inst.get_Procedure() -> <error: 'Instrument' object has no attribute 'get_Procedure'>
   procedure handle resolved via: LoadProcedure() return value
@@ -52,8 +52,8 @@ Q2 — parameter access. Looking for a command tree we can write into:
     [r ] Item: Command
     [r ] Names: String[]
   methods (7): Contains, ContainsId, Equals, GetEnumerator, GetHashCode, GetType, ToString
-  Commands.Names   = ['Cyclic voltammetry', 'Autolab control', 'Set potential', 'Set cell', 'Wait time (s)', 'Optimize current range', 'CV staircase', 'i vs E', 'Set cell']
-  Commands.IdNames = ['ExtendedSequence', 'FHGetSetValues', 'FHSetSetpointPotential', 'FHSwitchCell', 'FHWait', 'FHPreCurrentRangingCV', 'FHCyclicVoltammetry2', 'PlotsIvsE', 'FHSwitchCell']
+  Commands.Names   = ['Chrono amperometry', 'Autolab control', 'Set potential', 'Set cell', 'Wait time (s)', 'Record signals (>1 ms)', 'i vs t', 'Set potential', 'Record signals (>1 ms)', 'i vs t', 'Set potential', 'Record signals (>1 ms)', 'i vs t', 'Set cell']
+  Commands.IdNames = ['ExtendedSequence', 'FHGetSetValues', 'FHSetSetpointPotential', 'FHSwitchCell', 'FHWait', 'FHLevel', 'PlotsIvst', 'FHSetSetpointPotential', 'FHLevel', 'PlotsIvst', 'FHSetSetpointPotential', 'FHLevel', 'PlotsIvst', 'FHSwitchCell']
 
 --- Commands[0] (a Command) ---------------------------------------------
   .NET type: EcoChemie.Autolab.Sdk.Command
@@ -61,7 +61,7 @@ Q2 — parameter access. Looking for a command tree we can write into:
     [r ] CommandParameters: CommandParameterList
     [r ] Signals: CommandParameterSignalList
   methods (5): Dispose, Equals, GetHashCode, GetType, ToString
-    [0] Cyclic voltammetry
+    [0] Chrono amperometry
     [1] Autolab control
        CommandParameters.IdNames = ['EI_0.Mode', 'EI_0.Bandwidth', 'EI_0.CurrentRange']
        CommandParameters.Names = ['WE(1).Mode', 'WE(1).Bandwidth', 'WE(1).Current range']
@@ -80,39 +80,68 @@ Q2 — parameter access. Looking for a command tree we can write into:
        CommandParameters.IdNames = ['Time']
        CommandParameters.Names = ['Duration (s)']
          param CommandParameterDouble = 5.0
-    [5] Optimize current range
-    [6] CV staircase
-       CommandParameters.IdNames = ['Start value', 'Upper vertex', 'Lower vertex', 'Step', 'NrOfStopCrossings', 'Stop value', 'Scanrate']
-       CommandParameters.Names = ['Start potential (V)', 'Upper vertex potential (V)', 'Lower vertex potential (V)', 'Step potential (V)', 'Number of stop crossings', 'Stop potential (V)', 'Scan rate (V/s)']
-         param CommandParameterDouble = 0.0
-         param CommandParameterDouble = 1.0
-         param CommandParameterDouble = -1.0
-         param CommandParameterDouble = 0.00244
-         param CommandParameterInt = 2
-         param CommandParameterDouble = 0.0
-         param CommandParameterDouble = 0.09999999999999999
-    [7] i vs E
+    [5] Record signals (>1 ms)
+       CommandParameters.IdNames = ['Interval time in µs', 'Duration', 'UseFastOptions']
+       CommandParameters.Names = ['Interval time (s)', 'Duration (s)', 'Use fast options']
+         param CommandParameterDouble = 0.01
+         param CommandParameterDouble = 5.0
+         param CommandParameterBool = False
+    [6] i vs t
        CommandParameters.IdNames = ['X', 'Y', 'Z']
        CommandParameters.Names = ['X', 'Y', 'Z']
          param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
          param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
          param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
-    [8] Set cell
+    [7] Set potential
+       CommandParameters.IdNames = ['Setpoint value']
+       CommandParameters.Names = ['Potential (V)']
+         param CommandParameterDouble = 0.5
+    [8] Record signals (>1 ms)
+       CommandParameters.IdNames = ['Interval time in µs', 'Duration', 'UseFastOptions']
+       CommandParameters.Names = ['Interval time (s)', 'Duration (s)', 'Use fast options']
+         param CommandParameterDouble = 0.01
+         param CommandParameterDouble = 5.0
+         param CommandParameterBool = False
+    [9] i vs t
+       CommandParameters.IdNames = ['X', 'Y', 'Z']
+       CommandParameters.Names = ['X', 'Y', 'Z']
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+    [10] Set potential
+       CommandParameters.IdNames = ['Setpoint value']
+       CommandParameters.Names = ['Potential (V)']
+         param CommandParameterDouble = -0.5
+    [11] Record signals (>1 ms)
+       CommandParameters.IdNames = ['Interval time in µs', 'Duration', 'UseFastOptions']
+       CommandParameters.Names = ['Interval time (s)', 'Duration (s)', 'Use fast options']
+         param CommandParameterDouble = 0.01
+         param CommandParameterDouble = 5.0
+         param CommandParameterBool = False
+    [12] i vs t
+       CommandParameters.IdNames = ['X', 'Y', 'Z']
+       CommandParameters.Names = ['X', 'Y', 'Z']
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+         param CommandParameterDoubleList = System.Collections.Generic.List`1[System.Double]
+    [13] Set cell
        CommandParameters.IdNames = ['EI_0.Cell']
        CommandParameters.Names = ['WE(1).Cell']
          param CommandParameterOnOff = Off
 
-Q2 ANSWER: YES — 8 parameter(s) took a written value and read
+Q2 ANSWER: YES — 13 parameter(s) took a written value and read
   it back. A single standard NOVA CV/CA procedure can be re-parameterized
   per cycle, which is what the incrementing doping potential needs.
     writable: Set potential.CommandParameterDouble
     writable: Wait time (s).CommandParameterDouble
-    writable: CV staircase.CommandParameterDouble
-    writable: CV staircase.CommandParameterDouble
-    writable: CV staircase.CommandParameterDouble
-    writable: CV staircase.CommandParameterDouble
-    writable: CV staircase.CommandParameterDouble
-    writable: CV staircase.CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterBool
+    writable: Set potential.CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterDouble
+    writable: Record signals (>1 ms).CommandParameterBool
+    writable: Set potential.CommandParameterDouble
 
 Q8: no digital-I/O command found in this procedure. Either add a P1.A pulse
   in NOVA (see the PC_Spectral* procedures, which have one), or have Python
