@@ -336,15 +336,58 @@ class FakeProcedure:
             self._levels[0]._publish(dict(channels))
 
 
+class _FakeEiEnums:
+    """Stands in for EcoChemie.Autolab.Sdk.EI's nested enums."""
+    class EIMode:
+        Potentiostatic = "Potentiostatic"
+        Galvanostatic = "Galvanostatic"
+    class EICurrentRange:
+        CR10_1mA = "CR10_1mA"
+        CR10_100uA = "CR10_100uA"
+    class EICellOnOff:
+        On, Off = 1, 0
+
+
+class _FakeSampler:
+    """Ei.Sampler. Sample() is what reloads the latch — see potentiostat.sample_ei."""
+    def __init__(self, ei):
+        self._ei = ei
+        self.samples = 0
+
+    def Sample(self):
+        self.samples += 1
+        self._ei._latch()
+
+
 class _FakeEi:
+    """Models the LATCH, which is the whole point.
+
+    Potential/Current are not live on this instrument: they hold whatever the last
+    Sampler.Sample() loaded. A fake with live properties would let a driver that
+    never calls Sample() pass every test and then record 300 identical rows on the
+    rig, which is exactly what 20260909_test11 did.
+
+    Tests drive `true_potential` / `true_current`; the driver only ever sees what it
+    has sampled.
+    """
+
     def __init__(self):
         self.Cell = False
+        self.Mode = None            # Ei mode sets these before the cell closes
+        self.CurrentRange = None
         self.CellOnOff = None
         self.PotentialOverload = False
         self.CurrentOverload = False
         self.Setpoint = 0.0
-        self.Potential = 0.0
+        self.true_potential = 0.0   # what the cell is really doing
+        self.true_current = 0.0
+        self.Potential = 0.0        # what a read returns: the latch
         self.Current = 0.0
+        self.Sampler = _FakeSampler(self)
+
+    def _latch(self):
+        self.Potential = self.true_potential
+        self.Current = self.true_current
 
 
 class _FakePort:

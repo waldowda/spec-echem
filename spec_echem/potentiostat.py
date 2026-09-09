@@ -289,7 +289,8 @@ CA_RECORDER_COMMAND = "FHLevel"                  # holds duration + interval; ow
 CA_SETPOINT_COMMAND = "FHSetSetpointPotential"   # holds the potential
 CA_IDX_POTENTIAL = 0     # on FHSetSetpointPotential
 CA_IDX_DURATION = 1      # on FHLevel  (default 5.0 s)
-CA_IDX_INTERVAL = 0      # on FHLevel  (default 0.01 s); FHLevel[2] is a bool, left alone
+CA_IDX_INTERVAL = 0      # on FHLevel  (default 0.01 s)
+CA_IDX_FAST = 2          # on FHLevel  ('UseFastOptions', a bool, ships False)
 
 # Parameter KEYS — READ OFF THE RIG 2026-09-09 (examples/autolab_api_report.txt and
 # autolab_api_report_chrono_amperometry.txt), no longer guesses. Every one agrees
@@ -298,6 +299,7 @@ CA_IDX_INTERVAL = 0      # on FHLevel  (default 0.01 s); FHLevel[2] is a bool, l
 CA_KEY_POTENTIAL = "Setpoint value"     # on FHSetSetpointPotential (CV + CA .nox)
 WAIT_KEY_DURATION = "Time"              # on FHWait                 (CV + CA .nox)
 CA_KEY_DURATION = "Duration"            # on FHLevel
+CA_KEY_FAST = "UseFastOptions"          # on FHLevel; NOVA calls it "Use fast options"
 CA_KEY_INTERVAL = "Interval time in µs"   # on FHLevel
 
 # That key is MICRO SIGN (U+00B5), not Greek small mu (U+03BC) — verified from the
@@ -308,6 +310,19 @@ CA_KEY_INTERVAL = "Interval time in µs"   # on FHLevel
 # as seconds and an impossible 10 ps as microseconds. The driver writes
 # segment.delta_time in SECONDS, which is what the recorded data agrees with
 # (2026-09-03/04). The vendor's IdName is simply mislabelled.
+
+# How far Ei.Setpoint may land from what was asked before it counts as a failure.
+#
+# The procedure path verifies parameter writes at 1e-9 because those are software
+# values in a Python-visible object: they round-trip exactly, and any difference at
+# all means the SDK ignored the write. Ei.Setpoint is a hardware DAC. It SNAPS to
+# its nearest step, so an exact comparison rejects a perfectly good write — on the
+# rig 2026-09-09 it refused 0.1 V because the instrument applied 0.09994506835937.
+#
+# 2 mV is comfortably above any plausible DAC step (a 16-bit converter over +-10 V
+# is 305 uV) and far below any potential difference that matters electrochemically,
+# so this still catches the failure worth catching: a write that was ignored outright.
+AUTOLAB_SETPOINT_TOL_V = 0.002
 
 # Pulse the trigger this long, and give up on a segment after this.
 AUTOLAB_PULSE_WIDTH_S = 0.002
@@ -459,6 +474,78 @@ def echem_from_signals(cmd):
     )
 
 
+def echem_from_live_samples(samples):
+    """[(t, E, I)] collected by pump() -> EchemData, or None if empty.
+
+    The Ei path's counterpart to echem_from_signals(). Time is rebased to the first
+    sample exactly as the .Signals path rebases CalcTime, so both modes produce the
+    same file. These are instantaneous scalar reads rather than the recorder's own
+    buffer, which is the trade: Python owns t=0 and there is no procedure startup,
+    but each point costs a USB round trip and the grid is Python's, not the
+    instrument's.
+    """
+    if not samples:
+        return None
+    t = np.asarray([s[0] for s in samples], dtype=float)
+    return EchemData(
+        time=t - t[0] if len(t) else t,
+        potential=np.asarray([s[1] for s in samples], dtype=float),
+        current=np.asarray([s[2] for s in samples], dtype=float),
+    )
+
+
+def sample_ei(inst):
+    """Refresh Ei's readings. WITHOUT THIS, EVERY READ RETURNS A STALE VALUE.
+
+    Ei.Current / Ei.Potential / the overload flags are not live properties — they are
+    a latch, and Ei.Sampler.Sample() is what reloads it. PROVEN on the rig 2026-09-09
+    (examples/probe_ei_live_report.txt): held at 0.1 V then 0.2 V across a 10 kOhm
+    dummy, a bare read at the SECOND potential returned exactly the FIRST one's value
+    (9.9304e-06 A, 0.099884 V), while Sample()-then-read gave 2.0035e-05 A, 0.2% off
+    Ohm's law at both.
+
+    That is what made 20260909_test11 record 0.000125 V and -4.18 nA for every sample
+    of every segment: the latch still held whatever was in it at connect time.
+
+    One Sample() refreshes ALL signals, so potential and current come from the same
+    instant — preferred over Instrument.GetSignal(), which also works but would take
+    each channel in a separate call and could straddle two samples.
+
+    Best-effort: a failed refresh is a stale reading, not a reason to sink a segment.
+    """
+    try:
+        inst.Ei.Sampler.Sample()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _set_ei_mode(ei, potentiostatic=True):
+    """Put the potentiostat in potentiostatic mode. Module level and thin, so the
+    suite (which has no EcoChemie assembly to import) can replace it, exactly as it
+    already replaces _set_cell."""
+    from EcoChemie.Autolab.Sdk import EI
+    ei.Mode = EI.EIMode.Potentiostatic if potentiostatic else EI.EIMode.Galvanostatic
+
+
+def _set_current_range(ei, name):
+    """Fix the current range, or leave the instrument's own if not configured.
+
+    Named ranges are an SDK enum (CR10_1mA and friends); an unknown name is a
+    warning, not a failed run, because the instrument's existing range still
+    measures — it just may not be the best one for this sample.
+    """
+    if not name:
+        return
+    try:
+        from EcoChemie.Autolab.Sdk import EI
+        ei.CurrentRange = getattr(EI.EICurrentRange, str(name))
+    except Exception as exc:  # noqa: BLE001
+        get_run_logger().warning(
+            "Autolab: current range %r not accepted (%s); leaving the instrument's "
+            "own range in place.", name, exc)
+
+
 def raw_first_calctime(cmd):
     """CalcTime[0] as the instrument reported it, BEFORE echem_from_signals rebases
     the trace to start at zero.
@@ -575,6 +662,12 @@ class AutolabPotentiostat(Potentiostat):
         # cannot produce one. A bad value should stop the run before it starts.
         self._dio_mask = parse_dio_mask(
             self.settings.get("autolab_dio_mask", 0xFF))
+        # "procedure" runs the .nox for every segment (the shipped behaviour);
+        # "ei" drives chrono holds from Python and leaves CV on the procedure.
+        self._ca_mode = str(self.settings.get("autolab_ca_mode") or "procedure").lower()
+        if self._ca_mode not in ("procedure", "ei"):
+            raise ValueError(
+                f"autolab_ca_mode must be 'procedure' or 'ei', got {self._ca_mode!r}")
 
     # --- lifecycle ------------------------------------------------------
 
@@ -631,8 +724,25 @@ class AutolabPotentiostat(Potentiostat):
         # describing the PREVIOUS segment's handshake as this one's.
         self._t_cell_on = self._t_measure_returned = self._t_edge = None
         self._t_spectrum0 = None
+        self._t_sample_origin = None
+        self._ei_mode = False
         self._max_wait = segment.num_points * segment.delta_time * 3.0 + \
             AUTOLAB_MAX_WAIT_MARGIN_S
+
+        # Ei mode: Python IS the experiment for a chrono hold. No LoadProcedure, so
+        # none of the ~0.93 s the procedure spends walking FHGetSetValues ->
+        # FHSetSetpointPotential -> FHSwitchCell before FHLevel ever records
+        # (MEASURED 20260909_test6/7; UseFastOptions changed it by nothing, test8).
+        # CV keeps the procedure: the staircase is a real waveform worth having the
+        # instrument generate, and its path already meets spec.
+        self._ei_mode = (self._ca_mode == "ei"
+                         and segment.data_type != DATA_TYPE_CV)
+        if self._ei_mode:
+            self._proc = None
+            self._cmd = None
+            self._prepare_ei(segment)
+            self._pulse_delay = 0.0     # Python owns t=0; nothing to wait for
+            return
 
         self._proc = self._inst.LoadProcedure(self._nox_for(segment))
         self._cmd = self._command_for(segment)
@@ -654,6 +764,8 @@ class AutolabPotentiostat(Potentiostat):
         is the origin because that is the moment the experiment starts happening to
         the sample — everything the recorder misses is measured from here.
         """
+        if self._ei_mode:
+            return self._fire_ei()
         _set_cell(self._inst, True)
         # perf_counter for the diagnostics, not time.time(): both read in 58 ns on
         # this box (measured), but time.time() is adjustable and non-monotonic, so an
@@ -661,13 +773,32 @@ class AutolabPotentiostat(Potentiostat):
         # _t0 stays wall-clock — it is the .dta file's absolute start stamp.
         self._t_cell_on = time.perf_counter()
         self._t0 = time.time()
+        self._t_sample_origin = self._t_cell_on
         self._proc.Measure()          # returns immediately
         self._t_measure_returned = time.perf_counter()
         if self._trigger_in_procedure:
             return                    # the .nox's DIO step raises P1.A itself
         self._pulse_trigger()
 
+    def _fire_ei(self):
+        """Cell on, edge, sampling — three statements, nothing in between.
+
+        The .nox route had to wait ~0.93 s for the procedure to reach its recorder,
+        and fired the trigger at a PREDICTED time to match, which is why the residual
+        could never beat the instrument's own +-35 ms startup scatter. Here there is
+        nothing to predict: the same thread closes the cell and raises the edge.
+        """
+        _set_cell(self._inst, True)
+        self._t_cell_on = time.perf_counter()
+        self._t0 = time.time()
+        self._t_measure_returned = self._t_cell_on     # nothing to call
+        self._t_sample_origin = self._t_cell_on
+        if not self._trigger_in_procedure:
+            self._pulse_trigger()
+
     def finish(self, aborted=False):
+        if self._ei_mode:
+            return self._finish_ei(aborted)
         if aborted or self._aborted:
             self._stop_procedure()
         else:
@@ -684,6 +815,23 @@ class AutolabPotentiostat(Potentiostat):
         except ValueError as exc:
             get_run_logger().warning("Autolab: %s", exc)
             self._last_data = None
+        self._report_timing()
+        self._report_segment_health()
+
+    def _finish_ei(self, aborted=False):
+        """Cell off, then the trace Python collected itself."""
+        try:
+            _set_cell(self._inst, False)
+        except Exception as exc:  # noqa: BLE001
+            get_run_logger().warning("Autolab: could not switch the cell off: %s", exc)
+        if aborted or self._aborted:
+            return                    # a discarded segment keeps no data
+        self._last_data = echem_from_live_samples(self._live_samples)
+        if self._last_data is None:
+            get_run_logger().warning(
+                "Autolab (Ei mode): no live samples were collected for this segment; "
+                "no echem data written. pump() is what samples, so this means the "
+                "acquisition loop never ran.")
         self._report_timing()
         self._report_segment_health()
 
@@ -707,14 +855,22 @@ class AutolabPotentiostat(Potentiostat):
         if inst is None:
             return
         try:
+            # FIRST, always. Everything below reads the latch that this refreshes —
+            # including the overload flags, which means that check has never actually
+            # been able to fire in EITHER mode. See sample_ei().
+            sample_ei(inst)
             if inst.Ei.PotentialOverload or inst.Ei.CurrentOverload:
                 self._overloaded = True
             if not inst.AutolabConnection.IsConnected:
                 self._device_lost = True
                 return
-            if self._t0 is not None:
+            origin = self._t_sample_origin
+            if origin is not None:
+                # perf_counter against the cell-on mark. In Ei mode these samples ARE
+                # the segment's echem data, not a diagnostic sideline, so they get the
+                # monotonic clock rather than wall time.
                 self._live_samples.append(
-                    (time.time() - self._t0,
+                    (time.perf_counter() - origin,
                      float(inst.Ei.Potential), float(inst.Ei.Current)))
         except Exception:  # noqa: BLE001 — a live sample must never sink a segment
             pass
@@ -750,6 +906,65 @@ class AutolabPotentiostat(Potentiostat):
         if segment.data_type == DATA_TYPE_CV:
             return self._proc.Commands[AUTOLAB_CV_COMMAND]
         return self._proc.Commands[CA_RECORDER_COMMAND]
+
+    def _prepare_ei(self, segment):
+        """Configure the potentiostat BEFORE the cell closes.
+
+        This is the work the procedure's FHGetSetValues / FHSetSetpointPotential
+        commands do, and doing it here is the whole point: it happens while the cell
+        is still open, off the clock, instead of costing ~0.7 s inside the run. When
+        the cell then closes it is already at the segment's potential, which is the
+        shape the Gamry driver has always had:
+
+            set_cell(True); set_digital_out(...); curve.run(True)
+        """
+        ei = self._inst.Ei
+        v = self._chrono_potential(segment)
+        t0 = time.perf_counter()
+        _set_ei_mode(ei)
+        _set_current_range(ei, self.settings.get("autolab_current_range"))
+        ei.Setpoint = float(v)
+        back = float(ei.Setpoint)
+        if abs(back - float(v)) > AUTOLAB_SETPOINT_TOL_V:
+            raise RuntimeError(
+                f"Autolab Ei.Setpoint did not take: wrote {v}, read back {back} "
+                f"(further than {AUTOLAB_SETPOINT_TOL_V} V, so this is not DAC "
+                f"rounding).")
+        get_run_logger().info(
+            "Autolab (Ei mode): %s configured at %+.6f V (asked %+.6f V, DAC step "
+            "%.0f uV) in %.1f ms, before the cell closes. No procedure is loaded "
+            "for this segment.",
+            segment.label, back, v, abs(back - v) * 1e6,
+            (time.perf_counter() - t0) * 1000.0)
+
+    def _apply_fast_options(self):
+        """FHLevel's 'UseFastOptions' bool, which ships False and has never been
+        touched here.
+
+        Worth trying because two separate things track the RECORDER starting, not
+        the cell switching on: the ~0.93 s from procedure start to the first sample
+        (measured 20260909_test6/7), and a ~110 nA offset on the first five samples
+        that survived cell-on moving five seconds closer (test5 -> test7). Both look
+        like the current amplifier being reconfigured as FHLevel arms, and this is
+        the one documented parameter plausibly aimed at that path.
+
+        Left alone (None) unless a rig asks, and a refusal is a warning rather than
+        a failed run: this is an optimisation, not a potential that must be right.
+        """
+        want = self.settings.get("autolab_ca_fast_options")
+        if want is None:
+            return
+        try:
+            self._set(self._cmd, CA_IDX_FAST, bool(want), key=CA_KEY_FAST)
+        except Exception as exc:  # noqa: BLE001
+            get_run_logger().warning(
+                "Autolab: could not set FHLevel %s to %s (%s); the template's own "
+                "value stands.", CA_KEY_FAST, bool(want), exc)
+            return
+        get_run_logger().info(
+            "Autolab: FHLevel %s = %s. Watch CalcTime[0] and the first five "
+            "samples' offset — both track the recorder starting.",
+            CA_KEY_FAST, bool(want))
 
     def _apply_wait(self):
         """Write the template's FHWait, if this rig asks for a different one.
@@ -806,6 +1021,7 @@ class AutolabPotentiostat(Potentiostat):
         self._set(self._cmd, CA_IDX_DURATION, hold, key=CA_KEY_DURATION)
         self._set(self._cmd, CA_IDX_INTERVAL, segment.delta_time,
                   key=CA_KEY_INTERVAL)
+        self._apply_fast_options()
         self._neutralise_extra_ca_steps(segment)
 
     def _neutralise_extra_ca_steps(self, segment):
@@ -1187,13 +1403,17 @@ class AutolabPotentiostat(Potentiostat):
             # the edge; ~0 or negative means it was already holding a scan and the
             # alignment is luck, not hardware.
             parts.append(f"EDGE -> spectrum 0 {(spec0 - edge) * 1000:+.1f} ms")
-        raw = None
-        try:
-            raw = raw_first_calctime(self._cmd)
-        except Exception:  # noqa: BLE001 — diagnostics must never break a run
-            pass
-        if raw is not None:
-            parts.append(f"recorder's own CalcTime[0] {raw:.3f} s")
+        if self._ei_mode:
+            if self._live_samples:
+                parts.append(f"first Ei sample +{self._live_samples[0][0]:.3f} s")
+        else:
+            raw = None
+            try:
+                raw = raw_first_calctime(self._cmd)
+            except Exception:  # noqa: BLE001 — diagnostics must never break a run
+                pass
+            if raw is not None:
+                parts.append(f"recorder's own CalcTime[0] {raw:.3f} s")
         if not parts:
             return
         get_run_logger().info(
