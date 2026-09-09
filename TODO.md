@@ -372,3 +372,36 @@ instead of only the two techniques the driver knows. It also subsumes the single
 template-swap work, which are both special cases of "point it at a different `.nox`".
 
 Prerequisite: the read-only introspection pass, which is already planned.
+
+
+## After 2026-09-09 (the `Ei` session) — see `docs/bench-2026-09-09.md`
+
+Closed that day: trigger pin found, parameter keys measured, abort validated on hardware,
+`FHWait` removed, edge/recorder alignment fixed, `Ei` mode built and working.
+
+Open, roughly in order of value:
+
+- **`Ei` mode has never seen a film.** Only a 10 kΩ resistor, which has no transient — so
+  the exact thing `Ei` was built for, capturing the start of a doping current, is still
+  unobserved. This is the next real test.
+- **`examples/bench_ei_sampling.py` is written but never run.** Phase A (no cell) times a
+  single `Ei` read, which sets the floor for any grid faster than 100 ms. Everything above
+  100 ms is already known to work.
+- **The GUI silently overwrites a completed run.** It destroyed `20260904_test1` and the
+  original `20260909_test8` in one day. Wanted: at Start, if the target folder already holds
+  data files, a "folder already contains N files — overwrite?" confirm. `write_run_metadata`
+  or the Run tab's Start handler is the seam.
+- **Cadence outliers in `Ei` mode.** Means hold at 100.0 ms but single intervals of 249.8 ms
+  (spectra) and 214.9 ms (echem) appeared in `20260909_test12`. `pump()` now does a
+  `Sample()` USB round trip it did not before. Measure before changing anything.
+- **`autolab_setup_lag_cv_s = 1.16` rests on one CV segment** and came in ~45 ms over. Worth
+  a second CV before tuning. Only affects `procedure` mode.
+- **CV still pays the procedure preamble** (~1.16 s). It does not need to be fixed — cycle 1
+  is discarded by practice — but if it ever does, the route is a minimal `.nox` (delete the
+  `FHGetSetValues` / `FHSetSetpointPotential` / `FHSwitchCell` commands in NOVA and set them
+  from Python first), not an `Ei`-generated staircase.
+- **`UseFastOptions` suppressed the ADC dither** (settled `sd` 3.8e-10 → exactly 0) with no
+  timing benefit, so it was reverted. If it is ever wanted for another reason, that side
+  effect is unexplained and worth understanding first.
+- **Trigger cable build** (connector, pinout, shielding) is still undocumented — only its
+  endpoints, and now its pin: bit 0 / pin 1 of P1.Port_A.

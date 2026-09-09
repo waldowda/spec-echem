@@ -285,14 +285,47 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   `spec_echem_version` (the build id), sample name, electrolyte, notes, and a full settings snapshot,
   making each data folder self-documenting.
 
-### Metrohm / Autolab rig — bring-up done, findings in `docs/metrohm-rig-status.md`
+### Metrohm / Autolab rig — Python drives it; chrono runs from `Ei` (2026-09-09)
+
+**Read [`docs/bench-2026-09-09.md`](docs/bench-2026-09-09.md) first** — it is the current
+state. Headlines:
+
+- **Two backends for a chrono hold**, chosen by `autolab_ca_mode`:
+  - `procedure` (default) — loads the `.nox` for every segment.
+  - `ei` — Python writes Mode/CurrentRange/Setpoint while the cell is still OPEN, then
+    cell ON → trigger edge → samples `Ei` itself. **No procedure is loaded.** CV always
+    keeps the procedure; the staircase is a real waveform worth the instrument generating.
+- **Why `ei` exists:** `Measure()` hands control to the `.nox`, which walks
+  `FHGetSetValues → FHSetSetpointPotential → FHSwitchCell` before `FHLevel` records.
+  MEASURED ~0.93 s, and it is a sum of per-command overheads (one command ≈ 0.23 s), so
+  no parameter shortens it — `FHWait=0` and `UseFastOptions` both changed nothing.
+  `ei` gets cell-on → edge to **19–30 ms** and → first sample to **85–125 ms**.
+- **`Ei.Current` IS NOT LIVE.** It, `Ei.Potential` and the overload flags hold whatever
+  `Ei.Sampler.Sample()` last loaded. Call `sample_ei(inst)` BEFORE any read — `pump()`
+  does. Without it a run records one identical row forever and looks entirely normal
+  (that was `20260909_test11`). `fakes._FakeEi` models the latch on purpose; set
+  `true_potential`/`true_current` in tests, not `Potential`/`Current`.
+- **Never verify a hardware value at `1e-9`.** Procedure parameters are software values
+  and round-trip exactly; `Ei.Setpoint` is a DAC and snaps (55 µV). See
+  `AUTOLAB_SETPOINT_TOL_V`.
+- **The trigger is pin 1** (`autolab_dio_mask = 1`) of `DioPortsP1[0]` = `Port_A`.
+  `Port_C_Upper`/`Port_C_Lower` are the NIBBLES of `Port_C`, so a different port index is
+  not automatically an independent line.
+- **`Interval time in µs` is a vendor mislabel** — MICRO SIGN U+00B5, and the value is in
+  SECONDS. Do not "fix" it into a 10⁶ scaling bug.
+- **Timing is measured, not inferred.** Every segment logs `timing, from cell ON:` with
+  the cell-on / edge / spectrum-0 marks and `EDGE -> spectrum 0`, which is what proves the
+  Avantes is genuinely gated on the pulse (+30–34 ms = its own exposure).
+
+### Metrohm / Autolab rig — bring-up, findings in `docs/metrohm-rig-status.md`
 spec-echem was brought up on a Metrohm-Autolab rig (Autolab **PGSTAT302N** + AvaSpec-**ULS2048L**,
 2026-08-28). **Read [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md)** — it is the
 cross-session handoff. Headlines: the Autolab connects under **64-bit** Python (no 32/64-bit split,
 unlike Gamry); the SDK 2.1 **does** expose digital I/O (`Instrument.Dio`) plus `Ei` / `LoadProcedure`
 / `Sampler`; and the DIO→Avantes hardware trigger works from one Python process
 (`examples/query_avantes_trigger.py`). So a Python-driven Autolab backend in `potentiostat.py` (the
-analogue of `ToolkitPotentiostat`) is the recommended direction. Open item there: the calibrated
+analogue of `ToolkitPotentiostat`) is the recommended direction. **That backend now exists
+and is hardware-validated — see the section above.** Open item there: the calibrated
 pixel window (`CAL_START_PX`/`CAL_STOP_PX` in `spectrometer.py`) is hardcoded for the original
 VRS2048CL-EVO. **Closed 2026-09-04 as not worth changing:** measured with the lamp on, this
 ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm edge and 0 past
