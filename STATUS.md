@@ -4,7 +4,38 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-08-28_
+_Last updated: 2026-09-09_
+
+---
+
+## Autolab: `Ei` mode meets the timing requirement (2026-09-09, `gui-dev`) — new
+
+Full write-up: [`docs/bench-2026-09-09.md`](docs/bench-2026-09-09.md). Dummy-resistor
+session at UW; no sample in the cell.
+
+**The standing requirement is met.** The spectroscopy must start when the electrochemistry
+starts, within about 1–40 ms, by hardware. For chrono segments, cell-on to trigger edge is
+now **19–30 ms** (was 1134 ms) and cell-on to the first recorded sample **85–125 ms** (was
+930 ms). `EDGE -> spectrum 0` is +30–34 ms across every segment, which is the Avantes's own
+exposure — proof it is genuinely gated on the pulse rather than free-running.
+
+- **`autolab_ca_mode = ei`** drives doping/dedoping/pre-dedoping from Python: configure
+  while the cell is OPEN, then cell ON → edge → sample. No `.nox` is loaded. CV keeps the
+  procedure. `procedure` restores the old path.
+- **The `.nox` route floors at ~0.93 s** and nothing configurable moves it: it is the
+  procedure walking three commands before its recorder, at ~0.23 s each (MEASURED).
+- **`Ei.Current` is not a live property** — it holds whatever `Ei.Sampler.Sample()` last
+  loaded. This had never been called, so the overload check could never fire *in either
+  mode*, and an `Ei` run recorded one identical row forever while looking normal.
+- **Three silent defects fixed**: `load_settings` reverted bench defaults it wasn't asked
+  about; the stock CA template drove the cell to ±0.5 V after every segment while recording
+  nothing; the trigger edge was landing ~0.21 s after the recorder's first sample.
+- Trigger pin identified (`autolab_dio_mask = 1`), parameter keys measured against the
+  instrument's own `IdNames`, abort validated on hardware.
+
+**Not yet done:** `Ei` mode has only ever seen a 10 kΩ resistor. A resistor has no
+transient, so the thing it was built for — capturing the start of a doping current — is
+still unobserved.
 
 ---
 
