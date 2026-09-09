@@ -19,10 +19,11 @@ For the Autolab that means Ei directly: Python applies the setpoint, pulses the
 trigger, and reads Ei.Current itself. Before writing that, three things have to be
 measured rather than assumed.
 
-    A  WHAT DOES ONE READ COST?  Ei.Current is a scalar property, one USB round trip.
-       If it costs 10 ms, a 100 ms grid is comfortable and a 10 ms grid is impossible.
-       The ~10 ms figure in the docs was INFERRED from an in-run/free-run subtraction
-       and has never been isolated. This times it directly.
+    A  WHAT DOES ONE POINT COST?  Not one read: probe_ei_live.py showed Ei.Current is
+       a LATCH, so the bare properties are cheap precisely because they do not talk to
+       the instrument. The real cost is Sampler.Sample() + two latch reads, which is
+       what pump() does per spectrum. That number bounds any grid faster than 100 ms,
+       and is the first suspect for 20260909_test12's cadence outliers.
 
     B  HOW FAST CAN PYTHON GET TO THE FIRST SAMPLE?  The number that would replace
        0.93 s. Measured from cell-on, the same origin the driver's timing line uses,
@@ -39,10 +40,12 @@ measured rather than assumed.
     >> 10 kOhm dummy resistor, never a real sample. <<
     W + WS on one leg, RE + CE on the other (2-electrode).
 
-Phase A needs no cell. Phases B and C do — set ENERGIZE_CELL = True with the dummy in.
+Phase A needs no cell and is the only part still unmeasured. B and C were answered by
+20260909_test12 from a real run (first Ei sample 85-125 ms; the ~110 nA artifact did
+not follow), so they are kept only as a cross-check.
 
 Usage:
-    python bench_ei_sampling.py
+    python bench_ei_sampling.py          # phase A, nothing energized
 """
 import os
 import statistics
@@ -85,33 +88,58 @@ def _read_cost(inst, label, getter):
 
 
 def phase_a(inst):
-    """A: what does one scalar read cost? No cell — reading is not energizing."""
-    rule("A — the cost of one Ei read (no cell)")
-    say(f"  {READ_TRIALS} reads each, cell OFF. This sets the sampling floor: a")
-    say("  Python-driven CA cannot sample faster than one read, and it needs both")
-    say("  potential AND current per point.")
+    """A: what does ONE POINT cost, the way pump() actually takes it?
+
+    Rewritten 2026-09-09 after probe_ei_live.py showed Ei.Current is a LATCH. Timing
+    the bare properties measures nothing useful — they are cheap precisely because
+    they do not talk to the instrument. The real per-point cost is:
+
+        Ei.Sampler.Sample()      one round trip, refreshes every signal
+        + Ei.Potential           latch read
+        + Ei.Current             latch read
+
+    which is exactly the sequence in AutolabPotentiostat.pump(). That is the number
+    that bounds a faster grid, and the one that would explain 20260909_test12's
+    cadence outliers (a 249.8 ms interval against a 100 ms target) if Sample() turns
+    out to be expensive or occasionally slow.
+
+    No cell: sampling is not energizing.
+    """
+    rule("A — what one data point costs (no cell)")
+    say(f"  {READ_TRIALS} trials. pump() does Sample() + two latch reads per spectrum,")
+    say("  and acquisition budgets SPECTRUM_OVERHEAD_S = 30 ms for everything that is")
+    say("  not exposure. If a point costs more than that, pump() is now the overhead.")
     say("")
     ei = inst.Ei
-    costs = {}
-    for label, getter in (("Ei.Current", lambda: float(ei.Current)),
-                          ("Ei.Potential", lambda: float(ei.Potential)),
-                          ("Ei.Cell", lambda: bool(ei.Cell)),
-                          ("Ei.CurrentOverload", lambda: bool(ei.CurrentOverload))):
-        costs[label] = _read_cost(inst, label, getter)
 
-    pair = [costs.get("Ei.Current"), costs.get("Ei.Potential")]
-    if all(c is not None for c in pair):
-        point = sum(pair)
-        say("")
-        say(f"  One DATA POINT (current + potential) = {point * 1000:.2f} ms.")
-        say(f"  Fastest achievable grid ~= {point * 1000:.0f} ms; a 100 ms grid uses "
-            f"{point / 0.100 * 100:.0f}% of its slot.")
-        if point < 0.010:
-            say("  -> Comfortable. A 100 ms grid is easy and 10 ms is plausible.")
-        elif point < 0.050:
-            say("  -> A 100 ms grid works. Anything near 50 ms will be tight.")
-        else:
-            say("  -> A 100 ms grid is at risk. Ei sampling may not beat FHLevel.")
+    def one_point():
+        ei.Sampler.Sample()
+        return float(ei.Potential), float(ei.Current)
+
+    costs = {}
+    for label, fn in (("Sampler.Sample() alone", lambda: ei.Sampler.Sample()),
+                      ("Ei.Potential (latch)", lambda: float(ei.Potential)),
+                      ("Ei.Current (latch)", lambda: float(ei.Current)),
+                      ("FULL POINT (what pump does)", one_point)):
+        costs[label] = _read_cost(inst, label, fn)
+
+    point = costs.get("FULL POINT (what pump does)")
+    if point is None:
+        return costs
+    say("")
+    say(f"  One point = {point * 1000:.2f} ms median.")
+    say(f"  Against the 30 ms overhead budget: {point / 0.030 * 100:.0f}% of it.")
+    say(f"  Against a 100 ms grid: {point / 0.100 * 100:.1f}% of the slot.")
+    say("")
+    if point < 0.010:
+        say("  -> Cheap. It does not explain test12's cadence outliers; look at the")
+        say("     spectrometer or host scheduling instead. A 20-50 ms grid is plausible.")
+    elif point < 0.030:
+        say("  -> Fits inside the existing overhead budget, but it is a real share of")
+        say("     it. A grid below ~50 ms would need rechecking.")
+    else:
+        say("  -> pump() is now a significant cost and SPECTRUM_OVERHEAD_S understates")
+        say("     the per-spectrum overhead. THIS is the cadence-outlier suspect.")
     return costs
 
 
@@ -207,9 +235,11 @@ def main():
         if ENERGIZE_CELL:
             phase_bc(inst)
         else:
-            rule("B/C — skipped")
-            say("  Set ENERGIZE_CELL = True with the dummy resistor in to answer")
-            say("  'how fast is the first sample' and 'does the startup offset follow'.")
+            rule("B/C — skipped (and largely superseded)")
+            say("  20260909_test12 already answered both from a real run: cell ON to")
+            say("  the first Ei sample was 85-125 ms, and the ~110 nA five-sample")
+            say("  artifact did not follow (+7.9/+3.7/-1.8 nA, inside the noise).")
+            say("  Phase A above is the part that is still unmeasured.")
     finally:
         ac.cell_off_quietly(inst)
         ac.disconnect(inst)
