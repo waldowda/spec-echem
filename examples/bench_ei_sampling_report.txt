@@ -1,0 +1,36 @@
+
+========================================================================
+CAN PYTHON SAMPLE THE AUTOLAB FAST ENOUGH TO REPLACE FHLevel?
+========================================================================
+ENERGIZE_CELL : False
+Phase A only (read cost). Nothing is energized.
+Connected OK — cell NOT switched on.
+
+========================================================================
+A — what one data point costs (no cell)
+========================================================================
+  500 trials. pump() does Sample() + two latch reads per spectrum,
+  and acquisition budgets SPECTRUM_OVERHEAD_S = 30 ms for everything that is
+  not exposure. If a point costs more than that, pump() is now the overhead.
+
+    Sampler.Sample() alone median  24.983 ms   min 23.895   p95  25.604   max  29.719
+    Ei.Potential (latch)   median   4.997 ms   min  4.322   p95   5.271   max   5.982
+    Ei.Current (latch)     median   5.000 ms   min  4.366   p95   5.267   max   5.692
+    FULL POINT (what pump does) median  34.991 ms   min 34.132   p95  35.385   max  35.720
+
+  One point = 34.99 ms median.
+  Against the 30 ms overhead budget: 117% of it.
+  Against a 100 ms grid: 35.0% of the slot.
+
+  -> pump() is now a significant cost and SPECTRUM_OVERHEAD_S understates
+     the per-spectrum overhead. THIS is the cadence-outlier suspect.
+
+========================================================================
+B/C — skipped (and largely superseded)
+========================================================================
+  20260909_test12 already answered both from a real run: cell ON to
+  the first Ei sample was 85-125 ms, and the ~110 nA five-sample
+  artifact did not follow (+7.9/+3.7/-1.8 nA, inside the noise).
+  Phase A above is the part that is still unmeasured.
+Cell switched OFF.
+Disconnected.

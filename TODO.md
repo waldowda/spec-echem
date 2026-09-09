@@ -391,6 +391,17 @@ Open, roughly in order of value:
   original `20260909_test8` in one day. Wanted: at Start, if the target folder already holds
   data files, a "folder already contains N files — overwrite?" confirm. `write_run_metadata`
   or the Run tab's Start handler is the seam.
+- **`pump()` costs ~50 ms per spectrum and the cadence advisory does not know it.**
+  MEASURED 2026-09-09 (`examples/bench_ei_sampling_report.txt`): `Sampler.Sample()` is
+  25.0 ms and each latch read is 5.0 ms — the reads are NOT free. `pump()` does five
+  reads plus the sample, so ~50 ms of a 100 ms slot, against a `SPECTRUM_OVERHEAD_S` of
+  30 ms that predates all of it. Two pieces of work: (a) teach
+  `spectrum_cost_seconds()` / the cadence advisory that a potentiostat costs something,
+  or it will approve a grid that cannot hold; (b) throttle the overload and
+  `IsConnected` checks from every spectrum to ~1 Hz, worth ~15 ms — but FIRST establish
+  whether the overload flags latch until read or can clear between checks, because
+  throttling a self-clearing flag loses events.
+
 - **Cadence outliers in `Ei` mode.** Means hold at 100.0 ms but single intervals of 249.8 ms
   (spectra) and 214.9 ms (echem) appeared in `20260909_test12`. `pump()` now does a
   `Sample()` USB round trip it did not before. Measure before changing anything.
