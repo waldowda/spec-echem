@@ -391,6 +391,35 @@ Open, roughly in order of value:
   original `20260909_test8` in one day. Wanted: at Start, if the target folder already holds
   data files, a "folder already contains N files — overwrite?" confirm. `write_run_metadata`
   or the Run tab's Start handler is the seam.
+- **`next_deadline()` compensates for the measurement but not for `pump()`.** This is
+  the mechanism behind the outliers, and the more precise version of the item below.
+  `acquisition.py` calls `on_tick()` (= `potentiostat.pump`) once per iteration, for
+  every spectrum including spectrum 0, positioned between `measure()` and the pacing
+  sleep. But `measure_cost` is timed around `spec.measure()` ALONE, so the ~50 ms
+  `pump()` spends is unaccounted work sitting inside the slot:
+
+  ```
+  100 ms slot = 22 ms exposure + ~50 ms pump + ~28 ms sleep
+  ```
+
+  It holds at 100 ms because the deadline is ABSOLUTE (`anchor + (j+1)*delta_time -
+  measure_cost`), so an overrun takes the "already late — go straight on" branch and
+  the next deadline is still measured from the anchor. Hence mean 100.0 ms with
+  occasional stretched intervals rather than cumulative drift — exactly what
+  `20260909_test12` showed.
+
+  **Candidate fix:** fold the pump into `measure_cost`, i.e. time the whole iteration
+  (`measure()` + `on_tick()`) rather than just the measurement, so the deadline
+  compensates for the real per-iteration work. Cheap to write, but it CHANGES PACING
+  BEHAVIOUR, so it needs a bench run to confirm — compare cadence mean/min/max against
+  `20260909_test12` on the same settings before believing it. **Dean to test next
+  session.**
+
+  Note in `Ei` mode `pump()` is not a side job — it IS the echem acquisition, so the
+  echem grid inherits the spectra's jitter by construction. That is honest (timestamps
+  record when the sample was actually taken) and keeps the two series paired, but it
+  means anything done here moves the echem timing too.
+
 - **`pump()` costs ~50 ms per spectrum and the cadence advisory does not know it.**
   MEASURED 2026-09-09 (`examples/bench_ei_sampling_report.txt`): `Sampler.Sample()` is
   25.0 ms and each latch read is 5.0 ms — the reads are NOT free. `pump()` does five
