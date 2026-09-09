@@ -66,7 +66,17 @@ HDW = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Hardware Setup Files\PG
 # hand-rolling a waveform in Python. The PC_Spectral* procedures on this rig are
 # also worth a look: they already contain the P1.A trigger pulse (Q8).
 # Leave "" to skip every procedure question (Q1, Q2, Q8).
+#
+# A path on the command line overrides this, because the interesting questions are
+# PER PROCEDURE: the 2026-09-09 pass read the CV template and so never saw FHLevel,
+# which is where the chrono duration and interval live. Each run reports to its own
+# file, so inspecting a second procedure does not overwrite the first.
+#
+#   python examples\query_autolab_run.py                       # the CV template
+#   python examples\query_autolab_run.py "...\Chrono amperometry.nox"
 NOX = r"C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Cyclic voltammetry.nox"
+if len(sys.argv) > 1:
+    NOX = sys.argv[1]
 
 # ---------------------------------------------------------------------------
 # CELL SAFETY. With ENERGIZE_CELL = False (the default) this script only connects
@@ -80,8 +90,19 @@ TEST_POTENTIAL = 0.0      # volts, for the direct-Ei hold. 0.0 V is the gentlest
 HOLD_SECONDS = 3.0        # duration of the direct-Ei hold
 POLL_SECONDS = 0.2        # how often to look for data mid-run (Q5)
 
+def _report_name():
+    """autolab_api_report.txt for the default CV pass — the name every doc and commit
+    message already refers to — and a per-procedure name for anything else, so a
+    second look never destroys the first."""
+    if len(sys.argv) <= 1:
+        return "autolab_api_report.txt"
+    stem = os.path.splitext(os.path.basename(NOX))[0].lower()
+    stem = "".join(c if c.isalnum() else "_" for c in stem).strip("_")
+    return f"autolab_api_report_{stem}.txt"
+
+
 REPORT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "autolab_api_report.txt")
+                           _report_name())
 
 _lines = []
 
@@ -277,7 +298,15 @@ def inspect_procedure(inst):
             say(f"  could not reflect a sample command: {exc}")
 
         try:
-            for i, cmd in enumerate(node):
+            # list(...) FIRST, both here and for the parameters below. _param_is_writable
+            # WRITES a test value, and writing through this SDK invalidates any live
+            # enumerator over the same list:
+            #   "Collection was modified; enumeration operation may not execute"
+            #   at EcoChemie.Autolab.Sdk.CommandParameterList.<FilteredCommandParameters>
+            # On 2026-09-09 that killed the chrono report at command 5 of 14, taking
+            # the other nine commands with it. The driver never hit this because
+            # _resolve_param and _neutralise_extra_ca_steps both materialise first.
+            for i, cmd in enumerate(list(node)):
                 if i >= 40:
                     say("    ... (truncated)")
                     break
@@ -295,25 +324,28 @@ def inspect_procedure(inst):
                 params = _safe(lambda c=cmd: c.CommandParameters, None)
                 if params is None or isinstance(params, str):
                     continue
-                # The parameter KEYS, if the list exposes them. Two independent
-                # sources say it should: SDK manual §6.2, and
-                # helgestein/metrohm_autolab_python, which writes
-                # `CommandParameters[param].Value` and reads
-                # `CommandParameters.IdNames` on a PGSTAT302N. Never confirmed on
-                # THIS rig, and it is what would retire the positional index map —
-                # and hand over the CA keys, which the manual never documents.
+                # The parameter KEYS. CONFIRMED on this rig 2026-09-09: every command
+                # that has parameters exposes both IdNames and Names, and the CV
+                # staircase's order matches the indices measured on 2026-09-03 exactly.
+                # The driver uses these to CHECK the measured index rather than to
+                # replace it — see AutolabPotentiostat._resolve_param.
                 for label in ("IdNames", "Names"):
                     got = _safe(lambda l=label: list(getattr(params, l)), None)
                     if got:
                         say(f"       CommandParameters.{label} = {got}")
-                for prm in params:
-                    _, pn = _first_attr(prm, ("Name", "ParameterName", "IdName",
-                                              "Id", "CommandParameterName"))
-                    pn = str(pn) if pn is not None else prm.GetType().Name
-                    pv = _safe(lambda prm=prm: str(prm.ValueAsObject), None)
-                    say(f"         param {pn} = {pv}")
-                    if _param_is_writable(prm, pn):
-                        writable.append(f"{name}.{pn}")
+                # Per COMMAND, so one awkward command costs its own line and not the
+                # rest of the procedure.
+                try:
+                    for prm in list(params):
+                        _, pn = _first_attr(prm, ("Name", "ParameterName", "IdName",
+                                                  "Id", "CommandParameterName"))
+                        pn = str(pn) if pn is not None else prm.GetType().Name
+                        pv = _safe(lambda prm=prm: str(prm.ValueAsObject), None)
+                        say(f"         param {pn} = {pv}")
+                        if _param_is_writable(prm, pn):
+                            writable.append(f"{name}.{pn}")
+                except Exception as exc:  # noqa: BLE001
+                    say(f"       could not read this command's parameters: {exc}")
         except Exception as exc:  # noqa: BLE001
             say(f"    could not iterate: {exc}")
 
@@ -546,9 +578,14 @@ def inspect_dio(inst):
         except Exception as exc:  # noqa: BLE001
             say(f"    could not iterate: {exc}")
     say("")
-    say("  The driver's autolab_dio_port indexes this list. If the trigger line and")
-    say("  the AvaLight shutter are on DIFFERENT ports here, they cannot interfere")
-    say("  and the all-pins pulse is harmless. If the same, the trigger mask matters.")
+    say("  The driver's autolab_dio_port indexes this list.")
+    say("")
+    say("  MEASURED 2026-09-09: five ports per connector — Port_A, Port_B, Port_C,")
+    say("  Port_C_Upper, Port_C_Lower — on each of P1 and P2. A different INDEX is")
+    say("  therefore NOT automatically an independent line: C_Upper and C_Lower are")
+    say("  the two nibbles OF Port_C, so driving C also drives both, and driving")
+    say("  either moves half of C. Independent pairs are A/B/C within a connector,")
+    say("  and anything on P2 versus anything on P1.")
 
 
 def inspect_abort_and_liveness(inst, proc=None):

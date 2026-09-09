@@ -1,0 +1,67 @@
+
+========================================================================
+WHICH DIO PIN FIRES THE AVANTES TRIGGER?  (cell-safe)
+========================================================================
+The cell is never switched on and no procedure is run.
+Port index 0 (0 = P1.A, pins 1-8 on a DIO48).
+Connected OK — cell NOT switched on.
+  Avantes open: 2048 pixels
+
+--- DIO ports ----------------------------------------------------------
+  DioPortsP1: 5 port(s)
+    [0] Port_A     direction=Output   value=0x00 (0b00000000)
+    [1] Port_B     direction=Output   value=0x00 (0b00000000)
+    [2] Port_C     direction=Output   value=0x00 (0b00000000)
+    [3] Port_C_Upper direction=Output   value=0x00 (0b00000000)
+    [4] Port_C_Lower direction=Output   value=0x00 (0b00000000)
+  DioPortsP2: 5 port(s)
+    [0] Port_A     direction=Output   value=0x00 (0b00000000)
+    [1] Port_B     direction=Output   value=0x00 (0b00000000)
+    [2] Port_C     direction=Output   value=0x00 (0b00000000)
+    [3] Port_C_Upper direction=Output   value=0x00 (0b00000000)
+    [4] Port_C_Lower direction=Output   value=0x00 (0b00000000)
+
+  autolab_dio_port indexes THIS list. MEASURED 2026-09-09: five ports per
+  connector (A, B, C, C_Upper, C_Lower) on each of P1 and P2 — and C_Upper
+  and C_Lower are the NIBBLES of C, not separate lines. So 'different port
+  index' means independent only for A/B/C, or across P1 and P2.
+  DIO port Port_A (DioPortsP1[0]) set to Output, driven low
+
+========================================================================
+SANITY — all eight pins (what the driver does today)
+========================================================================
+    bit 0xFF (pin 8): FIRED after 0.8 ms
+
+========================================================================
+WALKING THE EIGHT BITS
+========================================================================
+    bit 0x01 (pin 1): FIRED after 0.3 ms
+    bit 0x02 (pin 2): no scan
+    bit 0x04 (pin 3): no scan
+    bit 0x08 (pin 4): no scan
+    bit 0x10 (pin 5): no scan
+    bit 0x20 (pin 6): no scan
+    bit 0x40 (pin 7): no scan
+    bit 0x80 (pin 8): no scan
+
+========================================================================
+CLOSING SANITY — does 0xFF still fire it?
+========================================================================
+    bit 0xFF (pin 8): FIRED after 0.3 ms
+
+========================================================================
+RESULT
+========================================================================
+  The trigger line is bit 0x01 — pin 1 of port index 0.
+
+  Confirming 3x...
+    bit 0x01 (pin 1): FIRED after 0.5 ms
+    bit 0x01 (pin 1): FIRED after 0.4 ms
+    bit 0x01 (pin 1): FIRED after 1.0 ms
+  fired 3/3 times.
+
+  Put this in config/bench.ini:   autolab_dio_mask = 1
+  and use Pulse value 1 / End value 0 for a NOVA counter.
+  Every other pin on the port is then free for the AvaLight
+  shutter without the trigger disturbing it.
+Disconnected.

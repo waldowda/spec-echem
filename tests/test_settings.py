@@ -61,3 +61,32 @@ def test_json_file_is_human_readable(tmp_path):
     # Should be indented JSON, not a one-liner
     assert "\n" in text
     assert "  " in text
+
+
+def test_a_loaded_file_does_not_revert_bench_values_it_never_mentions(tmp_path):
+    """The 20260909_test5 bug. A settings file saved before a bench key existed must
+    not drag that key back to the code default — the rig's own value has to survive,
+    because nothing in the run says it was dropped."""
+    import json
+    from spec_echem.bench import apply_bench_defaults
+
+    path = tmp_path / "old_settings.json"
+    path.write_text(json.dumps({"sample_name": "from the file"}), encoding="utf-8")
+
+    base = DEFAULT_SETTINGS.copy()
+    apply_bench_defaults(base, {"autolab_wait_s": 0.0, "autolab_dio_mask": 1})
+
+    loaded = load_settings(path, base=base)
+    assert loaded["sample_name"] == "from the file"    # the file still wins...
+    assert loaded["autolab_wait_s"] == 0.0             # ...and the rig survives
+    assert loaded["autolab_dio_mask"] == 1
+
+
+def test_without_a_base_the_code_defaults_still_fill_in(tmp_path):
+    """The no-rig caller (tests, reading a file off another machine) is unchanged."""
+    import json
+    path = tmp_path / "s.json"
+    path.write_text(json.dumps({"sample_name": "x"}), encoding="utf-8")
+    loaded = load_settings(path)
+    assert loaded["sample_name"] == "x"
+    assert loaded["autolab_wait_s"] == DEFAULT_SETTINGS["autolab_wait_s"]

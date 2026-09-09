@@ -31,6 +31,8 @@ import configparser
 import os
 from pathlib import Path
 
+from spec_echem.settings import parse_dio_mask
+
 APP_NAME = "spec-echem"
 REPO_DEFAULTS = Path(__file__).resolve().parent.parent / "config" / "defaults.ini"
 
@@ -88,7 +90,10 @@ BENCH_SCHEMA = {
         "autolab_nox_cv": _str,           # standard CV procedure template
         "autolab_nox_ca": _str,           # chronoamperometry procedure template
         "autolab_dio_port": int,          # DioPortsP1 index; 0 = P1.A
-        "autolab_dio_mask": int,          # which pins the pulse drives; 0xFF = all
+        # parse_dio_mask, not int: a mask is naturally written 0x04, and bare int()
+        # would reject that, warn, and silently fall back to all eight pins.
+        "autolab_dio_mask": parse_dio_mask,  # which pins the pulse drives; 0xFF = all
+        "autolab_wait_s": _opt_float,     # write FHWait; blank = leave the .nox alone
         "autolab_pulse_delay_s": _opt_float,  # None = FHWait + template setup lag
         "autolab_setup_lag_cv_s": _opt_float,
         "autolab_setup_lag_ca_s": _opt_float,

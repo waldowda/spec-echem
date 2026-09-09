@@ -142,6 +142,12 @@ class FakePotentiostat:
         self._data = data
         self.fired = False
         self.pumps = 0
+        self.first_spectrum_at = None
+
+    def note_first_spectrum(self, t_perf):
+        """run_one_segment hands the spectrum-0 mark to the potentiostat, which is
+        the only object holding the trigger-edge mark to compare it against."""
+        self.first_spectrum_at = t_perf
 
     def prepare(self, segment):
         self._segment = segment
