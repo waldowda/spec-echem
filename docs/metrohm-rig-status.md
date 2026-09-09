@@ -1,5 +1,13 @@
 # Metrohm rig — bring-up status & findings (2026-08-28)
 
+> **SUPERSEDED for anything about the driver, timing or `Ei`.**
+> This file remains the record of the 2026-08-28 *bring-up* (box, env, wiring, the
+> four bench-check steps). For where the rig actually stands, read
+> [`bench-2026-09-09.md`](bench-2026-09-09.md) — chrono holds now run from `Ei` with
+> no procedure, cell-on to trigger is 19–30 ms, and `Ei.Current` turns out not to be
+> a live property. Then [`autolab-driver-finishing.md`](autolab-driver-finishing.md)
+> for the trip plan.
+
 Companion to [`metrohm-bench-check.md`](metrohm-bench-check.md), which is the *procedure*.
 This file is the *result*: what was found bringing spec-echem up on a fresh Win11 box with an
 Avantes spectrometer + a Metrohm Autolab, and where things stand for continued development
