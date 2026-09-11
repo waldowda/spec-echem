@@ -511,8 +511,49 @@ Sketch:
 - Read path: a loader beside `read_spectra_absorbance()` so the Results tab can open
   either.
 
-Worth checking before designing: what exactly Raj's reader expects, so the layout is
-compatible rather than merely similar. Ask him rather than inferring from the code.
+### Raj already has the writer — `oect_processing/specechem/uvvis_h5.py`
+
+101 lines, `save_h5(data, filename)` / `convert_h5(h5file)`. Layout:
+
+```
+/potentials                  the doping potential ladder
+/charge                      optional
+/<potential>/data            absorbance matrix (wavelength x time)
+/<potential>/index           wavelength axis
+/<potential>/columns         time axis
+/current/data|index|columns
+```
+
+One group per potential, each a pandas DataFrame decomposed into data/index/columns.
+It is a round-trip format for his objects rather than a general schema.
+
+**It maps onto ours almost directly.** `compute_absorbance()` already returns a DataFrame
+indexed by wavelength with corrected-time columns — exactly `data`/`index`/`columns` — and
+his group-per-potential is our segment-per-doping-step. Writing a compatible file is a
+small job, not a design exercise.
+
+**The important observation:** his `save_h5` is built from a `UVVis` object, which is the
+product of *parsing our ascii*. So the chain today is: we write ~150 MB of text, he parses
+it, he writes ~6 MB of H5. The ascii is an intermediate nobody wants — it is only the
+handoff format. Writing his layout from the acquisition side removes the parse step for
+anyone who wants H5.
+
+### Two questions to settle WITH RAJ before building (Dean: needs a conversation)
+
+1. **Is the H5 an analysis convenience or the archival record?** His file keeps absorbance
+   and current only — no raw counts, no dark, no reference. Our 8-column format carries all
+   three (columns 3/4/5), and they would have nowhere to go in his layout. Matching him
+   exactly means the H5 is lossy and the ascii stays the archive; making it a superset means
+   it is no longer his format. That decision drives everything else.
+2. **Metadata.** His file has no attributes at all — no `build_id`, no settings snapshot, no
+   sample or electrolyte. Our run folders are self-documenting today
+   (`{folder}_metadata.json` + the run log), so an H5 that is not would be a step backwards
+   for anyone who moves the file on its own. Adding `attrs` would not break `convert_h5()`,
+   which reads named datasets — but it should be agreed rather than assumed.
+
+Also worth raising with him: whether he would *read* an acquisition-written H5 directly, or
+would rather we keep producing ascii and leave his pipeline untouched. If the latter, this is
+purely a disk-space feature for us and the layout is ours to choose.
 
 ## Current range — a range-finding test run, NOT autoscaling (Dean, 2026-09-11)
 
