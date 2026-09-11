@@ -546,6 +546,42 @@ def _set_ei_mode(ei, potentiostatic=True):
     ei.Mode = EI.EIMode.Potentiostatic if potentiostatic else EI.EIMode.Galvanostatic
 
 
+_RANGE_UNITS = {"pA": 1e-12, "nA": 1e-9, "uA": 1e-6, "mA": 1e-3, "A": 1.0}
+
+
+def range_full_scale_a(member):
+    """Full-scale amps for an EICurrentRange member name, or None if unparseable.
+
+    "CR10_1mA" -> 1e-3. Parsed from the name rather than tabulated separately so the
+    two cannot drift apart.
+    """
+    tail = str(member).split("_", 1)[-1]
+    for suffix, scale in sorted(_RANGE_UNITS.items(), key=lambda kv: -len(kv[0])):
+        if tail.endswith(suffix):
+            try:
+                return float(tail[: -len(suffix)]) * scale
+            except ValueError:
+                return None
+    return None
+
+
+def suggest_current_range(peak_a, headroom=0.8):
+    """The finest range whose full scale still covers `peak_a` with headroom.
+
+    Headroom matters more than resolution here: a healthier film draws MORE than a
+    degraded one, so a range chosen to fit today's peak exactly will clip tomorrow's.
+    """
+    if not peak_a or peak_a <= 0:
+        return None
+    best = None
+    for member, _label in AUTOLAB_CURRENT_RANGES:
+        full = range_full_scale_a(member)
+        if full is not None and peak_a <= full * headroom:
+            best = member
+            break
+    return best
+
+
 def _set_current_range(ei, name):
     """Fix the current range, or leave the instrument's own if not configured.
 
@@ -1504,6 +1540,44 @@ class AutolabPotentiostat(Potentiostat):
                 "%s: the Autolab stopped responding during this segment; its echem "
                 "data is truncated while the spectra are complete.", label)
         self._warn_if_current_never_rose(label)
+        self._advise_current_range(label)
+
+    def _advise_current_range(self, label):
+        """Say, per segment, whether the current range actually fitted the current.
+
+        On 2026-09-11 four films ran on CR09_10mA while nothing anywhere exceeded
+        625 µA — a range 30x too coarse, costing a +1.6 µA zero offset that is
+        5-100% of the settled currents. Nothing said so at the time, and it took a
+        day of files to notice. One line per segment would have caught it on run 1.
+
+        Advisory only: it reports and never changes the range mid-run, because the
+        peak of a chrono transient arrives in the first samples and a switch after
+        that would land on the part that already mattered.
+        """
+        if not self._ei_mode or self._last_data is None:
+            return                       # the range setting applies to Ei mode only
+        current = np.asarray(self._last_data.current, dtype=float)
+        if not len(current):
+            return
+        peak = float(np.nanmax(np.abs(current)))
+        member = self.settings.get("autolab_current_range")
+        full = range_full_scale_a(member) if member else None
+        if full is None or peak <= 0:
+            return
+
+        used = peak / full
+        better = suggest_current_range(peak)
+        if used > 0.9:
+            get_run_logger().warning(
+                "%s: peak current %.3g A is %.0f%% of the %s full scale — close to "
+                "clipping. A healthier film draws more, so raise the range.",
+                label, peak, used * 100, member)
+        elif better and better != member:
+            get_run_logger().info(
+                "%s: peak current %.3g A used %.1f%% of the %s full scale. %s would "
+                "fit with headroom and give ~%.0fx finer resolution.",
+                label, peak, used * 100, member, better,
+                full / range_full_scale_a(better))
 
     def _warn_if_current_never_rose(self, label):
         """bench_autolab_fault.py (2026-09-03): an open cell / loose lead is

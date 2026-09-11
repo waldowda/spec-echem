@@ -486,3 +486,53 @@ running an actual experiment rather than by testing.
 - **Is the CV's auto-ranging picking something too sensitive?** `FHPreCurrentRangingCV`
   presumably probes at the initial potential, where a film draws almost nothing. If so
   the fix is a NOVA edit (fixed range in the CV template), not a code change. Unverified.
+
+## HDF5 output alongside the ascii files (Dean, 2026-09-11)
+
+**Why:** disk. A single long run already writes ~1.6 M rows per spectra file, and the
+8-column tab-separated format stores every wavelength value again for every time point.
+HDF5 stores the wavelength axis once and the absorbance matrix as a typed array — an
+order of magnitude smaller, and faster to read back. Raj's `OECT_processing` already
+works this way, so there is a reference implementation and a downstream consumer.
+
+**Constraint that makes this safe:** the 8-column format is *not* replaced. It is what
+`rajgiriUW/OECT_processing` reads today and `docs/data-format.md` says DO NOT CHANGE.
+H5 is written **in addition**, so nothing downstream notices until it chooses to.
+
+Sketch:
+
+- One `.h5` per run folder, not per segment — the point is to stop repeating the
+  wavelength axis, and one file per run also collapses a 14-segment ladder into a
+  single object.
+- Datasets: `wavelength` once; per segment an absorbance matrix (wavelength x time),
+  the raw counts, the time axis, and the echem trace.
+- Attributes: the full run metadata JSON that already exists, plus `build_id()` — a run
+  folder is self-documenting today and the H5 should be too, on its own.
+- Read path: a loader beside `read_spectra_absorbance()` so the Results tab can open
+  either.
+
+Worth checking before designing: what exactly Raj's reader expects, so the layout is
+compatible rather than merely similar. Ask him rather than inferring from the code.
+
+## Current-range autoscaling for Ei mode (Dean, 2026-09-11 — priority)
+
+`autolab_current_range` is settable (bench.ini and now a Parameters-tab dropdown), and
+as of this session each Ei segment **reports** whether the range fitted, naming a better
+one. Automatic selection is the open half, and it has a real tension:
+
+- **Pre-scaling** (what `FHPreCurrentRangingCV` does for CV) means applying the
+  potential, sampling, choosing, then starting — which spends exactly the startup time
+  that `Ei` mode was built to eliminate (1134 ms -> 19-30 ms). Do not undo that.
+- **Mid-run switching** reacts at `pump()`'s ~10 Hz, and the peak of a chrono transient
+  arrives in the first samples — so a switch lands *after* the part that mattered, and
+  introduces a discontinuity in the trace.
+- **Predictive** looks best: pick segment N's range from segment N-1's measured peak. A
+  doping ladder is monotonic, costs nothing at t=0, and never switches mid-hold. The
+  first segment still needs a starting guess.
+
+Also unresolved, and a question for the experiment rather than the code: **within one
+chrono segment the current spans ~3 decades** (625 µA transient, 0.34-33.5 µA settled on
+2026-09-11). No single range serves both. Choosing for the peak avoids clipping and
+coarsens the settled value; choosing for the settled value clips the transient. Which
+matters is Dean's call and should be an explicit setting, not an implicit consequence.
+
