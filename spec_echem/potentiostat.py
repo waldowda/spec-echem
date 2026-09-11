@@ -876,7 +876,28 @@ class AutolabPotentiostat(Potentiostat):
             # including the overload flags, which means that check has never actually
             # been able to fire in EITHER mode. See sample_ei().
             sample_ei(inst)
-            if inst.Ei.PotentialOverload or inst.Ei.CurrentOverload:
+            pot_over = bool(inst.Ei.PotentialOverload)
+            cur_over = bool(inst.Ei.CurrentOverload)
+            if pot_over or cur_over:
+                # Say it NOW, not in _report_segment_health() at the end. A chrono
+                # step that overloads does so at t=0 — the current spikes and decays —
+                # so waiting for the segment boundary means 30 s of clipped data
+                # before anyone is told, and then the remaining segments run at the
+                # same wrong range. Told at t~=0.1 s, the run can be aborted and the
+                # range fixed before the sample has been through the whole ladder.
+                # Once per segment: this fires every 100 ms while it persists.
+                if not self._overloaded:
+                    which = " and ".join(
+                        [w for w, f in (("CURRENT", cur_over),
+                                        ("POTENTIAL", pot_over)) if f])
+                    get_run_logger().warning(
+                        "%s: %s OVERLOAD at t=%.1f s — the electrochemistry from here "
+                        "is CLIPPED, not measured. In Ei mode nothing autoranges, so "
+                        "this will persist: ABORT and raise autolab_current_range "
+                        "(members run backwards, e.g. CR09_10mA -> CR08_100mA).",
+                        getattr(self._segment, "label", "?"), which,
+                        (time.perf_counter() - self._t_sample_origin)
+                        if self._t_sample_origin else 0.0)
                 self._overloaded = True
             if not inst.AutolabConnection.IsConnected:
                 self._device_lost = True
