@@ -1275,3 +1275,25 @@ def test_the_end_of_segment_report_still_fires(ei_autolab, caplog):
     with caplog.at_level(logging.WARNING):
         p.finish()
     assert "OVERLOAD during" in caplog.text or "OVERLOAD" in caplog.text
+
+
+def test_overload_advice_is_mode_specific(ei_autolab, autolab, caplog):
+    """autolab_current_range applies ONLY in Ei mode. A CV runs the .nox, which sets
+    and auto-ranges its own — so telling a CV to raise that setting is wrong advice,
+    which is exactly what the 2026-09-11 film runs were given."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment()); p.fire()
+    with caplog.at_level(logging.WARNING):
+        inst.Ei.CurrentOverload = True
+        p.pump()
+    assert "autolab_current_range" in caplog.text      # Ei: the right knob
+    assert "ABORT" in caplog.text
+
+    caplog.clear()
+    p2, inst2 = autolab()                              # procedure mode, CV segment
+    p2.prepare(_cv_segment()); p2.fire()
+    with caplog.at_level(logging.WARNING):
+        inst2.Ei.CurrentOverload = True
+        p2.pump()
+    assert "does NOT apply here" in caplog.text        # and says so plainly
+    assert "auto-ranges its own" in caplog.text
