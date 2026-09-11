@@ -22,6 +22,13 @@ from spec_echem.gamry_data import read_cv, read_chrono
 from gui.widgets.plot_canvas import MplCanvas
 
 
+# How many segments the Segment dropdown shows before it needs scrolling. Qt's
+# default is 10, which silently hid the tail of a 14-segment run (2026-09-11).
+# 26 covers a 0.0-1.2 V ladder in 0.1 V steps; longer ones scroll, which is fine —
+# what matters is that nothing is invisible AND unscrollable.
+SEGMENT_COMBO_VISIBLE = 26
+
+
 class ResultsTab(QWidget):
     def __init__(self, main_window):
         super().__init__()
@@ -35,6 +42,15 @@ class ResultsTab(QWidget):
         ctrl_group = QGroupBox("View")
         ctrl_form = QFormLayout(ctrl_group)
         self.segment_combo = QComboBox()
+        # A 0.2-0.7 V ladder in 0.1 V steps is 14 reviewable segments, and Qt's
+        # default maxVisibleItems is 10 — so on 2026-09-11 the Results tab appeared
+        # to be missing Doping/Dedoping 4 and 5. The data was all there; the 10th
+        # entry was simply the last one visible. A run that looks like it lost the
+        # end of its ladder is exactly the wrong thing for this tab to imply.
+        self.segment_combo.setMaxVisibleItems(SEGMENT_COMBO_VISIBLE)
+        # Qt ignores maxVisibleItems when a style uses a NATIVE popup (Windows does).
+        # This forces the list-view popup, which honours it and scrolls beyond it.
+        self.segment_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
         self.segment_combo.currentTextChanged.connect(self.on_segment_changed)
         ctrl_form.addRow("Segment:", self.segment_combo)
 
