@@ -1210,3 +1210,68 @@ def test_the_current_range_is_not_touched_in_procedure_mode(autolab):
     p, inst = autolab(settings=_autolab_settings(autolab_current_range="CR09_10mA"))
     p.prepare(_doping_segment())
     assert inst.Ei.CurrentRange is None
+
+
+# --- the overload has to be said DURING the segment --------------------------
+# A chrono step overloads at t=0 (the current spikes, then decays), so a warning at
+# the segment boundary arrives 30 s late — and the remaining segments then run at the
+# same wrong range. On a first film at an unknown magnitude that is the whole ladder.
+
+def test_an_overload_is_announced_immediately_not_at_segment_end(ei_autolab, caplog):
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+
+    with caplog.at_level(logging.WARNING):
+        inst.Ei.CurrentOverload = True
+        p.pump()                                  # mid-segment, long before finish()
+
+    assert "CURRENT OVERLOAD" in caplog.text
+    assert "CLIPPED" in caplog.text
+    assert "ABORT" in caplog.text                 # says what to do, not just what is
+    assert p._overloaded is True
+
+
+def test_the_overload_warning_fires_once_not_every_spectrum(ei_autolab, caplog):
+    """It is checked every 100 ms. Repeating the warning would bury the run log and
+    the status pane in the one situation where the operator needs to read them."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+    inst.Ei.CurrentOverload = True
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(10):
+            p.pump()
+
+    assert caplog.text.count("OVERLOAD at t=") == 1
+
+
+def test_a_potential_overload_is_named_as_such(ei_autolab, caplog):
+    """Current and potential overload mean different things — a clipped current says
+    the range is wrong, a potential overload says the cell cannot be driven there."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+
+    with caplog.at_level(logging.WARNING):
+        inst.Ei.PotentialOverload = True
+        p.pump()
+
+    assert "POTENTIAL OVERLOAD" in caplog.text
+
+
+def test_the_end_of_segment_report_still_fires(ei_autolab, caplog):
+    """The immediate warning is an addition, not a replacement: the segment summary
+    is what a later reader of the log sees."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+    inst.Ei.CurrentOverload = True
+    p.pump()
+    inst.Ei.true_current = 1e-5
+    p.pump()
+
+    with caplog.at_level(logging.WARNING):
+        p.finish()
+    assert "OVERLOAD during" in caplog.text or "OVERLOAD" in caplog.text
