@@ -7,6 +7,7 @@ collect dark / reference spectra with a live preview, and test-measure in raw
 counts or absorbance.
 """
 import logging
+import time
 from contextlib import contextmanager
 
 import numpy as np
@@ -807,6 +808,13 @@ class InstrumentTab(QWidget):
         Autolab one connects and disconnects without touching the cell.
         """
         autolab = self.pstat_autolab_radio.isChecked()
+        # Timed because nothing records it today, so "it took a while" cannot be
+        # compared with anything. An Autolab connect spins up Adk.x and runs hardware
+        # setup, and this rig's USB link has now misbehaved three times (2026-09-03
+        # stale link, 2026-09-09 WinUSB teardown, 2026-09-11 crash). Whether a
+        # degrading link shows up as slower connects is a SUSPICION, not a known
+        # fact — logging the number is what would let the data answer it.
+        t0 = time.perf_counter()
         with self._click_landed(self.pstat_connect_btn, self._set_pstat_status,
                                 self.pstat_status):
             try:
@@ -824,7 +832,8 @@ class InstrumentTab(QWidget):
                 return
         self._pstat_connected = True
         self.win.pstat_identity = who
-        logger.info("Potentiostat connected: %s", who)
+        logger.info("Potentiostat connected in %.1f s: %s",
+                    time.perf_counter() - t0, who)
         self._set_pstat_status(f"● Connected — {who}", "#080")
 
     def _update_cal_plot(self):
@@ -893,6 +902,7 @@ class InstrumentTab(QWidget):
             spec = AvantesSpectrometer()
         # spec.init() blocks the GUI thread on USB — same "did my click land?" problem
         # the potentiostat button had. See _click_landed().
+        t0 = time.perf_counter()
         with self._click_landed(self.connect_btn, self._set_spec_status,
                                 self.spec_status):
             try:
@@ -909,7 +919,8 @@ class InstrumentTab(QWidget):
         self.win.spec_identity = (f"simulated ({serial})"
                                   if isinstance(spec, FakeSpectrometer)
                                   else f"Avantes serial {serial}")
-        logger.info("Spectrometer connected: %s", self.win.spec_identity)
+        logger.info("Spectrometer connected in %.1f s: %s",
+                    time.perf_counter() - t0, self.win.spec_identity)
         self.spec_status.setText(f"● Connected ({serial})")
         self.spec_status.setStyleSheet("color: #080;")
         # Which detector is this, in terms you can check against the instrument on the

@@ -376,3 +376,31 @@ def test_a_button_disabled_by_policy_stays_disabled(window, monkeypatch):
     tab.pstat_connect_btn.setEnabled(False)
     tab.on_connect_pstat()
     assert tab.pstat_connect_btn.isEnabled() is False
+
+
+def test_every_potential_field_names_what_it_drives(window):
+    """A bare "Potential:" cost two film runs on 2026-09-11: -0.5 V meant for dedoping
+    went into the pre-dedoping field, so the films got one hard reduction up front and
+    then dedoped at 0.0 V for the whole ladder. The settings and the data were both
+    faithful — the label was the defect. Every potential field must say which one it is.
+    """
+    from qtpy.QtWidgets import QFormLayout
+
+    tab = window.parameters_tab
+    keys = [k for k in tab._widgets if k.endswith("_potential")
+            or k.startswith("doping_potential")]
+    assert keys, "no potential fields found — has the tab been restructured?"
+
+    for key in keys:
+        w = tab._widgets[key]
+        form = w.parentWidget().layout()
+        if not isinstance(form, QFormLayout):
+            continue
+        label = form.labelForField(w)
+        assert label is not None, f"{key} has no label"
+        text = label.text().lower()
+        # The label has to distinguish this field from its siblings: a bare
+        # "Potential" does not.
+        assert text.strip().rstrip(":") not in ("potential", "potential (vs vref)"), (
+            f"{key} is labelled {label.text()!r} — too generic to tell apart from the "
+            f"other potential fields")
