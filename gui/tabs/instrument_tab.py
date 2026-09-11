@@ -7,6 +7,8 @@ collect dark / reference spectra with a live preview, and test-measure in raw
 counts or absorbance.
 """
 import logging
+from contextlib import contextmanager
+
 import numpy as np
 from datetime import datetime
 from pathlib import Path
@@ -770,26 +772,56 @@ class InstrumentTab(QWidget):
             self._set_pstat_status("● Not connected", "#b00")
         # else: keep the green "● Connected — …" so it survives run-end / re-toggle
 
+    @contextmanager
+    def _click_landed(self, button, show, *widgets):
+        """Show that the click registered, and make a second one impossible until it
+        has finished.
+
+        Setting a status label is not enough. Both connect probes block the GUI
+        THREAD for seconds — the Autolab one does a full connect / report /
+        disconnect over USB — and Qt cannot repaint until the event loop runs again,
+        so the user sees nothing change and clicks again. That is what put two
+        connect cycles into the 2026-09-11 crash log, on a USB stack that has now
+        twice failed under repeated open/close (2026-09-03 stale link, 2026-09-09
+        WinUSB teardown).
+
+        So: disable FIRST (a click on a disabled button is discarded, not queued),
+        then repaint the affected widgets synchronously. repaint() rather than
+        processEvents() on purpose — it paints these widgets now without re-entering
+        event handling, so nothing else can run while we are mid-probe.
+        """
+        was = button.isEnabled()
+        button.setEnabled(False)
+        show("● Connecting…", "#555")
+        for w in (button,) + widgets:
+            w.repaint()
+        try:
+            yield
+        finally:
+            button.setEnabled(was)
+
     def on_connect_pstat(self):
         """Verify the selected potentiostat is reachable and report WHICH unit it is.
 
         Both probes are read-only: the Gamry one opens and reads its label/serial, the
         Autolab one connects and disconnects without touching the cell.
         """
-        self._set_pstat_status("● Connecting…", "#555")
         autolab = self.pstat_autolab_radio.isChecked()
-        try:
-            if autolab:
-                who = autolab_identity(self.win.settings)
-            else:
-                label, serial = probe_identity()
-                label = (label or "").strip()
-                who = f"{label} (serial {serial})" if label else f"Gamry serial {serial}"
-        except Exception as exc:  # noqa: BLE001 — surface any vendor/hardware failure
-            self._pstat_connected = False
-            logger.warning("Potentiostat connect failed: %s", exc)
-            self._set_pstat_status("● Connect failed", "#b00", detail=str(exc))
-            return
+        with self._click_landed(self.pstat_connect_btn, self._set_pstat_status,
+                                self.pstat_status):
+            try:
+                if autolab:
+                    who = autolab_identity(self.win.settings)
+                else:
+                    label, serial = probe_identity()
+                    label = (label or "").strip()
+                    who = (f"{label} (serial {serial})" if label
+                           else f"Gamry serial {serial}")
+            except Exception as exc:  # noqa: BLE001 — surface any hardware failure
+                self._pstat_connected = False
+                logger.warning("Potentiostat connect failed: %s", exc)
+                self._set_pstat_status("● Connect failed", "#b00", detail=str(exc))
+                return
         self._pstat_connected = True
         self.win.pstat_identity = who
         logger.info("Potentiostat connected: %s", who)
@@ -846,21 +878,29 @@ class InstrumentTab(QWidget):
             bits.append(f"{len(full)} px · {float(full[0]):.1f}–{float(full[-1]):.1f} nm")
         return "   ".join(bits)
 
+    def _set_spec_status(self, text, color, detail=""):
+        """Mirror of _set_pstat_status: short text inline, variable-length message in
+        the wrapping label (an unwrapped inline message widens the window)."""
+        self.spec_status.setText(text)
+        self.spec_status.setStyleSheet(f"color: {color};")
+        if detail:
+            self.spec_detail.setText(detail)
+
     def on_connect(self):
         if self.simulated_check.isChecked() or AvantesSpectrometer is None:
             spec = FakeSpectrometer()
         else:
             spec = AvantesSpectrometer()
-        try:
-            _, serial = spec.init()
-        except Exception as exc:  # noqa: BLE001 — surface any hardware init failure to the user
-            logger.warning("Spectrometer connect failed: %s", exc)
-            # Short text inline, the variable-length message in the wrapping label —
-            # see _detail_label(): an unwrapped inline message widens the window.
-            self.spec_status.setText("● Connect failed")
-            self.spec_status.setStyleSheet("color: #b00;")
-            self.spec_detail.setText(str(exc))
-            return
+        # spec.init() blocks the GUI thread on USB — same "did my click land?" problem
+        # the potentiostat button had. See _click_landed().
+        with self._click_landed(self.connect_btn, self._set_spec_status,
+                                self.spec_status):
+            try:
+                _, serial = spec.init()
+            except Exception as exc:  # noqa: BLE001 — surface any hardware failure
+                logger.warning("Spectrometer connect failed: %s", exc)
+                self._set_spec_status("● Connect failed", "#b00", detail=str(exc))
+                return
         self.win.spec = spec
         _, self.win.wavelengths = spec.wavelengths()
         # A fresh connection is at the full window; remember it so loaded (full-range)
