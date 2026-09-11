@@ -21,6 +21,35 @@ DATA_TYPE_DEDOPING = 3
 DATA_TYPE_PREDEDOPING = 4
 
 
+def segment_potential(settings, data_type, run_number):
+    """The potential a chrono segment is held at, or None for a CV (which sweeps).
+
+    ONE definition, because the doping ladder's arithmetic was already written out
+    in both potentiostat backends and the Results tab wanted a third copy for its
+    graph titles. A label that disagrees with what was applied is worse than no
+    label, so they all come from here.
+    """
+    if data_type == DATA_TYPE_PREDEDOPING:
+        return settings["prededoping_potential"]
+    if data_type == DATA_TYPE_DOPING:
+        return (settings["doping_potential_start"]
+                + run_number * settings["doping_potential_step"])
+    if data_type == DATA_TYPE_DEDOPING:
+        return settings["dedoping_potential"]
+    return None
+
+
+def segment_potential_text(settings, data_type, run_number):
+    """A short potential for a graph title: '+0.600 V', or a CV's swept range."""
+    if data_type == DATA_TYPE_CV:
+        return (f"{settings['cv_limit1_v']:+.3f} to {settings['cv_limit2_v']:+.3f} V"
+                if "cv_limit1_v" in settings else "")
+    v = segment_potential(settings, data_type, run_number)
+    return "" if v is None else f"{v:+.3f} V"
+
+
+
+
 def compute_absorbance(spectra, dark, ref, wavelengths, timestamps):
     """
     Compute absorbance matrix from raw spectra.

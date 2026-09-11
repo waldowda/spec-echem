@@ -15,7 +15,7 @@ from qtpy.QtWidgets import (
 )
 
 from spec_echem.data import (
-    echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV,
+    echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV, segment_potential_text,
 )
 from spec_echem.experiment import Segment
 from spec_echem.gamry_data import read_cv, read_chrono
@@ -127,13 +127,30 @@ class ResultsTab(QWidget):
         self.segment_combo.blockSignals(False)
         self.on_segment_changed()
 
+    def _segment_title(self, label):
+        """'Doping 4' -> 'Doping 4  (+0.600 V)'.
+
+        Falls back to the bare label when the segment is not in this run's map — a
+        loaded folder from another session, say — rather than guessing a potential
+        from the current settings, which would be worse than none.
+        """
+        seg = self.win.segments_by_label.get(label)
+        if seg is None:
+            return label
+        text = segment_potential_text(self.win.settings, seg.data_type,
+                                      seg.run_number)
+        return f"{label}  ({text})" if text else label
+
     def on_segment_changed(self, *_):
         label = self.segment_combo.currentText()
         if not label or label not in self.win.results:
             return
         absorb_df = self.win.results[label]
+        # "Doping 4" says which segment, not which experiment. The potential is what
+        # the reader actually wants, and it comes from data.segment_potential_text()
+        # so the title cannot drift from what the driver applied.
         self.canvas.show_absorbance(
-            absorb_df, title=label,
+            absorb_df, title=self._segment_title(label),
             wl_min=self.wl_min.value(), wl_max=self.wl_max.value(),
         )
         self._plot_echem(label)
