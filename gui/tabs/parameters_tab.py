@@ -182,7 +182,11 @@ class ParametersTab(QWidget):
         discard.setEnabled(include_pre.isChecked())
         include_pre.toggled.connect(discard.setEnabled)
         pre_form.addRow(discard)
-        pre_form.addRow("Potential (vs Vref):",
+        # Named, not bare "Potential": every other potential field on this tab says
+        # what it drives, and this one did not. On 2026-09-11 that cost two film runs
+        # — -0.5 V meant for dedoping went in here, so the films got one hard
+        # reduction up front and then dedoped at 0.0 V for the whole ladder.
+        pre_form.addRow("Pre-dedoping potential (vs Vref):",
                         self._dspin("prededoping_potential", -10.0, 10.0, 3, 0.05, " V"))
         pre_form.addRow("Duration:", self._dspin("prededoping_time", 0.1, 100000.0, 1, 1.0, " s"))
         layout.addWidget(pre_group)

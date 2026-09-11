@@ -890,14 +890,30 @@ class AutolabPotentiostat(Potentiostat):
                     which = " and ".join(
                         [w for w, f in (("CURRENT", cur_over),
                                         ("POTENTIAL", pot_over)) if f])
+                    # Mode-specific advice. autolab_current_range applies ONLY in Ei
+                    # mode; a CV runs the procedure, whose FHGetSetValues sets its own
+                    # range and whose FHPreCurrentRangingCV auto-ranges — so telling a
+                    # CV to raise that setting is wrong, which is what it did on
+                    # 2026-09-11.
+                    if self._ei_mode:
+                        advice = ("In Ei mode nothing autoranges, so this will "
+                                  "persist: ABORT and raise autolab_current_range "
+                                  "(members run backwards, e.g. CR09_10mA -> "
+                                  "CR08_100mA).")
+                    else:
+                        advice = ("This segment runs the .nox, which sets and "
+                                  "auto-ranges its own current range — "
+                                  "autolab_current_range does NOT apply here. A brief "
+                                  "flag with clean recorded data can be a transient "
+                                  "the recorder never sampled; a persistent one means "
+                                  "the procedure's range is wrong, which is a NOVA "
+                                  "edit.")
                     get_run_logger().warning(
                         "%s: %s OVERLOAD at t=%.1f s — the electrochemistry from here "
-                        "is CLIPPED, not measured. In Ei mode nothing autoranges, so "
-                        "this will persist: ABORT and raise autolab_current_range "
-                        "(members run backwards, e.g. CR09_10mA -> CR08_100mA).",
+                        "may be CLIPPED rather than measured. %s",
                         getattr(self._segment, "label", "?"), which,
                         (time.perf_counter() - self._t_sample_origin)
-                        if self._t_sample_origin else 0.0)
+                        if self._t_sample_origin else 0.0, advice)
                 self._overloaded = True
             if not inst.AutolabConnection.IsConnected:
                 self._device_lost = True
