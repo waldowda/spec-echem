@@ -514,25 +514,41 @@ Sketch:
 Worth checking before designing: what exactly Raj's reader expects, so the layout is
 compatible rather than merely similar. Ask him rather than inferring from the code.
 
-## Current-range autoscaling for Ei mode (Dean, 2026-09-11 — priority)
+## Current range — a range-finding test run, NOT autoscaling (Dean, 2026-09-11)
 
-`autolab_current_range` is settable (bench.ini and now a Parameters-tab dropdown), and
-as of this session each Ei segment **reports** whether the range fitted, naming a better
-one. Automatic selection is the open half, and it has a real tension:
+**Decision: do not autoscale.** `autolab_current_range` stays a single value for a whole
+run, chosen deliberately. Two reasons, and the second is the stronger:
 
-- **Pre-scaling** (what `FHPreCurrentRangingCV` does for CV) means applying the
-  potential, sampling, choosing, then starting — which spends exactly the startup time
-  that `Ei` mode was built to eliminate (1134 ms -> 19-30 ms). Do not undo that.
-- **Mid-run switching** reacts at `pump()`'s ~10 Hz, and the peak of a chrono transient
-  arrives in the first samples — so a switch lands *after* the part that mattered, and
-  introduces a discontinuity in the trace.
-- **Predictive** looks best: pick segment N's range from segment N-1's measured peak. A
-  doping ladder is monotonic, costs nothing at t=0, and never switches mid-hold. The
-  first segment still needs a starting guess.
+1. **Timing.** A mid-run switch lands in the middle of the fast decay that doping and
+   dedoping steps exist to measure, and adds a discontinuity exactly there. Pre-scaling
+   before each hold would spend the startup time `Ei` mode was built to remove
+   (1134 ms -> 19-30 ms).
+2. **The zero offset is per range.** `CR09_10mA` carries +1.6 µA (MEASURED, 2026-09-11);
+   a finer range carries a different one, and a different quantum. If the range changed
+   between rungs of a ladder, **each segment would sit on a different baseline** — so the
+   doping trend, which is the measurement, would be corrupted by the instrument shifting
+   underneath it. Even per-segment prediction from the previous rung fails on this.
 
-Also unresolved, and a question for the experiment rather than the code: **within one
-chrono segment the current spans ~3 decades** (625 µA transient, 0.34-33.5 µA settled on
-2026-09-11). No single range serves both. Choosing for the peak avoids clipping and
-coarsens the settled value; choosing for the settled value clips the transient. Which
-matters is Dean's call and should be an explicit setting, not an implicit consequence.
+### What to build instead — a range-finding test run
 
+A short probe that determines a practical range before the real run:
+
+- Drive only the **extremes** of the planned ladder: the highest doping potential and the
+  dedoping potential (both from the same settings the run will use). Everything in
+  between draws less.
+- Start on a deliberately coarse range so the probe itself cannot clip, hold each for a
+  few seconds, and take the peak. Order of magnitude is all that is needed — the
+  difference between 600 µA and 6 mA, not a calibrated value.
+- Report the peak and the suggested range (`suggest_current_range()`, 20% headroom),
+  then leave the cell off.
+
+That feeds the setting on the Parameters tab; the per-segment advisory added
+2026-09-11 then confirms after the fact whether the choice held. Probe -> set -> run ->
+advisory closes the loop without the instrument ever changing range mid-measurement.
+
+### Still an experiment question, not a code one
+
+Within one chrono segment the current spans ~3 decades (625 µA transient, 0.34-33.5 µA
+settled, 2026-09-11). No single range serves both: choosing for the peak avoids clipping
+and coarsens the settled value; choosing for the settled value clips the transient. The
+probe should report **both** numbers so the choice is made with them visible.
