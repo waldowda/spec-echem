@@ -8,6 +8,8 @@ import logging
 import time
 from unittest import mock
 
+import numpy as np
+
 import pytest
 
 from spec_echem import potentiostat
@@ -241,7 +243,7 @@ def test_factory_rejects_an_unknown_mode():
 # Only the bench settles that.
 # ===========================================================================
 from spec_echem.data import (                                  # noqa: E402
-    DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_PREDEDOPING,
+    DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_PREDEDOPING, EchemData,
 )
 from spec_echem.fakes import (                                 # noqa: E402
     FakeAutolab, CV_COMMAND_ID, CA_RECORDER_ID, CA_SETPOINT_ID,
@@ -1297,3 +1299,61 @@ def test_overload_advice_is_mode_specific(ei_autolab, autolab, caplog):
         p2.pump()
     assert "does NOT apply here" in caplog.text        # and says so plainly
     assert "auto-ranges its own" in caplog.text
+
+
+# --- current-range advisory --------------------------------------------------
+# Four films ran on a range 30x too coarse (2026-09-11) and nothing said so. The
+# cost was a +1.6 uA zero offset against settled currents of a few uA.
+
+def test_range_full_scale_is_parsed_from_the_member_name():
+    assert potentiostat.range_full_scale_a("CR10_1mA") == pytest.approx(1e-3)
+    assert potentiostat.range_full_scale_a("CR13_1uA") == pytest.approx(1e-6)
+    assert potentiostat.range_full_scale_a("CR07_1A") == pytest.approx(1.0)
+    assert potentiostat.range_full_scale_a("nonsense") is None
+
+
+def test_the_suggestion_leaves_headroom_rather_than_fitting_exactly():
+    """A healthier film draws MORE than a degraded one, so a range chosen to fit
+    today's peak exactly clips tomorrow."""
+    # 625 uA was the largest transient seen on any film; 1 mA is the right answer.
+    assert potentiostat.suggest_current_range(625e-6) == "CR10_1mA"
+    # 900 uA is 90% of 1 mA — too tight, so it must step up.
+    assert potentiostat.suggest_current_range(900e-6) == "CR09_10mA"
+
+
+def test_a_coarse_range_is_reported_with_the_better_one(autolab, caplog):
+    """The exact 2026-09-11 case: 10 mA range, sub-mA currents, silence."""
+    p, inst = autolab(settings=_autolab_settings(autolab_current_range="CR09_10mA"))
+    p._ei_mode = True
+    p._segment = _cv_segment()
+    p._last_data = EchemData(time=np.zeros(3), potential=np.zeros(3),
+                             current=np.array([1e-6, 6.25e-4, -2e-5]))
+    with caplog.at_level(logging.INFO):
+        p._advise_current_range("Doping 0")
+
+    assert "CR10_1mA" in caplog.text          # names the better range
+    assert "6.2" in caplog.text or "6.3" in caplog.text   # and the % used
+
+
+def test_a_range_close_to_clipping_warns(autolab, caplog):
+    p, inst = autolab(settings=_autolab_settings(autolab_current_range="CR10_1mA"))
+    p._ei_mode = True
+    p._segment = _cv_segment()
+    p._last_data = EchemData(time=np.zeros(2), potential=np.zeros(2),
+                             current=np.array([0.0, 9.5e-4]))   # 95% of 1 mA
+    with caplog.at_level(logging.WARNING):
+        p._advise_current_range("Doping 0")
+    assert "close to" in caplog.text
+
+
+def test_procedure_mode_gets_no_range_advice(autolab, caplog):
+    """autolab_current_range does not apply to the .nox path — advising there sent
+    someone to change a setting that does nothing (fixed 2026-09-11)."""
+    p, inst = autolab(settings=_autolab_settings(autolab_current_range="CR09_10mA"))
+    p._ei_mode = False
+    p._segment = _cv_segment()
+    p._last_data = EchemData(time=np.zeros(2), potential=np.zeros(2),
+                             current=np.array([0.0, 1e-6]))
+    with caplog.at_level(logging.INFO):
+        p._advise_current_range("CV")
+    assert caplog.text == ""
