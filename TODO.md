@@ -391,6 +391,23 @@ Open, roughly in order of value:
   original `20260909_test8` in one day. Wanted: at Start, if the target folder already holds
   data files, a "folder already contains N files — overwrite?" confirm. `write_run_metadata`
   or the Run tab's Start handler is the seam.
+- **Live spectra plotting during a run — WANTED, but gated on the loop timing budget
+  (Dean, 2026-09-11).** Today plots update post-segment only; `CLAUDE.md` records that
+  as a deliberate simplification, with a throttled 2-5 Hz redraw noted as feasible.
+  Rendering happens on the GUI thread, never the acquisition thread, so in principle it
+  cannot touch the timing budget — the acquisition loop never blocks on the GUI, and
+  Qt's queued connections absorb a busy GUI thread.
+
+  **The open question is whether that still holds now.** When that note was written the
+  loop was exposure + ~30 ms; it is now exposure + ~50 ms of `pump()` in a 100 ms slot,
+  and `20260909_test12` / `20260911_test1` both show occasional stretched intervals.
+  Emitting a 1220-point array per spectrum at 10 Hz adds cross-thread traffic on top of
+  that. So: **measure before building.** Establish the per-spectrum headroom first (the
+  `next_deadline` item below is the same question from the other side), then decide
+  whether live plotting fits at 10 Hz, at a throttled 2-5 Hz, or only on a decimated
+  trace. If it does not fit, a single live number (latest current, spectrum count) costs
+  nothing and gets most of the reassurance.
+
 - **`next_deadline()` compensates for the measurement but not for `pump()`.** This is
   the mechanism behind the outliers, and the more precise version of the item below.
   `acquisition.py` calls `on_tick()` (= `potentiostat.pump`) once per iteration, for
