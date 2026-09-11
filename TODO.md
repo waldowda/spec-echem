@@ -555,6 +555,60 @@ Also worth raising with him: whether he would *read* an acquisition-written H5 d
 would rather we keep producing ascii and leave his pipeline untouched. If the latter, this is
 purely a disk-space feature for us and the layout is ours to choose.
 
+### The format should be vendor-neutral (Dean, 2026-09-11)
+
+**None of this is Avantes- or Autolab-specific, and the layout should not pretend otherwise.**
+Everything the file holds is generic: a wavelength axis, raw counts, a dark and a reference,
+an absorbance matrix, a time axis, and per segment a `time / potential / current` trace. No part
+of that depends on who made either instrument.
+
+We have already done this refactor once, one level down. `data.EchemData(time, potential,
+current)` exists because `write_echem_file()` used to reach into the array for toolkitpy's `vf` /
+`im` / `time`, which meant a non-Gamry driver had to fabricate Gamry field names to be writable.
+**The H5 is the same move at the file level**, and both potentiostat backends already produce
+`EchemData`, so the echem half is neutral today.
+
+Consequences for the design:
+
+- **Vendor identity goes in attributes, never in structure.** Instrument names, serials, the
+  build id and the settings snapshot are provenance; `write_run_metadata()` already collects
+  exactly this (it takes an `instruments` dict). A reader learns what produced the file without
+  the layout depending on it.
+- **The writer belongs in `spec_echem/data.py`**, beside `write_spectra_file()` and
+  `write_echem_file()`, driven by the same arguments. Nothing vendor-specific reaches it.
+- **It makes the archival-superset version the natural choice.** A neutral, complete file is a
+  data format; an analysis-shaped one is a convenience for one pipeline. And it survives the
+  deferred hardware work — an Ocean Optics spectrometer or a third potentiostat changes nothing
+  about the file (see the `hardware-portability` notes).
+
+Practical framing for the conversation with Raj: write **our** neutral superset, and make it
+trivially convertible to his layout, rather than adopting a shape derived from his objects.
+
+### Sizes, measured (2026-09-11)
+
+A realistic 14-segment run, 1265 wavelengths, ~5100 time points — **645 MB of ascii today**:
+
+| layout | size | vs ascii |
+|---|---|---|
+| Raj's, as written (`df.values`, float64) | 51.6 MB | 12x |
+| Raj's, float32 | 25.9 MB | 25x |
+| **archival: absorbance f32 + counts u16 + dark + ref** | **38.8 MB** | **17x** |
+| counts only, absorbance derived | 13.0 MB | 50x |
+
+Raw counts are `uint16` **exactly** — the ADC is 16-bit — so they cost half what float32
+absorbance does. The complete archival file is a ~50% surcharge over absorbance-only, and is
+still *smaller* than Raj's current float64 file while holding strictly more.
+
+Absorbance is derivable from counts/dark/reference, so dropping it would reach 13 MB. **Do not:**
+a reader would have to reproduce `compute_absorbance()` exactly, including where NaN and inf fall
+out when the reference approaches the dark (the 2026-09-04 shutter-closed run produced 8982 NaN +
+513 inf, which are correct outputs worth preserving rather than regenerating), and it would make
+the file useless to anyone without our arithmetic.
+
+Not included above: HDF5 per-dataset gzip/lzf. Counts should compress 2-4x (smooth spectra,
+limited range), absorbance less. The archival file plausibly lands nearer 15-25 MB in practice —
+worth measuring on real data rather than estimating.
+
 ## Current range — a range-finding test run, NOT autoscaling (Dean, 2026-09-11)
 
 **Decision: do not autoscale.** `autolab_current_range` stays a single value for a whole
