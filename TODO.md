@@ -647,3 +647,53 @@ Within one chrono segment the current spans ~3 decades (625 µA transient, 0.34-
 settled, 2026-09-11). No single range serves both: choosing for the peak avoids clipping
 and coarsens the settled value; choosing for the settled value clips the transient. The
 probe should report **both** numbers so the choice is made with them visible.
+
+## Analysis in the GUI — quick, during acquisition (Dean, 2026-09-11)
+
+**The value is doing it WHILE the run is going, not afterwards.** On 2026-09-11, film A
+collapsed after the +0.8 V excursion in `pbttt2` and nothing said so until the files were
+analysed later — `pbttt3` was then spent on a film that was already dead. A modulation-per-step
+number on screen would have shown it during `pbttt2`, in time to stop.
+
+That is the whole argument. Publication-quality and exploratory work stays in Jupyter.
+
+### Where it goes — probably the existing Results tab, not a fifth
+
+Dean's own read, and it looks right: the Results tab already loads a run folder
+(`discover_run_segments()` / `read_spectra_absorbance()`) and already has a segment selector and
+canvases. Analysis is a second view of data it has in hand, not a new place to load things. A
+fifth tab would duplicate the loading and split "look at the run" across two places.
+
+Revisit only if the controls crowd the tab.
+
+### What "core" means — Raj's `oect_processing/specechem/`
+
+His `UVVis` class and `uvvis_plot` are the reference for which analyses earn a place:
+
+| method | what it gives |
+|---|---|
+| `time_dep_spectra()` | absorbance vs wavelength vs time per potential — the base object |
+| `spec_echem_voltage()` | spectra at one time across the potential ladder |
+| `abs_vs_voltage(wavelength, time)` | **the modulation curve** — A at one wavelength across the ladder |
+| `single_wl_time(potential, wavelength)` | one wavelength vs time within a step — the kinetics |
+| `current_vs_time()` | the echem trace |
+| `banded_fits(wl_start, wl_stop, fittype='exp')` | exponential fits over a band — kinetics, less "quick" |
+| `uvvis_plot.spectrogram()` | the 2-D map |
+
+**For the during-a-run case, the short list is:** `abs_vs_voltage` (is the film still modulating?),
+`single_wl_time` (did this step reach steady state?), and a spectrogram. Those three answer "is
+this run worth continuing". `banded_fits` and the rest are Jupyter work.
+
+### Notes
+
+- **Not blocked on H5.** The Results tab reads the ascii today, so this can be built now and
+  switched to H5 when that lands. Do not sequence it behind the file format.
+- **The pieces mostly exist.** `read_spectra_absorbance()` returns a wavelength-indexed,
+  time-columned DataFrame — the same shape Raj's methods operate on — and `gamry_data.read_cv()` /
+  `read_chrono()` give the echem side. The work is selection UI and plotting, not analysis maths.
+- **One shared definition of the ladder already exists** (`data.segment_potential`, added
+  2026-09-11 so graph titles cannot drift from what was applied). An abs-vs-voltage plot should
+  use it rather than re-deriving potentials.
+- Worth asking Raj which of his methods he considers load-bearing versus historical, the same
+  conversation as the H5 layout.
+
