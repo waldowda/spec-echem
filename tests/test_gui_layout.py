@@ -441,3 +441,47 @@ def test_an_unknown_range_falls_back_to_leave_alone(window):
     tab = window.parameters_tab
     tab.populate_from({"autolab_current_range": "CR99_nonsense"})
     assert tab._widgets["autolab_current_range"].currentData() == ""
+
+
+# --- the Results dropdown must not hide the end of a run ---------------------
+# 2026-09-11: a 0.2-0.7 V ladder in 0.1 V steps makes 14 reviewable segments, and
+# Qt's default maxVisibleItems is 10 — so Doping/Dedoping 4 and 5 were invisible and
+# the run looked truncated. The files were all on disk.
+
+def test_the_segment_dropdown_holds_a_full_ladder(window, monkeypatch):
+    import pandas as pd
+    from gui.tabs.results_tab import SEGMENT_COMBO_VISIBLE
+
+    # This is a dropdown test; plotting is exercised elsewhere.
+    monkeypatch.setattr(window.results_tab.canvas, "show_absorbance",
+                        lambda *a, **k: None)
+
+    labels = ["CV", "Pre-dedoping"]
+    for n in range(6):
+        labels += [f"Doping {n}", f"Dedoping {n}"]
+    assert len(labels) == 14                       # the run that exposed this
+
+    df = pd.DataFrame({"Wavelength (nm)": [500.0], "Absorbance": [0.1]})
+    window.results = {k: df for k in labels}
+    window.results_tab.refresh_segments()
+
+    combo = window.results_tab.segment_combo
+    assert combo.count() == 14                     # every segment reviewable...
+    assert SEGMENT_COMBO_VISIBLE >= 14             # ...and none of them below the fold
+    shown = [combo.itemText(i) for i in range(combo.count())]
+    assert "Doping 5" in shown and "Dedoping 5" in shown
+
+
+def test_a_longer_ladder_still_scrolls_rather_than_vanishing(window, monkeypatch):
+    """Beyond the visible limit the popup must scroll, not truncate — the count is
+    what matters, not how many fit on screen."""
+    import pandas as pd
+
+    monkeypatch.setattr(window.results_tab.canvas, "show_absorbance",
+                        lambda *a, **k: None)
+
+    df = pd.DataFrame({"Wavelength (nm)": [500.0], "Absorbance": [0.1]})
+    labels = ["CV"] + [f"Doping {n}" for n in range(40)]
+    window.results = {k: df for k in labels}
+    window.results_tab.refresh_segments()
+    assert window.results_tab.segment_combo.count() == 41
