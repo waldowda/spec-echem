@@ -42,7 +42,7 @@ import numpy as np
 
 from spec_echem.data import (
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
-    EchemData, _echem_dta_path,
+    EchemData, _echem_dta_path, segment_potential,
 )
 from spec_echem.logging_config import get_run_logger
 from spec_echem.settings import parse_dio_mask
@@ -1267,14 +1267,11 @@ class AutolabPotentiostat(Potentiostat):
                 f"read back {back}.")
 
     def _chrono_potential(self, segment):
-        s = self.settings
-        if segment.data_type == DATA_TYPE_PREDEDOPING:
-            return s["prededoping_potential"]
-        if segment.data_type == DATA_TYPE_DOPING:
-            return s["doping_potential_start"] + segment.run_number * s["doping_potential_step"]
-        if segment.data_type == DATA_TYPE_DEDOPING:
-            return s["dedoping_potential"]
-        raise ValueError(f"No chrono potential for data_type {segment.data_type}")
+        v = segment_potential(self.settings, segment.data_type, segment.run_number)
+        if v is None:
+            raise ValueError(
+                f"No chrono potential for data_type {segment.data_type}")
+        return v
 
     def _setup_lag(self, segment):
         """Seconds between FHWait expiring and the template's first recorded sample.
@@ -1856,16 +1853,14 @@ class ToolkitPotentiostat(Potentiostat):
         return curve, signal
 
     def _chrono_potential(self, segment):
-        s = self.settings
-        if segment.data_type == DATA_TYPE_PREDEDOPING:
-            return s["prededoping_potential"]
-        if segment.data_type == DATA_TYPE_DOPING:
-            # Incrementing doping potential, one step per cycle — matches the
-            # Gamry "Loop (Variable)" that bumps DopingPotInitial each cycle.
-            return s["doping_potential_start"] + segment.run_number * s["doping_potential_step"]
-        if segment.data_type == DATA_TYPE_DEDOPING:
-            return s["dedoping_potential"]
-        raise ValueError(f"No chrono potential for data_type {segment.data_type}")
+        # The incrementing doping ladder matches the Gamry "Loop (Variable)" that
+        # bumps DopingPotInitial each cycle. Defined once in data.py, because the
+        # Results tab needs the same number for its graph titles.
+        v = segment_potential(self.settings, segment.data_type, segment.run_number)
+        if v is None:
+            raise ValueError(
+                f"No chrono potential for data_type {segment.data_type}")
+        return v
 
     def _cv_signal(self, pstat, segment):
         # Vertices map straight onto the .GSequence VINIT/VLIMIT1/VLIMIT2/VFINAL.

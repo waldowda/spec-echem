@@ -204,3 +204,44 @@ class TestWriteRunMetadata:
         subdir = "20250715_NewRun"
         write_run_metadata(self.SETTINGS, tmp_root, subdir)
         assert (tmp_root / subdir).is_dir()
+
+
+# --- one definition of the doping ladder -------------------------------------
+# It was written out in BOTH potentiostat backends before the Results tab wanted a
+# third copy for its graph titles. A title that disagrees with the potential that
+# was actually applied is worse than no title.
+
+def test_the_ladder_matches_what_the_driver_applies():
+    from spec_echem import potentiostat
+    from spec_echem.data import (segment_potential, DATA_TYPE_DOPING,
+                                 DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING)
+    from spec_echem.experiment import Segment
+
+    from spec_echem.settings import DEFAULT_SETTINGS
+
+    s = dict(DEFAULT_SETTINGS)
+    s.update({"doping_potential_start": 0.2, "doping_potential_step": 0.1,
+              "dedoping_potential": -0.5, "prededoping_potential": -0.45})
+
+    # __new__ so no hardware/SDK is touched — only the arithmetic is under test.
+    driver = potentiostat.AutolabPotentiostat.__new__(potentiostat.AutolabPotentiostat)
+    driver.settings = s
+
+    for dt in (DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING):
+        for run in range(4):
+            seg = Segment("x", dt, run, 10, 0.1, True)
+            assert driver._chrono_potential(seg) == segment_potential(s, dt, run)
+
+
+def test_the_ladder_increments_and_the_text_is_readable():
+    from spec_echem.data import (segment_potential, segment_potential_text,
+                                 DATA_TYPE_DOPING, DATA_TYPE_CV)
+    s = {"doping_potential_start": 0.2, "doping_potential_step": 0.1,
+         "dedoping_potential": -0.5, "prededoping_potential": -0.5,
+         "cv_limit1_v": -0.5, "cv_limit2_v": 0.7}
+    assert segment_potential(s, DATA_TYPE_DOPING, 0) == pytest.approx(0.2)
+    assert segment_potential(s, DATA_TYPE_DOPING, 5) == pytest.approx(0.7)
+    assert segment_potential_text(s, DATA_TYPE_DOPING, 4) == "+0.600 V"
+    # A CV sweeps rather than holds, so it reports its window, not a point.
+    assert segment_potential(s, DATA_TYPE_CV, 0) is None
+    assert segment_potential_text(s, DATA_TYPE_CV, 0) == "-0.500 to +0.700 V"
