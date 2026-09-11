@@ -287,8 +287,17 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
 
 ### Metrohm / Autolab rig — Python drives it; chrono runs from `Ei` (2026-09-09)
 
-**Read [`docs/bench-2026-09-09.md`](docs/bench-2026-09-09.md) first** — it is the current
-state. Headlines:
+**Read [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md) first** (the first film
+data), then [`bench-2026-09-09.md`](docs/bench-2026-09-09.md) (where `Ei` mode and the
+timing came from). Headlines:
+
+- **Validated on real samples 2026-09-11.** Four PBTTT runs; the timing measured on a
+  resistor held unchanged on films, and nothing needed changing to run one.
+- **The current range wants dropping to `CR10_1mA`.** Every film run used `CR09_10mA`
+  and nothing exceeded 625 µA; that range has a MEASURED +1.6 µA zero offset, which is
+  10–100% of the settled currents those runs recorded.
+- **Every CV flags an overload and none of them clip.** `autolab_current_range` does not
+  apply to a CV — it runs the procedure, which auto-ranges. Unresolved; see §4 there.
 
 - **Two backends for a chrono hold**, chosen by `autolab_ca_mode`:
   - `procedure` (default) — loads the `.nox` for every segment.

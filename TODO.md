@@ -462,3 +462,27 @@ Open, roughly in order of value:
   effect is unexplained and worth understanding first.
 - **Trigger cable build** (connector, pinout, shielding) is still undocumented — only its
   endpoints, and now its pin: bit 0 / pin 1 of P1.Port_A.
+
+
+## After 2026-09-11 (first film data) — see `docs/bench-2026-09-11.md`
+
+Closed that day: `Ei` mode validated on real samples; six GUI/driver defects found by
+running an actual experiment rather than by testing.
+
+- **Re-run a fresh film on `CR10_1mA`.** The single highest-value item. Every film run on
+  2026-09-11 used `CR09_10mA`, nothing anywhere exceeded 625 µA, and that range has a
+  MEASURED +1.6 µA zero offset — 10–100% of the settled currents recorded. The peaks are
+  fine; the steady-state currents are not quantitatively trustworthy. Dedoping −0.5 V,
+  and do not go past +0.7 V (PBTTT does not survive +0.8 V — film A never recovered).
+- **`examples/probe_overload.py` — still unwritten, now more clearly worth it.** Every CV
+  in every film run flagged `CURRENT OVERLOAD` and no recorded sweep clips. Hold 0.1 V on
+  the 10 kΩ dummy at a deliberately too-sensitive range (`CR13_1uA` gives 10 µA, i.e. 10×
+  over full scale) and watch what the flag AND the recorded data do. Answers three things
+  at once: what a clipped trace looks like, whether the CV overload matters, and whether
+  the flag LATCHES or self-clears — which is what gates the `pump()` throttle above.
+- **Characterise the range's zero offset**, cell open at 0 V, once per range. It is
+  stable and additive (+1.605 µA on `CR09_10mA`, residuals half a quantum), so it could
+  be subtracted rather than worked around — better than choosing a range for its offset.
+- **Is the CV's auto-ranging picking something too sensitive?** `FHPreCurrentRangingCV`
+  presumably probes at the initial potential, where a film draws almost nothing. If so
+  the fix is a NOVA edit (fixed range in the CV template), not a code change. Unverified.

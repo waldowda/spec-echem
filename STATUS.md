@@ -4,7 +4,35 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-09-09_
+_Last updated: 2026-09-11_
+
+---
+
+## First film data (2026-09-11, `gui-dev`) — new
+
+Full write-up: [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md). Four PBTTT runs
+(100 mM KTFSI, pseudo Ag/AgCl) plus a dummy check. **The first spectroelectrochemistry
+on a real sample through this code, and nothing had to change to run one.**
+
+- **Timing held on films, unchanged from the resistor**: cell ON → trigger edge
+  19–30 ms, `EDGE → spectrum 0` 29–42 ms, cadence 100.0 ms, every run `done`, zero
+  non-finite absorbance anywhere.
+- **Dedoping at 0 V was leaving the film doped** (MEASURED: −0.5 V roughly 2.5×'d the
+  dedoping transient) — but that was not what killed the first film. A +0.8 V excursion
+  was: film A never recovered, while a fresh film on the corrected settings modulates
+  0.174 in absorbance. **Do not take PBTTT past +0.7 V.**
+- **ACT ON THIS: the current range was 30× too coarse all day.** Largest transient
+  anywhere was 625 µA, so `CR10_1mA` was right for every run; `CR09_10mA` carries a
+  measured **+1.6 µA zero offset**, which is 10–100% of the settled currents. Peaks are
+  fine; settled currents in all four film runs are compromised.
+- **Every CV flagged an overload** (never a chrono segment) yet no recorded sweep clips.
+  Probably capacitive spikes between recorded staircase points on a sensitive
+  auto-selected range — but two analyses were inconclusive and it is not settled.
+- Six GUI/driver defects fixed, all found by running a real experiment: an unnamed
+  potential field that cost two runs' dedoping, a dropdown that hid the end of a ladder,
+  mode-inappropriate overload advice, connect buttons with no click feedback, a
+  bench-file-only current range, and graph titles that named the segment but not the
+  potential.
 
 ---
 
