@@ -308,3 +308,71 @@ def test_the_cadence_note_wraps(window):
     """Same rule as every other uncontrolled-length label here: it must not be able
     to drive the window's width."""
     assert window.instrument_tab.cadence_note.wordWrap() is True
+
+
+# --- "did my click land?" ----------------------------------------------------
+# Both connect probes block the GUI THREAD for seconds. Qt cannot repaint until the
+# event loop runs again, so a status label alone shows the user nothing and they
+# click again — which put two full connect cycles into the 2026-09-11 crash log, on
+# a USB stack that has twice failed under repeated open/close.
+
+def test_a_slow_connect_disables_its_own_button(window, monkeypatch):
+    """The button must be dead BEFORE the blocking call, not after it returns — a
+    click on a disabled button is discarded rather than queued."""
+    from gui.tabs import instrument_tab
+
+    tab = window.instrument_tab
+    seen = {}
+
+    def slow_probe(_settings):
+        # Runs while the GUI is "blocked": record what the user would actually see.
+        seen["enabled"] = tab.pstat_connect_btn.isEnabled()
+        seen["text"] = tab.pstat_status.text()
+        raise RuntimeError("no instrument here")
+
+    monkeypatch.setattr(instrument_tab, "autolab_identity", slow_probe)
+    tab.pstat_autolab_radio.setChecked(True)
+    tab.pstat_connect_btn.setEnabled(True)     # the state a user clicks from
+    tab.on_connect_pstat()
+
+    assert seen["enabled"] is False            # cannot be clicked again mid-probe
+    assert "Connecting" in seen["text"]        # and it says so
+    # Restored to what it WAS, not force-enabled: the tab disables this button by
+    # policy in some modes, and a connect attempt must not override that.
+    assert tab.pstat_connect_btn.isEnabled() is True
+
+
+def test_the_spectrometer_button_behaves_the_same(window, monkeypatch):
+    from gui.tabs import instrument_tab
+
+    tab = window.instrument_tab
+    seen = {}
+
+    class SlowSpec:
+        def init(self):
+            seen["enabled"] = tab.connect_btn.isEnabled()
+            seen["text"] = tab.spec_status.text()
+            raise RuntimeError("no spectrometer here")
+
+    monkeypatch.setattr(instrument_tab, "AvantesSpectrometer", SlowSpec)
+    tab.simulated_check.setChecked(False)
+    tab.connect_btn.setEnabled(True)
+    tab.on_connect()
+
+    assert seen["enabled"] is False
+    assert "Connecting" in seen["text"]
+    assert tab.connect_btn.isEnabled() is True
+
+
+def test_a_button_disabled_by_policy_stays_disabled(window, monkeypatch):
+    """_click_landed restores the PRIOR state. A connect attempt must not hand back
+    a button the tab had deliberately disabled."""
+    from gui.tabs import instrument_tab
+
+    tab = window.instrument_tab
+    monkeypatch.setattr(instrument_tab, "autolab_identity",
+                        lambda s: (_ for _ in ()).throw(RuntimeError("nope")))
+    tab.pstat_autolab_radio.setChecked(True)
+    tab.pstat_connect_btn.setEnabled(False)
+    tab.on_connect_pstat()
+    assert tab.pstat_connect_btn.isEnabled() is False
