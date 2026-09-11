@@ -311,6 +311,24 @@ CA_KEY_INTERVAL = "Interval time in µs"   # on FHLevel
 # segment.delta_time in SECONDS, which is what the recorded data agrees with
 # (2026-09-03/04). The vendor's IdName is simply mislabelled.
 
+# EI.EICurrentRange, enumerated from the SDK assembly on this rig 2026-09-11, in
+# ASCENDING CURRENT order (the member numbers run the other way, which is the trap:
+# CR10_1mA -> CR09_10mA -> CR08_100mA).
+#
+# Hardcoded rather than read from the SDK because the GUI has to offer the list on a
+# machine with no instrument attached. _set_current_range() still validates against
+# the real enum at use, so a stale entry here fails loudly on the rig rather than
+# silently applying the wrong range.
+AUTOLAB_CURRENT_RANGES = [
+    ("CR19_1pA", "1 pA"), ("CR18_10pA", "10 pA"), ("CR17_100pA", "100 pA"),
+    ("CR16_1nA", "1 nA"), ("CR15_10nA", "10 nA"), ("CR14_100nA", "100 nA"),
+    ("CR13_1uA", "1 µA"), ("CR12_10uA", "10 µA"), ("CR11_100uA", "100 µA"),
+    ("CR10_1mA", "1 mA"), ("CR09_10mA", "10 mA"), ("CR08_100mA", "100 mA"),
+    ("CR07_1A", "1 A"), ("CR06_10A", "10 A"), ("CR05_20A", "20 A"),
+    ("CR04_40A", "40 A"), ("CR03_50A", "50 A"), ("CR02_80A", "80 A"),
+    ("CR01_100A", "100 A"), ("CR00_1000A", "1000 A"),
+]
+
 # How far Ei.Setpoint may land from what was asked before it counts as a failure.
 #
 # The procedure path verifies parameter writes at 1e-9 because those are software

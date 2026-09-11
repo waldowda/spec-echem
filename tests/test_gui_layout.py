@@ -404,3 +404,40 @@ def test_every_potential_field_names_what_it_drives(window):
         assert text.strip().rstrip(":") not in ("potential", "potential (vs vref)"), (
             f"{key} is labelled {label.text()!r} — too generic to tell apart from the "
             f"other potential fields")
+
+
+# --- the current range is a per-SAMPLE setting, so it belongs in the GUI ------
+# It was bench.ini-only until 2026-09-11, the same gap autolab_pulse_delay_s has:
+# a value that changes with the sample but could only be changed by editing a file.
+
+def test_the_current_range_is_selectable_in_the_gui(window):
+    from spec_echem.potentiostat import AUTOLAB_CURRENT_RANGES
+
+    tab = window.parameters_tab
+    w = tab._widgets["autolab_current_range"]
+    values = [w.itemData(i) for i in range(w.count())]
+
+    assert values[0] == "", "first entry must mean 'leave the instrument's own'"
+    assert "CR10_1mA" in values and "CR09_10mA" in values
+    # every SDK member offered, none invented
+    assert set(values) == {""} | {v for v, _ in AUTOLAB_CURRENT_RANGES}
+
+
+def test_the_range_survives_a_settings_round_trip(window):
+    """It stores the enum MEMBER, not the human label — the driver looks the member
+    up on the SDK enum, so a label would fail at the instrument."""
+    tab = window.parameters_tab
+    tab.populate_from({"autolab_current_range": "CR11_100uA"})
+    assert tab._widgets["autolab_current_range"].currentData() == "CR11_100uA"
+
+    out = {}
+    tab.collect_into(out)
+    assert out["autolab_current_range"] == "CR11_100uA"
+
+
+def test_an_unknown_range_falls_back_to_leave_alone(window):
+    """A settings file naming a range this build does not know must not silently
+    select some other range."""
+    tab = window.parameters_tab
+    tab.populate_from({"autolab_current_range": "CR99_nonsense"})
+    assert tab._widgets["autolab_current_range"].currentData() == ""

@@ -13,9 +13,10 @@ from pathlib import Path
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
     QPushButton, QLabel, QLineEdit, QPlainTextEdit, QCheckBox,
-    QDoubleSpinBox, QSpinBox, QFileDialog,
+    QDoubleSpinBox, QSpinBox, QFileDialog, QComboBox,
 )
 
+from spec_echem.potentiostat import AUTOLAB_CURRENT_RANGES
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import _next_serial_path
 
@@ -49,6 +50,19 @@ class ParametersTab(QWidget):
 
     def _line(self, key):
         w = QLineEdit()
+        self._widgets[key] = w
+        return w
+
+    def _combo(self, key, choices):
+        """A dropdown that stores the VALUE, not the visible label.
+
+        `choices` is [(value, label)]; an empty value is offered first so the field
+        can mean "leave whatever the instrument has", which is what a blank
+        autolab_current_range means.
+        """
+        w = QComboBox()
+        for value, label in choices:
+            w.addItem(label, value)
         self._widgets[key] = w
         return w
 
@@ -206,6 +220,22 @@ class ParametersTab(QWidget):
         dope_form.addRow("Step duration:", self._dspin("chrono_time", 0.1, 100000.0, 1, 1.0, " s"))
         dope_form.addRow("Time between spectra:",
                          self._dspin("chrono_delta_time", 0.001, 100.0, 3, 0.01, " s"))
+        # Per SAMPLE, not per rig, which is why it belongs here rather than only in
+        # bench.ini: one film draws µA and the next draws mA. It applies to the
+        # chrono steps only — a CV runs the .nox, which sets and auto-ranges its own.
+        # Pick for the PEAK: in Ei mode nothing autoranges, so a range too small
+        # clips the transient, and one too large buys a coarse quantum and a zero
+        # offset (MEASURED 2026-09-11: ~1.6 µA on CR09_10mA, which is 32% of a 5 µA
+        # settled current).
+        range_combo = self._combo("autolab_current_range",
+                                  [("", "leave the instrument's own")]
+                                  + [(v, l) for v, l in AUTOLAB_CURRENT_RANGES])
+        range_combo.setToolTip(
+            "Fixed current range for doping/dedoping/pre-dedoping (Ei mode only).\n"
+            "Nothing autoranges there, so choose for the PEAK current, not the\n"
+            "settled one - a step draws far more at t=0 than it settles to.\n"
+            "CV is unaffected: it runs the procedure, which ranges itself.")
+        dope_form.addRow("Current range (Ei mode):", range_combo)
         layout.addWidget(dope_group)
 
         layout.addStretch()
@@ -223,6 +253,9 @@ class ParametersTab(QWidget):
                 w.setValue(value)
             elif isinstance(w, QPlainTextEdit):
                 w.setPlainText(str(value))
+            elif isinstance(w, QComboBox):
+                i = w.findData(str(value or ""))
+                w.setCurrentIndex(i if i >= 0 else 0)
             elif isinstance(w, QLineEdit):
                 w.setText(str(value))
 
@@ -241,6 +274,8 @@ class ParametersTab(QWidget):
                 settings[key] = w.value()
             elif isinstance(w, QPlainTextEdit):
                 settings[key] = w.toPlainText()
+            elif isinstance(w, QComboBox):
+                settings[key] = w.currentData()
             elif isinstance(w, QLineEdit):
                 settings[key] = w.text()
 
