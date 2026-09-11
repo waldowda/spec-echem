@@ -531,9 +531,14 @@ def _set_ei_mode(ei, potentiostatic=True):
 def _set_current_range(ei, name):
     """Fix the current range, or leave the instrument's own if not configured.
 
-    Named ranges are an SDK enum (CR10_1mA and friends); an unknown name is a
-    warning, not a failed run, because the instrument's existing range still
-    measures — it just may not be the best one for this sample.
+    In Ei mode this is the ONLY thing setting the range — there is no procedure and
+    no autoranging, so it is a first-class experimental parameter and gets logged on
+    success as well as failure. The member names run BACKWARDS relative to the
+    current (CR10_1mA, CR09_10mA, CR08_100mA), which is easy to get wrong by guessing.
+
+    An unknown name is a warning rather than a failed run — the instrument's existing
+    range still measures — but the warning names the valid members, because on a real
+    sample the difference between 1 mA and 10 mA is a clipped transient.
     """
     if not name:
         return
@@ -541,9 +546,21 @@ def _set_current_range(ei, name):
         from EcoChemie.Autolab.Sdk import EI
         ei.CurrentRange = getattr(EI.EICurrentRange, str(name))
     except Exception as exc:  # noqa: BLE001
+        members = ""
+        try:
+            from EcoChemie.Autolab.Sdk import EI as _EI
+            from System import Enum as _Enum
+            members = "; valid: " + ", ".join(
+                _Enum.GetNames(type(_EI.EICurrentRange.CR10_1mA)))
+        except Exception:  # noqa: BLE001
+            pass
         get_run_logger().warning(
             "Autolab: current range %r not accepted (%s); leaving the instrument's "
-            "own range in place.", name, exc)
+            "own range in place — which on a real sample may clip%s.",
+            name, exc, members)
+        return
+    get_run_logger().info("Autolab: current range fixed at %s (no autoranging in "
+                          "Ei mode).", name)
 
 
 def raw_first_calctime(cmd):

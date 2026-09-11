@@ -1178,3 +1178,35 @@ def test_a_sampler_that_refuses_does_not_sink_the_segment(ei_autolab):
 
     p.pump()                                            # must not raise
     assert len(p._live_samples) == 1
+
+
+def test_the_current_range_is_set_and_logged_in_ei_mode(autolab, monkeypatch, caplog):
+    """In Ei mode nothing else sets the range — no procedure, no autoranging — so it
+    is an experimental parameter and the run record has to name it. It was silent on
+    success until 2026-09-11."""
+    monkeypatch.setattr(potentiostat, "_set_ei_mode", lambda ei, potentiostatic=True: None)
+    real = potentiostat._set_current_range
+
+    def fake(ei, name):
+        ei.CurrentRange = name          # stand in for the SDK enum lookup
+        if name:
+            potentiostat.get_run_logger().info(
+                "Autolab: current range fixed at %s (no autoranging in "
+                "Ei mode).", name)
+    monkeypatch.setattr(potentiostat, "_set_current_range", fake)
+
+    p, inst = autolab(settings=_autolab_settings(
+        autolab_ca_mode="ei", autolab_current_range="CR09_10mA"))
+    with caplog.at_level(logging.INFO):
+        p.prepare(_doping_segment())
+
+    assert inst.Ei.CurrentRange == "CR09_10mA"
+    assert "CR09_10mA" in caplog.text
+
+
+def test_the_current_range_is_not_touched_in_procedure_mode(autolab):
+    """The .nox sets its own range via FHGetSetValues and CV auto-ranges, so
+    autolab_current_range must stay an Ei-mode setting only."""
+    p, inst = autolab(settings=_autolab_settings(autolab_current_range="CR09_10mA"))
+    p.prepare(_doping_segment())
+    assert inst.Ei.CurrentRange is None
