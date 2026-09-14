@@ -66,7 +66,7 @@ def configure_app_logging(data_root):
     _remove_file_handlers(logger)
 
     try:
-        folder = Path(data_root) / "logs"
+        folder = Path(data_root).expanduser() / "logs"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / APP_LOG_NAME
         handler = TimedRotatingFileHandler(
@@ -139,7 +139,7 @@ def _log_launch_banner(logger):
 
 def app_log_path(data_root):
     """Where configure_app_logging() would write, without opening anything."""
-    return Path(data_root) / "logs" / APP_LOG_NAME
+    return Path(data_root).expanduser() / "logs" / APP_LOG_NAME
 
 
 def configure_run_logging(run_folder, name):

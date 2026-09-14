@@ -39,7 +39,7 @@ TARGETS = [
     ("stock CA (what we run now)", os.path.join(SDK_PROCEDURES, "Chrono amperometry.nox")),
     ("spectral CA — has P1.A in its bytes",
      os.path.join(NOVA_PROCEDURES, "PC_SpectralChronoAmperometry_0.36-0.8V.nox")),
-    ("Sung-Joo's spectro CV", os.path.join(NOVA_PROCEDURES, "spectroelectrochem_CV.nox")),
+    ("a colleague's spectro CV", os.path.join(NOVA_PROCEDURES, "spectroelectrochem_CV.nox")),
 ]
 
 
