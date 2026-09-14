@@ -195,9 +195,12 @@ class MplCanvas(FigureCanvasQTAgg):
         # tight_layout cannot handle the shared-x gridspec below and silently clips
         # the y-label and the x-label off the canvas; constrained layout handles it.
         self.fig.set_layout_engine("constrained")
-        gs = self.fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.05)
-        self.ax = self.fig.add_subplot(gs[0])
-        self.resid_ax = self.fig.add_subplot(gs[1], sharex=self.ax)
+        # Residuals go ABOVE the data: that is the convention in the spectroscopy
+        # fitting this sits next to (XPS, NMR, IR). Reflectivity and astronomy put
+        # them below, which is the other common choice -- not a neutral default.
+        gs = self.fig.add_gridspec(2, 1, height_ratios=[1, 3], hspace=0.05)
+        self.ax = self.fig.add_subplot(gs[1])
+        self.resid_ax = self.fig.add_subplot(gs[0], sharex=self.ax)
 
         t = np.asarray(t, dtype=float)
         y = np.asarray(y, dtype=float)
@@ -231,15 +234,16 @@ class MplCanvas(FigureCanvasQTAgg):
                     a.axvspan(hi, t[-1], color="#999", alpha=0.13, lw=0, zorder=1)
 
         self.ax.set_ylabel(ylabel)
-        if title:
-            self.ax.set_title(title)
+        self.ax.set_xlabel(xlabel)
         self.ax.grid(True, alpha=0.3)
         self.ax.legend(fontsize=7, loc="best")
-        self.ax.tick_params(labelbottom=False)   # shared x — label it once, below
-        self.resid_ax.set_xlabel(xlabel)
         self.resid_ax.set_ylabel("resid.", fontsize=8)
         self.resid_ax.grid(True, alpha=0.3)
-        self.resid_ax.tick_params(labelsize=7)
+        self.resid_ax.tick_params(labelsize=7, labelbottom=False)  # shared x, below
+        # suptitle, not a title on either panel: the top panel is the residual
+        # strip now, and a title on the main axes would land between the two.
+        if title:
+            self.fig.suptitle(title, fontsize="medium")
         self.draw_idle()
 
     def show_message(self, text):
