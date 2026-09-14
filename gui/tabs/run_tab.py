@@ -257,6 +257,7 @@ class RunTab(QWidget):
         # would otherwise leave stale extra segments (e.g. "Doping 6") mixed in.
         self.win.results = {}
         self.win.results_tab.refresh_segments()
+        self.win.analysis_tab.refresh_segments()
 
         # Build the progress list
         self.sequence_list.clear()
@@ -397,6 +398,7 @@ class RunTab(QWidget):
             return
         self.win.results[label] = absorb_df
         self.win.results_tab.refresh_segments()
+        self.win.analysis_tab.refresh_segments()
 
     def on_finished(self, reason):
         self._update_live_echem()   # draw the last segment's final curve
