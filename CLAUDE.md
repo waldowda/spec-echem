@@ -291,7 +291,7 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
 data), then [`bench-2026-09-09.md`](docs/bench-2026-09-09.md) (where `Ei` mode and the
 timing came from). Headlines:
 
-- **Validated on real samples 2026-09-11.** Four PBTTT runs; the timing measured on a
+- **Validated on real samples 2026-09-11.** Four the test film runs; the timing measured on a
   resistor held unchanged on films, and nothing needed changing to run one.
 - **The current range wants dropping to `CR10_1mA`.** Every film run used `CR09_10mA`
   and nothing exceeded 625 µA; that range has a MEASURED +1.6 µA zero offset, which is

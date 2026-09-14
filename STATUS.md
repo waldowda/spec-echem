@@ -10,8 +10,8 @@ _Last updated: 2026-09-11_
 
 ## First film data (2026-09-11, `gui-dev`) — new
 
-Full write-up: [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md). Four PBTTT runs
-(100 mM KTFSI, pseudo Ag/AgCl) plus a dummy check. **The first spectroelectrochemistry
+Full write-up: [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md). Four the test film runs
+(the electrolyte, pseudo Ag/AgCl) plus a dummy check. **The first spectroelectrochemistry
 on a real sample through this code, and nothing had to change to run one.**
 
 - **Timing held on films, unchanged from the resistor**: cell ON → trigger edge
@@ -20,7 +20,7 @@ on a real sample through this code, and nothing had to change to run one.**
 - **Dedoping at 0 V was leaving the film doped** (MEASURED: −0.5 V roughly 2.5×'d the
   dedoping transient) — but that was not what killed the first film. A +0.8 V excursion
   was: film A never recovered, while a fresh film on the corrected settings modulates
-  0.174 in absorbance. **Do not take PBTTT past +0.7 V.**
+  0.174 in absorbance. **Do not take the test film past +0.7 V.**
 - **ACT ON THIS: the current range was 30× too coarse all day.** Largest transient
   anywhere was 625 µA, so `CR10_1mA` was right for every run; `CR09_10mA` carries a
   measured **+1.6 µA zero offset**, which is 10–100% of the settled currents. Peaks are

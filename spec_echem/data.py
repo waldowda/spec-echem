@@ -50,6 +50,16 @@ def segment_potential_text(settings, data_type, run_number):
 
 
 
+def resolve_data_root(data_root):
+    """Expand `~` in a data root, so the default is not one machine's account name.
+
+    `Path("~/specechem_data")` does NOT expand on its own — it would create a literal
+    directory called "~" beside wherever the app was launched. Every write path goes
+    through here so that cannot happen.
+    """
+    return Path(data_root).expanduser()
+
+
 def compute_absorbance(spectra, dark, ref, wavelengths, timestamps):
     """
     Compute absorbance matrix from raw spectra.
@@ -227,7 +237,7 @@ def write_spectra_file(absorb7, spectra, dark, ref, wavelengths, timestamps,
         else:
             output_df_all = pd.concat([output_df_all, output_df], axis=0, ignore_index=True)
 
-    path = Path(data_root) / added_path / _filename_for(data_type, run_number)
+    path = resolve_data_root(data_root) / added_path / _filename_for(data_type, run_number)
     path.parent.mkdir(parents=True, exist_ok=True)
     output_df_all.to_csv(path, header=True, index=False, sep='\t')
 
@@ -259,7 +269,7 @@ def _echem_dta_path(data_type, run_number, data_root, added_path):
         DATA_TYPE_DEDOPING:    f'dedoping({run_number}).dta',
         DATA_TYPE_PREDEDOPING: f'prededoping({run_number}).dta',
     }[data_type]
-    return Path(data_root) / added_path / 'dta' / name
+    return resolve_data_root(data_root) / added_path / 'dta' / name
 
 
 class EchemData(NamedTuple):
@@ -317,7 +327,7 @@ def write_echem_file(echem, data_type, run_number, data_root, added_path):
             'Index':              range(len(current)),
         })[CHRONO_COLUMNS]
 
-    path = Path(data_root) / added_path / _echem_filename_for(data_type, run_number)
+    path = resolve_data_root(data_root) / added_path / _echem_filename_for(data_type, run_number)
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, header=True, index=False, sep='\t')
 
@@ -343,7 +353,7 @@ def write_run_metadata(settings, data_root, added_path, instruments=None):
     Returns:
         Path: path to the metadata file written
     """
-    folder = Path(data_root) / added_path
+    folder = resolve_data_root(data_root) / added_path
     folder.mkdir(parents=True, exist_ok=True)
 
     metadata = {

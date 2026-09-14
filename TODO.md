@@ -473,7 +473,7 @@ running an actual experiment rather than by testing.
   2026-09-11 used `CR09_10mA`, nothing anywhere exceeded 625 µA, and that range has a
   MEASURED +1.6 µA zero offset — 10–100% of the settled currents recorded. The peaks are
   fine; the steady-state currents are not quantitatively trustworthy. Dedoping −0.5 V,
-  and do not go past +0.7 V (PBTTT does not survive +0.8 V — film A never recovered).
+  and do not go past +0.7 V (the test film does not survive +0.8 V — film A never recovered).
 - **`examples/probe_overload.py` — still unwritten, now more clearly worth it.** Every CV
   in every film run flagged `CURRENT OVERLOAD` and no recorded sweep clips. Hold 0.1 V on
   the 10 kΩ dummy at a deliberately too-sensitive range (`CR13_1uA` gives 10 µA, i.e. 10×
@@ -651,9 +651,9 @@ probe should report **both** numbers so the choice is made with them visible.
 ## Analysis in the GUI — quick, during acquisition (Dean, 2026-09-11)
 
 **The value is doing it WHILE the run is going, not afterwards.** On 2026-09-11, film A
-collapsed after the +0.8 V excursion in `pbttt2` and nothing said so until the files were
-analysed later — `pbttt3` was then spent on a film that was already dead. A modulation-per-step
-number on screen would have shown it during `pbttt2`, in time to stop.
+collapsed after the +0.8 V excursion in `film2` and nothing said so until the files were
+analysed later — `film3` was then spent on a film that was already dead. A modulation-per-step
+number on screen would have shown it during `film2`, in time to stop.
 
 That is the whole argument. Publication-quality and exploratory work stays in Jupyter.
 

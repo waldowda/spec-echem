@@ -52,7 +52,10 @@ DEFAULT_SETTINGS = {
     "lin_max_fill_pct": 85.0,
 
     # --- Data location ---
-    "data_root": r"C:\Users\inst-chem\Documents\specechem_data",
+    # `~` is expanded at every write (data.resolve_data_root). A default naming one
+    # lab's Windows account was wrong for everyone else; each rig overrides this in
+    # config/bench.ini anyway, so this only affects a fresh clone.
+    "data_root": "~/specechem_data",
     "data_folder": "",          # format: YYYYMMDD_Description
 
     # --- Sample info (documentation) ---

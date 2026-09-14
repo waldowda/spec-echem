@@ -245,3 +245,31 @@ def test_the_ladder_increments_and_the_text_is_readable():
     # A CV sweeps rather than holds, so it reports its window, not a point.
     assert segment_potential(s, DATA_TYPE_CV, 0) is None
     assert segment_potential_text(s, DATA_TYPE_CV, 0) == "-0.500 to +0.700 V"
+
+
+# --- data_root expansion -----------------------------------------------------
+# The shipped default is "~/specechem_data". Path() does NOT expand that on its own,
+# so without this every write would land in a literal directory called "~" beside
+# wherever the app was launched.
+
+def test_a_tilde_data_root_expands_to_the_home_directory():
+    from pathlib import Path
+    from spec_echem.data import resolve_data_root
+
+    got = resolve_data_root("~/specechem_data")
+    assert got == Path.home() / "specechem_data"
+    assert "~" not in str(got)
+
+
+def test_an_absolute_data_root_is_untouched(tmp_path):
+    from spec_echem.data import resolve_data_root
+    assert resolve_data_root(str(tmp_path)) == tmp_path
+
+
+def test_the_shipped_default_is_not_one_machines_account():
+    """It named a single Windows account for years, which is wrong for every other
+    rig and leaks a username into a public repo."""
+    from spec_echem.settings import DEFAULT_SETTINGS
+    root = DEFAULT_SETTINGS["data_root"]
+    assert "Users" not in root and "inst-chem" not in root
+    assert root.startswith("~")

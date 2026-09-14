@@ -18,7 +18,7 @@ Avantes spectrometer + a Metrohm Autolab, and where things stand for continued d
 | | |
 |---|---|
 | Box | fresh Win11, user `Ginger Lab`, 64-bit `SpecEchem` conda env (Python 3.13) |
-| Spectrometer | **AvaSpec-ULS2048L-USB2**, serial **1404154U1**, 2048 px, min integration ~1.05 ms |
+| Spectrometer | **AvaSpec-ULS2048L-USB2**, 2048 px, min integration ~1.05 ms |
 | Potentiostat | **Metrohm Autolab PGSTAT302N** (corrected 2026-08-31; earlier notes said PGSTAT10). Connects with the SDK's `Hardware Setup Files\PGSTAT302N\HardwareSetup.FRA32M.xml`. Serial/modules on this unit still to be re-confirmed at the bench. |
 | Autolab SDK | **2.1**, at `C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\` |
 | NOVA | 2.1, also installed |
@@ -27,7 +27,7 @@ Avantes spectrometer + a Metrohm Autolab, and where things stand for continued d
 
 | Step | Result |
 |---|---|
-| 1 — spectrometer alone (`query_avantes.py`) | ✅ serial 1404154U1, 174–1327 nm raw span |
+| 1 — spectrometer alone (`query_avantes.py`) | ✅, 174–1327 nm raw span |
 | 2 — spectrometer as the app sees it | ✅ launch banner `drivers avaspec: yes \| toolkitpy: no` |
 | 3 — Autolab connect, 64-bit (`query_autolab.py`) | ✅ connects — **no 32/64-bit split on this rig** |
 | 4 — trigger path (`query_avantes_trigger.py`, NEW) | ✅ Autolab DIO `Port_A` → Avantes trigger fires, polarity correct |
@@ -55,8 +55,7 @@ The user's existing `.nox` procedures (`Documents\Nova 2.1\Procedures\PC_Spectra
 `PC_spectralCA_CV_BIGPROCEDURE`) show NOVA itself driving **both** instruments:
 
 - `ExecCommandAvantesStart` / `AvantesStop`, `SpectroSingleShot` ("Software triggered spectroscopy",
-  USB), `SpectroTriggered` ("fast options", hardware-triggered burst). Spectrometer serial
-  **1404154U1** is embedded in the procedure.
+  USB), `SpectroTriggered` ("fast options", hardware-triggered burst). Spectrometer is embedded in the procedure.
 - The sync line is an **Autolab digital output**: `Dio_0` / `HDio`, written as **`P1.A:Write`**
   (connector P1, bank A, output), pulsed (`HOptionGetSetValuesPulse`), followed by `WaitMicroSeconds`.
   DIO is also used for lamp/shutter TTL ("make sure the lamps are on TTL").

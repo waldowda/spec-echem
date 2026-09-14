@@ -82,7 +82,7 @@ being separated by seconds of instrument-side preamble whose duration varies.
 
 The bias is handled: `_wait_window()` reads the procedure's own `FHWait` live and adds a
 per-template measured setup lag. **The jitter is not, and cannot be.** Removing
-`FHPreCurrentRangingCV` (Sung-Joo's CV, lag 0.602 s) left the spread at ~150 ms, so the scatter is
+`FHPreCurrentRangingCV` (the colleague spectro CV, lag 0.602 s) left the spread at ~150 ms, so the scatter is
 in the host→instrument start path, not in ranging.
 
 **Current relative-timing uncertainty is roughly ±150 ms against a requirement of 1–40 ms — off by

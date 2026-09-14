@@ -11,6 +11,15 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Changed
+
+- **Default `data_root` is now `~/specechem_data`**, expanded at every write, instead of a path
+  naming one lab's Windows account. Each rig sets its own in `config/bench.ini`, so this only
+  affects a fresh clone — but the old default was wrong for anyone who was not that account, and
+  put a username in a public repository. `Path()` does not expand `~` on its own, so
+  `data.resolve_data_root()` does it for the spectra, echem and `.dta` paths, and the app log
+  does the same; without that, writes would land in a literal directory called `~`.
+
 ### Added
 
 - **Metrohm Autolab support (in progress).** A third potentiostat mode, `autolab`, alongside

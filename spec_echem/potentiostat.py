@@ -393,7 +393,7 @@ AUTOLAB_STANDARD_TEMPLATE_EXTRA_LAG_S = 1.0
 # per-command overheads, and deleting commands is what shortens it.
 AUTOLAB_SETUP_LAG_CV_S = 1.16      # stock CV, FHWait 0
 AUTOLAB_SETUP_LAG_CA_S = 0.93      # stock CA, FHWait 0, mean of five
-AUTOLAB_SETUP_LAG_SPECTRO_CV_S = 0.60   # Sung-Joo's CV, if autolab_nox_cv points there
+AUTOLAB_SETUP_LAG_SPECTRO_CV_S = 0.60   # the colleague spectro CV, if autolab_nox_cv points there
 
 
 class ConfigurationError(RuntimeError):
