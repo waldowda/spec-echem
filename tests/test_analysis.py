@@ -232,3 +232,37 @@ def test_the_curve_is_offset_correctly_for_a_late_window():
     fit = fit_transient(t, y, "exp", t_start=10.0)
     late = t >= 10.0
     assert np.nanmax(np.abs(fit.curve(t)[late] - y[late])) < 1e-8
+
+
+# --- band selection has to survive real noise -------------------------------
+# MEASURED on 20260709_P3HT_01: the blue edge of that spectrometer sits on the dark
+# floor (416 counts at 381 nm), and its absorbance swings +0.143 by noise alone --
+# larger than the real polaron band's +0.093. Raw argmax picked the junk every time.
+
+def test_a_noisy_dead_pixel_does_not_beat_a_real_band():
+    rng = np.random.default_rng(0)
+    wl = np.linspace(380.0, 1100.0, 200)
+    t = np.linspace(0.0, 20.0, 120)
+    frac = 1.0 - np.exp(-t / 4.0)
+    polaron = np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2)
+    a = 0.02 + np.outer(polaron, 0.10 * frac)
+    a += rng.normal(0.0, 0.0005, a.shape)                  # real bands: clean
+    dead = wl < 410.0                                      # the blue edge: not
+    a[dead] += rng.normal(0.0, 0.08, (dead.sum(), len(t)))
+
+    grows, _bleaches = auto_wavelengths(a, wl)
+    assert 740 < grows < 880, f"picked {grows:.0f} nm, expected the polaron band"
+
+
+def test_clean_data_is_unaffected_by_the_noise_gate():
+    """When every pixel is significant this must still be plain argmax of dA, or
+    the gate would change answers on data that never had a problem."""
+    wl = np.linspace(400.0, 1100.0, 120)
+    t = np.linspace(0.0, 20.0, 120)
+    frac = 1.0 - np.exp(-t / 4.0)
+    pi = np.exp(-0.5 * ((wl - 550.0) / 40.0) ** 2)
+    polaron = np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2)
+    a = 0.02 + np.outer(pi, 0.85 - 0.55 * frac) + np.outer(polaron, 0.50 * frac)
+    grows, bleaches = auto_wavelengths(a, wl)
+    assert 850 < grows < 950
+    assert 500 < bleaches < 600

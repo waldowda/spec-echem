@@ -104,7 +104,48 @@ def auto_wavelengths(absorbance, wavelengths, early=0, late=-1):
     if not np.any(np.isfinite(delta)):
         return None, None
     delta = np.where(np.isfinite(delta), delta, 0.0)
+
+    # Reject pixels whose change is not significant against their own noise, or the
+    # blue edge wins on noise alone. MEASURED on 20260709_P3HT_01: at 381 nm the lamp
+    # delivers 416 counts -- the dark floor -- and absorbance there swings +0.143
+    # with SNR 1.8, beating the real polaron band at 780 nm (dA +0.093, SNR 682).
+    # Raw argmax picked 381 nm for every segment of that run. Dean confirms this rig
+    # has no usable data below ~410 nm.
+    #
+    # Rejecting rather than dividing by the noise keeps clean data behaving exactly
+    # as before: when every pixel is significant, this is still argmax of dA.
+    keep = _significant(a, delta)
+    if keep is not None and keep.any():
+        delta = np.where(keep, delta, 0.0)
     return float(wl[int(np.argmax(delta))]), float(wl[int(np.argmin(delta))])
+
+
+# A pixel whose change is under this many times its own noise is not a measurement
+# of anything. 1100 nm on the P3HT run scores 7.8 -- silicon running out of quantum
+# efficiency -- while the real bands score in the hundreds.
+WAVELENGTH_SNR_MIN = 10.0
+
+
+def _significant(a, delta):
+    """Boolean mask of pixels whose |dA| clears WAVELENGTH_SNR_MIN times their noise.
+
+    Noise is the SD of the SECOND difference along time over sqrt(6) -- the standard
+    trend-free estimator. The FIRST difference would measure how fast the signal is
+    CHANGING rather than how noisy it is, and on smooth data that is mostly signal.
+
+    None when it cannot be estimated (fewer than 3 time points), so the caller keeps
+    every pixel rather than discarding the lot.
+    """
+    if a.shape[1] < 3:
+        return None
+    with np.errstate(invalid="ignore"):
+        noise = np.nanstd(np.diff(a, 2, axis=1), axis=1) / np.sqrt(6.0)
+    finite = np.isfinite(noise) & (noise > 0)
+    if not finite.any():
+        return None
+    snr = np.divide(np.abs(delta), noise, out=np.full_like(delta, np.inf),
+                    where=finite)
+    return snr >= WAVELENGTH_SNR_MIN
 
 
 # --- fitting -----------------------------------------------------------------
