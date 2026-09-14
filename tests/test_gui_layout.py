@@ -799,3 +799,43 @@ def test_the_probe_follows_the_polaron_on_dedoping(analysis_window, tmp_path):
 
     probe = tab._probe_wavelength("Dedoping 0", a, wl)
     assert 850 < probe < 950, f"got {probe:.0f} nm — that is the pi band, not the polaron"
+
+
+# --- a loaded run must be labelled with ITS OWN potentials -------------------
+
+def test_a_loaded_run_is_labelled_from_its_own_metadata(window, tmp_path):
+    """20260709_P3HT_01 was run at 0.3/0.5/0.7 V. The GUI defaults give 0.2/0.3/0.4,
+    so every graph title read "+0.400 V" for a segment held at +0.700 V -- silently,
+    and plausibly. Tab 5's tau-vs-potential axis was plotting against those too."""
+    import json
+    from gui.tabs.results_tab import _read_run_settings
+    from spec_echem.data import segment_potential_text, DATA_TYPE_DOPING
+
+    folder = tmp_path / "20260709_P3HT_01"
+    folder.mkdir()
+    (folder / "20260709_P3HT_01_metadata.json").write_text(json.dumps(
+        {"settings": {"doping_potential_start": 0.3, "doping_potential_step": 0.2}}))
+
+    window.loaded_run_settings = _read_run_settings(folder)
+    text = segment_potential_text(window.label_settings(), DATA_TYPE_DOPING, 2)
+    assert text == "+0.700 V", f"labelled {text}, but the run applied +0.700 V"
+
+
+def test_a_run_with_no_metadata_is_not_given_invented_potentials(window, tmp_path):
+    """No label beats a wrong one -- the whole reason segment_potential exists."""
+    from gui.tabs.results_tab import _read_run_settings
+    from spec_echem.data import segment_potential_text, DATA_TYPE_DOPING
+
+    folder = tmp_path / "hand_assembled"
+    folder.mkdir()
+    window.loaded_run_settings = _read_run_settings(folder)
+    assert window.loaded_run_settings == {}
+    assert segment_potential_text(window.label_settings(), DATA_TYPE_DOPING, 2) == ""
+
+
+def test_starting_a_run_stops_using_a_loaded_run_s_labels(window):
+    window.loaded_run_settings = {"doping_potential_start": 9.9,
+                                  "doping_potential_step": 0.0}
+    assert window.label_settings()["doping_potential_start"] == 9.9
+    window.loaded_run_settings = None          # what on_start() does
+    assert window.label_settings() is window.settings

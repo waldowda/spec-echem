@@ -171,7 +171,7 @@ class ResultsTab(QWidget):
         seg = self.win.segments_by_label.get(label)
         if seg is None:
             return label
-        text = segment_potential_text(self.win.settings, seg.data_type,
+        text = segment_potential_text(self.win.label_settings(), seg.data_type,
                                       seg.run_number)
         return f"{label}  ({text})" if text else label
 
@@ -237,7 +237,8 @@ class ResultsTab(QWidget):
             seg = self.win.segments_by_label.get(lbl)
             if seg is None or seg.data_type == DATA_TYPE_CV or df is None or df.empty:
                 continue
-            potential = segment_potential(self.win.settings, seg.data_type, seg.run_number)
+            potential = segment_potential(self.win.label_settings(), seg.data_type,
+                                          seg.run_number)
             if potential is None:
                 continue
             if chosen is None:
@@ -357,6 +358,9 @@ class ResultsTab(QWidget):
         self.win.results = results
         self.win.segments_by_label = segments_by_label
         self.win.run_folder = Path(folder)
+        self.win.loaded_run_settings = _read_run_settings(Path(folder))
+        if not self.win.loaded_run_settings:
+            errors.append("no run metadata — potentials are not labelled")
         self.refresh_segments()
         self.win.analysis_tab.refresh_segments()
 
@@ -372,3 +376,21 @@ class ResultsTab(QWidget):
             return self.win.parameters_tab._widgets["data_root"].text() or ""
         except Exception:  # noqa: BLE001 — best-effort convenience only
             return ""
+
+
+def _read_run_settings(folder):
+    """The settings a run was performed with, from its metadata JSON.
+
+    Returns {} when there is none (older runs, or a folder assembled by hand). The
+    caller must NOT fall back to the live Parameters tab: 20260709_P3HT_01 was run at
+    0.3/0.5/0.7 V and the current defaults give 0.2/0.3/0.4, so every graph title read
+    "+0.400 V" for a segment held at +0.700 V.
+    """
+    import json
+    try:
+        path = folder / f"{folder.name}_metadata.json"
+        if not path.exists():
+            return {}
+        return json.loads(path.read_text()).get("settings") or {}
+    except Exception:  # noqa: BLE001 — a damaged metadata file must not block review
+        return {}
