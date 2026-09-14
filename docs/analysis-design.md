@@ -136,6 +136,18 @@ Two consequences to build in deliberately:
 
 ---
 
+## Build status (2026-09-14)
+
+- **`spec_echem/analysis.py`** — done. Auto-wavelength, the three models, ⟨τ⟩, fit-with-SD,
+  ratio-or-None. 18 tests against synthetic data with known answers.
+- **Tab 5 — Analysis** — done. Model, window, wavelength, fit buttons, the τ/β/SD table, and
+  τ-vs-potential with the ratio toggle. 6 tests.
+- **Tab 4 — the live views** — done. A view selector on the optical canvas: *Spectra* (unchanged,
+  still the default), *Kinetics*, *Modulation*. 5 tests.
+- **Still to tune, and it needs real data:** `FIT_SD_REJECT_FRACTION = 0.5` is a judgement call;
+  whether exp/biexp/stretched fit real absorbance transients; whether the current peak is the right
+  window start on a real step; whether auto-wavelength survives real noise and baseline drift.
+
 ## Build order
 
 The maths first (`spec_echem/analysis.py`, no Qt, no hardware, testable against synthetic data),
