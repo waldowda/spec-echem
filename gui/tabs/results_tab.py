@@ -7,6 +7,8 @@ is wired together with the Instrument-tab preview in the plotting increment.
 """
 from pathlib import Path
 
+import numpy as np
+
 from qtpy.QtCore import Qt, QUrl
 from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
@@ -14,8 +16,10 @@ from qtpy.QtWidgets import (
     QComboBox, QDoubleSpinBox, QPushButton, QFileDialog, QSplitter, QMessageBox,
 )
 
+from spec_echem.analysis import auto_wavelengths
 from spec_echem.data import (
-    echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV, segment_potential_text,
+    echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV,
+    segment_potential_text, segment_potential,
 )
 from spec_echem.experiment import Segment
 from spec_echem.gamry_data import read_cv, read_chrono
@@ -72,6 +76,36 @@ class ResultsTab(QWidget):
         self.replot_btn.clicked.connect(self.on_segment_changed)
         range_row.addWidget(self.replot_btn)
         ctrl_form.addRow("Wavelength range:", range_row)
+
+        # Three views of the same optical data. Spectra is the original and stays the
+        # default; the other two are what make this tab useful DURING a run rather
+        # than only after it.
+        view_row = QHBoxLayout()
+        self.view_combo = QComboBox()
+        self.view_combo.addItem("Spectra (all times)", "spectra")
+        self.view_combo.addItem("Kinetics (one wavelength)", "kinetics")
+        self.view_combo.addItem("Modulation (across the ladder)", "modulation")
+        self.view_combo.setToolTip(
+            "Modulation is the one to watch while a run is going: absorbance at the\n"
+            "end of each step, against potential. A film that stops modulating has\n"
+            "stopped being worth the rest of the ladder.")
+        self.view_combo.currentIndexChanged.connect(self.on_segment_changed)
+        self.analysis_wl = QDoubleSpinBox()
+        self.analysis_wl.setRange(0.0, 5000.0)
+        self.analysis_wl.setDecimals(1)
+        self.analysis_wl.setSuffix(" nm")
+        self.analysis_wl.setSpecialValueText("auto (polaron)")
+        self.analysis_wl.setValue(0.0)
+        self.analysis_wl.setToolTip(
+            "0 = the band whose absorbance GROWS most across the segment, which is\n"
+            "the polaron. Set a value to follow another band, e.g. the pi-pi* bleach.")
+        self.analysis_wl.valueChanged.connect(self.on_segment_changed)
+        view_row.addWidget(self.view_combo)
+        view_row.addWidget(QLabel("at"))
+        view_row.addWidget(self.analysis_wl)
+        view_row.addStretch()
+        ctrl_form.addRow("Optical view:", view_row)
+
         layout.addWidget(ctrl_group)
 
         # --- plots: absorbance (optical) above electrochemistry, stacked ---
@@ -146,14 +180,84 @@ class ResultsTab(QWidget):
         if not label or label not in self.win.results:
             return
         absorb_df = self.win.results[label]
-        # "Doping 4" says which segment, not which experiment. The potential is what
-        # the reader actually wants, and it comes from data.segment_potential_text()
-        # so the title cannot drift from what the driver applied.
-        self.canvas.show_absorbance(
-            absorb_df, title=self._segment_title(label),
-            wl_min=self.wl_min.value(), wl_max=self.wl_max.value(),
-        )
+        view = self.view_combo.currentData() if hasattr(self, "view_combo") else "spectra"
+        if view == "kinetics":
+            self._plot_kinetics(label, absorb_df)
+        elif view == "modulation":
+            self._plot_modulation()
+        else:
+            # "Doping 4" says which segment, not which experiment. The potential is what
+            # the reader actually wants, and it comes from data.segment_potential_text()
+            # so the title cannot drift from what the driver applied.
+            self.canvas.show_absorbance(
+                absorb_df, title=self._segment_title(label),
+                wl_min=self.wl_min.value(), wl_max=self.wl_max.value(),
+            )
         self._plot_echem(label)
+
+    def _chosen_wavelength(self, absorb_df):
+        """The wavelength to follow: the user's, or the band that GROWS most.
+
+        Automatic uses the SIGNED change, so it returns the polaron rather than the
+        pi-pi* bleach — |dA| would return whichever is larger, often the bleach, while
+        the user believed they were watching the polaron (see analysis.auto_wavelengths).
+        """
+        wl = np.asarray(absorb_df.index.values, dtype=float)
+        requested = self.analysis_wl.value()
+        if requested > 0:
+            return float(wl[int(np.abs(wl - requested).argmin())])
+        polaron, _pi = auto_wavelengths(absorb_df.values, wl)
+        return polaron
+
+    def _plot_kinetics(self, label, absorb_df):
+        """Absorbance vs time at one wavelength, for this segment — did the step reach
+        steady state, and how fast?"""
+        chosen = self._chosen_wavelength(absorb_df)
+        if chosen is None:
+            self.canvas.show_message("Not enough time points for a kinetics trace.")
+            return
+        wl = np.asarray(absorb_df.index.values, dtype=float)
+        row = int(np.abs(wl - chosen).argmin())
+        t = np.asarray(absorb_df.columns.values, dtype=float)
+        self.canvas.plot_series(
+            t, {f"{chosen:.0f} nm": absorb_df.values[row, :]},
+            "Time (s)", "Absorbance",
+            title=f"{self._segment_title(label)} — kinetics")
+
+    def _plot_modulation(self):
+        """Absorbance at the END of each step, against potential, across the whole
+        ladder — one point per segment, so it BUILDS during a run.
+
+        This is the plot that earns the tab: on 2026-09-11 a film collapsed after a
+        +0.8 V excursion and nothing said so until the files were analysed later, by
+        which time the next run had been spent on a dead sample.
+        """
+        xs, ys, chosen = [], [], None
+        for lbl, df in self.win.results.items():
+            seg = self.win.segments_by_label.get(lbl)
+            if seg is None or seg.data_type == DATA_TYPE_CV or df is None or df.empty:
+                continue
+            potential = segment_potential(self.win.settings, seg.data_type, seg.run_number)
+            if potential is None:
+                continue
+            if chosen is None:
+                chosen = self._chosen_wavelength(df)      # one wavelength for the ladder
+            if chosen is None:
+                continue
+            wl = np.asarray(df.index.values, dtype=float)
+            row = int(np.abs(wl - chosen).argmin())
+            xs.append(potential)
+            ys.append(float(df.values[row, -1]))          # end of the step
+        if not xs:
+            self.canvas.show_message(
+                "No completed doping/dedoping segments yet.\n"
+                "The modulation curve builds one point per step.")
+            return
+        order = np.argsort(xs)
+        self.canvas.plot_series(
+            np.asarray(xs)[order], {f"{chosen:.0f} nm": np.asarray(ys)[order]},
+            "Potential (V)", "Absorbance at end of step",
+            title="Modulation across the ladder")
 
     def _plot_echem(self, label):
         """Show the segment's electrochemistry (I-vs-E for CV, I-vs-t for chrono).

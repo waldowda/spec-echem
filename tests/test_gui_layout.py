@@ -583,3 +583,82 @@ def test_the_ladder_plot_waits_for_a_fit(analysis_window):
     tab.on_fit_segment()
     tab.ratio_check.setChecked(True)    # and the toggle must not raise either
     tab.ratio_check.setChecked(False)
+
+
+# --- Tab 4: the live views ---------------------------------------------------
+# Spectra stays the default; kinetics and modulation are what make this tab useful
+# DURING a run rather than only after it.
+
+def _ladder_window(window, tmp_path, n_steps=4):
+    """A window holding several completed doping segments, as mid-run."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    wl = np.linspace(400.0, 1100.0, 80)
+    t = np.linspace(0.0, 10.0, 40)
+    polaron = np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2)
+    pi = np.exp(-0.5 * ((wl - 550.0) / 40.0) ** 2)
+    results, segments = {}, {}
+    for n in range(n_steps):
+        grow = (1.0 - np.exp(-t / 3.0)) * (0.2 + 0.2 * n)   # more doping each step
+        a = 1.0 - 1.2 * np.outer(pi, grow) + 0.5 * np.outer(polaron, grow)
+        label = f"Doping {n}"
+        results[label] = pd.DataFrame(a, index=wl, columns=t)
+        segments[label] = Segment(label, DATA_TYPE_DOPING, n, 40, 0.25, True)
+    window.results = results
+    window.segments_by_label = segments
+    window.run_folder = tmp_path
+    window.settings.update({"doping_potential_start": 0.2, "doping_potential_step": 0.1,
+                            "doping_potential_end": 0.5})
+    window.results_tab.refresh_segments()
+    return window
+
+
+def test_spectra_remains_the_default_view(window, tmp_path):
+    w = _ladder_window(window, tmp_path)
+    assert w.results_tab.view_combo.currentData() == "spectra"
+
+
+def test_the_modulation_view_builds_one_point_per_step(window, tmp_path):
+    """The plot that earns the tab: it must work from partial runs, because catching a
+    dying film mid-ladder is the entire point."""
+    w = _ladder_window(window, tmp_path, n_steps=3)
+    tab = w.results_tab
+    tab.view_combo.setCurrentIndex(2)          # modulation
+    tab.on_segment_changed()
+
+    line = tab.canvas.ax.get_lines()[0]
+    assert len(line.get_xdata()) == 3          # one point per completed step
+    assert list(line.get_xdata()) == sorted(line.get_xdata())   # ordered by potential
+
+
+def test_the_modulation_view_says_so_when_there_is_nothing_yet(window, tmp_path):
+    w = _ladder_window(window, tmp_path, n_steps=0)
+    tab = w.results_tab
+    tab.view_combo.setCurrentIndex(2)
+    tab._plot_modulation()                      # must explain, not raise or go blank
+    assert tab.canvas.ax.texts
+
+
+def test_the_kinetics_view_follows_the_growing_band(window, tmp_path):
+    """Automatic wavelength must give the polaron, not the larger pi-pi* bleach."""
+    w = _ladder_window(window, tmp_path)
+    tab = w.results_tab
+    tab.view_combo.setCurrentIndex(1)          # kinetics
+    tab.on_segment_changed()
+
+    label = tab.canvas.ax.get_lines()[0].get_label()
+    assert 850 < float(label.split()[0]) < 950
+
+
+def test_a_manual_wavelength_overrides_the_automatic_one(window, tmp_path):
+    w = _ladder_window(window, tmp_path)
+    tab = w.results_tab
+    tab.view_combo.setCurrentIndex(1)
+    tab.analysis_wl.setValue(550.0)            # the pi-pi* bleach
+    tab.on_segment_changed()
+
+    label = tab.canvas.ax.get_lines()[0].get_label()
+    assert 520 < float(label.split()[0]) < 580
