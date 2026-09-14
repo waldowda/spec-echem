@@ -13,6 +13,8 @@ from spec_echem.bench import (
     apply_bench_defaults, load_bench_defaults, user_bench_path,
 )
 from spec_echem.build_info import build_id
+from spec_echem.data import echem_txt_path, DATA_TYPE_CV, segment_potential
+from spec_echem.gamry_data import measured_potential
 from spec_echem.settings import DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import InstrumentTab
 from gui.tabs.parameters_tab import ParametersTab
@@ -37,6 +39,7 @@ class MainWindow(QMainWindow):
         # Graph titles and the analysis ladder must describe the run on screen, not
         # whatever is currently typed into the Parameters tab for the next one.
         self.loaded_run_settings = None
+        self._potential_cache = {}   # (folder, type, n) -> volts
         bench_values, self.bench_warnings = load_bench_defaults()
         apply_bench_defaults(self.settings, bench_values)
         self.bench_values = bench_values      # kept: bench_base() rebuilds from these
@@ -103,6 +106,34 @@ class MainWindow(QMainWindow):
         if self.loaded_run_settings is not None:
             return self.loaded_run_settings
         return self.settings
+
+    def segment_potential(self, seg):
+        """What a segment was held at: MEASURED from its echem file when there is
+        one, else the nominal ladder, else None.
+
+        Measured wins because it is the only source that cannot disagree with the
+        experiment. The metadata records what was REQUESTED, and the live Parameters
+        tab may describe a different run entirely -- which is how a segment held at
+        +0.700 V came to be titled "+0.400 V".
+        """
+        if seg is None or seg.data_type == DATA_TYPE_CV:
+            return None
+        key = (str(self.run_folder), seg.data_type, seg.run_number)
+        if key not in self._potential_cache:
+            v = None
+            if self.run_folder is not None:
+                v = measured_potential(
+                    echem_txt_path(self.run_folder, seg.data_type, seg.run_number))
+            if v is None:
+                v = segment_potential(self.label_settings(), seg.data_type,
+                                      seg.run_number)
+            self._potential_cache[key] = v
+        return self._potential_cache[key]
+
+    def segment_potential_text(self, seg):
+        """'+0.700 V' for a graph title, or '' when nothing can vouch for a value."""
+        v = self.segment_potential(seg)
+        return "" if v is None else f"{v:+.3f} V"
 
     def apply_settings(self, settings):
         """Push a settings dict into every input tab's widgets."""

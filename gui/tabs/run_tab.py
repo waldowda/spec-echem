@@ -151,6 +151,7 @@ class RunTab(QWidget):
         # This run supersedes any run loaded from disk, so labels go back to
         # describing what is actually being applied.
         self.win.loaded_run_settings = None
+        self.win._potential_cache.clear()
 
         # "python_mode" means Python drives the potentiostat AND fires the trigger —
         # true for the Gamry (toolkitpy) AND the Autolab. "external" is the only mode

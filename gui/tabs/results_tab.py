@@ -171,8 +171,7 @@ class ResultsTab(QWidget):
         seg = self.win.segments_by_label.get(label)
         if seg is None:
             return label
-        text = segment_potential_text(self.win.label_settings(), seg.data_type,
-                                      seg.run_number)
+        text = self.win.segment_potential_text(seg)
         return f"{label}  ({text})" if text else label
 
     def on_segment_changed(self, *_):
@@ -237,8 +236,7 @@ class ResultsTab(QWidget):
             seg = self.win.segments_by_label.get(lbl)
             if seg is None or seg.data_type == DATA_TYPE_CV or df is None or df.empty:
                 continue
-            potential = segment_potential(self.win.label_settings(), seg.data_type,
-                                          seg.run_number)
+            potential = self.win.segment_potential(seg)
             if potential is None:
                 continue
             if chosen is None:
@@ -359,6 +357,7 @@ class ResultsTab(QWidget):
         self.win.segments_by_label = segments_by_label
         self.win.run_folder = Path(folder)
         self.win.loaded_run_settings = _read_run_settings(Path(folder))
+        self.win._potential_cache.clear()
         if not self.win.loaded_run_settings:
             errors.append("no run metadata — potentials are not labelled")
         self.refresh_segments()
