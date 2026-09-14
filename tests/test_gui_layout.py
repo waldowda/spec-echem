@@ -772,3 +772,30 @@ def test_moving_the_window_redraws_the_shading_before_refitting(analysis_window)
     before = len(tab.fit_canvas.ax.patches)
     tab.start_spin.setValue(5.0)
     assert len(tab.fit_canvas.ax.patches) > before, "expected the excluded span"
+
+
+def test_the_probe_follows_the_polaron_on_dedoping(analysis_window, tmp_path):
+    """auto_wavelengths returns (grows, bleaches). On DOPING the polaron grows; on
+    DEDOPING it DECAYS while pi-pi* recovers, so taking the growth there hands back
+    pi labelled as the polaron. MEASURED on 20260709_P3HT_01, where every dedoping
+    segment auto-selected ~555 nm instead of ~800 nm."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DEDOPING
+    from spec_echem.experiment import Segment
+
+    tab = analysis_window.analysis_tab
+    wl = np.linspace(400.0, 1100.0, 120)
+    t = np.linspace(0.0, 20.0, 120)
+    frac = 1.0 - np.exp(-t / 4.0)
+    pi = np.exp(-0.5 * ((wl - 550.0) / 40.0) ** 2)
+    polaron = np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2)
+    # dedoping: the polaron DECAYS, pi-pi* RECOVERS
+    a = (0.02 + np.outer(pi, 0.30 + 0.55 * frac)
+         + np.outer(polaron, 0.50 * (1.0 - frac)))
+    analysis_window.results["Dedoping 0"] = pd.DataFrame(a, index=wl, columns=t)
+    analysis_window.segments_by_label["Dedoping 0"] = Segment(
+        "Dedoping 0", DATA_TYPE_DEDOPING, 0, 120, 0.1, True)
+
+    probe = tab._probe_wavelength("Dedoping 0", a, wl)
+    assert 850 < probe < 950, f"got {probe:.0f} nm — that is the pi band, not the polaron"

@@ -77,8 +77,21 @@ def mean_relaxation_time(model, params):
 
 # --- wavelength selection ----------------------------------------------------
 
-def auto_wavelengths(absorbance, wavelengths, early=0, late=-1):
-    """(λ_polaron, λ_π) from the SIGNED change in absorbance.
+# Below this the lamp and optics deliver nothing on these rigs -- MEASURED 416 counts
+# at 381 nm on 20260709_P3HT_01, against 41250 at 780 nm. Dean: "there should be no
+# data below 410 nm or so." Pixels outside the window never win the selection.
+ANALYSIS_WL_MIN = 410.0
+ANALYSIS_WL_MAX = None
+
+
+def auto_wavelengths(absorbance, wavelengths, early=0, late=-1,
+                     wl_min=ANALYSIS_WL_MIN, wl_max=ANALYSIS_WL_MAX):
+    """(λ_grows, λ_bleaches) from the SIGNED change in absorbance.
+
+    NOTE the return is "grows, bleaches", NOT "polaron, pi". Which band is which
+    depends on the segment: DOPING grows the polaron and bleaches pi-pi*, while
+    DEDOPING does the reverse -- the polaron decays and pi-pi* recovers. Callers
+    must map by data type; see gui/tabs/analysis_tab.py::_probe_wavelength.
 
     On doping, π→π* BLEACHES while the polaron band GROWS. Taking |ΔA| would return
     whichever is larger — often the bleach — and silently hand back the π band when the
@@ -105,19 +118,33 @@ def auto_wavelengths(absorbance, wavelengths, early=0, late=-1):
         return None, None
     delta = np.where(np.isfinite(delta), delta, 0.0)
 
+    # Outside the usable optical window nothing is a measurement, whatever its SNR.
+    keep = np.ones(len(wl), dtype=bool)
+    if wl_min is not None:
+        keep &= wl >= wl_min
+    if wl_max is not None:
+        keep &= wl <= wl_max
+
     # Reject pixels whose change is not significant against their own noise, or the
     # blue edge wins on noise alone. MEASURED on 20260709_P3HT_01: at 381 nm the lamp
     # delivers 416 counts -- the dark floor -- and absorbance there swings +0.143
     # with SNR 1.8, beating the real polaron band at 780 nm (dA +0.093, SNR 682).
-    # Raw argmax picked 381 nm for every segment of that run. Dean confirms this rig
-    # has no usable data below ~410 nm.
+    # Raw argmax picked 381 nm for every segment of that run.
     #
     # Rejecting rather than dividing by the noise keeps clean data behaving exactly
     # as before: when every pixel is significant, this is still argmax of dA.
-    keep = _significant(a, delta)
-    if keep is not None and keep.any():
-        delta = np.where(keep, delta, 0.0)
-    return float(wl[int(np.argmax(delta))]), float(wl[int(np.argmin(delta))])
+    significant = _significant(a, delta)
+    if significant is not None:
+        keep &= significant
+    if not keep.any():
+        keep = np.ones(len(wl), dtype=bool)
+
+    # Excluded pixels go to -inf for the max and +inf for the min. Zeroing them
+    # instead would let a rejected pixel WIN whenever every surviving delta has the
+    # same sign -- 0.0 beats any positive value at argmin.
+    grows = np.where(keep, delta, -np.inf)
+    bleaches = np.where(keep, delta, np.inf)
+    return float(wl[int(np.argmax(grows))]), float(wl[int(np.argmin(bleaches))])
 
 
 # A pixel whose change is under this many times its own noise is not a measurement

@@ -20,7 +20,8 @@ from qtpy.QtCore import Qt
 from spec_echem.analysis import (
     MODELS, auto_wavelengths, default_fit_start, fit_transient, tau_ratio,
 )
-from spec_echem.data import echem_txt_path, segment_potential, DATA_TYPE_CV
+from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
+                             DATA_TYPE_DOPING)
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
 
@@ -211,12 +212,28 @@ class AnalysisTab(QWidget):
         if requested > 0:
             row = int(np.abs(wl - requested).argmin())
         else:
-            polaron, _pi = auto_wavelengths(df.values, wl)
-            if polaron is None:
+            probe = self._probe_wavelength(label, df.values, wl)
+            if probe is None:
                 return None, None
-            row = int(np.abs(wl - polaron).argmin())
-            self._wavelength = polaron
+            row = int(np.abs(wl - probe).argmin())
+            self._wavelength = probe
         return np.asarray(df.columns.values, dtype=float), df.values[row, :]
+
+    def _probe_wavelength(self, label, absorbance, wl):
+        """The POLARON wavelength, which is not always the band that grows.
+
+        auto_wavelengths returns (grows, bleaches). On DOPING the polaron grows and
+        pi-pi* bleaches, so the polaron is the growth. On DEDOPING and pre-dedoping
+        it is the other way round -- the polaron decays while pi-pi* recovers -- and
+        taking the growth there hands back pi labelled as the polaron. MEASURED on
+        20260709_P3HT_01, where every dedoping segment auto-selected ~555 nm.
+        """
+        grows, bleaches = auto_wavelengths(absorbance, wl)
+        if grows is None:
+            return None
+        seg = self.win.segments_by_label.get(label)
+        doping = seg is None or seg.data_type == DATA_TYPE_DOPING
+        return grows if doping else bleaches
 
     def _echem_traces(self, label):
         """(time, current, charge) for a segment, or (None, None, None)."""
