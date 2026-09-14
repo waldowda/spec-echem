@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from spec_echem.analysis import (
+    FitResult,
     auto_wavelengths, default_fit_start, fit_transient, mean_relaxation_time,
     tau_ratio, model_exp, model_biexp, model_stretched,
 )
@@ -193,3 +194,41 @@ def test_the_ratio_uses_mean_times_so_models_stay_comparable():
     slow = fit_transient(t, model_exp(t, 0.0, 1.0, 8.0), "exp")
     fast = fit_transient(t, model_exp(t, 0.0, 1.0, 2.0), "exp")
     assert tau_ratio(slow, fast) == pytest.approx(4.0, rel=0.02)
+
+
+# --- the fitted curve, for plotting over the data ---------------------------
+# A tau on its own cannot be judged; the GUI draws the model over the points, so
+# the curve has to land on the data it was fitted to.
+
+def test_the_fitted_curve_lands_on_its_data():
+    t = np.linspace(0.0, 10.0, 200)
+    y = 0.5 + 2.0 * np.exp(-t / 1.7)
+    fit = fit_transient(t, y, "exp")
+    assert np.nanmax(np.abs(fit.curve(t) - y)) < 1e-9
+
+
+def test_the_curve_is_nan_outside_the_fitted_window():
+    """The fit makes no claim before its window. Extrapolating a decay back through
+    the capacitive spike would draw a confident line through data it never saw."""
+    t = np.linspace(0.0, 10.0, 200)
+    y = 0.5 + 2.0 * np.exp(-t / 1.7)
+    fit = fit_transient(t, y, "exp", t_start=2.0, t_stop=8.0)
+    curve = fit.curve(t)
+    assert np.isnan(curve[t < 2.0]).all()
+    assert np.isnan(curve[t > 8.0]).all()
+    assert np.isfinite(curve[(t >= 2.0) & (t <= 8.0)]).all()
+
+
+def test_a_failed_fit_has_no_curve_to_draw():
+    fit = FitResult("exp", reason="nope")
+    assert fit.curve(np.linspace(0, 1, 10)) is None
+
+
+def test_the_curve_is_offset_correctly_for_a_late_window():
+    """The fit is done against elapsed time from the window start, so plotting it
+    needs t0 — without it the curve would sit on the data shifted sideways."""
+    t = np.linspace(0.0, 20.0, 400)
+    y = 1.0 + 3.0 * np.exp(-t / 2.5)
+    fit = fit_transient(t, y, "exp", t_start=10.0)
+    late = t >= 10.0
+    assert np.nanmax(np.abs(fit.curve(t)[late] - y[late])) < 1e-8

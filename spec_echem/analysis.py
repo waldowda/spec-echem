@@ -129,13 +129,34 @@ class FitResult:
     the number meaningless — the caller shows the reason rather than a plausible
     wrong value."""
 
-    def __init__(self, model, params=None, sd=None, ok=False, reason="", n=0):
+    def __init__(self, model, params=None, sd=None, ok=False, reason="", n=0,
+                 t0=0.0, t_first=None, t_last=None):
         self.model = model
         self.params = params
         self.sd = sd
         self.ok = ok
         self.reason = reason
         self.n = n
+        # The fit is done against elapsed time from the window start, so t0 is
+        # needed to put the curve back on the segment's own time axis. Without it
+        # a plotted fit would be offset from its data and look wrong.
+        self.t0 = t0
+        self.t_first = t_first    # first/last time actually fitted, for shading
+        self.t_last = t_last      # the window on a plot of the whole trace
+
+    def curve(self, time):
+        """The fitted model evaluated at absolute segment times, for plotting over
+        the data. NaN outside the fitted window — the fit makes no claim there, and
+        extrapolating a decay backwards through the capacitive spike would draw a
+        confident line through data it never saw."""
+        if not self.ok:
+            return None
+        t = np.asarray(time, dtype=float)
+        func, _names = MODELS[self.model]
+        y = func(t - self.t0, *self.params)
+        if self.t_first is not None:
+            y = np.where((t >= self.t_first) & (t <= self.t_last), y, np.nan)
+        return y
 
     @property
     def tau(self):
@@ -219,7 +240,8 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
         return FitResult(model, reason="uncertainty is undefined (singular covariance)",
                          n=len(t))
 
-    result = FitResult(model, params=popt, sd=sd, ok=True, n=len(t))
+    result = FitResult(model, params=popt, sd=sd, ok=True, n=len(t),
+                       t0=t0, t_first=float(t[0]), t_last=float(t[-1]))
     tau, tau_sd = result.tau, result.tau_sd
     if tau is None or tau <= 0:
         return FitResult(model, reason=f"nonphysical tau ({tau})", n=len(t))

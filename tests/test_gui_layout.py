@@ -662,3 +662,66 @@ def test_a_manual_wavelength_overrides_the_automatic_one(window, tmp_path):
 
     label = tab.canvas.ax.get_lines()[0].get_label()
     assert 520 < float(label.split()[0]) < 580
+
+
+# --- Tab 5: the fit plot -----------------------------------------------------
+# A reported tau is not assessable without the curve beside it, so the tab draws
+# data + fit + residuals. These check the plot tracks what the table says.
+
+def test_building_the_tab_does_not_crash_on_the_initial_row_selection(window):
+    """selectRow() emits currentCellChanged immediately, so connecting the handler
+    before the canvas exists crashed the whole tab at construction."""
+    assert window.analysis_tab.fit_canvas is not None
+    assert window.analysis_tab.table.currentRow() == 0
+
+
+def test_the_fit_plot_draws_the_data_and_the_model(analysis_window):
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    tab.table.selectRow(0)
+    lines = tab.fit_canvas.ax.get_lines()
+    assert len(lines) == 2, "expected the data and the fitted curve"
+    assert "tau" in lines[1].get_label(), "the fit's stats belong in the legend"
+
+
+def test_the_residual_panel_exists_and_holds_the_residuals(analysis_window):
+    """Overlap alone cannot distinguish exp from stretched at plot size; structure
+    in the residuals is what exposes a wrong model."""
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    tab.table.selectRow(0)
+    assert tab.fit_canvas.resid_ax is not None
+    assert len(tab.fit_canvas.resid_ax.get_lines()) >= 1
+
+
+def test_selecting_a_table_row_plots_that_trace(analysis_window):
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    tab.table.selectRow(0)
+    assert "absorbance" in tab.fit_canvas.ax.get_title()
+    tab.table.selectRow(1)
+    assert "current" in tab.fit_canvas.ax.get_title()
+    assert tab.fit_canvas.ax.get_ylabel() == "Current (A)"
+
+
+def test_a_failed_fit_still_plots_the_data(analysis_window):
+    """The data is exactly what you need in order to choose a better window, so a
+    failed fit must not leave an empty canvas."""
+    from spec_echem.analysis import FitResult
+    tab = analysis_window.analysis_tab
+    tab._fits["Doping 0"] = {"absorbance": FitResult("exp", reason="singular")}
+    tab.table.selectRow(0)
+    tab._draw_fit()
+    assert len(tab.fit_canvas.ax.get_lines()) == 1
+    assert any("singular" in t.get_text() for t in tab.fit_canvas.ax.texts)
+
+
+def test_moving_the_wavelength_discards_the_absorbance_fit(analysis_window):
+    """A tau belongs to the wavelength it was measured at. Leaving the old number
+    on screen beside a curve from somewhere else would silently mislabel it."""
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    assert tab._fits["Doping 0"]["absorbance"].ok
+    tab.wavelength_spin.setValue(550.0)
+    assert "absorbance" not in tab._fits["Doping 0"]
+    assert "current" in tab._fits["Doping 0"], "the echem fits are unaffected"
