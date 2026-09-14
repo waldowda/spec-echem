@@ -266,3 +266,27 @@ def test_clean_data_is_unaffected_by_the_noise_gate():
     grows, bleaches = auto_wavelengths(a, wl)
     assert 850 < grows < 950
     assert 500 < bleaches < 600
+
+
+def test_pixels_below_the_optical_window_never_win():
+    """Dean: "there should be no data below 410 nm or so." Below that the lamp and
+    optics deliver nothing, so whatever the pixel reports is not a measurement."""
+    wl = np.linspace(380.0, 1100.0, 200)
+    t = np.linspace(0.0, 20.0, 60)
+    frac = 1.0 - np.exp(-t / 4.0)
+    a = 0.02 + np.outer(np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2), 0.10 * frac)
+    a[wl < 410.0] += np.outer(np.ones((wl < 410.0).sum()), 5.0 * frac)  # huge and fake
+    grows, _ = auto_wavelengths(a, wl)
+    assert grows > 410.0, f"picked {grows:.0f} nm, inside the dead region"
+
+
+def test_an_excluded_pixel_cannot_win_the_opposite_end():
+    """Excluded pixels must go to -inf for the max and +inf for the min. Zeroing
+    them lets a rejected pixel win argmin whenever every real delta is positive."""
+    wl = np.linspace(380.0, 1100.0, 200)
+    t = np.linspace(0.0, 20.0, 60)
+    frac = 1.0 - np.exp(-t / 4.0)
+    # every in-window pixel GROWS, so 0.0 would be the smallest value present
+    a = 0.02 + np.outer(np.linspace(0.05, 0.30, len(wl)), frac)
+    _grows, bleaches = auto_wavelengths(a, wl)
+    assert bleaches > 410.0, f"argmin fell into the masked region at {bleaches:.0f} nm"
