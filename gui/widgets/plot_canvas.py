@@ -31,6 +31,9 @@ class MplCanvas(FigureCanvasQTAgg):
         the live line so update_live_line() rebuilds it (e.g. on a new segment)."""
         self.fig.clear()
         self._live_line = None
+        # plot_fit() switches the engine to constrained for its shared-x layout;
+        # every other plot wants tight, so restore it here.
+        self.fig.set_layout_engine("tight")
         self.ax = self.fig.add_subplot(111)
 
     def _decorate(self, title=None):
@@ -171,6 +174,72 @@ class MplCanvas(FigureCanvasQTAgg):
         if len(series) > 1:
             self.ax.legend(fontsize="small")
         self._decorate(title)
+        self.draw_idle()
+
+    def plot_fit(self, t, y, fit_y, xlabel, ylabel, title=None, window=None,
+                 note=None):
+        """Data with the fitted curve over it, plus a residual strip.
+
+        The residual panel is the point: an exponential and a stretched exponential
+        drawn over the same decay look nearly identical at this size, and the way you
+        tell them apart is structure in the residuals. Overlap alone would let a
+        visibly wrong model pass.
+
+        `window` shades the excluded region so it is obvious which points the fit
+        actually used. fit_y may be None (a failed fit) — the data still plots, which
+        is what you need in order to choose a better window.
+        """
+        self._xlabel, self._ylabel = xlabel, ylabel
+        self.fig.clear()
+        self._live_line = None
+        # tight_layout cannot handle the shared-x gridspec below and silently clips
+        # the y-label and the x-label off the canvas; constrained layout handles it.
+        self.fig.set_layout_engine("constrained")
+        gs = self.fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.05)
+        self.ax = self.fig.add_subplot(gs[0])
+        self.resid_ax = self.fig.add_subplot(gs[1], sharex=self.ax)
+
+        t = np.asarray(t, dtype=float)
+        y = np.asarray(y, dtype=float)
+        self.ax.plot(t, y, "o", ms=2.5, color="#1f77b4", alpha=0.55, label="data",
+                     zorder=2)
+
+        if fit_y is not None:
+            fit_y = np.asarray(fit_y, dtype=float)
+            self.ax.plot(t, fit_y, "-", lw=1.4, color="#d62728",
+                         label=note or "fit", zorder=3)
+            resid = y - fit_y
+            self.resid_ax.plot(t, resid, "o", ms=2.0, color="#1f77b4", alpha=0.6)
+            self.resid_ax.axhline(0.0, ls="-", lw=0.8, color="#d62728", alpha=0.8)
+        else:
+            self.resid_ax.text(0.5, 0.5, "no fit", ha="center", va="center",
+                               transform=self.resid_ax.transAxes,
+                               color="#888", fontsize=8)
+            # No curve to hang the stats on, so the reason goes in the corner.
+            self.ax.annotate(note or "", xy=(0.98, 0.95), xycoords="axes fraction",
+                             ha="right", va="top", fontsize=8, color="#444",
+                             clip_on=True)
+
+        # Grey out what the fit did not see, so a window that excludes the decay
+        # itself is visible at a glance rather than inferred from a bad tau.
+        if window is not None and len(t):
+            lo, hi = window
+            for a in (self.ax, self.resid_ax):
+                if lo is not None and lo > t[0]:
+                    a.axvspan(t[0], lo, color="#999", alpha=0.13, lw=0, zorder=1)
+                if hi is not None and hi < t[-1]:
+                    a.axvspan(hi, t[-1], color="#999", alpha=0.13, lw=0, zorder=1)
+
+        self.ax.set_ylabel(ylabel)
+        if title:
+            self.ax.set_title(title)
+        self.ax.grid(True, alpha=0.3)
+        self.ax.legend(fontsize=7, loc="best")
+        self.ax.tick_params(labelbottom=False)   # shared x — label it once, below
+        self.resid_ax.set_xlabel(xlabel)
+        self.resid_ax.set_ylabel("resid.", fontsize=8)
+        self.resid_ax.grid(True, alpha=0.3)
+        self.resid_ax.tick_params(labelsize=7)
         self.draw_idle()
 
     def show_message(self, text):
