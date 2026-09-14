@@ -839,3 +839,44 @@ def test_starting_a_run_stops_using_a_loaded_run_s_labels(window):
     assert window.label_settings()["doping_potential_start"] == 9.9
     window.loaded_run_settings = None          # what on_start() does
     assert window.label_settings() is window.settings
+
+
+def test_the_label_prefers_the_potential_that_was_actually_measured(window, tmp_path):
+    """Dean: "can you grab the true potential from the raw data?" The echem file is
+    the only source that cannot disagree with the experiment -- metadata records what
+    was REQUESTED, and the Parameters tab may describe a different run entirely."""
+    import numpy as np
+    from spec_echem.data import DATA_TYPE_DOPING, write_echem_file, EchemData
+    from spec_echem.experiment import Segment
+
+    t = np.linspace(0.0, 10.0, 50)
+    write_echem_file(EchemData(time=t, potential=np.full(50, 0.700),
+                               current=np.full(50, 1e-5)),
+                     DATA_TYPE_DOPING, 2, tmp_path, "run")
+    window.run_folder = tmp_path / "run"
+    window._potential_cache.clear()
+    # nominal ladder says 0.400 V; the cell saw 0.700 V
+    window.loaded_run_settings = {"doping_potential_start": 0.2,
+                                  "doping_potential_step": 0.1}
+    seg = Segment("Doping 2", DATA_TYPE_DOPING, 2, 50, 0.1, True)
+    assert window.segment_potential_text(seg) == "+0.700 V"
+
+
+def test_the_nominal_ladder_is_used_when_there_is_no_echem_file(window, tmp_path):
+    """Spectra without echem still deserve a label, just a weaker-sourced one."""
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    window.run_folder = tmp_path / "empty"
+    window._potential_cache.clear()
+    window.loaded_run_settings = {"doping_potential_start": 0.3,
+                                  "doping_potential_step": 0.2}
+    seg = Segment("Doping 2", DATA_TYPE_DOPING, 2, 50, 0.1, True)
+    assert window.segment_potential_text(seg) == "+0.700 V"
+
+
+def test_a_cv_gets_no_single_potential(window):
+    from spec_echem.data import DATA_TYPE_CV
+    from spec_echem.experiment import Segment
+    assert window.segment_potential(
+        Segment("CV", DATA_TYPE_CV, 0, 10, 0.1, True)) is None

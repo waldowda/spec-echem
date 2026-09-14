@@ -13,6 +13,7 @@ File shapes:
   dedoping(N).txt     dedoping chrono   5 cols
   prededoping(N).txt  pre-dedoping chrono (if produced)
 """
+import numpy as np
 import pandas as pd
 
 POTENTIAL_COL = "WE(1).Potential (V)"
@@ -46,3 +47,26 @@ def read_chrono(path):
     df = pd.read_csv(path, sep="\t")
     _require_columns(df, CHRONO_COLUMNS, path)
     return df
+
+
+def measured_potential(path):
+    """The potential a segment was actually HELD at, from its echem file.
+
+    The median of WE(1).Potential over the hold -- median, not mean, so the settling
+    transient at the start cannot drag it. Returns None if the file is missing or
+    unreadable, so the caller can fall back to the nominal ladder.
+
+    This is ground truth in a way neither source of nominal values is: the run
+    metadata records what was REQUESTED, and the live Parameters tab may describe a
+    different experiment entirely. On 20260709_P3HT_01 it reads 0.301 / 0.500 /
+    0.700 V where the GUI was labelling 0.200 / 0.300 / 0.400 V.
+    """
+    try:
+        df = read_chrono(path)
+        v = df[POTENTIAL_COL].to_numpy(dtype=float)
+        v = v[np.isfinite(v)]
+        return float(np.median(v)) if v.size else None
+    except (OSError, KeyError, ValueError):
+        # Missing file, missing column, unparseable numbers -- all expected for a
+        # hand-assembled folder. Anything else is a bug and should surface.
+        return None
