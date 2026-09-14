@@ -148,6 +148,9 @@ class RunTab(QWidget):
         # locked) would change the potentials applied to the remaining segments and
         # desync the run from its own metadata. Freeze it at Start.
         settings = copy.deepcopy(self.win.collect_settings())
+        # This run supersedes any run loaded from disk, so labels go back to
+        # describing what is actually being applied.
+        self.win.loaded_run_settings = None
 
         # "python_mode" means Python drives the potentiostat AND fires the trigger —
         # true for the Gamry (toolkitpy) AND the Autolab. "external" is the only mode

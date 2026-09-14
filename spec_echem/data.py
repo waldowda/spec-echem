@@ -29,13 +29,21 @@ def segment_potential(settings, data_type, run_number):
     graph titles. A label that disagrees with what was applied is worse than no
     label, so they all come from here.
     """
+    # .get, not [] : a run loaded from disk whose metadata is missing has no ladder
+    # to read, and None ("no label") is the honest answer. Returning a potential
+    # computed from whatever happens to be in the Parameters tab would name a value
+    # that was never applied -- which is exactly the mislabel this function exists
+    # to prevent.
     if data_type == DATA_TYPE_PREDEDOPING:
-        return settings["prededoping_potential"]
+        return settings.get("prededoping_potential")
     if data_type == DATA_TYPE_DOPING:
-        return (settings["doping_potential_start"]
-                + run_number * settings["doping_potential_step"])
+        start = settings.get("doping_potential_start")
+        step = settings.get("doping_potential_step")
+        if start is None or step is None:
+            return None
+        return start + run_number * step
     if data_type == DATA_TYPE_DEDOPING:
-        return settings["dedoping_potential"]
+        return settings.get("dedoping_potential")
     return None
 
 

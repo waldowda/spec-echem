@@ -407,7 +407,7 @@ class AnalysisTab(QWidget):
             fits = self._fits.get(label)
             if seg is None or not fits:
                 continue
-            potential = segment_potential(self.win.settings, seg.data_type,
+            potential = segment_potential(self.win.label_settings(), seg.data_type,
                                           seg.run_number)
             if potential is None:
                 continue

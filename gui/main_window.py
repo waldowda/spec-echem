@@ -33,6 +33,10 @@ class MainWindow(QMainWindow):
         # Code defaults, then the repo-tracked lab defaults, then THIS machine's bench
         # file. An experiment settings JSON (loaded explicitly) still overrides all of it.
         self.settings = DEFAULT_SETTINGS.copy()
+        # Settings belonging to a run LOADED from disk, read from its metadata JSON.
+        # Graph titles and the analysis ladder must describe the run on screen, not
+        # whatever is currently typed into the Parameters tab for the next one.
+        self.loaded_run_settings = None
         bench_values, self.bench_warnings = load_bench_defaults()
         apply_bench_defaults(self.settings, bench_values)
         self.bench_values = bench_values      # kept: bench_base() rebuilds from these
@@ -87,6 +91,18 @@ class MainWindow(QMainWindow):
         base = DEFAULT_SETTINGS.copy()
         apply_bench_defaults(base, self.bench_values)
         return base
+
+    def label_settings(self):
+        """The settings that DESCRIBE what is in the Results/Analysis tabs.
+
+        A loaded run's own metadata when there is one, else the live settings (which
+        are correct for a run this session just performed). An empty dict when a
+        loaded run had no metadata: segment_potential then returns None and the
+        labels say nothing rather than naming a potential that was never applied.
+        """
+        if self.loaded_run_settings is not None:
+            return self.loaded_run_settings
+        return self.settings
 
     def apply_settings(self, settings):
         """Push a settings dict into every input tab's widgets."""
