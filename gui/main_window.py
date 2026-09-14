@@ -18,6 +18,7 @@ from gui.tabs.instrument_tab import InstrumentTab
 from gui.tabs.parameters_tab import ParametersTab
 from gui.tabs.run_tab import RunTab
 from gui.tabs.results_tab import ResultsTab
+from gui.tabs.analysis_tab import AnalysisTab
 
 
 class MainWindow(QMainWindow):
@@ -55,11 +56,13 @@ class MainWindow(QMainWindow):
         self.parameters_tab = ParametersTab(self)
         self.run_tab = RunTab(self)
         self.results_tab = ResultsTab(self)
+        self.analysis_tab = AnalysisTab(self)
 
         self.tabs.addTab(self.instrument_tab, "1. Instrument")
         self.tabs.addTab(self.parameters_tab, "2. Parameters")
         self.tabs.addTab(self.run_tab, "3. Run")
         self.tabs.addTab(self.results_tab, "4. Results")
+        self.tabs.addTab(self.analysis_tab, "5. Analysis")
 
         self.setCentralWidget(self.tabs)
 

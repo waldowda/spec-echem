@@ -254,6 +254,7 @@ class ResultsTab(QWidget):
         self.win.segments_by_label = segments_by_label
         self.win.run_folder = Path(folder)
         self.refresh_segments()
+        self.win.analysis_tab.refresh_segments()
 
         msg = f"Loaded {len(results)} segment(s) from:\n{folder}"
         if errors:
