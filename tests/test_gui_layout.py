@@ -551,7 +551,8 @@ def test_the_window_start_defaults_to_the_current_peak(analysis_window):
     tab.on_segment_changed()
     assert tab.auto_start_check.isChecked()
     assert tab.start_spin.value() == pytest.approx(0.0, abs=0.3)   # spike is at t=0
-    assert tab.stop_spin.value() > 15.0                            # stop at the end
+    assert tab.stop_spin.value() == 0.0            # 0 = "end of segment"
+    assert tab.stop_spin.specialValueText() == "end of segment"
 
 
 def test_fitting_a_segment_fills_all_three_traces(analysis_window):
@@ -732,3 +733,42 @@ def test_moving_the_wavelength_discards_the_absorbance_fit(analysis_window):
     tab.wavelength_spin.setValue(550.0)
     assert "absorbance" not in tab._fits["Doping 0"]
     assert "current" in tab._fits["Doping 0"], "the echem fits are unaffected"
+
+
+def test_the_stop_time_follows_a_longer_segment(analysis_window, tmp_path):
+    """The stop used to be auto-filled with the first segment's length and then
+    kept, so moving to a LONGER segment silently fitted only its first part and
+    reported a tau for a window the user never chose. 0 means "to the end"."""
+    import numpy as np
+    from spec_echem.data import DATA_TYPE_DOPING, write_echem_file, EchemData
+    from spec_echem.experiment import Segment
+
+    tab = analysis_window.analysis_tab
+    tab.on_segment_changed()
+    assert tab._window(tab._all_traces("Doping 0"))[1] is None, "no upper bound"
+
+    # a second segment three times as long
+    t = np.linspace(0.0, 60.0, 200)
+    write_echem_file(
+        EchemData(time=t, potential=np.full(200, 0.4),
+                  current=3.0e-5 * np.exp(-t / 4.0)),
+        DATA_TYPE_DOPING, 1, tmp_path, "run")
+    analysis_window.results["Doping 1"] = analysis_window.results["Doping 0"]
+    analysis_window.segments_by_label["Doping 1"] = Segment(
+        "Doping 1", DATA_TYPE_DOPING, 1, 200, 0.3, True)
+    tab.refresh_segments()
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findText("Doping 1"))
+
+    fits = tab._fit_one("Doping 1")
+    assert fits["current"].t_last > 55.0, "the fit must reach the end of the segment"
+
+
+def test_moving_the_window_redraws_the_shading_before_refitting(analysis_window):
+    """The workflow is move the edge, look, refit — so the greyed region has to
+    follow the spin box immediately, not wait for the next fit."""
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    tab.auto_start_check.setChecked(False)
+    before = len(tab.fit_canvas.ax.patches)
+    tab.start_spin.setValue(5.0)
+    assert len(tab.fit_canvas.ax.patches) > before, "expected the excluded span"

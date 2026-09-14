@@ -65,28 +65,44 @@ class AnalysisTab(QWidget):
             "slow one is capacitance plus ion motion.")
         form.addRow("Model:", self.model_combo)
 
-        # The window. Default start is the time of peak |current| — where the
-        # capacitive spike ends. Computed, not guessed (see analysis.default_fit_start).
+        # The fit window. Both ends are meant to be tuned by hand and refitted —
+        # the capacitive spike's RC is not known in advance, so the useful workflow
+        # is move the edge, look at the residuals, fit again. The greyed region on
+        # the plot updates live as these move, before any refit.
         span = QHBoxLayout()
         self.start_spin = QDoubleSpinBox()
         self.start_spin.setRange(0.0, 100000.0)
         self.start_spin.setDecimals(3)
         self.start_spin.setSuffix(" s")
+        self.start_spin.setToolTip(
+            "First point the fit uses. Raise it to exclude the capacitive spike,\n"
+            "then refit and watch the residual panel.")
         self.stop_spin = QDoubleSpinBox()
         self.stop_spin.setRange(0.0, 100000.0)
         self.stop_spin.setDecimals(3)
         self.stop_spin.setSuffix(" s")
-        self.auto_start_check = QCheckBox("from current peak")
+        # 0 means "run to the end", so the stop never has to be re-typed for a
+        # longer segment. It used to be auto-filled with the first segment's
+        # length and then kept, which silently fitted only part of a longer one.
+        self.stop_spin.setSpecialValueText("end of segment")
+        self.stop_spin.setValue(0.0)
+        self.stop_spin.setToolTip(
+            "Last point the fit uses. 0 = the end of the segment.")
+        self.auto_start_check = QCheckBox("auto (peak |I|)")
         self.auto_start_check.setChecked(True)
         self.auto_start_check.setToolTip(
-            "Start the fit where the capacitive spike ends — the time of peak |I|.\n"
-            "Uncheck to set the start by hand.")
+            "Start at the time of peak |I|. On a potential step the spike usually\n"
+            "peaks at the first sample, so this often means t = 0 and excludes\n"
+            "nothing. UNCHECK IT to type a start time and exclude the spike.")
         self.auto_start_check.toggled.connect(self._sync_start_enabled)
+        self.start_spin.valueChanged.connect(self._draw_fit)
+        self.stop_spin.valueChanged.connect(self._draw_fit)
         span.addWidget(self.start_spin)
         span.addWidget(QLabel("to"))
         span.addWidget(self.stop_spin)
         span.addWidget(self.auto_start_check)
-        form.addRow("Window:", span)
+        span.addStretch()
+        form.addRow("Fit window:", span)
 
         self.wavelength_spin = QDoubleSpinBox()
         self.wavelength_spin.setRange(0.0, 5000.0)
@@ -241,13 +257,14 @@ class AnalysisTab(QWidget):
         if not label:
             return
         t, i, _q = self._echem_traces(label)
-        if t is not None and len(t):
-            if self.auto_start_check.isChecked():
-                start = default_fit_start(t, i)
-                if start is not None:
-                    self.start_spin.setValue(start)
-            if self.stop_spin.value() == 0.0:
-                self.stop_spin.setValue(float(t[-1]))
+        if t is not None and len(t) and self.auto_start_check.isChecked():
+            start = default_fit_start(t, i)
+            if start is not None:
+                # Blocked: setValue emits valueChanged, which would draw the fit
+                # a second time on every segment change.
+                self.start_spin.blockSignals(True)
+                self.start_spin.setValue(start)
+                self.start_spin.blockSignals(False)
         self._show_fits(self._fits.get(label))
         self._draw_fit()
 
