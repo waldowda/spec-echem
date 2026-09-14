@@ -485,3 +485,101 @@ def test_a_longer_ladder_still_scrolls_rather_than_vanishing(window, monkeypatch
     window.results = {k: df for k in labels}
     window.results_tab.refresh_segments()
     assert window.results_tab.segment_combo.count() == 41
+
+
+# --- Tab 5: Analysis ---------------------------------------------------------
+# Fitting lives in its own tab because it is post-run work with model, window and
+# re-run controls, while tab 4 is the live glance. The maths is tested in
+# test_analysis.py; these check the tab drives it and reports failure honestly.
+
+@pytest.fixture
+def analysis_window(window, tmp_path):
+    """A window holding one synthetic doping segment — an absorbance matrix whose
+    polaron band grows, and a matching chrono file with a capacitive spike."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING, write_echem_file, EchemData
+    from spec_echem.experiment import Segment
+
+    wl = np.linspace(400.0, 1100.0, 120)
+    t = np.linspace(0.0, 20.0, 120)
+    polaron = np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2)
+    pi = np.exp(-0.5 * ((wl - 550.0) / 40.0) ** 2)
+    # absorbance rises with tau = 4 s at the polaron band, bleaches at pi-pi*
+    frac = 1.0 - np.exp(-t / 4.0)
+    a = 1.0 - 0.6 * np.outer(pi, frac) + 0.4 * np.outer(polaron, frac)
+    window.results = {"Doping 0": pd.DataFrame(a, index=wl, columns=t)}
+    window.segments_by_label = {
+        "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 120, 0.1, True)}
+
+    current = 3.0e-5 * np.exp(-t / 4.0) + 6.0e-4 * np.exp(-t / 0.05)
+    write_echem_file(EchemData(time=t, potential=np.full(120, 0.3), current=current),
+                     DATA_TYPE_DOPING, 0, tmp_path, "run")
+    window.run_folder = tmp_path / "run"
+    window.analysis_tab.refresh_segments()
+    return window
+
+
+def test_the_cv_is_not_offered_for_transient_fitting(analysis_window):
+    """A CV is a sweep, not a step — there is no transient to fit, so offering it
+    would only produce a confident-looking meaningless number."""
+    import pandas as pd
+    import numpy as np
+    from spec_echem.data import DATA_TYPE_CV
+    from spec_echem.experiment import Segment
+
+    w = analysis_window
+    w.results["CV"] = pd.DataFrame(np.zeros((3, 3)))
+    w.segments_by_label["CV"] = Segment("CV", DATA_TYPE_CV, 0, 3, 0.1, True)
+    w.analysis_tab.refresh_segments()
+
+    labels = [w.analysis_tab.segment_combo.itemText(i)
+              for i in range(w.analysis_tab.segment_combo.count())]
+    assert "Doping 0" in labels and "CV" not in labels
+
+
+def test_the_window_start_defaults_to_the_current_peak(analysis_window):
+    """Where the capacitive spike ends — computed from the data, not guessed."""
+    tab = analysis_window.analysis_tab
+    tab.on_segment_changed()
+    assert tab.auto_start_check.isChecked()
+    assert tab.start_spin.value() == pytest.approx(0.0, abs=0.3)   # spike is at t=0
+    assert tab.stop_spin.value() > 15.0                            # stop at the end
+
+
+def test_fitting_a_segment_fills_all_three_traces(analysis_window):
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+
+    fits = tab._fits["Doping 0"]
+    assert set(fits) == {"absorbance", "current", "charge"}
+    assert fits["absorbance"].ok
+    # the synthetic absorbance rises with tau = 4 s at the auto-picked polaron band
+    assert fits["absorbance"].tau == pytest.approx(4.0, rel=0.25)
+
+
+def test_the_auto_wavelength_lands_on_the_growing_band(analysis_window):
+    """Not the bleach, which is what |dA| would have chosen."""
+    tab = analysis_window.analysis_tab
+    tab._absorbance_trace("Doping 0")
+    assert 850 < tab._wavelength < 950
+
+
+def test_a_failed_fit_shows_its_reason_instead_of_a_number(analysis_window):
+    """curve_fit returns confident nonsense rather than raising, so the table must
+    not present it as a measurement."""
+    import numpy as np
+    from spec_echem.analysis import FitResult
+
+    tab = analysis_window.analysis_tab
+    tab._show_fits({"absorbance": FitResult("exp", reason="uncertainty too large")})
+    assert "failed" in tab.table.item(0, 1).text()
+    assert tab.table.item(0, 2).text() == ""       # no tau, no beta
+
+
+def test_the_ladder_plot_waits_for_a_fit(analysis_window):
+    tab = analysis_window.analysis_tab
+    tab._draw_ladder()          # nothing fitted yet — must not raise
+    tab.on_fit_segment()
+    tab.ratio_check.setChecked(True)    # and the toggle must not raise either
+    tab.ratio_check.setChecked(False)
