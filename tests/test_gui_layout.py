@@ -505,9 +505,16 @@ def analysis_window(window, tmp_path):
     t = np.linspace(0.0, 20.0, 120)
     polaron = np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2)
     pi = np.exp(-0.5 * ((wl - 550.0) / 40.0) ** 2)
-    # absorbance rises with tau = 4 s at the polaron band, bleaches at pi-pi*
+    # Both bands evolve with tau = 4 s. The OD levels are the physical ones: on
+    # doping the polaron band starts near zero and GROWS, while pi-pi* starts high
+    # (~0.8 OD) and bleaches as polarons build. An earlier version of this fixture
+    # sat both bands on a flat 1.0 pedestal, which fits identically -- every model
+    # here has an additive offset that absorbs a baseline -- but is not what a film
+    # does, and would mislead anyone reading it as an example of real data.
     frac = 1.0 - np.exp(-t / 4.0)
-    a = 1.0 - 0.6 * np.outer(pi, frac) + 0.4 * np.outer(polaron, frac)
+    a = (0.02
+         + np.outer(pi, 0.85 - 0.55 * frac)
+         + np.outer(polaron, 0.50 * frac))
     window.results = {"Doping 0": pd.DataFrame(a, index=wl, columns=t)}
     window.segments_by_label = {
         "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 120, 0.1, True)}
