@@ -697,8 +697,11 @@ this run worth continuing". `banded_fits` and the rest are Jupyter work.
 - Worth asking Raj which of his methods he considers load-bearing versus historical, the same
   conversation as the H5 layout.
 
-## Conversation with Raj — moved
+## Conversation with Raj — kept OUT of this repo
 
-The questions for Raj (H5 layout, core analyses) and the two `read_files.py` bugs to send as a
-pull request now live in **[`docs/raj-conversation.md`](docs/raj-conversation.md)** — a list you
-take into a meeting should be openable on its own, not buried at the end of this file.
+**This repository is public.** Notes about a named collaborator — which of his methods look
+historical, what he has not fixed, what to ask him — do not belong in it. They live outside the
+repo at `../private-notes/raj-conversation.md`.
+
+The *technical* content stays here where it is useful: the H5 layout and sizing above, and the
+`read_files.py` bugs, which are ordinary bug reports and are better sent as a pull request anyway.
