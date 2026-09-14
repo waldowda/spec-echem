@@ -2,6 +2,7 @@
 Embedded matplotlib canvas, shared by the Instrument preview, the Run cockpit,
 and the Results review tab. Static plots only (drawn on demand / post-segment).
 """
+import logging
 import textwrap
 
 import matplotlib
@@ -13,6 +14,8 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
 from spec_echem.gamry_data import POTENTIAL_COL, CURRENT_COL
+
+logger = logging.getLogger(__name__)
 
 
 class MplCanvas(FigureCanvasQTAgg):
@@ -26,6 +29,35 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax = self.fig.add_subplot(111)
         self._decorate()
 
+    def _set_layout(self, mode):
+        """Select tight or constrained layout across matplotlib versions.
+
+        set_layout_engine() arrived in matplotlib 3.6. The 32-bit SpecEchem32 env is
+        Python 3.7 with an older matplotlib that has only the boolean setters, and
+        calling the new API there raised AttributeError from _new_axes -- which every
+        plot goes through, so the GUI died at startup on the Gamry rig.
+        """
+        try:
+            if hasattr(self.fig, "set_layout_engine"):
+                self.fig.set_layout_engine(mode)
+            elif mode == "constrained":
+                # Mutually exclusive on the old API, so clear one before the other.
+                self.fig.set_tight_layout(False)
+                self.fig.set_constrained_layout(True)
+            else:
+                self.fig.set_constrained_layout(False)
+                self.fig.set_tight_layout(True)
+        except Exception:  # noqa: BLE001
+            # Deliberately broad. Layout is COSMETIC, and this call sits in
+            # _new_axes, which every plot goes through -- so an unsupported spelling
+            # on some matplotlib version takes the whole GUI down at startup, which
+            # is exactly what happened on SpecEchem32. A slightly misaligned label
+            # beats an application that will not launch. The fallback branch cannot
+            # be tested from the dev machine: on matplotlib >= 3.6 the old setters
+            # delegate to the new API, so removing it to simulate an old version
+            # breaks the very path being tested.
+            logger.debug("layout engine %r unsupported by this matplotlib", mode)
+
     def _new_axes(self):
         """Fresh axes on a cleared figure — also removes any prior colorbar. Drops
         the live line so update_live_line() rebuilds it (e.g. on a new segment)."""
@@ -33,7 +65,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self._live_line = None
         # plot_fit() switches the engine to constrained for its shared-x layout;
         # every other plot wants tight, so restore it here.
-        self.fig.set_layout_engine("tight")
+        self._set_layout("tight")
         self.ax = self.fig.add_subplot(111)
 
     def _decorate(self, title=None):
@@ -194,7 +226,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self._live_line = None
         # tight_layout cannot handle the shared-x gridspec below and silently clips
         # the y-label and the x-label off the canvas; constrained layout handles it.
-        self.fig.set_layout_engine("constrained")
+        self._set_layout("constrained")
         # Residuals go ABOVE the data: that is the convention in the spectroscopy
         # fitting this sits next to (XPS, NMR, IR). Reflectivity and astronomy put
         # them below, which is the other common choice -- not a neutral default.
@@ -272,7 +304,14 @@ class MplCanvas(FigureCanvasQTAgg):
         self._new_axes()
         wl = absorb_df.index.values
         times = [float(c) for c in absorb_df.columns]
-        cmap = matplotlib.colormaps["viridis"]
+        # matplotlib.colormaps is 3.5+; SpecEchem32's matplotlib predates
+        # set_layout_engine (3.6), so it may predate this too. get_cmap is the old
+        # spelling and was removed in 3.9, so both are needed. PRE-EXISTING, not
+        # introduced with the analysis work -- hardened while fixing the sibling bug.
+        try:
+            cmap = matplotlib.colormaps["viridis"]
+        except AttributeError:
+            cmap = matplotlib.cm.get_cmap("viridis")
         norm = Normalize(vmin=min(times), vmax=max(times)) if len(times) > 1 \
             else Normalize(vmin=0.0, vmax=1.0)
         for t, col in zip(times, absorb_df.columns):
