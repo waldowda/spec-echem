@@ -11,7 +11,7 @@ and organic mixed ionic-electronic conductors (OMIECs).
 The key technical challenge is precise temporal correlation between the two instruments, solved
 via hardware triggering — the Gamry's DIGOUT0 output is wired directly to the Avantes trigger input.
 
-**GitHub:** github.com/waldowda/spec-echem (private)  
+**GitHub:** github.com/waldowda/spec-echem — **PUBLIC** (verified via the API 2026-09-14; this line said "private" until then, which was wrong and is exactly the kind of mistake that puts the wrong thing in a commit). Anything written here is world-readable the moment it is pushed, and stays in the history even if the file is deleted. Meeting notes, remarks about named people, machine paths with usernames, and anything unpublished belong outside the repo.  
 **Zenodo DOI:** 10.5281/zenodo.17221314  
 **Status:** Pre-release — API is not stable
 
