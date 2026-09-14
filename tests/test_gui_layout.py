@@ -702,13 +702,20 @@ def test_the_residual_panel_exists_and_holds_the_residuals(analysis_window):
     assert len(tab.fit_canvas.resid_ax.get_lines()) >= 1
 
 
+def _suptitle(fig):
+    """Figure.get_suptitle() is matplotlib 3.8+; SpecEchem32 is far older."""
+    if hasattr(fig, "get_suptitle"):
+        return fig.get_suptitle()
+    return fig._suptitle.get_text() if fig._suptitle is not None else ""
+
+
 def test_selecting_a_table_row_plots_that_trace(analysis_window):
     tab = analysis_window.analysis_tab
     tab.on_fit_segment()
     tab.table.selectRow(0)
-    assert "absorbance" in tab.fit_canvas.fig.get_suptitle()
+    assert "absorbance" in _suptitle(tab.fit_canvas.fig)
     tab.table.selectRow(1)
-    assert "current" in tab.fit_canvas.fig.get_suptitle()
+    assert "current" in _suptitle(tab.fit_canvas.fig)
     assert tab.fit_canvas.ax.get_ylabel() == "Current (A)"
 
 
