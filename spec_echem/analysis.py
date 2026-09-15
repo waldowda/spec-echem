@@ -623,3 +623,91 @@ def tau_ratio(numerator, denominator):
     if not bottom:
         return None
     return float(top / bottom)
+
+
+# --- density of states from a CV ---------------------------------------------
+# Design: docs/analysis-design.md. For a sweep slow enough to be quasi-equilibrium the
+# current IS the differential charge, i = v·dQ/dV, so
+#
+#     g(E) = i / (v · e · V_film)        states eV⁻¹ cm⁻³,   E = −eV
+#
+# Units: (C/s)·(s/V)/(C·cm³) = eV⁻¹cm⁻³.
+#
+# The arithmetic is trivial. What is NOT settled here, deliberately: the capacitive
+# baseline is NOT subtracted (double-layer charging is not density of states, but
+# whatever is removed changes the answer and must be visible), and whether the scan
+# rate was slow enough is an empirical question — run several rates and check i/v
+# collapses — that no amount of code can answer.
+
+ELEMENTARY_CHARGE = 1.602176634e-19      # C
+
+
+def cv_sweeps(potential):
+    """Index slices for each monotonic sweep of a CV, split at every reversal.
+
+    A CV runs several cycles and the film is not the same on the first as on the last,
+    so the caller picks which to use rather than being handed an average.
+    """
+    v = np.asarray(potential, dtype=float)
+    if v.size < 3:
+        return []
+    direction = np.sign(np.diff(v))
+    direction[direction == 0] = 0
+    # ignore zero-steps when deciding where the sweep turns around
+    nonzero = direction[direction != 0]
+    if nonzero.size == 0:
+        return []
+    sweeps, start, current = [], 0, nonzero[0]
+    for i, step in enumerate(direction):
+        if step != 0 and step != current:
+            sweeps.append(slice(start, i + 1))
+            start, current = i, step
+    sweeps.append(slice(start, len(v)))
+    return [s for s in sweeps if (s.stop - s.start) >= 3]
+
+
+def density_of_states(potential, current, scan_rate_v_per_s, volume_cm3=None,
+                      last_cycle_only=True):
+    """DOS against energy, one entry per sweep direction.
+
+    Returns a list of dicts: {"direction": "forward"|"reverse", "energy_ev",
+    "dos", "units"}. With `volume_cm3` the units are states eV⁻¹cm⁻³; without it the
+    value is dQ/dV in C/V and `units` says so, rather than a volume being invented.
+
+    `last_cycle_only` keeps the final forward/reverse pair — the film has been cycled
+    by then, so it is the closest to a settled response. Directions are kept SEPARATE:
+    hysteresis is real and averaging it away hides an effect.
+    """
+    v = np.asarray(potential, dtype=float)
+    i = np.asarray(current, dtype=float)
+    if v.size != i.size:
+        raise ValueError(f"potential and current differ in length: {v.size} vs {i.size}")
+    if not scan_rate_v_per_s or scan_rate_v_per_s <= 0:
+        raise ValueError(f"scan rate must be positive, got {scan_rate_v_per_s!r}")
+
+    sweeps = cv_sweeps(v)
+    if not sweeps:
+        return []
+    if last_cycle_only:
+        sweeps = sweeps[-2:]
+
+    denom = ELEMENTARY_CHARGE * volume_cm3 if volume_cm3 else 1.0
+    units = ("states eV^-1 cm^-3" if volume_cm3 else "dQ/dV (C/V) — no film volume")
+
+    out = []
+    for sweep in sweeps:
+        vv, ii = v[sweep], i[sweep]
+        rising = vv[-1] > vv[0]
+        # SIGNED sweep rate. dQ/dV = i / (dV/dt), and on the reverse sweep BOTH are
+        # negative, so the quotient is positive -- a DOS is positive in either
+        # direction. Dividing by the magnitude flipped the reverse sweep below zero.
+        rate = scan_rate_v_per_s if rising else -scan_rate_v_per_s
+        out.append({
+            "direction": "forward" if rising else "reverse",
+            # E = -eV: a more positive potential removes electrons, i.e. probes
+            # deeper into the occupied states.
+            "energy_ev": -vv,
+            "dos": ii / (rate * denom),
+            "units": units,
+        })
+    return out
