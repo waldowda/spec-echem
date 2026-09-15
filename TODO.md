@@ -2,6 +2,36 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Getting data and figures OUT (2026-09-15) — Dean's ask, not started
+
+Dean: *"eventually it would be good to get data out in a nice format such as the
+graphs... One other option I think might be nice is to export an Igorpro file I can open
+in Igor with all the data and graph info setup to print, since Igor has such amazing
+graphing and formatting capabilities."*
+
+Suggested order — **the numbers matter more than the pictures**, because a figure is
+where editing stops:
+
+- [ ] **1. CSV of the fit results.** Potential, model, wavelength, τ, β, ⟨τ⟩, 95% CI,
+      doping/dedoping, per segment. This currently exists ONLY on screen, and it is the
+      thing that goes into a paper or to a student. Cheapest item here and the highest
+      value.
+- [ ] **2. Figure export via `NavigationToolbar2QT`.** ~5 lines per canvas and it brings
+      pan/zoom/save for free. **Prefer SVG or PDF** — vector, so it drops into
+      Illustrator or Igor without resampling.
+- [ ] **3. HDF5**, settled WITH Raj first (see the questions in `private-notes/`). The
+      vendor-neutral layout serves his Jupyter analysis, and an Igor loader can read it
+      directly — which stops the Igor work becoming a third independent format.
+- [ ] **4. Igor Text (`.itx`), not `.pxp`.** `.itx` is plain text and documented, and
+      carries both waves AND `X` command lines Igor executes on load, so one file can
+      create the waves and `Display` them. `.pxp` is an undocumented binary container,
+      not worth reverse-engineering. Testable without Igor, since it is text.
+
+      **Emit well-named, correctly-scaled waves plus a minimal `Display`, and let Dean
+      style it in Igor.** Generating `ModifyGraph` calls means guessing at formatting
+      conventions he already has, and he would end up fighting the generated styling
+      rather than using Igor's strengths. Roughly a day's work for the wave export.
+
 ## In-GUI analysis — open items (2026-09-14)
 
 Tab 5 works and is validated on real data (see STATUS.md). What is left:
