@@ -583,8 +583,8 @@ def test_a_failed_fit_shows_its_reason_instead_of_a_number(analysis_window):
 
     tab = analysis_window.analysis_tab
     tab._show_fits({"absorbance": FitResult("exp", reason="uncertainty too large")})
-    assert "failed" in tab.table.item(0, 1).text()
-    assert tab.table.item(0, 2).text() == ""       # no tau, no beta
+    assert "failed" in tab.table.item(0, 2).text()
+    assert tab.table.item(0, 1).text() == ""       # no beta either
 
 
 def test_the_ladder_plot_waits_for_a_fit(analysis_window):
@@ -1186,15 +1186,15 @@ def test_the_table_reports_the_same_statistic_the_plot_draws(analysis_window):
     CI on <tau> -- different statistics on different quantities, unlabelled."""
     tab = analysis_window.analysis_tab
     tab.on_fit_segment()
-    header = tab.table.horizontalHeaderItem(3).text()
+    header = tab.table.horizontalHeaderItem(2).text()
     assert "95% CI" in header and "mean tau" in header, header
 
     fit = tab._fits["Doping 0"]["absorbance"]
-    cell = tab.table.item(0, 3).text()
+    cell = tab.table.item(0, 2).text()
     assert f"{fit.mean_tau:.4g}" in cell
     assert f"{fit.mean_tau_ci95:.2g}" in cell
     # the raw tau's own SD is still reachable, just not masquerading as the CI
-    assert "1 SD" in tab.table.item(0, 1).toolTip()
+    assert "1 SD" in tab.table.item(0, 2).toolTip()
 
 
 def test_the_ladder_says_what_its_bars_are(analysis_window):

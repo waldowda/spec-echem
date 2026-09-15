@@ -455,14 +455,20 @@ class ResultsTab(QWidget):
         self.win.run_folder = Path(folder)
         self.win.loaded_run_settings = _read_run_settings(Path(folder))
         self.win._potential_cache.clear()
+        # A NOTE, not a skip: nothing failed to load. Filing it under "Skipped:"
+        # made a complete 13-of-13 load look like something had gone wrong.
+        notes = []
         if not self.win.loaded_run_settings:
-            errors.append("no run metadata — potentials are not labelled")
+            notes.append("no run metadata — potentials come from the echem files "
+                         "where present, and are otherwise unlabelled")
         self.refresh_segments()
         self.win.analysis_tab.refresh_segments()
 
         msg = f"Loaded {len(results)} segment(s) from:\n{folder}"
         if errors:
             msg += "\n\nSkipped:\n" + "\n".join(errors)
+        if notes:
+            msg += "\n\nNote:\n" + "\n".join(notes)
         QMessageBox.information(self, "Run loaded", msg)
 
     def _release_loaded_run(self):
