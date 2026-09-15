@@ -956,3 +956,45 @@ def test_the_ladder_says_which_wavelength_it_compared(analysis_window):
     # one wavelength, no warning
     tab._fit_wl = {"Doping 0": 800.0, "Doping 1": 800.2}
     assert "VARIES" not in tab._ladder_probe_text(["Doping 0", "Doping 1"])
+
+
+def test_tab4_auto_polaron_follows_the_polaron_on_dedoping(window, tmp_path):
+    """Dean: tab 4's "auto (polaron)" chose pi-pi*. _chosen_wavelength took the band
+    that GROWS unconditionally -- right on doping, wrong on dedoping, where the polaron
+    decays and pi-pi* recovers. The same bug was fixed in tab 5 and not propagated, so
+    both tabs now share analysis.probe_wavelength."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DEDOPING
+    from spec_echem.experiment import Segment
+
+    wl = np.linspace(400.0, 1100.0, 120)
+    t = np.linspace(0.0, 20.0, 120)
+    frac = 1.0 - np.exp(-t / 4.0)
+    pi = np.exp(-0.5 * ((wl - 550.0) / 40.0) ** 2)
+    polaron = np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2)
+    a = (0.02 + np.outer(pi, 0.30 + 0.55 * frac)          # pi RECOVERS
+         + np.outer(polaron, 0.50 * (1.0 - frac)))        # polaron DECAYS
+    df = pd.DataFrame(a, index=wl, columns=t)
+    window.results = {"Dedoping 0": df}
+    window.segments_by_label = {
+        "Dedoping 0": Segment("Dedoping 0", DATA_TYPE_DEDOPING, 0, 120, 0.1, True)}
+
+    chosen = window.results_tab._chosen_wavelength(df, "Dedoping 0")
+    assert 740 < chosen < 880, f"got {chosen:.0f} nm — that is pi, not the polaron"
+
+
+def test_clicking_the_spectrum_sets_the_analysis_wavelength(window):
+    """Dean: "seems helpful to have a cursor on the spectra view to move so you don't
+    have to estimate a place to determine WL"."""
+    from types import SimpleNamespace
+    r = window.results_tab
+    r.view_combo.setCurrentIndex(0)                      # spectra view
+    r._on_spectra_click(SimpleNamespace(inaxes=r.canvas.ax, xdata=812.3, ydata=0.1))
+    assert r.analysis_wl.value() == pytest.approx(812.3)
+
+    # a click on the kinetics view is a time, not a wavelength
+    r.analysis_wl.setValue(700.0)
+    r.view_combo.setCurrentIndex(1)
+    r._on_spectra_click(SimpleNamespace(inaxes=r.canvas.ax, xdata=12.0, ydata=0.1))
+    assert r.analysis_wl.value() == pytest.approx(700.0)
