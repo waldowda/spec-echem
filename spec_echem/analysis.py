@@ -558,7 +558,7 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
         # to the answer: tau -> 0 (divide by zero), tau < 0 under a fractional beta
         # ((-x)**beta -> nan), a tiny tau1 (exp overflow). numpy warns on each, and
         # those warnings were reaching the user's shell on every fit -- three of them
-        # on the first launch on the first rig -- which reads like a malfunction when it is the
+        # on the first launch under SpecEchem32 -- which reads like a malfunction when it is the
         # optimizer doing its job. What matters is the OUTCOME, and that is validated
         # below: a fit that ends up in one of those regions is rejected by the tau
         # and uncertainty checks, not by whether a trial step warned.

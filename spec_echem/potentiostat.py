@@ -225,7 +225,7 @@ class Potentiostat:
 # Metrohm Autolab
 #
 # Everything below follows docs/autolab-run-api.md, which records what the SDK
-# actually did on the second rig — the run-API on 2026-08-31, then all of §4 (CV/CA
+# actually did on the PGSTAT302N — the run-API on 2026-08-31, then all of §4 (CV/CA
 # maps, abort, lifecycle, fault behaviour, trigger skew) on the rig 2026-09-03.
 # The one remaining bench check is positional command-list indexing, used only by
 # _neutralise_extra_ca_steps and guarded there. See docs/autolab-driver-finishing.md.
