@@ -1465,3 +1465,12 @@ def test_the_scan_rate_is_converted_from_mv_per_second(window, tmp_path):
     r.on_segment_changed()
     second = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
     assert second == pytest.approx(first / 10.0, rel=1e-6)
+
+
+def test_the_film_geometry_defaults_are_the_bench_geometry(window):
+    """Dean: 150 nm spin-coated, and 2 cm immersed x 0.8 cm wide because the ITO/FTO
+    slide has to clear a 1 cm cell. Both are starting points to check per run, not
+    constants -- the area scales the DOS directly."""
+    settings = window.collect_settings()
+    assert settings["film_thickness_nm"] == pytest.approx(150.0)
+    assert settings["film_area_cm2"] == pytest.approx(1.6)   # 2.0 x 0.8
