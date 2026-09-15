@@ -407,8 +407,57 @@ class AvantesSpectrometer:
                 if value > 0:
                     logger.info("Detector minimum integration time: %g ms", value)
                     return value
-        logger.info("Detector minimum integration time not exposed by this SDK")
-        return None
+        logger.info("Detector minimum integration time not exposed; probing")
+        return self._probe_minimum_integration_time()
+
+    def _probe_minimum_integration_time(self, tolerance_ms=1e-4, ceiling_ms=10000.0):
+        """Smallest integration time AVS_PrepareMeasure accepts, by bisection.
+
+        The SDK on this wrapper does NOT expose a minimum -- a full DeviceConfigType
+        dump on a 2048 px detector shows only NrPixels, SensorType, gains, offsets and
+        calibration polynomials -- so the device is asked directly.
+
+        Acceptance was checked against the detector's own integral before this was
+        trusted: on that detector PrepareMeasure accepted 0.009033 ms, and counts
+        against exposure fit `counts = 112 + 26051 t` to within 1% from 0.009 ms to
+        0.1 ms. The short exposures are genuinely integrated, not clamped. (Host
+        timing cannot show this -- USB round trip plus a 2048-pixel readout is
+        ~1.5 ms, which swamps everything below 1 ms.)
+
+        Cheap enough for Connect: a couple of dozen PrepareMeasure calls, no
+        measurement, no lamp required.
+        """
+        measconfig = getattr(self, "measconfig", None)
+        if self.dev_handle is None or measconfig is None:
+            return None
+        original = measconfig.m_IntegrationTime
+        try:
+            def accepted(value):
+                measconfig.m_IntegrationTime = float(value)
+                return AVS_PrepareMeasure(self.dev_handle, measconfig) >= 0
+
+            lo, hi = 0.0, max(float(original), 1.0)
+            while not accepted(hi):
+                lo, hi = hi, hi * 2.0
+                if hi > ceiling_ms:
+                    return None
+            while hi - lo > tolerance_ms:
+                mid = (lo + hi) / 2.0
+                if accepted(mid):
+                    hi = mid
+                else:
+                    lo = mid
+            logger.info("Probed minimum integration time: %g ms", hi)
+            return float(hi)
+        except Exception:  # noqa: BLE001 — a probe must not break Connect
+            return None
+        finally:
+            # Leave the device configured as we found it, whatever happened.
+            try:
+                measconfig.m_IntegrationTime = original
+                AVS_PrepareMeasure(self.dev_handle, measconfig)
+            except Exception:  # noqa: BLE001
+                pass
 
     def set_integration_time(self, duration, measconfig=None):
         """

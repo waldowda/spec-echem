@@ -49,6 +49,36 @@ ramps exposure, tracks one pixel, fits the linear region, and reports:
 The ramp bounds are settings (`lin_start_ms`, `lin_stop_ms`). **They must sit above your
 detector's minimum integration time** — a ramp below it measures nothing meaningful.
 
+### The detector's minimum integration time
+
+The SDK does **not** state it. A full `DeviceConfigType` dump on a 2048-pixel detector
+shows only pixel count, sensor type, gains, offsets and calibration polynomials — no
+minimum or maximum. So the device is asked directly, by bisecting what
+`AVS_PrepareMeasure` will accept.
+
+That acceptance was checked against the detector's own integral before being trusted.
+On one detector `PrepareMeasure` accepted **0.009033 ms**, and counts against exposure
+fit
+
+```
+counts = 112 + 26051 · t        within 1% from 0.009 ms to 0.1 ms
+```
+
+so those short exposures are genuinely integrated, not clamped. **Host timing cannot
+show this** — a USB round trip plus a 2048-pixel readout is ~1.5 ms, which swamps
+everything below 1 ms, and an attempt to measure the floor with a stopwatch produced a
+number that was pure artefact.
+
+Detectors differ by a large factor here: one accepts ~0.009 ms, another has a floor
+around 1.05 ms. A hardcoded default cannot serve both, which is why it is probed.
+`examples/probe_min_integration.py` runs all of this standalone, including the
+counts-versus-exposure check, which needs the lamp on.
+
+Note what the same data says about the *upper* end: above ~0.1 ms the measured counts
+fall progressively below the linear fit — 13% low at 0.2 ms, 48% at 0.5 ms. That is the
+detector saturating at that lamp level, and it is exactly what the linearity check
+exists to find.
+
 ## 2. Parameters
 
 Everything about *this run*. Saved to `{folder}/{folder}_metadata.json` at run start, so a
