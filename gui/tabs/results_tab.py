@@ -217,8 +217,17 @@ class ResultsTab(QWidget):
             return
         if event.inaxes is not self.canvas.ax or event.xdata is None:
             return
+        wavelength = round(float(event.xdata), 1)
         # setValue re-runs on_segment_changed, which redraws with the marker moved.
-        self.analysis_wl.setValue(round(float(event.xdata), 1))
+        self.analysis_wl.setValue(wavelength)
+
+        # Carry it to the Analysis tab. Dean: "if the vertical line has been clicked
+        # / selected in tab 4, then that WL should be used instead of Auto(polaron)
+        # as there was likely some intention of the user on that WL." A click is a
+        # deliberate choice of band; leaving tab 5 on automatic would quietly fit
+        # somewhere else. Typing in the box is NOT propagated -- that is often just
+        # reading a value off the spectrum.
+        self.win.analysis_tab.wavelength_spin.setValue(wavelength)
 
     def _chosen_wavelength(self, absorb_df, label):
         """The wavelength to follow: the user's, or the polaron band.
