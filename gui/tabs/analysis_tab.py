@@ -540,8 +540,9 @@ class AnalysisTab(QWidget):
                                 if np.isfinite(fraction) else ""))
             note = "\n".join(lines)
             fit_y = fit.curve(t)
-            if fit.needs_review:
-                caution = f"NEEDS REVIEW\n{fit.reason}"
+            # No separate caution here: describe() already ends with the
+            # "NEEDS REVIEW: <reason>" line, and the legend turns amber around it.
+            # `caution` is only for the case with no legend to carry it.
 
         title = f"{self._segment_display(label)} - {trace}"
         if trace == "absorbance" and self.wavelength_spin.value() > 0:
