@@ -1172,3 +1172,26 @@ def test_cancelling_a_load_changes_nothing(window, tmp_path):
         segs, lambda done, total, name: done < 1)     # cancel on the second
     assert cancelled
     assert window.results == before, "the window must not be touched mid-load"
+
+
+def test_the_table_reports_the_same_statistic_the_plot_draws(analysis_window):
+    """Dean: "the errors are labeled SDs. Is that really the case or are they 95%
+    CIs?" The column WAS a 1-sigma SD on the raw tau while the error bars were a 95%
+    CI on <tau> -- different statistics on different quantities, unlabelled."""
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    header = tab.table.horizontalHeaderItem(3).text()
+    assert "95% CI" in header and "mean tau" in header, header
+
+    fit = tab._fits["Doping 0"]["absorbance"]
+    cell = tab.table.item(0, 3).text()
+    assert f"{fit.mean_tau:.4g}" in cell
+    assert f"{fit.mean_tau_ci95:.2g}" in cell
+    # the raw tau's own SD is still reachable, just not masquerading as the CI
+    assert "1 SD" in tab.table.item(0, 1).toolTip()
+
+
+def test_the_ladder_says_what_its_bars_are(analysis_window):
+    tab = analysis_window.analysis_tab
+    tab.on_fit_all()
+    assert "95% CI" in tab.ladder_canvas.ax.get_title()

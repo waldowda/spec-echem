@@ -170,7 +170,12 @@ class AnalysisTab(QWidget):
         top.addWidget(controls)
 
         self.table = QTableWidget(len(TRACES), 4)
-        self.table.setHorizontalHeaderLabels(["trace", "tau (s)", "beta", "SD (s)"])
+        # The last column is what the ladder PLOTS -- <tau> with its 95% interval --
+        # so the number on screen and the point on the plot are the same thing. It
+        # used to read "SD (s)", which was a 1-sigma SD on the RAW tau: a different
+        # statistic on a different quantity from the error bars, with nothing saying so.
+        self.table.setHorizontalHeaderLabels(
+            ["trace", "tau (s)", "beta", "mean tau +/- 95% CI (s)"])
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
@@ -408,13 +413,19 @@ class AnalysisTab(QWidget):
                 # numbers are reachable without switching traces.
                 cells = ["failed", "", ""]
             else:
+                ci = fit.mean_tau_ci95
+                mean = fit.mean_tau
                 cells = [f"{fit.tau:.4g}",
                          f"{fit.beta:.3g}" if fit.beta is not None else "-",
-                         f"{fit.tau_sd:.2g}"]
+                         f"{mean:.4g} +/- {ci:.2g}" if ci is not None
+                         else f"{mean:.4g} (CI unavailable)"]
             for col, text in enumerate(cells, start=1):
                 item = QTableWidgetItem(text)
                 if fit is not None and not fit.ok:
                     item.setToolTip(fit.reason)
+                elif fit is not None and fit.ok and col == 1:
+                    item.setToolTip(f"raw tau = {fit.tau:.4g} +/- {fit.tau_sd:.2g} s "
+                                    f"(1 SD)")
                 self.table.setItem(row, col, item)
 
     def _on_wavelength_changed(self, *_):
@@ -562,7 +573,7 @@ class AnalysisTab(QWidget):
                 if present:
                     add(f"ratio ({direction})", vals, "absorbance", direction, errs)
             ylabel = "mean tau(abs) / mean tau(current)"
-            title = f"Kinetic coupling (dimensionless) - {probe}"
+            title = f"Kinetic coupling (dimensionless) - {probe}\nbars: 95% CI"
         else:
             for trace in TRACES:
                 if not self.trace_checks[trace].isChecked():
@@ -581,7 +592,7 @@ class AnalysisTab(QWidget):
                     if present:
                         add(f"{trace} ({direction})", vals, trace, direction, errs)
             ylabel = "mean relaxation time (s)"
-            title = f"Kinetics vs potential - {probe}"
+            title = f"Kinetics vs potential - {probe}\nbars: 95% CI"
 
         if not series:
             self.ladder_canvas.show_message("Nothing selected under Show.")
