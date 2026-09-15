@@ -220,7 +220,7 @@ resid: noise 3.2e-04, model-miss 1.5e-03 (1.4% of swing)
 
 Successive differences cancel any smooth trend, so the point-to-point scatter IS the
 measurement noise; the RMS above that is a curve the model failed to follow. It ranks
-models directly — MEASURED on `20250710_P3HT9010_KPF6` Doping 0 @ 800 nm:
+models directly — MEASURED on `the 20250710 reference run` Doping 0 @ 800 nm:
 
 | model | noise | model-miss | ratio | % of swing |
 |---|---|---|---|---|
@@ -251,7 +251,7 @@ For a sum-of-parts model the prefactors of one process pull the same way. Opposi
 mean competing processes or a fit gone wrong, so `FitResult.mixed_amplitude_signs` says
 so on the legend rather than deciding which.
 
-On `20250710_P3HT9010_KPF6`, fitted biexp:
+On `the 20250710 reference run`, fitted biexp:
 
 | rung | polaron 800 nm | π–π* 550 nm |
 |---|---|---|

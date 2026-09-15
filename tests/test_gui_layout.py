@@ -1124,7 +1124,7 @@ def test_the_readout_clears_when_a_wavelength_is_typed(window, tmp_path):
 def test_a_cv_gets_no_automatic_polaron(window, tmp_path):
     """A CV returns to where it started, so A(end) - A(start) is ~0 and the signed
     difference has no polaron to find. It was handing back whatever drifted most --
-    521.9 nm, the pi-pi* side, on 20250710_P3HT9010_KPF6."""
+    521.9 nm, the pi-pi* side, on the 20250710 reference run."""
     import numpy as np
     import pandas as pd
     from spec_echem.data import DATA_TYPE_CV

@@ -41,7 +41,7 @@ competing processes.
       rather than hardcoding biexp.
 
 **Evidence the flag tracks physics, not fit noise** (MEASURED on
-`20250710_P3HT9010_KPF6`, biexp): at the polaron band (800 nm) the prefactors agree in
+`the 20250710 reference run`, biexp): at the polaron band (800 nm) the prefactors agree in
 sign at +0.2…+0.5 V and go MIXED at +0.6 and +0.7 V; at π–π* (550 nm) they agree at
 **every** rung including those two. Dean predicted exactly that asymmetry — a bipolaron
 steals from the polaron band without creating a competing process at π–π*. A numerical
@@ -83,7 +83,7 @@ Tab 5 works and is validated on real data (see STATUS.md). What is left:
 
 - [ ] **Decide whether the auto wavelength should lock across a ladder.** It is chosen
       PER SEGMENT and drifts 783 → 808 nm monotonically with potential on
-      `20250710_P3HT9010_KPF6` — probably a real red-shift of the polaron band with
+      `the 20250710 reference run` — probably a real red-shift of the polaron band with
       doping level, not noise, which is why it was not silently locked. The ladder title
       says `(AUTO, VARIES)` when the points do not share a wavelength. Dean's call.
 - [ ] **`FIT_MAX_TAU_SPANS = 10` and `FIT_SD_REJECT_FRACTION = 0.5`** are judgement

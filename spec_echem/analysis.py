@@ -24,7 +24,7 @@ FIT_SD_REJECT_FRACTION = 0.5
 # A tau far longer than the data it was fitted to is an extrapolation, not a
 # measurement, and the SD check cannot catch it: a nearly straight line is a very
 # WELL-DETERMINED exponential with an enormous tau and a tiny uncertainty. MEASURED
-# on 20250710_P3HT9010_KPF6, where the charge integral returned tau = 5.5e11 s from a
+# on the 20250710 reference run, where the charge integral returned tau = 5.5e11 s from a
 # 60 s segment -- 17000 years -- and flattened every real point on the ladder to zero.
 # 10x the window is generous: a decay that slow is 5% complete by the end.
 FIT_MAX_TAU_SPANS = 10.0
@@ -100,7 +100,7 @@ def mean_relaxation_time(model, params):
         # |B|, not B. The textbook amplitude-weighted mean assumes both components
         # decay the same way, and then the signs agree and it does not matter. When
         # a fit puts a small RISING component against a large falling one -- which
-        # 20250710_P3HT9010_KPF6 does above +0.5 V -- the signed weights partly
+        # the 20250710 reference run does above +0.5 V -- the signed weights partly
         # cancel and the "mean" leaves the range of its own components: 0.117 s from
         # tau1 = 0.553 s and tau2 = 4.11 s, and NEGATIVE once the denominator crosses
         # zero. A mean relaxation time outside [min(tau), max(tau)] is not one.
@@ -392,7 +392,7 @@ class FitResult:
         This is the "is it the right model" readout. A residual dominated by noise
         means the model has taken everything there is; one dominated by systematic
         means it has not, however small the uncertainty on its parameters. MEASURED
-        on 20250710_P3HT9010_KPF6 Doping 0 @ 800 nm: noise 3.2e-4 OD, systematic
+        on the 20250710 reference run Doping 0 @ 800 nm: noise 3.2e-4 OD, systematic
         1.5e-3 OD -- 4.6x the noise, but only 1.4% of a 0.106 OD swing.
 
         None when there is no curve or too few points inside the window.

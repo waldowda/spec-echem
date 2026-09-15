@@ -249,7 +249,7 @@ class ResultsTab(QWidget):
         if seg is not None and seg.data_type == DATA_TYPE_CV:
             # A CV returns to where it started, so A(end) - A(start) is ~0 and the
             # signed difference has no polaron to find -- it was handing back whatever
-            # drifted most, 521.9 nm on 20250710_P3HT9010_KPF6. Pick a band by hand
+            # drifted most, 521.9 nm on the 20250710 reference run. Pick a band by hand
             # to watch one during a sweep.
             self._show_resolved_wavelength(None)
             return None

@@ -16,7 +16,7 @@ drawn together above a residual strip, and mean relaxation time plotted against
 potential across the ladder. The maths is in `spec_echem/analysis.py` (no Qt, no
 hardware); `gui/tabs/analysis_tab.py` is the view. **380 tests.**
 
-Validated against `tests/20250710_P3HT9010_KPF6` (P3HT 90:10 / KPF6, six doping rungs
+Validated against `tests/20250710` (the reference run) (six doping rungs
 0.2→0.7 V, outside this repo). **36/36 fits converge.** Over that ladder the optical τ
 FALLS 1.52 → 0.36 s while the current τ RISES 1.46 → 2.03 s, crossing near 0.45 V, and
 β climbs 0.77 → 1.00 — the kinetics become single-exponential once driven hard. Dean

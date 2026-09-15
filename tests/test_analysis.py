@@ -347,7 +347,7 @@ def test_every_time_constant_is_positive():
 def test_a_tau_far_longer_than_the_window_is_rejected():
     """The SD check cannot catch this: a nearly straight line is a very WELL-determined
     exponential with an enormous tau and a tiny uncertainty. MEASURED on
-    20250710_P3HT9010_KPF6 -- the charge integral returned 5.5e11 s from a 60 s
+    the 20250710 reference run -- the charge integral returned 5.5e11 s from a 60 s
     segment and flattened every real point on the ladder to zero."""
     t = np.linspace(0.0, 60.0, 600)
     y = 1.0 + 0.001 * t                       # a straight line over the window
@@ -466,7 +466,7 @@ def test_the_baseline_is_in_the_summary():
 def test_the_biexp_mean_stays_between_its_two_components():
     """A mean relaxation time outside [min(tau), max(tau)] is not one.
 
-    MEASURED on 20250710_P3HT9010_KPF6: above +0.5 V the fit puts a small RISING
+    MEASURED on the 20250710 reference run: above +0.5 V the fit puts a small RISING
     component against a large falling one, and signed amplitude weights partly
     cancel -- <tau> came out 0.117 s from tau1 = 0.553 s and tau2 = 4.11 s, and went
     NEGATIVE once the denominator crossed zero. Weighting by |B| fixes it.
@@ -517,7 +517,7 @@ def test_opposite_sign_prefactors_are_flagged_not_silently_averaged():
     processes)."
 
     So this is not automatically an error, and the fit must not decide. On
-    20250710_P3HT9010_KPF6 the flag fires at exactly +0.6 and +0.7 V -- the two
+    the 20250710 reference run the flag fires at exactly +0.6 and +0.7 V -- the two
     highest doping levels, where a bipolaron would be expected to compete.
     """
     t = np.linspace(0.0, 20.0, 400)
