@@ -398,11 +398,17 @@ class AnalysisTab(QWidget):
             fit = (fits or {}).get(trace)
             if fit is None:
                 cells = ["", ""]
+            elif not fit.ok and fit.mean_tau is None:
+                cells = ["", "no fit"]          # never converged; there is nothing
             elif not fit.ok:
-                # Just "failed" here: the column is narrow and the full reason is on
-                # the plot in the red banner. The tooltip carries it too, so the
-                # numbers are reachable without switching traces.
-                cells = ["", "failed"]
+                # FLAGGED, not hidden. The fit converged, so it has numbers worth
+                # seeing -- Dean: "since you didn't share the results the scientist
+                # doesn't have information to make informed decisions." The "!" and
+                # the tooltip carry the concern; the reason is on the plot in full.
+                ci = fit.mean_tau_ci95
+                cells = [f"{fit.beta:.3g}" if fit.beta is not None else "-",
+                         f"! {fit.mean_tau:.4g}"
+                         + (f" +/- {ci:.2g}" if ci is not None else "")]
             else:
                 ci = fit.mean_tau_ci95
                 mean = fit.mean_tau
@@ -412,7 +418,7 @@ class AnalysisTab(QWidget):
             for col, text in enumerate(cells, start=1):
                 item = QTableWidgetItem(text)
                 if fit is not None and not fit.ok:
-                    item.setToolTip(fit.reason)
+                    item.setToolTip(f"FLAGGED: {fit.reason}")
                 elif fit is not None and fit.ok and col == 2:
                     item.setToolTip(f"raw tau = {fit.tau:.4g} +/- {fit.tau_sd:.2g} s "
                                     f"(1 SD)")
@@ -452,7 +458,10 @@ class AnalysisTab(QWidget):
             # Not truncated: the reason carries the numbers that tell you what
             # to change (a tau of 6e4 in a 30 s window says widen or change
             # model). The canvas wraps it.
-            note = f"FIT FAILED\n{fit.reason}"
+            # Two tiers: a fit that never converged has nothing to show, while one
+            # rejected by a check has a curve and numbers and is merely FLAGGED.
+            headline = "FIT FAILED" if fit.mean_tau is None else "FIT FLAGGED"
+            note = f"{headline}\n{fit.reason}"
             # A rejected fit that CONVERGED still has a curve, and seeing it is
             # how you work out what to change: flat through a real decay means
             # change the model, hugging the spike means move the window.
@@ -559,7 +568,7 @@ class AnalysisTab(QWidget):
         xs = sorted({r[0] for r in rows})
         at = {x: k for k, x in enumerate(xs)}
         probe = self._ladder_probe_text([r[2] for r in rows])
-        series, styles, errors = {}, {}, {}
+        series, styles, errors, flags = {}, {}, {}, {}
 
         def add(name, values, trace, direction, errs=None):
             series[name] = values
@@ -597,17 +606,26 @@ class AnalysisTab(QWidget):
                     continue
                 for direction in ("doping", "dedoping"):
                     vals, errs = [np.nan] * len(xs), [np.nan] * len(xs)
+                    flagged = [False] * len(xs)
                     present = False
                     for x, d, _label, fits in rows:
                         if d != direction or trace not in fits:
                             continue
                         present = True
                         fit = fits[trace]
-                        vals[at[x]] = fit.mean_tau if fit.ok else np.nan
-                        ci = fit.mean_tau_ci95 if fit.ok else None
+                        # A flagged fit is PLOTTED, ringed rather than dropped. A gap
+                        # hides a result the scientist needs in order to judge it.
+                        vals[at[x]] = (fit.mean_tau if fit.mean_tau is not None
+                                       else np.nan)
+                        ci = fit.mean_tau_ci95
                         errs[at[x]] = np.nan if ci is None else ci
+                        if not fit.ok:
+                            flagged[at[x]] = True
                     if present:
-                        add(f"{trace} ({direction})", vals, trace, direction, errs)
+                        name = f"{trace} ({direction})"
+                        add(name, vals, trace, direction, errs)
+                        if any(flagged):
+                            flags[name] = flagged
             ylabel = "mean relaxation time (s)"
             title = f"Kinetics vs potential - {probe} (95% CI)"
 
@@ -615,4 +633,5 @@ class AnalysisTab(QWidget):
             self.ladder_canvas.show_message("Nothing selected under Show.")
             return
         self.ladder_canvas.plot_series(xs, series, "Potential doped to (V)", ylabel,
-                                       title=title, styles=styles, yerr=errors)
+                                       title=title, styles=styles, yerr=errors,
+                                       flags=flags)

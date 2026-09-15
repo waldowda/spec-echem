@@ -280,8 +280,14 @@ class FitResult:
     @property
     def tau(self):
         """The raw τ the user tunes against. For biexp this is the SLOWER component;
-        ⟨τ⟩ is what the ratio view uses."""
-        if not self.ok:
+        ⟨τ⟩ is what the ratio view uses.
+
+        Available whenever the fit CONVERGED, pass or fail. Dean: "even when a fit
+        'fails', the result should still be viewable... since you didn't share the
+        results the scientist doesn't have information to make informed decisions."
+        `ok` says whether it passed the physical checks, not whether it has numbers.
+        """
+        if self.params is None:
             return None
         if self.model == "biexp":
             return float(max(self.params[2], self.params[4]))
@@ -289,11 +295,12 @@ class FitResult:
 
     @property
     def beta(self):
-        return float(self.params[3]) if self.ok and self.model == "stretched" else None
+        return float(self.params[3]) \
+            if self.params is not None and self.model == "stretched" else None
 
     @property
     def tau_sd(self):
-        if not self.ok:
+        if self.params is None or self.sd is None:
             return None
         if self.model == "biexp":
             return float(self.sd[2] if self.params[2] >= self.params[4] else self.sd[4])
@@ -335,7 +342,8 @@ class FitResult:
 
     @property
     def mean_tau(self):
-        return mean_relaxation_time(self.model, self.params) if self.ok else None
+        return (mean_relaxation_time(self.model, self.params)
+                if self.params is not None else None)
 
     @property
     def mean_tau_sd(self):
@@ -347,7 +355,7 @@ class FitResult:
         digamma function) would be a second place for the mean-time definition to live
         and drift out of step with mean_relaxation_time.
         """
-        if not self.ok or self.cov is None:
+        if self.params is None or self.cov is None:
             return None
         params = np.asarray(self.params, dtype=float)
         grad = np.zeros(len(params))
@@ -428,11 +436,12 @@ class FitResult:
         per-parameter +/- is 1 SD straight off the covariance diagonal, while <tau>
         carries the 95% CI that the ladder plots.
         """
-        if not self.ok or self.params is None:
+        if self.params is None:
             return []
         names = MODELS[self.model][1]
         sds = self.sd if self.sd is not None else [float("nan")] * len(names)
-        lines = [f"{self.model}   (+/- = 1 SD)"]
+        lines = [f"{self.model}   (+/- = 1 SD)"
+                 + ("" if self.ok else "   [FLAGGED — see below]")]
         for name, value, sd in zip(names, self.params, sds):
             unit = " s" if name.startswith("tau") else ""
             lines.append(f"{name} = {value:.4g} +/- {sd:.2g}{unit}")
@@ -450,6 +459,11 @@ class FitResult:
                      + (f" +/- {ci:.2g}" if ci is not None else "")
                      + " s (95% CI)")
         lines.append(f"{self.n} pts")
+        if not self.ok:
+            # The concern, alongside the numbers rather than instead of them. A fit
+            # that converged has results worth seeing even when a check rejected it;
+            # hiding them leaves no basis for deciding what to change.
+            lines.append(f"FLAGGED: {self.reason}")
         return lines
 
     def __repr__(self):
