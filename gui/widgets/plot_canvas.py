@@ -269,47 +269,42 @@ class MplCanvas(FigureCanvasQTAgg):
 
         if fit_y is not None:
             fit_y = np.asarray(fit_y, dtype=float)
-            # A fit needing review is still drawn -- dashed and amber so it reads as
-            # a caution rather than an endorsement. Seeing it is how you work out
-            # what to change, and the residual panel is usually where the reason is.
-            # `note` is the PARAMETERS and always goes in the legend; `caution` is the
-            # concern and goes in the banner. They were one argument, so a fit needing
-            # review lost every parameter to a fixed "needs review" label -- exactly
-            # the numbers wanted in order to judge it.
-            self.ax.plot(t, fit_y,
-                         "-" if fit_ok else "--",
-                         lw=1.4, color="#d62728" if fit_ok else "#e07b00",
-                         label=note or ("fit" if fit_ok else "fit — needs review"),
-                         zorder=3)
+            # A fit under review is still drawn, dashed and amber so it reads as a
+            # caution rather than an endorsement.
+            colour = "#d62728" if fit_ok else "#e07b00"
+            # The concern goes INTO the legend entry, in amber, with an amber frame
+            # round the box. Dean: "I would remove the box and put the NEEDS REVIEW
+            # section in the legend in amber... so you would not need that big in
+            # your face box." The banner was covering the parameters it sat next to.
+            label = note or ("fit" if fit_ok else "fit — needs review")
+            if caution:
+                label = f"{label}\n{caution}"
+            self.ax.plot(t, fit_y, "-" if fit_ok else "--", lw=1.4, color=colour,
+                         label=label, zorder=3)
             resid = y - fit_y
             self.resid_ax.plot(t, resid, "o", ms=2.0, color="#1f77b4", alpha=0.6)
-            self.resid_ax.axhline(0.0, ls="-", lw=0.8,
-                                  color="#d62728" if fit_ok else "#e07b00", alpha=0.8)
-            self.ax.legend(fontsize=7, loc="best")
+            self.resid_ax.axhline(0.0, ls="-", lw=0.8, color=colour, alpha=0.8)
+
+            legend = self.ax.legend(fontsize=7, loc="best")
+            if not fit_ok:
+                legend.get_frame().set_edgecolor("#e07b00")
+                legend.get_frame().set_linewidth(1.4)
+                for text in legend.get_texts():
+                    text.set_color("#7a4a00")
         else:
             self.resid_ax.text(0.5, 0.5, "no fit", ha="center", va="center",
                                transform=self.resid_ax.transAxes,
                                color="#888", fontsize=8)
             self.resid_ax.set_yticks([])   # no residuals; 0-1 ticks describe nothing
-
-        if caution:
-            # The one thing on this plot the user MUST notice, so a boxed warning
-            # across the top rather than grey text in a corner -- and not pinned to
-            # the upper right, where it used to run through the legend.
-            self.ax.annotate(
-                "\n".join(textwrap.fill(line, 38)
-                           for line in caution.splitlines() or [""]),
-                xy=(0.5, 0.97), xycoords="axes fraction",
-                ha="center", va="top", fontsize=9, color="#7a4a00",
-                fontweight="semibold", zorder=6, clip_on=True,
-                # Amber, not red: this is a caution to look closer, not an error.
-                bbox=dict(boxstyle="round,pad=0.45", facecolor="#fff6e5",
-                          edgecolor="#e07b00", linewidth=1.1, alpha=0.97))
-        elif fit_y is None and note:
-            # "not fitted yet" is not a concern, so it stays neutral.
-            self.ax.annotate(note, xy=(0.5, 0.5), xycoords="axes fraction",
-                             ha="center", va="center", fontsize=9, color="#888",
-                             clip_on=True)
+            # No curve, so nothing to hang a legend entry on: a plain centred note.
+            message = caution or note or ""
+            if message:
+                self.ax.annotate(
+                    "\n".join(textwrap.fill(line, 44)
+                               for line in message.splitlines() or [""]),
+                    xy=(0.5, 0.5), xycoords="axes fraction",
+                    ha="center", va="center", fontsize=9, clip_on=True,
+                    color="#7a4a00" if caution else "#888")
 
         # Grey out what the fit did not see, so a window that excludes the decay
         # itself is visible at a glance rather than inferred from a bad tau.

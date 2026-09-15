@@ -905,7 +905,6 @@ def test_a_fit_that_did_not_converge_says_so_and_shows_nothing(analysis_window):
     notes = [t for t in tab.fit_canvas.ax.texts if "DID NOT CONVERGE" in t.get_text()]
     assert notes, "must say why there is no curve"
     assert "singular" in notes[0].get_text()
-    assert notes[0].get_bbox_patch() is not None, "expected a boxed notice"
     # The legend is what the notice used to collide with; with no curve it said
     # only "data", so it is not drawn at all.
     assert tab.fit_canvas.ax.get_legend() is None
@@ -924,11 +923,14 @@ def test_a_fit_needing_review_shows_a_prominent_boxed_reason(analysis_window):
     tab._draw_fit()
 
     assert fit.needs_review and not fit.did_not_converge
-    notes = [t for t in tab.fit_canvas.ax.texts if "NEEDS REVIEW" in t.get_text()]
-    assert notes, "the concern must be announced on the plot"
-    assert "60.77" in notes[0].get_text(), "the numbers that say what to change are kept"
-    assert notes[0].get_bbox_patch() is not None, "expected a boxed notice"
+    labels = [l.get_label() for l in tab.fit_canvas.ax.get_lines()]
+    under_review = [l for l in labels if "NEEDS REVIEW" in l]
+    assert under_review, f"the concern must appear in the legend: {labels}"
+    assert "60.77" in under_review[0], "the numbers that say what to change are kept"
     assert len(tab.fit_canvas.ax.get_lines()) == 2, "data AND the curve under review"
+    # amber frame, so the legend itself carries the caution without a covering box
+    frame = tab.fit_canvas.ax.get_legend().get_frame()
+    assert frame.get_edgecolor()[:3] != (0.0, 0.0, 0.0)
 
 
 def test_the_segment_selector_names_the_potential(analysis_window):
@@ -1302,9 +1304,10 @@ def test_a_fit_needing_review_keeps_its_numbers_everywhere(analysis_window):
     assert "?" in cell and f"{fit.mean_tau:.4g}" in cell, cell
     assert "NEEDS REVIEW" in tab.table.item(0, 2).toolTip()
 
-    # the curve is drawn, and the banner asks for review rather than declaring failure
+    # the curve is drawn, and the concern rides in the legend beside the numbers
     assert len(tab.fit_canvas.ax.get_lines()) == 2
-    assert any("NEEDS REVIEW" in t.get_text() for t in tab.fit_canvas.ax.texts)
+    assert any("NEEDS REVIEW" in l.get_label()
+               for l in tab.fit_canvas.ax.get_lines())
 
     # and the ladder plots the point instead of leaving a gap
     ys = [v for line in tab.ladder_canvas.ax.get_lines()
@@ -1378,8 +1381,8 @@ def test_a_fit_needing_review_still_shows_every_parameter(analysis_window):
     assert fit_label, f"the legend lost the parameters: {legend}"
     for wanted in ("A =", "B =", "tau =", "mean tau", "resid:"):
         assert wanted in fit_label[0], f"{wanted} missing from:\n{fit_label[0]}"
-    # and the concern is in the banner, not instead of the numbers
-    assert any("NEEDS REVIEW" in t.get_text() for t in tab.fit_canvas.ax.texts)
+    # and the concern rides with them, not instead of them
+    assert "NEEDS REVIEW" in fit_label[0]
 
 
 def test_the_model_equation_sits_beside_the_model_choice(analysis_window):
