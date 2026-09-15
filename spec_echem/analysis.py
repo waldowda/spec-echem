@@ -47,6 +47,31 @@ MODELS = {
     "stretched": (model_stretched, ("A", "B", "tau", "beta")),
 }
 
+# A time constant is positive by definition, and a stretched exponential requires
+# 0 < beta <= 1 -- above 1 it is a COMPRESSED exponential, a different physical
+# claim that this model is not offering. Bounding them keeps the optimizer out of
+# regions that were only ever rejected after the fact.
+#
+# BETA_MIN is not 0: <tau> = (tau/beta)*gamma(1/beta), and gamma overflows past
+# 1/beta ~ 170. 0.05 is far below any physically meaningful stretch (polymer work
+# lives around 0.3-0.9) while keeping the mean relaxation time computable.
+TAU_MIN = 1e-9
+BETA_MIN = 0.05
+BETA_MAX = 1.0
+
+_INF = np.inf
+MODEL_BOUNDS = {
+    #             A      B       tau
+    "exp": ([-_INF, -_INF, TAU_MIN],
+            [_INF, _INF, _INF]),
+    #             A      B1      tau1     B2      tau2
+    "biexp": ([-_INF, -_INF, TAU_MIN, -_INF, TAU_MIN],
+              [_INF, _INF, _INF, _INF, _INF]),
+    #             A      B       tau      beta
+    "stretched": ([-_INF, -_INF, TAU_MIN, BETA_MIN],
+                  [_INF, _INF, _INF, BETA_MAX]),
+}
+
 
 def mean_relaxation_time(model, params):
     """⟨τ⟩ — the physically comparable timescale, which is NOT the raw τ.
@@ -258,6 +283,16 @@ class FitResult:
         return f"<FitResult {self.model} tau={self.tau:.4g} <tau>={self.mean_tau:.4g}>"
 
 
+def _clip_to_bounds(p0, lower, upper):
+    """curve_fit raises if the starting point sits outside the bounds. Nudged just
+    inside rather than onto the edge: a parameter pinned exactly at its bound has no
+    room to move and the fit stalls there."""
+    p0 = np.asarray(p0, dtype=float)
+    lo, hi = np.asarray(lower, float), np.asarray(upper, float)
+    inset = np.where(np.isfinite(lo) & np.isfinite(hi), (hi - lo) * 1e-6, 0.0)
+    return np.clip(p0, lo + inset, hi - inset)
+
+
 def _initial_guess(model, t, y):
     """Starting parameters. curve_fit's default of all-ones does not converge on data
     whose timescale is seconds and whose amplitude is microamps."""
@@ -309,10 +344,11 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
         #
         # Scoped to this call rather than set module-wide, so a genuine numerical
         # fault anywhere else still surfaces.
+        lower, upper = MODEL_BOUNDS[model]
+        p0 = _clip_to_bounds(_initial_guess(model, t - t0, y), lower, upper)
         with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
-            popt, pcov = curve_fit(func, t - t0, y,
-                                   p0=_initial_guess(model, t - t0, y),
-                                   maxfev=10000)
+            popt, pcov = curve_fit(func, t - t0, y, p0=p0,
+                                   bounds=(lower, upper), maxfev=10000)
     except Exception as exc:  # noqa: BLE001 — a failed fit is a normal outcome
         return FitResult(model, reason=str(exc), n=len(t))
 

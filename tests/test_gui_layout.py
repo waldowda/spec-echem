@@ -887,3 +887,23 @@ def test_a_cv_gets_no_single_potential(window):
     from spec_echem.experiment import Segment
     assert window.segment_potential(
         Segment("CV", DATA_TYPE_CV, 0, 10, 0.1, True)) is None
+
+
+def test_a_failed_fit_shows_a_prominent_boxed_reason(analysis_window):
+    """The grey corner text was unreadable and ran straight through the legend.
+    A failure is the one thing on this plot the user must not miss."""
+    from spec_echem.analysis import FitResult
+    tab = analysis_window.analysis_tab
+    tab._fits["Doping 0"] = {
+        "absorbance": FitResult("biexp",
+                                reason="uncertainty too large (tau = 60.77 +/- 83.33)")}
+    tab.table.selectRow(0)
+    tab._draw_fit()
+
+    notes = [t for t in tab.fit_canvas.ax.texts if "FIT FAILED" in t.get_text()]
+    assert notes, "the failure must be announced on the plot"
+    note = notes[0]
+    assert "60.77" in note.get_text(), "the numbers that say what to change are kept"
+    assert note.get_bbox_patch() is not None, "expected a boxed warning"
+    # The legend is what it used to collide with, and with no fit it said only "data".
+    assert tab.fit_canvas.ax.get_legend() is None
