@@ -369,6 +369,47 @@ class AvantesSpectrometer:
             return 0.0, 0
         return float(measconfig.m_IntegrationTime), int(measconfig.m_NrAverages)
 
+    # Names the detector's minimum may appear under. The SDK's DeviceConfigType
+    # carries m_Detector.m_MinIntegrationTime; this project's avaspec wrapper returns
+    # the struct with FLATTENED names (the working code reads
+    # devcon.m_Detector_m_NrPixels), so both spellings are tried.
+    _MIN_INTEGRATION_FIELDS = (
+        ("m_Detector_m_MinIntegrationTime",),
+        ("m_Detector", "m_MinIntegrationTime"),
+    )
+
+    def minimum_integration_time(self):
+        """Smallest integration time this detector accepts, in ms, or None.
+
+        Read from the device rather than assumed: detectors differ by a factor of
+        ~50, and a default or a linearity ramp below the minimum asks for exposures
+        the hardware cannot give. Returns None if the wrapper does not expose it, in
+        which case the caller keeps its own default — examples/probe_min_integration.py
+        finds it empirically.
+        """
+        if self.dev_handle is None:
+            return None
+        try:
+            devcon = AVS_GetParameter(self.dev_handle, 63484)
+        except Exception:  # noqa: BLE001 — a probe must not break Connect
+            return None
+        for path in self._MIN_INTEGRATION_FIELDS:
+            value = devcon
+            for name in path:
+                value = getattr(value, name, None)
+                if value is None:
+                    break
+            if value is not None:
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if value > 0:
+                    logger.info("Detector minimum integration time: %g ms", value)
+                    return value
+        logger.info("Detector minimum integration time not exposed by this SDK")
+        return None
+
     def set_integration_time(self, duration, measconfig=None):
         """
         Set integration time.

@@ -34,6 +34,9 @@ class FakeSpectrometer:
         self.measconfig = None
         self._wl = np.linspace(WL_MIN, WL_MAX, N_POINTS)
         self._integration_time = 0.022
+        # Detectors differ by ~50x in how short an exposure they accept; tests set
+        # this to check the GUI follows the hardware rather than a constant.
+        self.min_integration_time = 0.022
         self._scan_averages = 200
         self._trigger_mode = 0
         self._call_count = 0
@@ -126,6 +129,9 @@ class FakeSpectrometer:
     def integration_and_averages(self, measconfig=None):
         """The two factors behind per_spectrum_seconds — same contract as the real class."""
         return float(self._integration_time), int(self._scan_averages)
+
+    def minimum_integration_time(self):
+        return self.min_integration_time
 
     def set_integration_time(self, duration, measconfig=None):
         self._integration_time = duration
