@@ -71,11 +71,13 @@ DEFAULT_SETTINGS = {
     # whole wetted film whether or not it is illuminated). It varies with immersion
     # depth, so it belongs per-run rather than as a constant.
     #
-    # Defaults to 0 = NOT SET rather than a guess: an area 1.5x too small makes the
-    # DOS 1.5x too large with nothing looking wrong. With 0 the plot falls back to
-    # dQ/dV and says so.
+    # 1.6 = 2 cm immersed x 0.8 cm wide (Dean): the ITO/FTO slide has to clear a
+    # 1 cm cell, so it is cut narrower than the cuvette. CHECK IT PER RUN -- the area
+    # scales the DOS directly, and immersion depth is the part that moves. Set it to
+    # 0 if unknown and the plot falls back to dQ/dV rather than reporting a magnitude
+    # nothing supports.
     "film_thickness_nm": 150.0,
-    "film_area_cm2": 0.0,
+    "film_area_cm2": 1.6,
 
     # --- Trigger ---
     "trigger": True,
