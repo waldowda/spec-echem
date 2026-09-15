@@ -25,6 +25,22 @@ from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
 
+def _ratio_ci95(ratio, numerator, denominator):
+    """95% CI on a ratio of two INDEPENDENT fits: (s_r/r)^2 = (s_a/a)^2 + (s_c/c)^2.
+
+    Independent because absorbance and current are separate measurements of the same
+    step, fitted separately -- so their errors do not share a covariance the way two
+    parameters of one fit do.
+    """
+    if ratio is None or numerator is None or denominator is None:
+        return np.nan
+    a, c = numerator.mean_tau, denominator.mean_tau
+    ea, ec = numerator.mean_tau_ci95, denominator.mean_tau_ci95
+    if not a or not c or ea is None or ec is None:
+        return np.nan
+    return float(abs(ratio) * np.hypot(ea / a, ec / c))
+
+
 # The three traces fitted per segment, in table order.
 TRACES = ("absorbance", "current", "charge")
 
@@ -436,7 +452,10 @@ class AnalysisTab(QWidget):
             # to change (a tau of 6e4 in a 30 s window says widen or change
             # model). The canvas wraps it.
             note = f"FIT FAILED\n{fit.reason}"
-            fit_y = None
+            # A rejected fit that CONVERGED still has a curve, and seeing it is
+            # how you work out what to change: flat through a real decay means
+            # change the model, hugging the spike means move the window.
+            fit_y = fit.curve(t)
         else:
             beta = f", beta = {fit.beta:.3g}" if fit.beta is not None else ""
             note = (f"{fit.model}  tau = {fit.tau:.4g} +/- {fit.tau_sd:.2g} s{beta}"
@@ -450,7 +469,8 @@ class AnalysisTab(QWidget):
             title += f" @ {self._wavelength:.1f} nm (auto)"
 
         self.fit_canvas.plot_fit(t, y, fit_y, "Time (s)", TRACE_UNITS[trace],
-                                 title=title, window=self._window(traces), note=note)
+                                 title=title, window=self._window(traces), note=note,
+                                 fit_ok=bool(fit is not None and fit.ok))
 
     def _ladder_probe_text(self, labels):
         """'abs @ 807.9 nm', or a warning when the points do not share a wavelength.
@@ -514,10 +534,12 @@ class AnalysisTab(QWidget):
         xs = sorted({r[0] for r in rows})
         at = {x: k for k, x in enumerate(xs)}
         probe = self._ladder_probe_text([r[2] for r in rows])
-        series, styles = {}, {}
+        series, styles, errors = {}, {}, {}
 
-        def add(name, values, trace, direction):
+        def add(name, values, trace, direction, errs=None):
             series[name] = values
+            if errs is not None:
+                errors[name] = errs
             styles[name] = {
                 "color": TRACE_COLORS.get(trace, None),
                 "linestyle": "-" if direction == "doping" else "--",
@@ -526,17 +548,19 @@ class AnalysisTab(QWidget):
 
         if self.ratio_check.isChecked():
             for direction in ("doping", "dedoping"):
-                vals, present = [np.nan] * len(xs), False
+                vals, errs, present = [np.nan] * len(xs), [np.nan] * len(xs), False
                 for x, d, _label, fits in rows:
                     if d != direction:
                         continue
                     present = True
                     # None -> NaN so a failed fit leaves a visible GAP; dropping the
                     # point would hide which potential failed.
-                    r = tau_ratio(fits.get("absorbance"), fits.get("current"))
+                    a, c = fits.get("absorbance"), fits.get("current")
+                    r = tau_ratio(a, c)
                     vals[at[x]] = np.nan if r is None else r
+                    errs[at[x]] = _ratio_ci95(r, a, c)
                 if present:
-                    add(f"ratio ({direction})", vals, "absorbance", direction)
+                    add(f"ratio ({direction})", vals, "absorbance", direction, errs)
             ylabel = "mean tau(abs) / mean tau(current)"
             title = f"Kinetic coupling (dimensionless) - {probe}"
         else:
@@ -544,15 +568,18 @@ class AnalysisTab(QWidget):
                 if not self.trace_checks[trace].isChecked():
                     continue
                 for direction in ("doping", "dedoping"):
-                    vals, present = [np.nan] * len(xs), False
+                    vals, errs = [np.nan] * len(xs), [np.nan] * len(xs)
+                    present = False
                     for x, d, _label, fits in rows:
                         if d != direction or trace not in fits:
                             continue
                         present = True
                         fit = fits[trace]
                         vals[at[x]] = fit.mean_tau if fit.ok else np.nan
+                        ci = fit.mean_tau_ci95 if fit.ok else None
+                        errs[at[x]] = np.nan if ci is None else ci
                     if present:
-                        add(f"{trace} ({direction})", vals, trace, direction)
+                        add(f"{trace} ({direction})", vals, trace, direction, errs)
             ylabel = "mean relaxation time (s)"
             title = f"Kinetics vs potential - {probe}"
 
@@ -560,4 +587,4 @@ class AnalysisTab(QWidget):
             self.ladder_canvas.show_message("Nothing selected under Show.")
             return
         self.ladder_canvas.plot_series(xs, series, "Potential doped to (V)", ylabel,
-                                       title=title, styles=styles)
+                                       title=title, styles=styles, yerr=errors)
