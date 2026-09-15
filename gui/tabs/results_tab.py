@@ -245,24 +245,29 @@ class ResultsTab(QWidget):
             title=f"{self._segment_title(label)} — kinetics")
 
     def _plot_modulation(self):
-        """Absorbance at the END of each step, against potential, across the whole
-        ladder — one point per segment, so it BUILDS during a run.
+        """Absorbance at the END of each DOPING step, against potential — one point
+        per rung, so it BUILDS during a run.
 
         This is the plot that earns the tab: on 2026-09-11 a film collapsed after a
         +0.8 V excursion and nothing said so until the files were analysed later, by
         which time the next run had been spent on a dead sample.
+
+        Doping only. Dean: "they are not part of the main ladder... I am not sure even
+        including them is useful." Every dedoping segment is held at the same potential,
+        so they piled onto one x inside the doping curve and dragged the line back
+        across it. The full both-directions comparison lives on tab 5, which plots
+        dedoping against the potential it was doped TO; this one stays the glance.
         """
         xs, ys, chosen = [], [], None
         for lbl, df in self.win.results.items():
             seg = self.win.segments_by_label.get(lbl)
-            if seg is None or seg.data_type == DATA_TYPE_CV or df is None or df.empty:
+            if seg is None or seg.data_type != DATA_TYPE_DOPING or df is None or df.empty:
                 continue
             potential = self.win.segment_potential(seg)
             if potential is None:
                 continue
             if chosen is None:
-                # lbl, not label: this loop has its own variable. One wavelength
-                # for the WHOLE ladder, taken from the first usable segment --
+                # One wavelength for the WHOLE ladder, from the first usable segment:
                 # comparing modulation across potentials means a fixed probe.
                 chosen = self._chosen_wavelength(df, lbl)
             if chosen is None:
@@ -273,14 +278,14 @@ class ResultsTab(QWidget):
             ys.append(float(df.values[row, -1]))          # end of the step
         if not xs:
             self.canvas.show_message(
-                "No completed doping/dedoping segments yet.\n"
-                "The modulation curve builds one point per step.")
+                "No completed doping segments yet.\n"
+                "The modulation curve builds one point per doping step.")
             return
         order = np.argsort(xs)
         self.canvas.plot_series(
             np.asarray(xs)[order], {f"{chosen:.0f} nm": np.asarray(ys)[order]},
             "Potential (V)", "Absorbance at end of step",
-            title="Modulation across the ladder")
+            title="Modulation across the doping ladder")
 
     def _plot_echem(self, label):
         """Show the segment's electrochemistry (I-vs-E for CV, I-vs-t for chrono).
