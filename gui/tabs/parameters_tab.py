@@ -116,11 +116,13 @@ class ParametersTab(QWidget):
                      self._hint(self._dspin("film_thickness_nm", 0.0, 100000.0,
                                             decimals=1, step=10.0, suffix=" nm"),
                                 "typical spin-coated OMIEC ≈ 150 nm"))
-        sform.addRow("Electroactive area:",
+        sform.addRow("Immersed film area:",
                      self._hint(self._dspin("film_area_cm2", 0.0, 1000.0,
                                             decimals=4, step=0.01, suffix=" cm²"),
-                                "WETTED area the current flows through, not the "
-                                "optical spot. 0 = unknown → DOS shows dQ/dV"))
+                                "coated area BELOW the electrolyte line, one side "
+                                "(e.g. 1 cm × 2 cm immersed = 2). Not the whole "
+                                "coated strip, not the optical spot. 0 = unknown "
+                                "→ DOS shows dQ/dV"))
 
         # Notes — full width, taller
         sform.addRow(QLabel("Notes:"))
