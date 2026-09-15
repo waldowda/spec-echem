@@ -363,3 +363,24 @@ def test_every_time_constant_is_positive():
                 assert fit.tau > 0
                 if model == "biexp":
                     assert fit.params[2] > 0 and fit.params[4] > 0
+
+
+def test_a_tau_far_longer_than_the_window_is_rejected():
+    """The SD check cannot catch this: a nearly straight line is a very WELL-determined
+    exponential with an enormous tau and a tiny uncertainty. MEASURED on
+    20250710_P3HT9010_KPF6 -- the charge integral returned 5.5e11 s from a 60 s
+    segment and flattened every real point on the ladder to zero."""
+    t = np.linspace(0.0, 60.0, 600)
+    y = 1.0 + 0.001 * t                       # a straight line over the window
+    fit = fit_transient(t, y, "exp")
+    assert not fit.ok
+    assert "window" in fit.reason, fit.reason
+
+
+def test_a_tau_comparable_to_the_window_is_kept():
+    """The bound must not reject a slow but genuinely observed decay."""
+    t = np.linspace(0.0, 60.0, 600)
+    y = 1.0 + 2.0 * np.exp(-t / 25.0)         # visibly curved, tau < span
+    fit = fit_transient(t, y, "exp")
+    assert fit.ok, fit.reason
+    assert fit.tau == pytest.approx(25.0, rel=0.02)

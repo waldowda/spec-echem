@@ -308,7 +308,8 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax.set_yticks([])
         self.draw_idle()
 
-    def show_absorbance(self, absorb_df, title=None, wl_min=None, wl_max=None):
+    def show_absorbance(self, absorb_df, title=None, wl_min=None, wl_max=None,
+                        mark_wl=None):
         """
         Absorbance vs wavelength for every time point in a segment. Traces are
         colored by elapsed time (viridis), with a colorbar so the time evolution
@@ -342,6 +343,15 @@ class MplCanvas(FigureCanvasQTAgg):
                 lo, hi = float(finite.min()), float(finite.max())
                 pad = (hi - lo) * 0.05 or 0.01   # small margin; guard flat data
                 self.ax.set_ylim(lo - pad, hi + pad)
+        if mark_wl is not None:
+            # Where the kinetics/modulation views are sampling. Without it you have to
+            # estimate a wavelength off the x-axis and type it in blind.
+            self.ax.axvline(mark_wl, color="#d62728", lw=1.2, alpha=0.85, zorder=5)
+            self.ax.annotate(f"{mark_wl:.1f} nm", xy=(mark_wl, 1.0),
+                             xycoords=("data", "axes fraction"),
+                             xytext=(3, -3), textcoords="offset points",
+                             ha="left", va="top", fontsize=8, color="#d62728",
+                             clip_on=True)
         self._decorate(title)
         sm = ScalarMappable(norm=norm, cmap=cmap)
         sm.set_array([])

@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 # so without a check the table would show a confident-looking number.
 FIT_SD_REJECT_FRACTION = 0.5
 
+# A tau far longer than the data it was fitted to is an extrapolation, not a
+# measurement, and the SD check cannot catch it: a nearly straight line is a very
+# WELL-DETERMINED exponential with an enormous tau and a tiny uncertainty. MEASURED
+# on 20250710_P3HT9010_KPF6, where the charge integral returned tau = 5.5e11 s from a
+# 60 s segment -- 17000 years -- and flattened every real point on the ladder to zero.
+# 10x the window is generous: a decay that slow is 5% complete by the end.
+FIT_MAX_TAU_SPANS = 10.0
+
 
 # --- the models -------------------------------------------------------------
 # Same three Raj's banded_fits offers, so a fit done here and one done in Jupyter
@@ -200,6 +208,22 @@ def _significant(a, delta):
     return snr >= WAVELENGTH_SNR_MIN
 
 
+def probe_wavelength(absorbance, wavelengths, doping=True):
+    """The POLARON wavelength -- which is NOT always the band that grows.
+
+    On DOPING the polaron grows while pi-pi* bleaches, so the polaron is the growth.
+    On DEDOPING and pre-dedoping it is the other way round: the polaron DECAYS while
+    pi-pi* recovers, and taking the growth there returns pi labelled as the polaron.
+
+    ONE definition, because both the Results tab and the Analysis tab need it and the
+    first copy of this logic only went into one of them.
+    """
+    grows, bleaches = auto_wavelengths(absorbance, wavelengths)
+    if grows is None:
+        return None
+    return grows if doping else bleaches
+
+
 # --- fitting -----------------------------------------------------------------
 
 def default_fit_start(time, current):
@@ -362,6 +386,13 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
     tau, tau_sd = result.tau, result.tau_sd
     if tau is None or tau <= 0:
         return FitResult(model, reason=f"nonphysical tau ({tau})", n=len(t))
+    span = float(t[-1] - t[0])
+    if span > 0 and tau > FIT_MAX_TAU_SPANS * span:
+        return FitResult(
+            model,
+            reason=f"tau ({tau:.3g} s) exceeds {FIT_MAX_TAU_SPANS:g}x the {span:.3g} s "
+                   f"window - not measurable from it",
+            n=len(t))
     if tau_sd > FIT_SD_REJECT_FRACTION * abs(tau):
         return FitResult(
             model, reason=f"uncertainty too large (tau = {tau:.4g} +/- {tau_sd:.4g})",

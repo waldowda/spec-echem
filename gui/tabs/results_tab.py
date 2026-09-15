@@ -16,10 +16,10 @@ from qtpy.QtWidgets import (
     QComboBox, QDoubleSpinBox, QPushButton, QFileDialog, QSplitter, QMessageBox,
 )
 
-from spec_echem.analysis import auto_wavelengths
+from spec_echem.analysis import probe_wavelength
 from spec_echem.data import (
     echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV,
-    segment_potential_text, segment_potential,
+    DATA_TYPE_DOPING, segment_potential_text, segment_potential,
 )
 from spec_echem.experiment import Segment
 from spec_echem.gamry_data import read_cv, read_chrono
@@ -116,6 +116,11 @@ class ResultsTab(QWidget):
         abs_box = QGroupBox("Absorbance (optical)")
         abs_layout = QVBoxLayout(abs_box)
         self.canvas = MplCanvas(ylabel="Absorbance")
+        self.canvas.mpl_connect("button_press_event", self._on_spectra_click)
+        self.canvas.setToolTip(
+            "Click the spectrum to set the analysis wavelength.\n"
+            "The red line marks the wavelength the Kinetics and\n"
+            "Modulation views are sampling.")
         abs_layout.addWidget(self.canvas)
         plots.addWidget(abs_box)
 
@@ -191,27 +196,43 @@ class ResultsTab(QWidget):
             self.canvas.show_absorbance(
                 absorb_df, title=self._segment_title(label),
                 wl_min=self.wl_min.value(), wl_max=self.wl_max.value(),
+                mark_wl=self._chosen_wavelength(absorb_df, label),
             )
         self._plot_echem(label)
 
-    def _chosen_wavelength(self, absorb_df):
-        """The wavelength to follow: the user's, or the band that GROWS most.
+    def _on_spectra_click(self, event):
+        """Click the spectrum to set the analysis wavelength.
 
-        Automatic uses the SIGNED change, so it returns the polaron rather than the
-        pi-pi* bleach — |dA| would return whichever is larger, often the bleach, while
-        the user believed they were watching the polaron (see analysis.auto_wavelengths).
+        Only in the spectra view: on the kinetics and modulation views the x-axis is
+        time and potential, so a click there means nothing about wavelength.
+        """
+        if self.view_combo.currentData() != "spectra":
+            return
+        if event.inaxes is not self.canvas.ax or event.xdata is None:
+            return
+        # setValue re-runs on_segment_changed, which redraws with the marker moved.
+        self.analysis_wl.setValue(round(float(event.xdata), 1))
+
+    def _chosen_wavelength(self, absorb_df, label):
+        """The wavelength to follow: the user's, or the polaron band.
+
+        Automatic goes through analysis.probe_wavelength, which knows that the polaron
+        GROWS on doping but DECAYS on dedoping. This used to take the growing band
+        unconditionally, so every dedoping segment followed pi-pi* while the control
+        said "auto (polaron)".
         """
         wl = np.asarray(absorb_df.index.values, dtype=float)
         requested = self.analysis_wl.value()
         if requested > 0:
             return float(wl[int(np.abs(wl - requested).argmin())])
-        polaron, _pi = auto_wavelengths(absorb_df.values, wl)
-        return polaron
+        seg = self.win.segments_by_label.get(label)
+        doping = seg is None or seg.data_type == DATA_TYPE_DOPING
+        return probe_wavelength(absorb_df.values, wl, doping=doping)
 
     def _plot_kinetics(self, label, absorb_df):
         """Absorbance vs time at one wavelength, for this segment — did the step reach
         steady state, and how fast?"""
-        chosen = self._chosen_wavelength(absorb_df)
+        chosen = self._chosen_wavelength(absorb_df, label)
         if chosen is None:
             self.canvas.show_message("Not enough time points for a kinetics trace.")
             return
@@ -240,7 +261,10 @@ class ResultsTab(QWidget):
             if potential is None:
                 continue
             if chosen is None:
-                chosen = self._chosen_wavelength(df)      # one wavelength for the ladder
+                # lbl, not label: this loop has its own variable. One wavelength
+                # for the WHOLE ladder, taken from the first usable segment --
+                # comparing modulation across potentials means a fixed probe.
+                chosen = self._chosen_wavelength(df, lbl)
             if chosen is None:
                 continue
             wl = np.asarray(df.index.values, dtype=float)

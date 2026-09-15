@@ -18,7 +18,7 @@ from qtpy.QtWidgets import (
 from qtpy.QtCore import Qt
 
 from spec_echem.analysis import (
-    MODELS, auto_wavelengths, default_fit_start, fit_transient, tau_ratio,
+    MODELS, default_fit_start, fit_transient, probe_wavelength, tau_ratio,
 )
 from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
                              DATA_TYPE_DOPING)
@@ -246,20 +246,11 @@ class AnalysisTab(QWidget):
         return np.asarray(df.columns.values, dtype=float), df.values[row, :]
 
     def _probe_wavelength(self, label, absorbance, wl):
-        """The POLARON wavelength, which is not always the band that grows.
-
-        auto_wavelengths returns (grows, bleaches). On DOPING the polaron grows and
-        pi-pi* bleaches, so the polaron is the growth. On DEDOPING and pre-dedoping
-        it is the other way round -- the polaron decays while pi-pi* recovers -- and
-        taking the growth there hands back pi labelled as the polaron. MEASURED on
-        20260709_P3HT_01, where every dedoping segment auto-selected ~555 nm.
-        """
-        grows, bleaches = auto_wavelengths(absorbance, wl)
-        if grows is None:
-            return None
+        """The polaron wavelength for this segment. The doping/dedoping distinction
+        lives in analysis.probe_wavelength so both tabs cannot disagree."""
         seg = self.win.segments_by_label.get(label)
         doping = seg is None or seg.data_type == DATA_TYPE_DOPING
-        return grows if doping else bleaches
+        return probe_wavelength(absorbance, wl, doping=doping)
 
     def _echem_traces(self, label):
         """(time, current, charge) for a segment, or (None, None, None)."""
