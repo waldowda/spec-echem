@@ -542,3 +542,39 @@ def test_a_single_component_fit_can_never_have_mixed_signs():
     for model in ("exp", "stretched"):
         fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0), model)
         assert not fit.mixed_amplitude_signs
+
+
+# --- is it the right model? ---------------------------------------------------
+# The parameter uncertainties cannot answer that: they describe the fit WITHIN the
+# model. Dean: "leave option 1 documented as within the assumed model. Actually the
+# noise / systematic split legend could be helpful."
+
+def test_a_correct_model_leaves_only_noise():
+    """Fit the right model to clean data plus white noise and the residual should be
+    essentially all scatter, with no smooth curve left over."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 600)
+    y = 1.0 + 2.0 * np.exp(-t / 3.0) + rng.normal(0, 0.002, 600)
+    noise, systematic, _frac = fit_transient(t, y, "exp").residual_split(t, y)
+    assert noise == pytest.approx(0.002, rel=0.2), "should recover the noise level"
+    assert systematic < noise, f"systematic {systematic:.2g} vs noise {noise:.2g}"
+
+
+def test_a_wrong_model_leaves_a_systematic_residual():
+    """A single exponential over a genuinely two-component decay cannot follow it,
+    and the leftover is a smooth curve, not scatter."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 600)
+    y = (1.0 + 1.5 * np.exp(-t / 0.4) + 1.0 * np.exp(-t / 8.0)
+         + rng.normal(0, 0.002, 600))
+    noise, systematic, _frac = fit_transient(t, y, "exp").residual_split(t, y)
+    assert systematic > 3 * noise, f"systematic {systematic:.2g} vs noise {noise:.2g}"
+
+    # and the right model brings it back down
+    n2, s2, _ = fit_transient(t, y, "biexp").residual_split(t, y)
+    assert s2 < systematic / 3, "biexp must account for what exp could not"
+
+
+def test_the_split_needs_a_curve():
+    t = np.linspace(0.0, 1.0, 3)
+    assert fit_transient(t, np.zeros(3), "biexp").residual_split(t, np.zeros(3)) is None
