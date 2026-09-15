@@ -225,7 +225,7 @@ class MplCanvas(FigureCanvasQTAgg):
                 m = _np.asarray(marked, dtype=bool)
                 yy = _np.asarray(y, dtype=float)
                 self.ax.plot(_np.asarray(x, dtype=float)[m], yy[m], "o", ms=11,
-                             mfc="none", mec="#b00020", mew=1.4, zorder=6,
+                             mfc="none", mec="#e07b00", mew=1.6, zorder=6,
                              linestyle="none", label="_nolegend_")
         if len(series) > 1:
             self.ax.legend(fontsize="small")
@@ -265,13 +265,13 @@ class MplCanvas(FigureCanvasQTAgg):
 
         if fit_y is not None:
             fit_y = np.asarray(fit_y, dtype=float)
-            # A FLAGGED fit is still drawn -- dashed and amber so it cannot be taken
-            # for an endorsed one. Seeing it is how you work out what to change, and
-            # the residual panel below is usually where the reason shows.
+            # A fit needing review is still drawn -- dashed and amber so it reads as
+            # a caution rather than an endorsement. Seeing it is how you work out
+            # what to change, and the residual panel is usually where the reason is.
             self.ax.plot(t, fit_y,
                          "-" if fit_ok else "--",
                          lw=1.4, color="#d62728" if fit_ok else "#e07b00",
-                         label=(note or "fit") if fit_ok else "flagged fit",
+                         label=(note or "fit") if fit_ok else "fit — needs review",
                          zorder=3)
             resid = y - fit_y
             self.resid_ax.plot(t, resid, "o", ms=2.0, color="#1f77b4", alpha=0.6)
@@ -292,10 +292,11 @@ class MplCanvas(FigureCanvasQTAgg):
                 "\n".join(textwrap.fill(line, 38)
                            for line in note.splitlines() or [""]),
                 xy=(0.5, 0.97), xycoords="axes fraction",
-                ha="center", va="top", fontsize=9, color="#8a0016",
+                ha="center", va="top", fontsize=9, color="#7a4a00",
                 fontweight="semibold", zorder=6, clip_on=True,
-                bbox=dict(boxstyle="round,pad=0.45", facecolor="#fdecef",
-                          edgecolor="#b00020", linewidth=1.1, alpha=0.97))
+                # Amber, not red: this is a caution to look closer, not an error.
+                bbox=dict(boxstyle="round,pad=0.45", facecolor="#fff6e5",
+                          edgecolor="#e07b00", linewidth=1.1, alpha=0.97))
         elif fit_y is None and note:
             # "not fitted yet" is not a failure, so it stays neutral.
             self.ax.annotate(note, xy=(0.5, 0.5), xycoords="axes fraction",

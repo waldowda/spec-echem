@@ -307,6 +307,27 @@ class FitResult:
         return float(self.sd[2])
 
     @property
+    def needs_review(self):
+        """Converged, but a physical check objected. NOT "failed".
+
+        Dean: "the scientist should have results and make decisions and not have the
+        software make decisions about whether the user should see data or fits to
+        data... I would highlight these fits as questionable or requiring extra
+        review."
+
+        So the software's job here is to raise a concern, never to withhold. The fit
+        has a curve and a full set of parameters; `reason` says what to look at.
+        """
+        return (not self.ok) and self.params is not None
+
+    @property
+    def did_not_converge(self):
+        """No parameters at all — curve_fit raised, the covariance was singular, or
+        there were fewer points than parameters. A statement of fact, not a verdict:
+        there is genuinely nothing to show."""
+        return self.params is None
+
+    @property
     def mixed_amplitude_signs(self):
         """True when a multi-component fit's prefactors disagree in sign.
 
@@ -441,7 +462,7 @@ class FitResult:
         names = MODELS[self.model][1]
         sds = self.sd if self.sd is not None else [float("nan")] * len(names)
         lines = [f"{self.model}   (+/- = 1 SD)"
-                 + ("" if self.ok else "   [FLAGGED — see below]")]
+                 + ("" if self.ok else "   [NEEDS REVIEW — see below]")]
         for name, value, sd in zip(names, self.params, sds):
             unit = " s" if name.startswith("tau") else ""
             lines.append(f"{name} = {value:.4g} +/- {sd:.2g}{unit}")
@@ -460,10 +481,9 @@ class FitResult:
                      + " s (95% CI)")
         lines.append(f"{self.n} pts")
         if not self.ok:
-            # The concern, alongside the numbers rather than instead of them. A fit
-            # that converged has results worth seeing even when a check rejected it;
-            # hiding them leaves no basis for deciding what to change.
-            lines.append(f"FLAGGED: {self.reason}")
+            # The concern, alongside the numbers rather than instead of them. The
+            # software raises it; the scientist decides what it means.
+            lines.append(f"NEEDS REVIEW: {self.reason}")
         return lines
 
     def __repr__(self):

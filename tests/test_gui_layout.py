@@ -892,24 +892,43 @@ def test_a_cv_gets_no_single_potential(window):
         Segment("CV", DATA_TYPE_CV, 0, 10, 0.1, True)) is None
 
 
-def test_a_failed_fit_shows_a_prominent_boxed_reason(analysis_window):
-    """The grey corner text was unreadable and ran straight through the legend.
-    A failure is the one thing on this plot the user must not miss."""
+def test_a_fit_that_did_not_converge_says_so_and_shows_nothing(analysis_window):
+    """No parameters means there is genuinely nothing to show -- a statement of fact,
+    not a verdict on whether the scientist should see it."""
     from spec_echem.analysis import FitResult
     tab = analysis_window.analysis_tab
     tab._fits["Doping 0"] = {
-        "absorbance": FitResult("biexp",
-                                reason="uncertainty too large (tau = 60.77 +/- 83.33)")}
+        "absorbance": FitResult("biexp", reason="singular covariance")}
     tab.table.selectRow(0)
     tab._draw_fit()
 
-    notes = [t for t in tab.fit_canvas.ax.texts if "FIT FAILED" in t.get_text()]
-    assert notes, "the failure must be announced on the plot"
-    note = notes[0]
-    assert "60.77" in note.get_text(), "the numbers that say what to change are kept"
-    assert note.get_bbox_patch() is not None, "expected a boxed warning"
-    # The legend is what it used to collide with, and with no fit it said only "data".
+    notes = [t for t in tab.fit_canvas.ax.texts if "DID NOT CONVERGE" in t.get_text()]
+    assert notes, "must say why there is no curve"
+    assert "singular" in notes[0].get_text()
+    assert notes[0].get_bbox_patch() is not None, "expected a boxed notice"
+    # The legend is what the notice used to collide with; with no curve it said
+    # only "data", so it is not drawn at all.
     assert tab.fit_canvas.ax.get_legend() is None
+
+
+def test_a_fit_needing_review_shows_a_prominent_boxed_reason(analysis_window):
+    """The grey corner text was unreadable and ran straight through the legend. A
+    concern about a fit is the one thing on this plot the user must not miss -- and
+    it appears ALONGSIDE the curve and the numbers, never instead of them."""
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    fit = tab._fits["Doping 0"]["absorbance"]
+    fit.ok = False
+    fit.reason = "uncertainty too large (tau = 60.77 +/- 83.33)"
+    tab.table.selectRow(0)
+    tab._draw_fit()
+
+    assert fit.needs_review and not fit.did_not_converge
+    notes = [t for t in tab.fit_canvas.ax.texts if "NEEDS REVIEW" in t.get_text()]
+    assert notes, "the concern must be announced on the plot"
+    assert "60.77" in notes[0].get_text(), "the numbers that say what to change are kept"
+    assert notes[0].get_bbox_patch() is not None, "expected a boxed notice"
+    assert len(tab.fit_canvas.ax.get_lines()) == 2, "data AND the curve under review"
 
 
 def test_the_segment_selector_names_the_potential(analysis_window):
@@ -1263,7 +1282,7 @@ def test_there_is_no_auto_start_checkbox(analysis_window):
     assert tab.stop_spin.specialValueText() == "end of segment"
 
 
-def test_a_flagged_fit_keeps_its_numbers_everywhere(analysis_window):
+def test_a_fit_needing_review_keeps_its_numbers_everywhere(analysis_window):
     """Dean: "please just note the concern from the fit but don't hide the results in
     the fit or in the kinetics vs pot plots." A rejected fit that CONVERGED shows its
     value in the table, its curve on the plot, and its point on the ladder."""
@@ -1280,12 +1299,12 @@ def test_a_flagged_fit_keeps_its_numbers_everywhere(analysis_window):
     tab._draw_ladder()
 
     cell = tab.table.item(0, 2).text()
-    assert "!" in cell and f"{fit.mean_tau:.4g}" in cell, cell
-    assert "FLAGGED" in tab.table.item(0, 2).toolTip()
+    assert "?" in cell and f"{fit.mean_tau:.4g}" in cell, cell
+    assert "NEEDS REVIEW" in tab.table.item(0, 2).toolTip()
 
-    # the curve is drawn, and the banner says flagged rather than failed
+    # the curve is drawn, and the banner asks for review rather than declaring failure
     assert len(tab.fit_canvas.ax.get_lines()) == 2
-    assert any("FLAGGED" in t.get_text() for t in tab.fit_canvas.ax.texts)
+    assert any("NEEDS REVIEW" in t.get_text() for t in tab.fit_canvas.ax.texts)
 
     # and the ladder plots the point instead of leaving a gap
     ys = [v for line in tab.ladder_canvas.ax.get_lines()
