@@ -128,48 +128,58 @@ def main():
               + ("   -- agrees" if agree else "   -- DISAGREES with what is accepted"))
     if stated_max is not None:
         print(f"  stated maximum   = {stated_max:.6g} ms")
-    print("\n--- 3. is that exposure actually HONOURED? ---")
-    # AVS_PrepareMeasure accepting a value only means it passed PARAMETER VALIDATION.
-    # It does not mean the detector integrates for that long: a 2048-pixel readout
-    # alone takes longer than 9 us, so an accepted-but-not-honoured value would be
-    # silently clamped. The real floor is where elapsed time stops tracking the
-    # request. MEASURED 0.009033 ms accepted on a 2048 px detector whose own
-    # stand-alone default is 2.2 ms, which is why this stage exists.
+    print("\n--- 3. is that exposure actually honoured? (LAMP MUST BE ON) ---")
+    # The clock cannot answer this. MEASURED on a 2048 px detector: elapsed time is
+    # ~1.2-1.8 ms of fixed overhead (USB round trip + readout) plus the integration,
+    # and the SCATTER in that overhead is ~0.6 ms -- larger than every request below
+    # 1 ms. A 0.05 ms request came back FASTER than a 0.009 ms one, which is noise,
+    # not signal.
+    #
+    # The detector's own integral is the sensitive probe. Accumulated counts are
+    # proportional to the time actually integrated, so if the hardware clamps
+    # everything below some floor F, counts are FLAT below F and rise linearly above
+    # it. That knee is the real minimum, and it does not care about host timing.
     from avaspec import AVS_Measure, AVS_PollScan, AVS_GetScopeData
     import time
 
-    print(f"  {'requested (ms)':>16}  {'elapsed (ms)':>14}  {'ratio':>7}  honoured?")
-    honoured_floor = None
-    for requested in (hi, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0):
+    print("  Needs steady illumination. With the lamp off every row reads the dark")
+    print("  floor and the knee cannot be seen.\n")
+    print(f"  {'requested (ms)':>16}  {'mean counts':>12}  {'counts/ms':>12}")
+
+    ladder = [hi, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0]
+    rows = []
+    for requested in ladder:
         cfg = _config(handle, pixels, requested)
         if AVS_PrepareMeasure(handle, cfg) < 0:
-            print(f"  {requested:16.4g}  {'rejected':>14}")
             continue
-        t0 = time.perf_counter()
         if AVS_Measure(handle, 0, 1) < 0:
-            print(f"  {requested:16.4g}  {'measure failed':>14}")
             continue
-        deadline = t0 + max(2.0, requested / 1000.0 * 5.0 + 2.0)
+        deadline = time.perf_counter() + max(2.0, requested / 1000.0 * 5.0 + 2.0)
         while not AVS_PollScan(handle) and time.perf_counter() < deadline:
             time.sleep(0.0005)
-        elapsed = (time.perf_counter() - t0) * 1000.0
         try:
-            AVS_GetScopeData(handle)
-        except Exception:                             # noqa: BLE001 — probe script
-            pass
-        ratio = elapsed / requested if requested else float("inf")
-        # Honoured means the elapsed time grew with the request. Well below the
-        # floor, elapsed is dominated by fixed readout and barely moves.
-        ok = "yes" if ratio < 20 else "NO — clamped/readout-bound"
-        if ok == "yes" and honoured_floor is None:
-            honoured_floor = requested
-        print(f"  {requested:16.4g}  {elapsed:14.3f}  {ratio:7.1f}  {ok}")
+            _stamp, spectrum = AVS_GetScopeData(handle)
+        except Exception as exc:                      # noqa: BLE001 — probe script
+            print(f"  {requested:16.4g}  read failed: {exc}")
+            continue
+        counts = sum(spectrum[:pixels]) / float(pixels)
+        rows.append((requested, counts))
+        print(f"  {requested:16.4g}  {counts:12.1f}  {counts / requested:12.1f}")
 
-    print(f"\n  lowest exposure that tracks the request: "
-          f"{honoured_floor if honoured_floor else 'none of those tried'}")
-    print("\nPaste this whole output back. The defaults and the linearity ramp should "
-          "follow the HONOURED floor, not merely what PrepareMeasure accepts.")
-
-
-if __name__ == "__main__":
-    main()
+    # The knee: walk up from the shortest time until counts start rising with it.
+    # Below the floor the detector integrates for the SAME real time regardless of
+    # what was asked, so counts barely move; above it they scale.
+    floor = None
+    for (t_a, c_a), (t_b, c_b) in zip(rows, rows[1:]):
+        if t_b <= t_a:
+            continue
+        grew = (c_b - c_a) / max(c_a, 1.0)
+        asked = (t_b - t_a) / max(t_a, 1e-9)
+        if grew > 0.5 * asked:            # counts tracking the request, not flat
+            floor = t_a
+            break
+    print(f"\n  counts start tracking the request at ~{floor} ms"
+          if floor else "\n  counts never tracked — is the lamp on?")
+    print("\n  Below that, the detector integrates for the same real time whatever")
+    print("  is asked for. THAT is the minimum the defaults should follow.")
+    print("\nPaste this whole output back.")
