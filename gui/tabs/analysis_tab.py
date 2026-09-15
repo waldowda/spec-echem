@@ -127,7 +127,15 @@ class AnalysisTab(QWidget):
             "segment, which is the polaron band. Set a value to probe elsewhere,\n"
             "e.g. the pi-pi* bleach.")
         self.wavelength_spin.valueChanged.connect(self._on_wavelength_changed)
-        form.addRow("Wavelength:", self.wavelength_spin)
+        wl_row = QHBoxLayout()
+        wl_row.addWidget(self.wavelength_spin)
+        # The plot title carries this, but it disappears the moment you select the
+        # current or charge trace -- and the control itself never said.
+        self.auto_wl_label = QLabel("")
+        self.auto_wl_label.setStyleSheet("color: #555;")
+        wl_row.addWidget(self.auto_wl_label)
+        wl_row.addStretch()
+        form.addRow("Wavelength:", wl_row)
 
         buttons = QHBoxLayout()
         self.fit_btn = QPushButton("Fit segment")
@@ -262,6 +270,8 @@ class AnalysisTab(QWidget):
         # Recorded whichever branch ran, and as the PIXEL actually used rather than
         # the value asked for: the ladder has to be able to say what it compared.
         self._wavelength = float(wl[row])
+        self.auto_wl_label.setText(
+            "" if requested > 0 else f"= {self._wavelength:.1f} nm")
         return np.asarray(df.columns.values, dtype=float), df.values[row, :]
 
     def _probe_wavelength(self, label, absorbance, wl):
