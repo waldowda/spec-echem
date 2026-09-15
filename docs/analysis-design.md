@@ -136,6 +136,72 @@ Two consequences to build in deliberately:
 
 ---
 
+## Planned — density of states from the CV
+
+Dean, 2026-09-14: *"I wonder if we could plot density of states from the CV curves. Maybe at
+some point."* **Not built.** Recorded here so the design is settled before anyone starts.
+
+For a sweep slow enough to be quasi-equilibrium, the current IS the differential charge:
+
+```
+i = v · dQ/dV                    v = scan rate (V/s)
+
+g(E) = i / (v · e · V_film)      states eV⁻¹ cm⁻³,   E = −eV
+```
+
+Units check: (C/s)·(s/V)/(C·cm³) = eV⁻¹cm⁻³.
+
+So the shape of `g(E)` is just the CV with its x-axis flipped to energy and its y-axis divided
+by constants. **The physics is not in the arithmetic — it is in the four decisions below**, which
+is why this is a design note and not a one-line plot.
+
+### What is already on disk
+
+- `CV.txt` — potential and current, both sweep directions, all 3 cycles.
+- `cv_scan_rate` — in the run metadata, so `v` needs no new input.
+- `CVspectra.txt` — the optical side of the same sweep, which is the interesting part (below).
+
+### The one missing input
+
+**Film volume — thickness × active area.** Nothing in spec-echem records either, and without it
+the result is arbitrary units, not a DOS. This needs a home: most naturally the Parameters tab
+alongside sample name and electrolyte, saved into the run metadata so a folder stays
+self-describing. Thickness usually comes from profilometry or ellipsometry done elsewhere, so it
+is a typed value, not a measured one — and it should be OPTIONAL, with the plot falling back to
+`dQ/dV` in C/V and saying so on the axis rather than inventing a volume.
+
+### Four decisions that must not be made silently
+
+1. **The capacitive baseline.** Double-layer charging is not density of states. Some of the
+   current is non-faradaic and subtracting it changes the answer, especially at the low-potential
+   end where the real signal is smallest. Whatever is subtracted has to be visible.
+2. **Which cycle, and which direction.** The runs sweep 3 cycles and the film is not the same
+   on cycle 1 as on cycle 3. Forward and reverse disagree (hysteresis); averaging them hides a
+   real effect, and showing one hides the other. Default to the last cycle, plot both directions.
+3. **Whether the scan rate was slow enough.** The equation above assumes equilibrium at every
+   potential. The test is empirical: run several scan rates and check `i/v` collapses onto one
+   curve. If it does not, the number is a rate measurement, not a DOS. This is a bench protocol,
+   not code — but the GUI should not present a DOS that has never had this check.
+4. **Ionic vs electronic charge.** In an OMIEC the counter-ion motion is part of the measured
+   current. The CV alone cannot separate them.
+
+### Why this rig can do better than a CV alone
+
+Decision 4 is where the spectrometer earns its place. The polaron absorbance is an INDEPENDENT
+measure of how much charge went in, so `ΔA(V)` from `CVspectra.txt` gives a *spectroscopic* DOS
+against the *electrochemical* one from the same sweep. Where they agree, the current was
+electronic; where they diverge, it was not. That comparison is the reason to build this here
+rather than in a generic echem tool, and it reuses the band-selection work already done for the
+kinetics (see *Auto-wavelength*, above).
+
+### Sequencing
+
+After the τ-vs-potential ladder is validated on a real above-V_th run. The ladder is the feature
+with a user waiting on it, and it shares the band-selection code that a spectroscopic DOS needs —
+so the DOS gets that machinery for free, but only once it is trustworthy.
+
+---
+
 ## Build status (2026-09-14)
 
 - **`spec_echem/analysis.py`** — done. Auto-wavelength, the three models, ⟨τ⟩, fit-with-SD,
@@ -144,9 +210,34 @@ Two consequences to build in deliberately:
   τ-vs-potential with the ratio toggle. 6 tests.
 - **Tab 4 — the live views** — done. A view selector on the optical canvas: *Spectra* (unchanged,
   still the default), *Kinetics*, *Modulation*. 5 tests.
-- **Still to tune, and it needs real data:** `FIT_SD_REJECT_FRACTION = 0.5` is a judgement call;
-  whether exp/biexp/stretched fit real absorbance transients; whether the current peak is the right
-  window start on a real step; whether auto-wavelength survives real noise and baseline drift.
+### What real data changed (2026-09-14, `20260709_P3HT_01` + the PLU rig)
+
+The list above said these needed real data. They got it, and most were wrong:
+
+- **Auto-wavelength did NOT survive real noise.** It picked 381 nm — the dark floor, 416 counts,
+  SNR 1.8 — over the real polaron at 780 nm (SNR 682), for every segment. Now gated on
+  significance against per-pixel noise, plus a 410 nm floor (`ANALYSIS_WL_MIN`): Dean confirms
+  this rig has no usable data below ~410 nm.
+- **The polaron is not always the band that grows.** True on doping; on DEDOPING the polaron
+  decays while π–π* recovers. The tab maps by data type, and `auto_wavelengths` is named
+  `(grows, bleaches)` so the next caller cannot repeat the assumption.
+- **The current peak is NOT a useful window start.** On a step the spike peaks at the FIRST
+  sample, so it resolves to t = 0 and excludes nothing. Left as the default by Dean's call — the
+  RC is unknown on this rig — with the window made tunable and the shading live.
+- **`FIT_SD_REJECT_FRACTION = 0.5` holds up.** It correctly rejected +0.3 V (0.0016 OD, the film
+  does not dope) and +0.5 V (still accelerating at 30 s, no timescale in the window) while
+  accepting +0.7 V. Rejecting is the right answer for both.
+- **τ and β are now bounded** — τ > 0, 0 < β ≤ 1 (above 1 is a compressed exponential, a claim
+  this model does not make). `BETA_MIN = 0.05` because ⟨τ⟩ = (τ/β)·Γ(1/β) overflows past
+  1/β ≈ 170.
+
+**Still open:** a fit whose τ vastly exceeds the observation window passes the SD check — the
+charge integral at +0.3 V returned τ = 1.3×10⁵ s in a 30 s window with a tiny SD, because a
+straight line is a very well-determined exponential with an enormous τ. A bound like
+`τ < 10 × span` is the obvious fix; the multiplier is Dean's call.
+
+**Still needed:** a ladder with ≥3 steps above V_th (~0.6/0.8/1.0 V). `20260709_P3HT_01` reaches
+above V_th only at its top step, so the τ-vs-potential plot has one usable point.
 
 ## Build order
 
