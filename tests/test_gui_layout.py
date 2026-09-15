@@ -576,14 +576,16 @@ def test_the_auto_wavelength_lands_on_the_growing_band(analysis_window):
 
 
 def test_a_failed_fit_shows_its_reason_instead_of_a_number(analysis_window):
-    """curve_fit returns confident nonsense rather than raising, so the table must
-    not present it as a measurement."""
+    """Two tiers. A fit that NEVER CONVERGED has nothing to show, so the table says
+    "no fit". One rejected by a check has converged and keeps its numbers, marked
+    with "!" -- Dean: "please just note the concern from the fit but don't hide the
+    results"."""
     import numpy as np
     from spec_echem.analysis import FitResult
 
     tab = analysis_window.analysis_tab
     tab._show_fits({"absorbance": FitResult("exp", reason="uncertainty too large")})
-    assert "failed" in tab.table.item(0, 2).text()
+    assert "no fit" in tab.table.item(0, 2).text()   # never converged
     assert tab.table.item(0, 1).text() == ""       # no beta either
 
 
@@ -1259,3 +1261,33 @@ def test_there_is_no_auto_start_checkbox(analysis_window):
     assert tab.start_spin.isEnabled()
     assert tab.start_spin.specialValueText() == "start of segment"
     assert tab.stop_spin.specialValueText() == "end of segment"
+
+
+def test_a_flagged_fit_keeps_its_numbers_everywhere(analysis_window):
+    """Dean: "please just note the concern from the fit but don't hide the results in
+    the fit or in the kinetics vs pot plots." A rejected fit that CONVERGED shows its
+    value in the table, its curve on the plot, and its point on the ladder."""
+    import numpy as np
+
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    fit = tab._fits["Doping 0"]["absorbance"]
+    # force the rejection without touching the parameters
+    fit.ok, fit.reason = False, "tau exceeds 10x the window - not measurable from it"
+    tab._show_fits(tab._fits["Doping 0"])
+    tab.table.selectRow(0)
+    tab._draw_fit()
+    tab._draw_ladder()
+
+    cell = tab.table.item(0, 2).text()
+    assert "!" in cell and f"{fit.mean_tau:.4g}" in cell, cell
+    assert "FLAGGED" in tab.table.item(0, 2).toolTip()
+
+    # the curve is drawn, and the banner says flagged rather than failed
+    assert len(tab.fit_canvas.ax.get_lines()) == 2
+    assert any("FLAGGED" in t.get_text() for t in tab.fit_canvas.ax.texts)
+
+    # and the ladder plots the point instead of leaving a gap
+    ys = [v for line in tab.ladder_canvas.ax.get_lines()
+          for v in line.get_ydata() if np.isfinite(v)]
+    assert ys, "the flagged point must still appear on the ladder"
