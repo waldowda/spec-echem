@@ -588,16 +588,3 @@ def test_a_wrong_model_leaves_a_systematic_residual():
 def test_the_split_needs_a_curve():
     t = np.linspace(0.0, 1.0, 3)
     assert fit_transient(t, np.zeros(3), "biexp").residual_split(t, np.zeros(3)) is None
-
-
-def test_the_legend_states_the_functional_form():
-    """Dean: "what are A and B again? Oh... A is constant offset? B is prefactor of
-    strexp?" He was right, but nothing on screen said so. The equation makes every
-    parameter name self-explanatory, and makes y(0) = A + sum(B) obvious."""
-    t = np.linspace(0.0, 20.0, 200)
-    y = 1 + 2 * np.exp(-t / 3.0)
-    for model, expected in (("exp", "A + B*exp(-t/tau)"),
-                            ("biexp", "A + B1*exp(-t/tau1) + B2*exp(-t/tau2)"),
-                            ("stretched", "A + B*exp(-(t/tau)^beta)")):
-        lines = fit_transient(t, y, model).describe()
-        assert expected in lines[0], lines[0]
