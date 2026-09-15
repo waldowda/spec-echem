@@ -1075,3 +1075,57 @@ def test_the_modulation_view_is_doping_only(window, tmp_path):
     assert xs, "expected at least the doping point"
     assert all(x > 0 for x in xs), f"a dedoping point leaked in: {xs}"
     assert "doping ladder" in r.canvas.ax.get_title()
+
+
+# --- "auto (polaron)" has to say which wavelength it picked ------------------
+
+def test_tab5_shows_the_wavelength_auto_resolved_to(analysis_window):
+    """Dean: "for what you call auto(polaron) there is no indication what WL you
+    chose." The plot title carried it, but vanished on the current/charge traces."""
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    assert "nm" in tab.auto_wl_label.text(), tab.auto_wl_label.text()
+    tab.wavelength_spin.setValue(650.0)
+    tab.on_fit_segment()
+    assert tab.auto_wl_label.text() == "", "the box already shows a typed value"
+
+
+def test_tab4_shows_the_wavelength_auto_resolved_to(window, tmp_path):
+    tab = _doping_dedoping_pair(window, tmp_path)
+    r = window.results_tab
+    r.refresh_segments()
+    r.on_segment_changed()
+    assert "nm" in r.auto_wl_label.text(), r.auto_wl_label.text()
+
+
+def test_the_readout_clears_when_a_wavelength_is_typed(window, tmp_path):
+    """It used to keep showing the last automatic pick beside a box saying something
+    else -- 783.5 nm displayed while the box read 550 nm."""
+    _doping_dedoping_pair(window, tmp_path)
+    r = window.results_tab
+    r.refresh_segments()
+    r.on_segment_changed()
+    assert "nm" in r.auto_wl_label.text()
+    r.analysis_wl.setValue(550.0)
+    r.on_segment_changed()
+    assert r.auto_wl_label.text() == ""
+
+
+def test_a_cv_gets_no_automatic_polaron(window, tmp_path):
+    """A CV returns to where it started, so A(end) - A(start) is ~0 and the signed
+    difference has no polaron to find. It was handing back whatever drifted most --
+    521.9 nm, the pi-pi* side, on 20250710_P3HT9010_KPF6."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_CV
+    from spec_echem.experiment import Segment
+
+    wl = np.linspace(400.0, 1100.0, 60)
+    t = np.linspace(0.0, 20.0, 80)
+    df = pd.DataFrame(np.tile(np.linspace(0.3, 0.1, 60)[:, None], (1, 80)),
+                      index=wl, columns=t)
+    window.results = {"CV": df}
+    window.segments_by_label = {"CV": Segment("CV", DATA_TYPE_CV, 0, 80, 0.1, True)}
+    r = window.results_tab
+    assert r._chosen_wavelength(df, "CV") is None
+    assert r.auto_wl_label.text() == ""

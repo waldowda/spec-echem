@@ -103,6 +103,12 @@ class ResultsTab(QWidget):
         view_row.addWidget(self.view_combo)
         view_row.addWidget(QLabel("at"))
         view_row.addWidget(self.analysis_wl)
+        # "auto (polaron)" said nothing about WHICH wavelength it picked, so the
+        # number only existed inside a plot legend the user might not be looking at.
+        self.auto_wl_label = QLabel("")
+        self.auto_wl_label.setStyleSheet("color: #555;")
+        self.auto_wl_label.setToolTip("The wavelength automatic selection resolved to.")
+        view_row.addWidget(self.auto_wl_label)
         view_row.addStretch()
         ctrl_form.addRow("Optical view:", view_row)
 
@@ -224,17 +230,47 @@ class ResultsTab(QWidget):
         wl = np.asarray(absorb_df.index.values, dtype=float)
         requested = self.analysis_wl.value()
         if requested > 0:
+            # Blank the readout here too, or it keeps showing the last automatic pick
+            # beside a box that now says something else.
+            self._show_resolved_wavelength(None)
             return float(wl[int(np.abs(wl - requested).argmin())])
+
         seg = self.win.segments_by_label.get(label)
+        if seg is not None and seg.data_type == DATA_TYPE_CV:
+            # A CV returns to where it started, so A(end) - A(start) is ~0 and the
+            # signed difference has no polaron to find -- it was handing back whatever
+            # drifted most, 521.9 nm on 20250710_P3HT9010_KPF6. Pick a band by hand
+            # to watch one during a sweep.
+            self._show_resolved_wavelength(None)
+            return None
+
         doping = seg is None or seg.data_type == DATA_TYPE_DOPING
-        return probe_wavelength(absorb_df.values, wl, doping=doping)
+        resolved = probe_wavelength(absorb_df.values, wl, doping=doping)
+        self._show_resolved_wavelength(resolved)
+        return resolved
+
+    def _show_resolved_wavelength(self, value):
+        """Put the automatically chosen wavelength beside the control.
+
+        Set here, in the one place that resolves it, so the readout cannot disagree
+        with what was plotted. Blank when the user typed a value -- the box shows it.
+        """
+        if value is None or self.analysis_wl.value() > 0:
+            self.auto_wl_label.setText("")
+        else:
+            self.auto_wl_label.setText(f"= {value:.1f} nm")
 
     def _plot_kinetics(self, label, absorb_df):
         """Absorbance vs time at one wavelength, for this segment — did the step reach
         steady state, and how fast?"""
         chosen = self._chosen_wavelength(absorb_df, label)
         if chosen is None:
-            self.canvas.show_message("Not enough time points for a kinetics trace.")
+            seg = self.win.segments_by_label.get(label)
+            self.canvas.show_message(
+                "A CV sweeps back to where it started, so there is no band that\n"
+                "grows across it. Type a wavelength to follow one."
+                if seg is not None and seg.data_type == DATA_TYPE_CV
+                else "Not enough time points for a kinetics trace.")
             return
         wl = np.asarray(absorb_df.index.values, dtype=float)
         row = int(np.abs(wl - chosen).argmin())
