@@ -328,6 +328,22 @@ class MplCanvas(FigureCanvasQTAgg):
             self.fig.suptitle(title, fontsize="medium")
         self.draw_idle()
 
+    def plot_multi_xy(self, curves, xlabel, ylabel, title=None):
+        """Several (x, y, label) curves that do NOT share an x axis.
+
+        plot_series takes one x for every series, which is right for a ladder. A CV's
+        forward and reverse sweeps sample different potentials, so each needs its own.
+        """
+        self._xlabel, self._ylabel = xlabel, ylabel
+        self._new_axes()
+        for x, y, label in curves:
+            self.ax.plot(np.asarray(x, dtype=float), np.asarray(y, dtype=float),
+                         lw=1.2, label=str(label))
+        if len(curves) > 1:
+            self.ax.legend(fontsize="small")
+        self._decorate(title)
+        self.draw_idle()
+
     def show_message(self, text):
         """Clear the canvas and show a centered note (e.g. 'no echem data yet').
 

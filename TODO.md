@@ -129,11 +129,18 @@ Tab 5 works and is validated on real data (see STATUS.md). What is left:
       eats the polaron population at high doping, so τ at 800 nm is not purely polaron
       growth. The tab already fits any wavelength typed; what is missing is fitting two
       at once and comparing.
-- [ ] **Density of states from the CV** — designed, not built. See
-      [`docs/analysis-design.md`](docs/analysis-design.md). Placement settled (Dean):
-      another option in Tab 4's **Optical view** selector, enabled when a CV segment is
-      chosen. Blocked on recording film volume (thickness × area), which nothing
-      captures today — optional, with a dQ/dV fallback.
+- [x] ~~Density of states from the CV~~ — **v1 built**: Tab 4 → Optical view →
+      *Density of states (CV only)*, film geometry on Tab 2. Last cycle, directions
+      separate, dQ/dV fallback without a volume.
+- [ ] **DOS v2 — the capacitive baseline.** Double-layer charging is not density of
+      states, and v1 subtracts nothing. Needs a decision about how, and it must be
+      visible on the plot.
+- [ ] **Confirm the electroactive area** with Dean — whether the cell masks it (an
+      O-ring at ~6 mm) or the film is simply immersed. The field defaults to 0 =
+      unknown rather than guessing, since the wrong area scales the DOS directly.
+- [ ] **Scan-rate check** — run several rates and confirm i/v collapses onto one
+      curve. A bench protocol, not code, but the GUI should not present a DOS that has
+      never had it.
 - [x] ~~Log y-axis on the ladder~~ — done, `log y` checkbox beside the Show toggles,
       with a title hint when needs-review points are off scale.
 - [x] ~~A table of fit data across all potentials~~ — done, **All fits…** on the

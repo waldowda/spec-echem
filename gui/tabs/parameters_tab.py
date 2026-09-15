@@ -111,6 +111,17 @@ class ParametersTab(QWidget):
         sform.addRow("Sample name:", self._hint(self._line("sample_name"), "e.g. P3HT 95:05"))
         sform.addRow("Electrolyte:", self._hint(self._line("electrolyte"), "e.g. 0.1 M KPF6 / MeCN"))
 
+        # Film geometry — only used by the density of states, which needs a volume.
+        sform.addRow("Film thickness:",
+                     self._hint(self._dspin("film_thickness_nm", 0.0, 100000.0,
+                                            decimals=1, step=10.0, suffix=" nm"),
+                                "typical spin-coated OMIEC ≈ 150 nm"))
+        sform.addRow("Electroactive area:",
+                     self._hint(self._dspin("film_area_cm2", 0.0, 1000.0,
+                                            decimals=4, step=0.01, suffix=" cm²"),
+                                "WETTED area the current flows through, not the "
+                                "optical spot. 0 = unknown → DOS shows dQ/dV"))
+
         # Notes — full width, taller
         sform.addRow(QLabel("Notes:"))
         self.notes_edit = QPlainTextEdit()

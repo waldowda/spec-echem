@@ -1400,3 +1400,68 @@ def test_the_model_equation_sits_beside_the_model_choice(analysis_window):
     tab.on_fit_segment()
     fit = tab._fits["Doping 0"]["absorbance"]
     assert not any("exp(" in line for line in fit.describe())
+
+
+# --- density of states view (tab 4) ------------------------------------------
+
+def _cv_window(window, tmp_path, **settings):
+    """A window holding one CV segment with a real triangular sweep on disk."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_CV, write_echem_file, EchemData
+    from spec_echem.experiment import Segment
+
+    t = np.linspace(0.0, 6.0, 1200)
+    v = -0.5 + 1.2 * np.abs(((t + 0.5) % 2.0) - 1.0)
+    write_echem_file(EchemData(time=t, potential=v, current=1e-4 * np.gradient(v, t)),
+                     DATA_TYPE_CV, 0, tmp_path, "run")
+    wl = np.linspace(400.0, 1100.0, 20)
+    window.results = {"CV": pd.DataFrame(np.zeros((20, 5)), index=wl,
+                                         columns=[0.0, 1.0, 2.0, 3.0, 4.0])}
+    window.segments_by_label = {"CV": Segment("CV", DATA_TYPE_CV, 0, 5, 0.1, True)}
+    window.run_folder = tmp_path / "run"
+    window.loaded_run_settings = dict({"cv_scan_rate": 100.0}, **settings)
+    window._potential_cache.clear()
+    window.results_tab.refresh_segments()
+    return window.results_tab
+
+
+def test_the_dos_view_needs_a_cv(window, tmp_path):
+    """Dean: a fourth Optical view, for the CV. The other three describe a chrono
+    step, so this one says so rather than producing nonsense."""
+    r = _cv_window(window, tmp_path)
+    labels = [r.view_combo.itemText(i) for i in range(r.view_combo.count())]
+    assert any("Density of states" in l for l in labels), labels
+
+    r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
+    r.on_segment_changed()
+    assert r.canvas.ax.get_lines(), "a CV should produce curves"
+    assert "Density of states" in r.canvas.ax.get_title()
+
+
+def test_the_dos_falls_back_to_dQdV_without_a_film_volume(window, tmp_path):
+    """0 area means unknown, and the axis says dQ/dV rather than a volume being
+    invented -- the electroactive area is not something to guess."""
+    r = _cv_window(window, tmp_path, film_thickness_nm=150.0, film_area_cm2=0.0)
+    r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
+    r.on_segment_changed()
+    assert "dQ/dV" in r.canvas.ax.get_ylabel()
+
+    r.win.loaded_run_settings["film_area_cm2"] = 1.0
+    r.on_segment_changed()
+    assert "eV^-1 cm^-3" in r.canvas.ax.get_ylabel()
+
+
+def test_the_scan_rate_is_converted_from_mv_per_second(window, tmp_path):
+    """cv_scan_rate is stored in mV/s and the formula needs V/s. Getting that wrong
+    scales the whole answer by 1000."""
+    import numpy as np
+    r = _cv_window(window, tmp_path, film_thickness_nm=150.0, film_area_cm2=1.0)
+    r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
+    r.on_segment_changed()
+    first = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
+
+    r.win.loaded_run_settings["cv_scan_rate"] = 1000.0     # 10x faster
+    r.on_segment_changed()
+    second = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
+    assert second == pytest.approx(first / 10.0, rel=1e-6)
