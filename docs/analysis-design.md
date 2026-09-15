@@ -234,10 +234,16 @@ available ones fall, not to choose among a richer set.
 
 **This ranking is specific to THIS system, not a general result.** Dean: *"the conclusion
 about biexp compared to strexp is likely in the context of this particular OMIEC system
-and maybe different for a different system."* P3HT 90:10 in KPF₆ at 800 nm is one
-polymer, one electrolyte, one band. A different OMIEC — different ion, different
-morphology, more dispersive transport — may well rank stretched above biexp. Re-read the
-split per system; do not carry this table forward as a default.
+and maybe different for a different system."* One sample, one electrolyte, one band. A
+different OMIEC — different ion, different morphology, more dispersive transport — may
+well rank stretched above biexp. Re-read the split per system; do not carry this table
+forward as a default.
+
+Two timescales also need not mean two PROCESSES in one material; depending on the
+sample they may be two populations. That distinction changes what τ₁ and τ₂ mean without
+changing either number, and it is checkable: if they are populations that respond at
+different potentials, the amplitude ratio |B₁|/(|B₁|+|B₂|) should trend across the
+ladder rather than stay flat.
 
 ### Prefactor signs carry physics — MEASURED 2026-09-15
 
