@@ -69,7 +69,31 @@ def main():
     print(f"serial   : {serial}")
     print(f"pixels   : {pixels}")
 
-    print("\n--- 1. every DeviceConfigType field (looking for a stated minimum) ---")
+    print("\n--- 1. the stated minimum, if the wrapper exposes it ---")
+    # The SDK's DeviceConfigType DOES carry m_Detector.m_MinIntegrationTime /
+    # m_MaxIntegrationTime. But THIS project's avaspec wrapper returns the struct
+    # with FLATTENED names -- the working code reads devcon.m_Detector_m_NrPixels,
+    # not devcon.m_Detector.m_NrPixels -- so try both spellings rather than assume.
+    stated_min = stated_max = None
+    for flat, nested in ((("m_Detector_m_MinIntegrationTime",), ("m_Detector", "m_MinIntegrationTime")),
+                         (("m_Detector_m_MaxIntegrationTime",), ("m_Detector", "m_MaxIntegrationTime"))):
+        value = getattr(devcon, flat[0], None)
+        how = f"devcon.{flat[0]}"
+        if value is None:
+            parent = getattr(devcon, nested[0], None)
+            value = getattr(parent, nested[1], None) if parent is not None else None
+            how = f"devcon.{nested[0]}.{nested[1]}"
+        label = "min" if "Min" in flat[0] else "max"
+        if value is None:
+            print(f"  {label}: NOT exposed under either spelling")
+        else:
+            print(f"  {label}: {float(value):.6g} ms   (via {how})")
+            if label == "min":
+                stated_min = float(value)
+            else:
+                stated_max = float(value)
+
+    print("\n--- every DeviceConfigType field, for the record ---")
     for name in sorted(dir(devcon)):
         if name.startswith("_"):
             continue
@@ -79,10 +103,11 @@ def main():
             value = f"<unreadable: {exc}>"
         if callable(value):
             continue
-        text = str(value)
-        print(f"  {name:<46} {text[:70]}")
+        print(f"  {name:<46} {str(value)[:70]}")
 
-    print("\n--- 2. smallest integration time AVS_PrepareMeasure accepts ---")
+    print("\n--- 2. smallest AVS_PrepareMeasure actually ACCEPTS ---")
+    # Cross-check, not a fallback only: the EEPROM value and what the device
+    # will honour need not agree, and it is the accepted value that governs.
     lo, hi = 0.0, 1.0
     # widen until something is accepted, so a slow detector is not assumed fast
     while AVS_PrepareMeasure(handle, _config(handle, pixels, hi)) < 0:
@@ -96,8 +121,13 @@ def main():
             lo = mid
         else:
             hi = mid
-    print(f"\n  MINIMUM INTEGRATION TIME ≈ {hi:.4g} ms")
-    print(f"  (largest rejected: {lo:.4g} ms)")
+    print(f"\n  ACCEPTED MINIMUM ≈ {hi:.4g} ms   (largest rejected: {lo:.4g} ms)")
+    if stated_min is not None:
+        agree = abs(hi - stated_min) <= max(0.01 * stated_min, ACCEPT_TOLERANCE_MS)
+        print(f"  STATED minimum   = {stated_min:.6g} ms"
+              + ("   -- agrees" if agree else "   -- DISAGREES with what is accepted"))
+    if stated_max is not None:
+        print(f"  stated maximum   = {stated_max:.6g} ms")
     print("\nPaste this whole output back — the defaults and the linearity ramp "
           "should follow this number, not a hardcoded 0.022 ms.")
 
