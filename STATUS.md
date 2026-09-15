@@ -4,11 +4,60 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-09-14_
+_Last updated: 2026-09-15_
 
 ---
 
-## In-GUI analysis, validated on real data (2026-09-14, `gui-dev`) — newest
+## Analysis matured, DOS built, manual written (2026-09-15, `gui-dev`) — newest
+
+**430 tests.** A long session driven almost entirely by running the GUI against real
+runs and fixing what that exposed.
+
+**A principle got established and then enforced:** *the software raises concerns; the
+scientist decides.* No result is withheld because a check objected. It is in CLAUDE.md
+above the analysis section, because it was got wrong twice — first by drawing a rejected
+curve while hiding every parameter, then by plotting NaN on the ladder where a rejected
+fit belonged.
+
+- **`needs_review` vs `did_not_converge`.** Only the latter shows nothing, because only
+  it *has* nothing. A rejected-but-converged fit keeps its curve, every parameter in an
+  amber legend, `? value` in the table and a ringed point on the ladder.
+- **95% CI on ⟨τ⟩** by the delta method on the full covariance, validated against Monte
+  Carlo, with the honest caveat that it is a WITHIN-MODEL number — and a **residual
+  split** (noise vs model-miss) as the companion that actually ranks models.
+- **⟨τ⟩ can never be negative.** Signed amplitude weighting let a "mean" leave the range
+  of its own components; `|B|` fixes it, and mixed signs are now flagged as competing
+  processes rather than silently averaged.
+- **All fits… dialog** — every segment and trace in one table, which is the only way to
+  review across potentials.
+- **Density of states v1** — Tab 4 → Optical view → *Density of states (CV only)*, film
+  geometry on Tab 2. Scan rate MEASURED from the data (`CV.txt` has no time column, but
+  the spectra file does), signed sweep rate, last complete cycle, directions separate
+  and labelled oxidising/reducing.
+- **[`docs/manual.md`](docs/manual.md)** — the tabs, and the mathematics behind every
+  number the GUI reports.
+
+**Two real bugs found by running it, not by tests:**
+
+- **Loading a second run ran the 32-bit build out of memory.** The reader pulled all
+  eight columns to rebuild a matrix needing three, and the new run was built alongside
+  the old. Peak went 246 → 476 MiB on the second load; now it stays at 246.
+- **A loaded run was labelled with the Parameters tab's potentials** — a segment held at
+  +0.700 V titled "+0.400 V". Labels now come from the measured `WE(1).Potential`.
+
+**Minimum integration time — probed, not assumed.** The SDK exposes no minimum; the
+device is asked by bisecting `AVS_PrepareMeasure`. On a 2048 px detector that gives
+0.009033 ms, verified genuine against `counts = 112 + 26051·t` (within 1% from 0.009 to
+0.1 ms). **Next: probe the `AvaSpec-ULS2048L` and wire the default and `lin_start_ms` to
+follow it** — the current 0.022/0.15 ramp is entirely below that detector's ~1.05 ms
+floor.
+
+**Housekeeping:** personal and institution names removed from all code; hardware is
+referred to by model number.
+
+---
+
+## In-GUI analysis, validated on real data (2026-09-14, `gui-dev`)
 
 **Tab 5 "Analysis" exists and works on real runs.** Fitting after a run: exp / biexp /
 stretched applied to absorbance, current and charge, with the data and the fitted curve
@@ -19,7 +68,7 @@ hardware); `gui/tabs/analysis_tab.py` is the view. **380 tests.**
 Validated against `tests/20250710` (the reference run) (six doping rungs
 0.2→0.7 V, outside this repo). **36/36 fits converge.** Over that ladder the optical τ
 FALLS 1.52 → 0.36 s while the current τ RISES 1.46 → 2.03 s, crossing near 0.45 V, and
-β climbs 0.77 → 1.00 — the kinetics become single-exponential once driven hard. Dean
+β climbs 0.77 → 1.00 — the kinetics become single-exponential once driven hard. the user
 notes bipolaron formation likely contributes to the optical trend at high doping, so the
 800 nm τ is not purely polaron growth.
 
@@ -40,7 +89,7 @@ reading this later:
 - **`python -m gui` would not start on SpecEchem32** — `Figure.set_layout_engine` is
   matplotlib 3.6+. Fixed with a fallback; see `plot_canvas._set_layout`.
 
-**Next:** Dean is testing on macOS (analysis only); Win11/`SpecEchem32` tomorrow, which is
+**Next:** the user is testing on macOS (analysis only); Win11/`SpecEchem32` tomorrow, which is
 the only place the matplotlib fallbacks get exercised. Planned but not built: density of
 states from the CV — design settled in
 [`docs/analysis-design.md`](docs/analysis-design.md), blocked on recording film volume.
@@ -138,7 +187,7 @@ instrument up correctly first, and remembers how your rig is configured:
 - **Linearity check** — hardware-validated. Key finding: the detector stays linear to ~1% right up to
   the hard clip, so a deviation-only criterion gives no headroom (lands at 94% of full scale). The
   recommendation takes the tighter of *5% below the linearity limit* or a **max-fill fraction**
-  (default **85% fill / 2% tol**, both confirmed by Dean). `Find saturation` bisects.
+  (default **85% fill / 2% tol**, both confirmed by the user). `Find saturation` bisects.
 - **Wavelength window** (opt-in) — crops the noisy lamp edges out of every file.
 - **Test (sample)** — read the beam without overwriting dark/ref. Closes a real hole: the reference is
   taken with a blank FTO insert, and after swapping in the sample a plain "Collect New" would have
@@ -202,7 +251,7 @@ baseline table are in [`TODO.md`](TODO.md).
 ### Still open (none blocking)
 
 - **The trigger cable's *build*** — connector, pinout, shielding — is undocumented; only its endpoints
-  are. It exists in Dean's head and in the one cable on the bench. See `TODO.md`.
+  are. It exists in the user's head and in the one cable on the bench. See `TODO.md`.
 - ~~A mid-run Gamry USB pull~~ — **fixed 2026-07-27.** The poll loop *did* detect the lost instrument
   but discarded why it exited, so an abnormal exit looked exactly like a finished step: a full
   spectra file was written beside a truncated echem file (31 MB vs 2 KB on the bench), the segment
@@ -228,7 +277,7 @@ clip, and "5% below the limit of linearity" lands at **94% of full scale**, with
 drift. Tightening the tolerance cannot fix this (the real deviation there was 0.95%). The recommendation
 therefore takes the **tighter of two constraints**: 5% below the linearity limit, *or* peak counts at or
 below a **max-fill** fraction of full scale. Defaults **85% fill / 2% tolerance**, both confirmed good by
-Dean on hardware. `Find saturation` bisects to the true threshold (plain doubling could only report a
+the user on hardware. `Find saturation` bisects to the true threshold (plain doubling could only report a
 power-of-two multiple — it said 0.176 ms when saturation was really ~0.111 ms).
 
 Saturation is strongly source-dependent (halogen+ND saturates ~0.11 ms; the AvaLight will differ), so
@@ -266,7 +315,7 @@ exposing other `measconfig` fields.
 
 ## (prior) Milestone — first real-sample Python-mode run, validated end to end (2026-07-09)
 
-Dean ran a full **Python-mode** sequence (CV + pre-dedope + 3 doping/dedoping cycles) on a real —
+the user ran a full **Python-mode** sequence (CV + pre-dedope + 3 doping/dedoping cycles) on a real —
 if aged, non-degassed — **P3HT/P3MEEMT** film (`20260709_P3HT_01`). Signal was weaker than a fresh
 sample would give, but the **software plumbing is now proven on real data**:
 
@@ -283,7 +332,7 @@ sample would give, but the **software plumbing is now proven on real data**:
   polarities, sensible film CV; `steps(0)` held +0.301 V with a proper charging-transient decay;
   every `.dta` CURVE-TABLE count == `.dta` rows == echem `.txt` rows. Chrono echem = 300 pts vs
   spectra 301 — **expected** (independent clocks; instruments share only the trigger).
-- **Correct spectroelectrochemistry observed (the real validation).** On the 0.7 V doping step Dean
+- **Correct spectroelectrochemistry observed (the real validation).** On the 0.7 V doping step the user
   saw the neutral **π→π\* band bleach and polaron absorption grow**, cleanly reversing on dedoping —
   the textbook p-doping signature, correlated with the potential step. So the coupled system captured
   genuine SEC behavior, not just well-formed files. Weak/late doping (little happened below ~0.7 V,

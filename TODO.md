@@ -2,9 +2,9 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
-## Sanitising the repository history — Dean, 2026-09-15, future
+## Sanitising the repository history — the user, 2026-09-15, future
 
-Dean: *"I wonder about sanitizing the repo at some point in the future and resetting the
+Requested: *"I wonder about sanitizing the repo at some point in the future and resetting the
 repo so to speak. That history thing is a challenge."*
 
 **What is exposed** (names only; the data files' contents are clean 8-column format):
@@ -38,7 +38,7 @@ outcome, rename-forward plus the new CLAUDE.md rule is probably proportionate �
 exposure is a folder name, not data or interpretation. Reach for `filter-repo` only if
 the composition itself must genuinely not be discoverable.
 
-## Richer models — Dean, 2026-09-15, explicitly for later
+## Richer models — the user, 2026-09-15, explicitly for later
 
 Design settled in [`docs/analysis-design.md`](docs/analysis-design.md); not started.
 
@@ -46,7 +46,7 @@ Design settled in [`docs/analysis-design.md`](docs/analysis-design.md); not star
       vector, shared timescales, per-band amplitudes and baselines; stack the traces into
       one residual vector, no new solver. Start on the rungs where the prefactor signs
       agree (+0.2…+0.5 V), where it should work; let it break at +0.6/+0.7 V.
-- [ ] **2. Capture Dean's polaron → bipolaron leakage derivations.** They are the
+- [ ] **2. Capture the polaron → bipolaron leakage derivations.** They are the
       specification for the τ₃ term and are not in this repo. `private-notes/` if they
       carry sample specifics, `docs/` otherwise. Needed BEFORE implementing τ₃.
 - [ ] **3. Tri-exponential**, τ₃ for the bipolaron channel, with τ₁ and τ₂ pinned by
@@ -58,9 +58,9 @@ Design settled in [`docs/analysis-design.md`](docs/analysis-design.md); not star
 - [ ] **Re-check the model ranking per system.** biexp beating stretched 4:1 is a fact
       about P3HT 90:10 / KPF₆ at 800 nm, not a default to carry forward.
 
-## Constrain prefactors to the same sign — Dean, 2026-09-15, not started
+## Constrain prefactors to the same sign — the user, 2026-09-15, not started
 
-Dean: *"Sometimes a poor fit switches prefactor signs. We should consider adding a check
+Requested: *"Sometimes a poor fit switches prefactor signs. We should consider adding a check
 box for same sign-ness."*
 
 `FitResult.mixed_amplitude_signs` already FLAGS it (`46fec8e`). What is missing is the
@@ -79,13 +79,35 @@ competing processes.
 **Evidence the flag tracks physics, not fit noise** (MEASURED on
 `the 20250710 reference run`, biexp): at the polaron band (800 nm) the prefactors agree in
 sign at +0.2…+0.5 V and go MIXED at +0.6 and +0.7 V; at π–π* (550 nm) they agree at
-**every** rung including those two. Dean predicted exactly that asymmetry — a bipolaron
+**every** rung including those two. the user predicted exactly that asymmetry — a bipolaron
 steals from the polaron band without creating a competing process at π–π*. A numerical
 instability would have shown at both wavelengths.
 
-## Getting data and figures OUT (2026-09-15) — Dean's ask, not started
+## Minimum integration time — wire it once both detectors are probed
 
-Dean: *"eventually it would be good to get data out in a nice format such as the
+MEASURED on a 2048 px detector (SensorType 22): the SDK exposes NO minimum under
+either spelling, and `AVS_PrepareMeasure` accepts down to **0.009033 ms**. Verified
+genuine against the detector's own integral — `counts = 112 + 26051·t` to within 1%
+from 0.009 to 0.1 ms — so the cheap bisect is trustworthy and now runs as the fallback
+in `minimum_integration_time()`.
+
+- [ ] **Probe the other detector** (`AvaSpec-ULS2048L`, docs say ~1.05 ms) with
+      `examples/probe_min_integration.py`. If it comes back near 1.05 ms that confirms
+      a >100× spread between detectors; if it comes back at 0.009 too, the 1.05 ms in
+      `metrohm-rig-status.md` came from a datasheet rather than the hardware.
+- [ ] **Then wire it:** default `integration_time_ms` and `lin_start_ms` follow the
+      probe at Connect instead of the hardcoded 0.022. **This is a live bug on the
+      ULS2048L** — `lin_start_ms` 0.022 and `lin_stop_ms` 0.15 both sit below a
+      1.05 ms floor, so the entire linearity ramp is unachievable there.
+- [ ] **Scale `lin_stop_ms` from the floor too.** On a 1.05 ms detector the stop wants
+      to be nearer 8 ms to show curvature. On the fast detector the existing 0.15 is
+      about right: counts depart the linear fit by 13% at 0.2 ms.
+- [ ] **Reject out-of-range exposures with a clear message** rather than letting the
+      poll loop time out, which is the symptom otherwise.
+
+## Getting data and figures OUT (2026-09-15) — the ask, not started
+
+Requested: *"eventually it would be good to get data out in a nice format such as the
 graphs... One other option I think might be nice is to export an Igorpro file I can open
 in Igor with all the data and graph info setup to print, since Igor has such amazing
 graphing and formatting capabilities."*
@@ -108,7 +130,7 @@ where editing stops:
       create the waves and `Display` them. `.pxp` is an undocumented binary container,
       not worth reverse-engineering. Testable without Igor, since it is text.
 
-      **Emit well-named, correctly-scaled waves plus a minimal `Display`, and let Dean
+      **Emit well-named, correctly-scaled waves plus a minimal `Display`, and let the user
       style it in Igor.** Generating `ModifyGraph` calls means guessing at formatting
       conventions he already has, and he would end up fighting the generated styling
       rather than using Igor's strengths. Roughly a day's work for the wave export.
@@ -121,11 +143,11 @@ Tab 5 works and is validated on real data (see STATUS.md). What is left:
       PER SEGMENT and drifts 783 → 808 nm monotonically with potential on
       `the 20250710 reference run` — probably a real red-shift of the polaron band with
       doping level, not noise, which is why it was not silently locked. The ladder title
-      says `(AUTO, VARIES)` when the points do not share a wavelength. Dean's call.
+      says `(AUTO, VARIES)` when the points do not share a wavelength. the call.
 - [ ] **`FIT_MAX_TAU_SPANS = 10` and `FIT_SD_REJECT_FRACTION = 0.5`** are judgement
       calls that now have real data behind them but have not been tuned against a
       second sample.
-- [ ] **A second probe wavelength for the bipolaron band.** Dean: bipolaron formation
+- [ ] **A second probe wavelength for the bipolaron band.** Requested: bipolaron formation
       eats the polaron population at high doping, so τ at 800 nm is not purely polaron
       growth. The tab already fits any wavelength typed; what is missing is fitting two
       at once and comparing.
@@ -135,9 +157,10 @@ Tab 5 works and is validated on real data (see STATUS.md). What is left:
 - [ ] **DOS v2 — the capacitive baseline.** Double-layer charging is not density of
       states, and v1 subtracts nothing. Needs a decision about how, and it must be
       visible on the plot.
-- [ ] **Confirm the electroactive area** with Dean — whether the cell masks it (an
-      O-ring at ~6 mm) or the film is simply immersed. The field defaults to 0 =
-      unknown rather than guessing, since the wrong area scales the DOS directly.
+- [x] ~~Confirm the electroactive area~~ — it is the IMMERSED coated area, one side.
+      Default 1.6 cm² = 2 cm immersed × 0.8 cm wide (the slide is cut narrower than a
+      1 cm cell). Check the depth each run; spin-coating coverage is the real
+      uncertainty.
 - [ ] **Scan-rate check** — run several rates and confirm i/v collapses onto one
       curve. A bench protocol, not code, but the GUI should not present a DOS that has
       never had it.
@@ -147,7 +170,7 @@ Tab 5 works and is validated on real data (see STATUS.md). What is left:
       Analysis tab. CSV export of the same rows is still item 1 under "Getting data
       and figures OUT".
 
-## Release gate for v0.3.0 — one bench run before merging `gui-dev` → `main` (Dean, 2026-07-27)
+## Release gate for v0.3.0 — one bench run before merging `gui-dev` → `main` (the user, 2026-07-27)
 
 Almost everything since the v0.2.0 tag is additive (logging, provenance, docs). **One thing is not:**
 the lost-potentiostat handling can now *stop a run*, and it has only ever executed against fakes. A
@@ -180,17 +203,17 @@ Then: bump `__version__` in `spec_echem/build_info.py` (single source — `setup
 `CHANGELOG` `[Unreleased]` → `[0.3.0]`, commit, `merge --no-ff` to `main`, tag `v0.3.0`, push both.
 Theme for the release notes: **provenance and diagnosability**.
 
-## Document the trigger cable build (Dean, 2026-07-14)
+## Document the trigger cable build (the user, 2026-07-14)
 
 `docs/sop.md` §2.1 gives the trigger *endpoints* (Gamry DIGOUT0 → Avantes DB26 pin 6) but not how
 the cable is **made**: Gamry-side connector and which conductor carries DIGOUT0, DB26 shell and pin-6
-termination, ground/shield, cable length. That knowledge currently exists only in Dean's head and in
+termination, ground/shield, cable length. That knowledge currently exists only in the head and in
 the single cable on the bench — if it's damaged, or a second rig is built, there's nothing to work
-from. A placeholder marks the spot in the SOP. **Needs Dean's bench notes / photos.**
+from. A placeholder marks the spot in the SOP. **Needs the bench notes / photos.**
 
 ## Mid-run Gamry USB pull — DIAGNOSED + FIXED 2026-07-27
 
-**What actually happens** (Dean pulled the cable during Pre-dedoping, Python mode):
+**What actually happens** (the user pulled the cable during Pre-dedoping, Python mode):
 `tkp.pstat_is_valid()` in the Gamry poll loop *does* notice, so the loop exits and the echem data
 stops. But the thread then falls through to "capture data, write `.dta`, done" with `_error` still
 `None` — **an abnormal exit was indistinguishable from the step finishing.** The spectrometer runs
@@ -202,7 +225,7 @@ its own loop and knows nothing about it, so the segment completed with a *full* 
 the step the instrument stopped responding, and how many echem points were captured. Runs after the
 poll loop on the Gamry thread — no acquisition-timing cost. Covered by tests.
 
-**Also fixed — the run now stops at the segment that failed** (Dean's call: write the partial data,
+**Also fixed — the run now stops at the segment that failed** (the call: write the partial data,
 then stop). `Potentiostat.device_lost()` is the seam; the worker checks it *after* writing and
 emitting the segment, then breaks with `reason="error"`. Deliberately a controlled break, **not** an
 exception raised from `run_one_segment`'s `finally` — that would have masked any genuine upstream
@@ -230,7 +253,7 @@ them. Highest-value targets next, all reachable with the same offscreen pattern:
 - Instrument-tab guards: load-before-connect, dark/ref dropped when the wavelength window widens.
 - Results tab: segment selector across refreshes; discarded segments staying out.
 
-## "Test your setup" probes — Avantes done, Autolab connect probe to follow (Dean, 2026-07-14)
+## "Test your setup" probes — Avantes done, Autolab connect probe to follow (the user, 2026-07-14)
 
 Standalone, read-only "can this PC talk to the instrument from Python?" self-checks — useful for
 anyone adopting the repo (and prompted by a colleague with a Metrohm **Autolab PGSTAT302N** + an
@@ -251,7 +274,7 @@ Design findings live in the `hardware-portability` memory.
       `potentiostat.py` seam. Graceful no-pythonnet path smoke-tested on the Mac (exit 0).
       **Still needs the colleague's Win box to confirm:** (a) pythonnet/SDK **bitness** match,
       (b) `Connect()` really leaves the cell off (verify on a dummy cell first). Built ahead of the
-      original "wait for the Avantes check" gate at Dean's direction (2026-07-22).
+      original "wait for the Avantes check" gate at the direction (2026-07-22).
 - **Findings that make an eventual Autolab *backend* look modest, not scary** (see memory): the SDK
   is **procedure-based** — CV/CA are `.nox` procedure files you `LoadProcedure` + `Measure()`, which
   mirrors your existing **External mode** (`.GSequence` holds the recipe; Python runs it).
@@ -293,7 +316,7 @@ On an **AvaSpec-ULS2048L** those pixels are **410.2–1123.7 nm**, so ~1124–13
 
 - [~] ~~Make the calibrated pixel window bench-configurable~~ — **not doing it.** Closed on data
       2026-09-04 (above). Revisit only with a detector that can see past 1100 nm; if that day comes,
-      the design Dean chose is: hard limits read per spectrometer from the device at connect, a
+      the design the user chose is: hard limits read per spectrometer from the device at connect, a
       default window expressed in **nm** rather than pixels, an operator window anywhere inside
       those limits, and the best part of *that* detector's range preferred over consistency between
       instruments (a changed row count on the PLU rig is acceptable).
@@ -311,7 +334,7 @@ and/or roll our own raw-`.DTA` parser, address:
 - [ ] **Pre-dedoping is skipped.** The converter ignores `prededope*` files. For consistency, add
       `prededope_#N.dta → prededoping(N).txt` (pairs with `prededopingspectra(N).txt`), even though
       it's an optional/low-value step.
-- [ ] **Move pre-dedoping output to a subfolder (Dean, 2026-07-10) — maybe make it the default.**
+- [ ] **Move pre-dedoping output to a subfolder (the user, 2026-07-10) — maybe make it the default.**
       Pre-dedoping is a precautionary baseline (confirm the film starts un-doped), NOT part of the
       doping/dedoping analysis series — always `run_number` 0, one set per run. Idea: write the
       pre-dedoping set (`prededopingspectra(0).txt` + `prededoping(0).txt` + its `.dta`) into a
@@ -385,7 +408,7 @@ DIGOUT0 handshake confirmed. Remaining items:
 
 ## Echem plotting in the GUI (Phase 1)
 
-- [x] **Live echem timing SIGNED OFF (Dean, 2026-07-07).** Ran the CV live/off A/B ×2 pairs on the
+- [x] **Live echem timing SIGNED OFF (the user, 2026-07-07).** Ran the CV live/off A/B ×2 pairs on the
       incremental-redraw build. Across all 4 runs (~160 spectra) NO 119-style spikes; steady-state
       (spectra 2–40) all within ~100–103 ms, ~±1.5 ms of the 100 ms target, live indistinguishable
       from off. The only outlier is the first interval (spectrum 0→1, ~86–97 ms) — the trigger-armed
@@ -430,7 +453,7 @@ DIGOUT0 handshake confirmed. Remaining items:
       window by index (`_crop`), never touching measconfig. Instrument-tab plots/loads crash-proofed.
       Downstream confirmed 2026-07-10: a **cropped run** (400.5–1049.7 nm, salt blank) reads cleanly
       through `OECT_processing`. **DONE + RELEASED to main.**
-- [ ] **Expose the other hard-coded `measconfig` fields (future, Dean 2026-07-10).** Now that the window
+- [ ] **Expose the other hard-coded `measconfig` fields (future, the user 2026-07-10).** Now that the window
       is config-driven, `_create_measurement_config` could expose smoothing, **saturation detection**
       (ties to the linearity-check item below), and the averaging model instead of hard-coding them.
 - [x] **Linearity check — DONE + hardware-validated (2026-07-13).** Instrument tab has a `Linearity Check`
@@ -442,14 +465,14 @@ DIGOUT0 handshake confirmed. Remaining items:
       clip, so a deviation-only criterion never fires and puts the working point at ~94% of full scale. The
       recommendation therefore takes the **tighter of two constraints** — 5% below the limit of linearity,
       or peak counts ≤ a **max-fill** fraction of full scale. Defaults **85% fill / 2% tolerance** confirmed
-      good by Dean on hardware (halogen + ND: saturates ~0.11 ms → recommends ~0.0885 ms).
-- [ ] **Linearity: per-source ramp defaults (Dean, 2026-07-13).** Saturation depends strongly on the
-      light source — Dean has a halogen+ND (saturates ~0.11 ms) and an Avantes **AvaLight**. Start/Stop are
+      good by the user on hardware (halogen + ND: saturates ~0.11 ms → recommends ~0.0885 ms).
+- [ ] **Linearity: per-source ramp defaults (the user, 2026-07-13).** Saturation depends strongly on the
+      light source — the user has a halogen+ND (saturates ~0.11 ms) and an Avantes **AvaLight**. Start/Stop are
       manual and "Find saturation" auto-adapts, so switching sources already works; only the *default*
       Stop (0.15 ms) is tuned to the halogen. If source-swapping becomes routine, remember the last-used
       Start/Stop per source in settings rather than shipping one default.
 
-## GUI UX — Instrument tab potentiostat controls (Dean, 2026-07-05)
+## GUI UX — Instrument tab potentiostat controls (the user, 2026-07-05)
 
 - [x] **Reconsider the layout — DONE (2026-07-07, `329ed23`).** Instrument tab now pairs the
       Spectrometer Connection and Potentiostat boxes side by side, and the potentiostat mirrors the
@@ -460,17 +483,17 @@ DIGOUT0 handshake confirmed. Remaining items:
       requiring the click, so the green "● Connected — …" appears on switch. Weigh against the probe's
       cost (opens/closes a toolkitpy session) and doing it silently on every toggle.
 
-## GUI UX — data folder guidance / existing-folder warning (Dean, 2026-07-06)
+## GUI UX — data folder guidance / existing-folder warning (the user, 2026-07-06)
 
 - [x] **Warn when the target run folder already exists.** DONE (2026-07-06): Start now checks
       `{data_root}/{data_folder}`; if it exists and contains files, a confirm dialog (default Cancel)
-      warns that continuing may overwrite a previous run. Prompted by Dean actually overwriting older
+      warns that continuing may overwrite a previous run. Prompted by the user actually overwriting older
       data by forgetting to rename the folder — silent `mkdir(exist_ok=True)` clobbered same-named files.
 - [ ] **Still to do: a short student-facing guide/tooltip** that Save location = the PARENT and Data
       folder name = the subfolder the app creates (the 1–2 sentence quick-start noted 2026-07-03), to
       also head off the *double-nesting* case (browsing into a run folder, then typing its name too).
 
-## Future — light-source control (AvaLight-HAL-S-Mini2 halogen source) (Dean, 2026-07-07)
+## Future — light-source control (AvaLight-HAL-S-Mini2 halogen source) (the user, 2026-07-07)
 
 - [ ] **Software-control the AvaLight-HAL-S-Mini2 halogen lamp from the GUI (future).** The compact
       Avantes halogen source has a shutter (and, depending on config, a TTL/software-controllable
@@ -488,7 +511,7 @@ DIGOUT0 handshake confirmed. Remaining items:
       - Ties to the existing dark/ref Collect/Save/Load controls and the linearity/saturation TODO
         (a stable, known lamp state helps keep reference counts in the linear regime).
 
-## Future — "import a .nox and run it" as a first-class feature (Dean, 2026-09-06; not now)
+## Future — "import a .nox and run it" as a first-class feature (the user, 2026-09-06; not now)
 
 Today the Autolab templates are two paths in `config/bench.ini` (`autolab_nox_cv`,
 `autolab_nox_ca`), hand-edited in NOVA, with the driver writing known parameters into known
@@ -537,7 +560,7 @@ Open, roughly in order of value:
   data files, a "folder already contains N files — overwrite?" confirm. `write_run_metadata`
   or the Run tab's Start handler is the seam.
 - **Live spectra plotting during a run — WANTED, but gated on the loop timing budget
-  (Dean, 2026-09-11).** Today plots update post-segment only; `CLAUDE.md` records that
+  (the user, 2026-09-11).** Today plots update post-segment only; `CLAUDE.md` records that
   as a deliberate simplification, with a throttled 2-5 Hz redraw noted as feasible.
   Rendering happens on the GUI thread, never the acquisition thread, so in principle it
   cannot touch the timing budget — the acquisition loop never blocks on the GUI, and
@@ -574,7 +597,7 @@ Open, roughly in order of value:
   (`measure()` + `on_tick()`) rather than just the measurement, so the deadline
   compensates for the real per-iteration work. Cheap to write, but it CHANGES PACING
   BEHAVIOUR, so it needs a bench run to confirm — compare cadence mean/min/max against
-  `20260909_test12` on the same settings before believing it. **Dean to test next
+  `20260909_test12` on the same settings before believing it. **the user to test next
   session.**
 
   Note in `Ei` mode `pump()` is not a side job — it IS the echem acquisition, so the
@@ -632,7 +655,7 @@ running an actual experiment rather than by testing.
   presumably probes at the initial potential, where a film draws almost nothing. If so
   the fix is a NOVA edit (fixed range in the CV template), not a code change. Unverified.
 
-## HDF5 output alongside the ascii files (Dean, 2026-09-11)
+## HDF5 output alongside the ascii files (the user, 2026-09-11)
 
 **Why:** disk. A single long run already writes ~1.6 M rows per spectra file, and the
 8-column tab-separated format stores every wavelength value again for every time point.
@@ -683,7 +706,7 @@ it, he writes ~6 MB of H5. The ascii is an intermediate nobody wants — it is o
 handoff format. Writing his layout from the acquisition side removes the parse step for
 anyone who wants H5.
 
-### Two questions to settle WITH RAJ before building (Dean: needs a conversation)
+### Two questions to settle WITH RAJ before building (Requested: needs a conversation)
 
 1. **Is the H5 an analysis convenience or the archival record?** His file keeps absorbance
    and current only — no raw counts, no dark, no reference. Our 8-column format carries all
@@ -700,7 +723,7 @@ Also worth raising with him: whether he would *read* an acquisition-written H5 d
 would rather we keep producing ascii and leave his pipeline untouched. If the latter, this is
 purely a disk-space feature for us and the layout is ours to choose.
 
-### The format should be vendor-neutral (Dean, 2026-09-11)
+### The format should be vendor-neutral (the user, 2026-09-11)
 
 **None of this is Avantes- or Autolab-specific, and the layout should not pretend otherwise.**
 Everything the file holds is generic: a wavelength axis, raw counts, a dark and a reference,
@@ -754,7 +777,7 @@ Not included above: HDF5 per-dataset gzip/lzf. Counts should compress 2-4x (smoo
 limited range), absorbance less. The archival file plausibly lands nearer 15-25 MB in practice —
 worth measuring on real data rather than estimating.
 
-## Current range — a range-finding test run, NOT autoscaling (Dean, 2026-09-11)
+## Current range — a range-finding test run, NOT autoscaling (the user, 2026-09-11)
 
 **Decision: do not autoscale.** `autolab_current_range` stays a single value for a whole
 run, chosen deliberately. Two reasons, and the second is the stronger:
@@ -793,7 +816,7 @@ settled, 2026-09-11). No single range serves both: choosing for the peak avoids 
 and coarsens the settled value; choosing for the settled value clips the transient. The
 probe should report **both** numbers so the choice is made with them visible.
 
-## Analysis in the GUI — quick, during acquisition (Dean, 2026-09-11)
+## Analysis in the GUI — quick, during acquisition (the user, 2026-09-11)
 
 **The value is doing it WHILE the run is going, not afterwards.** On 2026-09-11, film A
 collapsed after the +0.8 V excursion in `film2` and nothing said so until the files were
@@ -804,7 +827,7 @@ That is the whole argument. Publication-quality and exploratory work stays in Ju
 
 ### Where it goes — probably the existing Results tab, not a fifth
 
-Dean's own read, and it looks right: the Results tab already loads a run folder
+the own read, and it looks right: the Results tab already loads a run folder
 (`discover_run_segments()` / `read_spectra_absorbance()`) and already has a segment selector and
 canvases. Analysis is a second view of data it has in hand, not a new place to load things. A
 fifth tab would duplicate the loading and split "look at the run" across two places.
