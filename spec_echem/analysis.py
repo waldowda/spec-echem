@@ -227,21 +227,6 @@ def probe_wavelength(absorbance, wavelengths, doping=True):
 
 # --- fitting -----------------------------------------------------------------
 
-def default_fit_start(time, current):
-    """The time of peak |current| — where the capacitive spike ends.
-
-    A potential step draws a large capacitive transient before ion kinetics dominate
-    (625 µA against a 30 µA settled value, 2026-09-11), and fitting through it wrecks a
-    single exponential. This is computed rather than guessed, and anchors the optical
-    and electrical fits to the same instant.
-    """
-    t = np.asarray(time, dtype=float)
-    i = np.abs(np.asarray(current, dtype=float))
-    if not len(t) or len(t) != len(i) or not np.any(np.isfinite(i)):
-        return None
-    return float(t[int(np.nanargmax(i))])
-
-
 class FitResult:
     """One fit. `ok` is False when the fit did not converge or its uncertainty makes
     the number meaningless — the caller shows the reason rather than a plausible

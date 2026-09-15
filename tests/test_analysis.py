@@ -10,7 +10,7 @@ import pytest
 
 from spec_echem.analysis import (
     FitResult,
-    auto_wavelengths, default_fit_start, fit_transient, mean_relaxation_time,
+    auto_wavelengths, fit_transient, mean_relaxation_time,
     tau_ratio, model_exp, model_biexp, model_stretched,
 )
 
@@ -59,27 +59,6 @@ def test_a_shape_mismatch_is_refused_rather_than_broadcast():
     a, wl = _film()
     with pytest.raises(ValueError, match="n_wavelengths"):
         auto_wavelengths(a, wl[:-5])
-
-
-# --- the fit start: where the capacitive spike ends -------------------------
-
-def test_the_default_start_is_the_current_peak():
-    """A potential step spikes capacitively before ion kinetics dominate; fitting
-    through it wrecks a single exponential."""
-    t = np.linspace(0.0, 30.0, 301)
-    spike = 6.0e-4 * np.exp(-t / 0.05)      # the capacitive transient
-    ionic = 3.0e-5 * np.exp(-t / 4.0)
-    assert default_fit_start(t, spike + ionic) == pytest.approx(0.0, abs=0.2)
-
-    # and it tracks the peak wherever it is
-    shifted = np.zeros_like(t)
-    shifted[120] = 1.0
-    assert default_fit_start(t, shifted) == pytest.approx(t[120])
-
-
-def test_no_current_gives_no_start():
-    assert default_fit_start([], []) is None
-    assert default_fit_start([0.0, 1.0], [np.nan, np.nan]) is None
 
 
 # --- fitting: recover a known answer ----------------------------------------

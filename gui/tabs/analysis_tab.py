@@ -18,7 +18,7 @@ from qtpy.QtWidgets import (
 from qtpy.QtCore import Qt
 
 from spec_echem.analysis import (
-    MODELS, default_fit_start, fit_transient, probe_wavelength, tau_ratio,
+    MODELS, fit_transient, probe_wavelength, tau_ratio,
 )
 from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
                              DATA_TYPE_DOPING, DATA_TYPE_DEDOPING)
@@ -100,9 +100,10 @@ class AnalysisTab(QWidget):
         # step is one data point. A 1 s click jumped ten points at a time, which is
         # far too coarse for trimming a capacitive spike.
         self.start_spin.setSingleStep(0.1)
+        self.start_spin.setSpecialValueText("start of segment")
         self.start_spin.setToolTip(
-            "First point the fit uses. Raise it to exclude the capacitive spike,\n"
-            "then refit and watch the residual panel.")
+            "First point the fit uses. 0 = the start of the segment. Raise it to\n"
+            "exclude the capacitive spike, then refit and watch the residual panel.")
         self.stop_spin = QDoubleSpinBox()
         self.stop_spin.setRange(0.0, 100000.0)
         self.stop_spin.setDecimals(3)
@@ -115,20 +116,13 @@ class AnalysisTab(QWidget):
         self.stop_spin.setValue(0.0)
         self.stop_spin.setToolTip(
             "Last point the fit uses. 0 = the end of the segment.")
-        self.auto_start_check = QCheckBox("auto start")
-        self.auto_start_check.setChecked(True)
-        self.auto_start_check.setToolTip(
-            "Sets the start to the time of peak |I|. On a potential step the\n"
-            "capacitive spike peaks at the FIRST sample, so in practice this is\n"
-            "t = 0 and excludes nothing -- the box beside it shows the value it\n"
-            "chose. UNCHECK IT to type a start time and cut the spike.")
-        self.auto_start_check.toggled.connect(self._sync_start_enabled)
+        # Live: the greyed excluded region follows these before any refit, so the
+        # effect of moving an edge is visible while choosing it.
         self.start_spin.valueChanged.connect(self._draw_fit)
         self.stop_spin.valueChanged.connect(self._draw_fit)
         span.addWidget(self.start_spin)
         span.addWidget(QLabel("to"))
         span.addWidget(self.stop_spin)
-        span.addWidget(self.auto_start_check)
         span.addStretch()
         form.addRow("Fit window:", span)
 
@@ -241,13 +235,9 @@ class AnalysisTab(QWidget):
         split.addWidget(plot_box)
 
         layout.addWidget(split, stretch=1)
-        self._sync_start_enabled(True)
         self.fit_canvas.show_message("Fit a segment to see the data and its fit.")
         self.ladder_canvas.show_message(
             "Fit a segment to build this plot.")
-
-    def _sync_start_enabled(self, auto):
-        self.start_spin.setEnabled(not auto)
 
     # --- data ------------------------------------------------------------
 
@@ -348,15 +338,6 @@ class AnalysisTab(QWidget):
         label = self._current_label()
         if not label:
             return
-        t, i, _q = self._echem_traces(label)
-        if t is not None and len(t) and self.auto_start_check.isChecked():
-            start = default_fit_start(t, i)
-            if start is not None:
-                # Blocked: setValue emits valueChanged, which would draw the fit
-                # a second time on every segment change.
-                self.start_spin.blockSignals(True)
-                self.start_spin.setValue(start)
-                self.start_spin.blockSignals(False)
         self._show_fits(self._fits.get(label))
         self._draw_fit()
 
@@ -403,10 +384,12 @@ class AnalysisTab(QWidget):
     def _window(self, traces):
         """(start, stop) for the fit, shared by fitting and by the shading on the
         plot — one definition, so the grey region cannot disagree with the fit."""
-        start = self.start_spin.value() if not self.auto_start_check.isChecked() else None
-        if start is None and "current" in traces:
-            start = default_fit_start(*traces["current"])
-        return start, (self.stop_spin.value() or None)
+        # 0 means "the whole segment" at both ends, so neither box needs re-typing
+        # for a different run. There was a checkbox here that computed a start from
+        # the peak |I|; on a potential step that peaks at the FIRST sample, so it
+        # resolved to 0 and excluded nothing -- a control whose only setting was the
+        # default. Dean: "I don't see a point of the auto start check box."
+        return (self.start_spin.value() or None), (self.stop_spin.value() or None)
 
     # --- display ---------------------------------------------------------
 
