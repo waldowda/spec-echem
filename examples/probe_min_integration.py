@@ -210,3 +210,7 @@ def main():
         print("  detector is saturated at every step — check the counts column.",
               flush=True)
     print("\nPaste this whole output back.", flush=True)
+
+
+if __name__ == "__main__":
+    main()
