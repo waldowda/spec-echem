@@ -540,7 +540,9 @@ def test_the_cv_is_not_offered_for_transient_fitting(analysis_window):
     w.segments_by_label["CV"] = Segment("CV", DATA_TYPE_CV, 0, 3, 0.1, True)
     w.analysis_tab.refresh_segments()
 
-    labels = [w.analysis_tab.segment_combo.itemText(i)
+    # itemData, not itemText: the combo DISPLAYS "Doping 0  (+0.301 V)" but carries
+    # the bare label, which is the key into win.results.
+    labels = [w.analysis_tab.segment_combo.itemData(i)
               for i in range(w.analysis_tab.segment_combo.count())]
     assert "Doping 0" in labels and "CV" not in labels
 
@@ -907,3 +909,25 @@ def test_a_failed_fit_shows_a_prominent_boxed_reason(analysis_window):
     assert note.get_bbox_patch() is not None, "expected a boxed warning"
     # The legend is what it used to collide with, and with no fit it said only "data".
     assert tab.fit_canvas.ax.get_legend() is None
+
+
+def test_the_segment_selector_names_the_potential(analysis_window):
+    """The ladder plots against potential, so the selector has to name one --
+    otherwise the only place a potential appears is an axis you cannot map back to
+    a segment. The bare label stays as itemData, since it keys win.results."""
+    tab = analysis_window.analysis_tab
+    tab.refresh_segments()
+    assert tab.segment_combo.itemData(0) == "Doping 0"
+    assert "Doping 0" in tab.segment_combo.itemText(0)
+    assert "V" in tab.segment_combo.itemText(0), tab.segment_combo.itemText(0)
+
+
+def test_the_controls_sit_beside_the_table_not_above_it(analysis_window):
+    """The fit plot is the thing being read; the narrow control form used to take
+    the full width and squeeze it into a third."""
+    from qtpy.QtWidgets import QSplitter
+    tab = analysis_window.analysis_tab
+    row = tab.table.parent()
+    assert isinstance(row, QSplitter)
+    assert row.indexOf(tab.table) >= 0
+    assert row.indexOf(tab.fit_canvas) == -1, "the plot must not share the top row"

@@ -89,12 +89,13 @@ class AnalysisTab(QWidget):
         self.stop_spin.setValue(0.0)
         self.stop_spin.setToolTip(
             "Last point the fit uses. 0 = the end of the segment.")
-        self.auto_start_check = QCheckBox("auto (peak |I|)")
+        self.auto_start_check = QCheckBox("auto start")
         self.auto_start_check.setChecked(True)
         self.auto_start_check.setToolTip(
-            "Start at the time of peak |I|. On a potential step the spike usually\n"
-            "peaks at the first sample, so this often means t = 0 and excludes\n"
-            "nothing. UNCHECK IT to type a start time and exclude the spike.")
+            "Sets the start to the time of peak |I|. On a potential step the\n"
+            "capacitive spike peaks at the FIRST sample, so in practice this is\n"
+            "t = 0 and excludes nothing -- the box beside it shows the value it\n"
+            "chose. UNCHECK IT to type a start time and cut the spike.")
         self.auto_start_check.toggled.connect(self._sync_start_enabled)
         self.start_spin.valueChanged.connect(self._draw_fit)
         self.stop_spin.valueChanged.connect(self._draw_fit)
@@ -128,22 +129,29 @@ class AnalysisTab(QWidget):
         buttons.addStretch()
         form.addRow("", buttons)
 
-        layout.addWidget(controls)
-
-        split = QSplitter(Qt.Vertical)
-
-        # Top half: the numbers next to the curve they came from. A tau is not
-        # assessable on its own -- the fit has to be visible beside it.
+        # Controls beside the table rather than across the top: the form is narrow
+        # and left most of the window empty, which squeezed the fit plot into a
+        # third of the width. The plot is the thing being read, so it gets the lot.
         top = QSplitter(Qt.Horizontal)
+        top.addWidget(controls)
 
         self.table = QTableWidget(len(TRACES), 4)
         self.table.setHorizontalHeaderLabels(["trace", "tau (s)", "beta", "SD (s)"])
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Stretch)
+        # The trace names are fixed strings; stretching them equally with the number
+        # columns truncated "absorbance" to "absorba..." once the table shared the
+        # row with the controls.
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         for row, trace in enumerate(TRACES):
             self.table.setItem(row, 0, QTableWidgetItem(trace))
         top.addWidget(self.table)
+        top.setStretchFactor(0, 1)
+        top.setStretchFactor(1, 1)
+        layout.addWidget(top)
 
+        split = QSplitter(Qt.Vertical)
         self.fit_canvas = MplCanvas(self, xlabel="Time (s)", ylabel="Absorbance")
         # Connected only once the canvas exists: selectRow() emits immediately, and
         # a handler that draws into a not-yet-built canvas crashes the tab.
@@ -151,10 +159,7 @@ class AnalysisTab(QWidget):
         # is no second control that can disagree with it about what is shown.
         self.table.currentCellChanged.connect(lambda *_: self._draw_fit())
         self.table.selectRow(0)
-        top.addWidget(self.fit_canvas)
-        top.setStretchFactor(0, 1)
-        top.setStretchFactor(1, 3)
-        split.addWidget(top)
+        split.addWidget(self.fit_canvas)
 
         plot_box = QWidget()
         plot_layout = QVBoxLayout(plot_box)
@@ -184,9 +189,22 @@ class AnalysisTab(QWidget):
 
     # --- data ------------------------------------------------------------
 
+    def _segment_display(self, label):
+        """'Doping 5  (+0.700 V)'. The ladder plots against potential, so the segment
+        that produced a point has to name one too -- otherwise the only place a
+        potential appears is an axis you cannot map back to a selection."""
+        seg = self.win.segments_by_label.get(label)
+        text = self.win.segment_potential_text(seg) if seg is not None else ""
+        return f"{label}  ({text})" if text else label
+
+    def _current_label(self):
+        """The segment's REAL label. The combo displays the potential alongside it,
+        so the visible text is not the key into win.results -- itemData is."""
+        return self.segment_combo.currentData()
+
     def refresh_segments(self):
         """Repopulate from the main window's results store, keeping the selection."""
-        previous = self.segment_combo.currentText()
+        previous = self._current_label()
         self.segment_combo.blockSignals(True)
         self.segment_combo.clear()
         for label in self.win.results:
@@ -194,9 +212,9 @@ class AnalysisTab(QWidget):
             # CV is a sweep, not a step — there is no transient to fit.
             if seg is not None and seg.data_type == DATA_TYPE_CV:
                 continue
-            self.segment_combo.addItem(label)
+            self.segment_combo.addItem(self._segment_display(label), label)
         if previous:
-            i = self.segment_combo.findText(previous)
+            i = self.segment_combo.findData(previous)
             if i >= 0:
                 self.segment_combo.setCurrentIndex(i)
         self.segment_combo.blockSignals(False)
@@ -270,7 +288,7 @@ class AnalysisTab(QWidget):
     # --- actions ---------------------------------------------------------
 
     def on_segment_changed(self, *_):
-        label = self.segment_combo.currentText()
+        label = self._current_label()
         if not label:
             return
         t, i, _q = self._echem_traces(label)
@@ -286,7 +304,7 @@ class AnalysisTab(QWidget):
         self._draw_fit()
 
     def on_fit_segment(self):
-        label = self.segment_combo.currentText()
+        label = self._current_label()
         if not label:
             return
         result = self._fit_one(label)
@@ -302,12 +320,12 @@ class AnalysisTab(QWidget):
     def on_fit_all(self):
         fitted = 0
         for i in range(self.segment_combo.count()):
-            label = self.segment_combo.itemText(i)
+            label = self.segment_combo.itemData(i)
             result = self._fit_one(label)
             if result is not None:
                 self._fits[label] = result
                 fitted += 1
-        self._show_fits(self._fits.get(self.segment_combo.currentText()))
+        self._show_fits(self._fits.get(self._current_label()))
         self._draw_fit()
         self._draw_ladder()
         if not fitted:
@@ -338,15 +356,19 @@ class AnalysisTab(QWidget):
             if fit is None:
                 cells = ["", "", ""]
             elif not fit.ok:
-                # The reason, not a plausible number — curve_fit returns confident
-                # nonsense rather than raising.
-                cells = [f"failed: {fit.reason[:40]}", "", ""]
+                # Just "failed" here: the column is narrow and the full reason is on
+                # the plot in the red banner. The tooltip carries it too, so the
+                # numbers are reachable without switching traces.
+                cells = ["failed", "", ""]
             else:
                 cells = [f"{fit.tau:.4g}",
                          f"{fit.beta:.3g}" if fit.beta is not None else "-",
                          f"{fit.tau_sd:.2g}"]
             for col, text in enumerate(cells, start=1):
-                self.table.setItem(row, col, QTableWidgetItem(text))
+                item = QTableWidgetItem(text)
+                if fit is not None and not fit.ok:
+                    item.setToolTip(fit.reason)
+                self.table.setItem(row, col, item)
 
     def _on_wavelength_changed(self, *_):
         """A fit belongs to the wavelength it was made at, so moving the probe
@@ -354,14 +376,14 @@ class AnalysisTab(QWidget):
         beside a curve from somewhere else. Current and charge are unaffected."""
         for fits in self._fits.values():
             fits.pop("absorbance", None)
-        self._show_fits(self._fits.get(self.segment_combo.currentText()))
+        self._show_fits(self._fits.get(self._current_label()))
         self._draw_fit()
         self._draw_ladder()
 
     def _draw_fit(self, *_):
         """The selected trace with its fit over it — the plot that makes a tau
         assessable instead of merely reported."""
-        label = self.segment_combo.currentText()
+        label = self._current_label()
         if not label:
             self.fit_canvas.show_message("No segment selected.")
             return
@@ -390,7 +412,7 @@ class AnalysisTab(QWidget):
                     f"\nmean tau = {fit.mean_tau:.4g} s  ({fit.n} pts)")
             fit_y = fit.curve(t)
 
-        title = f"{label} - {trace}"
+        title = f"{self._segment_display(label)} - {trace}"
         if trace == "absorbance" and self.wavelength_spin.value() > 0:
             title += f" @ {self.wavelength_spin.value():.1f} nm"
         elif trace == "absorbance" and self._wavelength is not None:
@@ -405,7 +427,7 @@ class AnalysisTab(QWidget):
         xs, series = [], {t: [] for t in TRACES}
         ratios = []
         for i in range(self.segment_combo.count()):
-            label = self.segment_combo.itemText(i)
+            label = self.segment_combo.itemData(i)
             seg = self.win.segments_by_label.get(label)
             fits = self._fits.get(label)
             if seg is None or not fits:
