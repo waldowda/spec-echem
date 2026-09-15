@@ -300,6 +300,27 @@ class FitResult:
         return float(self.sd[2])
 
     @property
+    def mixed_amplitude_signs(self):
+        """True when a multi-component fit's prefactors disagree in sign.
+
+        Dean: "generally the two prefactors need to be the same sign (except say if
+        there is a bipolaron stealing abs from the polaron then there are competing
+        processes)."
+
+        So this is NOT automatically wrong. Two components of one process pull the
+        same way; opposite signs mean either competing processes -- a bipolaron band
+        growing at the polaron's expense -- or a fit that has wandered somewhere
+        unphysical. Only someone who knows the sample can tell which, so the fit
+        says it rather than deciding.
+        """
+        if self.params is None:
+            return False
+        amps = [v for name, v in zip(MODELS[self.model][1], self.params)
+                if name.startswith("B")]
+        return len(amps) > 1 and not (all(a >= 0 for a in amps)
+                                      or all(a <= 0 for a in amps))
+
+    @property
     def y_at_start(self):
         """The model at the START of its fitted window: A + sum of the prefactors.
 
@@ -387,6 +408,9 @@ class FitResult:
         # plateau A from below, which is what a growing polaron band does. Without A
         # on screen a negative prefactor looks like an error rather than a direction.
         lines.append(f"y(0) = {self.y_at_start:.4g}   (A + sum of prefactors)")
+        if self.mixed_amplitude_signs:
+            lines.append("! prefactors differ in SIGN — competing processes"
+                         " (e.g. bipolaron vs polaron), or a poor fit")
         ci = self.mean_tau_ci95
         lines.append(f"mean tau = {self.mean_tau:.4g}"
                      + (f" +/- {ci:.2g}" if ci is not None else "")

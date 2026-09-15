@@ -509,3 +509,36 @@ def test_a_negative_prefactor_means_a_rising_component():
     assert fit.params[0] == pytest.approx(0.11, abs=0.005)    # A is the plateau
     assert fit.params[1] < 0                                   # B is the rise
     assert fit.y_at_start == pytest.approx(y[0], abs=0.005)
+
+
+def test_opposite_sign_prefactors_are_flagged_not_silently_averaged():
+    """Dean: "generally the two prefactors need to be the same sign (except say if
+    there is a bipolaron stealing abs from the polaron then there are competing
+    processes)."
+
+    So this is not automatically an error, and the fit must not decide. On
+    20250710_P3HT9010_KPF6 the flag fires at exactly +0.6 and +0.7 V -- the two
+    highest doping levels, where a bipolaron would be expected to compete.
+    """
+    t = np.linspace(0.0, 20.0, 400)
+    competing = 0.05 - 0.10 * np.exp(-t / 0.6) + 0.03 * np.exp(-t / 5.0)
+    fit = fit_transient(t, competing, "biexp")
+    assert fit.ok, fit.reason
+    assert fit.mixed_amplitude_signs
+    assert any("SIGN" in line for line in fit.describe())
+
+
+def test_same_sign_prefactors_are_not_flagged():
+    t = np.linspace(0.0, 20.0, 400)
+    y = 1.0 + 1.5 * np.exp(-t / 0.8) + 0.5 * np.exp(-t / 6.0)
+    fit = fit_transient(t, y, "biexp")
+    assert fit.ok and not fit.mixed_amplitude_signs
+    assert not any("SIGN" in line for line in fit.describe())
+
+
+def test_a_single_component_fit_can_never_have_mixed_signs():
+    """One prefactor cannot disagree with itself; the flag is for sums of parts."""
+    t = np.linspace(0.0, 20.0, 200)
+    for model in ("exp", "stretched"):
+        fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0), model)
+        assert not fit.mixed_amplitude_signs
