@@ -398,8 +398,8 @@ class AnalysisTab(QWidget):
             fit = (fits or {}).get(trace)
             if fit is None:
                 cells = ["", ""]
-            elif not fit.ok and fit.mean_tau is None:
-                cells = ["", "no fit"]          # never converged; there is nothing
+            elif fit.did_not_converge:
+                cells = ["", "no fit"]          # nothing to show, not a judgement
             elif not fit.ok:
                 # FLAGGED, not hidden. The fit converged, so it has numbers worth
                 # seeing -- Dean: "since you didn't share the results the scientist
@@ -407,7 +407,7 @@ class AnalysisTab(QWidget):
                 # the tooltip carry the concern; the reason is on the plot in full.
                 ci = fit.mean_tau_ci95
                 cells = [f"{fit.beta:.3g}" if fit.beta is not None else "-",
-                         f"! {fit.mean_tau:.4g}"
+                         f"? {fit.mean_tau:.4g}"
                          + (f" +/- {ci:.2g}" if ci is not None else "")]
             else:
                 ci = fit.mean_tau_ci95
@@ -418,7 +418,7 @@ class AnalysisTab(QWidget):
             for col, text in enumerate(cells, start=1):
                 item = QTableWidgetItem(text)
                 if fit is not None and not fit.ok:
-                    item.setToolTip(f"FLAGGED: {fit.reason}")
+                    item.setToolTip(f"NEEDS REVIEW: {fit.reason}")
                 elif fit is not None and fit.ok and col == 2:
                     item.setToolTip(f"raw tau = {fit.tau:.4g} +/- {fit.tau_sd:.2g} s "
                                     f"(1 SD)")
@@ -458,9 +458,11 @@ class AnalysisTab(QWidget):
             # Not truncated: the reason carries the numbers that tell you what
             # to change (a tau of 6e4 in a 30 s window says widen or change
             # model). The canvas wraps it.
-            # Two tiers: a fit that never converged has nothing to show, while one
-            # rejected by a check has a curve and numbers and is merely FLAGGED.
-            headline = "FIT FAILED" if fit.mean_tau is None else "FIT FLAGGED"
+            # "Did not converge" is a fact -- there is nothing to show. "Needs
+            # review" is a concern raised about a fit that HAS results. Neither is
+            # "failed": the software does not get to decide what is worth seeing.
+            headline = ("FIT DID NOT CONVERGE" if fit.did_not_converge
+                        else "NEEDS REVIEW")
             note = f"{headline}\n{fit.reason}"
             # A rejected fit that CONVERGED still has a curve, and seeing it is
             # how you work out what to change: flat through a real decay means
@@ -613,8 +615,8 @@ class AnalysisTab(QWidget):
                             continue
                         present = True
                         fit = fits[trace]
-                        # A flagged fit is PLOTTED, ringed rather than dropped. A gap
-                        # hides a result the scientist needs in order to judge it.
+                        # Plotted and ringed, never dropped. A gap would be the
+                        # software deciding the scientist should not see a result.
                         vals[at[x]] = (fit.mean_tau if fit.mean_tau is not None
                                        else np.nan)
                         ci = fit.mean_tau_ci95
