@@ -285,7 +285,7 @@ def test_an_excluded_pixel_cannot_win_the_opposite_end():
 # --- the optimizer must not talk to the shell --------------------------------
 
 def test_fitting_awkward_data_emits_no_runtime_warnings():
-    """the requested first launch on the first rig printed three numpy RuntimeWarnings from the model
+    """the first launch under SpecEchem32 printed three numpy RuntimeWarnings from the model
     functions. They come from curve_fit's trial steps -- tau -> 0, tau < 0 under a
     fractional beta, a tiny tau1 -- not from the answer, which is validated anyway.
     Reaching the shell they read as a malfunction, and the project keeps the shell
