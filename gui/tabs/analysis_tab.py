@@ -573,7 +573,7 @@ class AnalysisTab(QWidget):
                 if present:
                     add(f"ratio ({direction})", vals, "absorbance", direction, errs)
             ylabel = "mean tau(abs) / mean tau(current)"
-            title = f"Kinetic coupling (dimensionless) - {probe}\nbars: 95% CI"
+            title = f"Kinetic coupling (dimensionless) - {probe} (95% CI)"
         else:
             for trace in TRACES:
                 if not self.trace_checks[trace].isChecked():
@@ -592,7 +592,7 @@ class AnalysisTab(QWidget):
                     if present:
                         add(f"{trace} ({direction})", vals, trace, direction, errs)
             ylabel = "mean relaxation time (s)"
-            title = f"Kinetics vs potential - {probe}\nbars: 95% CI"
+            title = f"Kinetics vs potential - {probe} (95% CI)"
 
         if not series:
             self.ladder_canvas.show_message("Nothing selected under Show.")
