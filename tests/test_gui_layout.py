@@ -1057,3 +1057,21 @@ def test_hiding_a_trace_removes_it_from_the_ladder(window, tmp_path):
     tab.trace_checks["charge"].setChecked(False)
     assert not any("charge" in l.get_label() for l in tab.ladder_canvas.ax.get_lines())
     assert any("absorbance" in l.get_label() for l in tab.ladder_canvas.ax.get_lines())
+
+
+def test_the_modulation_view_is_doping_only(window, tmp_path):
+    """Dean: dedoping points "are not part of the main ladder". Every dedoping
+    segment sits at the same potential, so they piled onto one x inside the doping
+    curve and dragged the line back across it. Tab 5 carries both directions."""
+    tab = _doping_dedoping_pair(window, tmp_path)   # one doping + one dedoping
+    r = window.results_tab
+    r.refresh_segments()
+    r.view_combo.setCurrentIndex(2)                 # modulation
+    r.on_segment_changed()
+
+    lines = r.canvas.ax.get_lines()
+    assert lines, "expected a modulation curve"
+    xs = [x for line in lines for x in line.get_xdata()]
+    assert xs, "expected at least the doping point"
+    assert all(x > 0 for x in xs), f"a dedoping point leaked in: {xs}"
+    assert "doping ladder" in r.canvas.ax.get_title()
