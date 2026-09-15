@@ -13,7 +13,7 @@ import numpy as np
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, QComboBox,
     QDoubleSpinBox, QPushButton, QCheckBox, QTableWidget, QTableWidgetItem,
-    QSplitter, QMessageBox, QHeaderView,
+    QSplitter, QMessageBox, QHeaderView, QDialog,
 )
 from qtpy.QtCore import Qt
 
@@ -154,6 +154,15 @@ class AnalysisTab(QWidget):
         self.fit_all_btn.clicked.connect(self.on_fit_all)
         buttons.addWidget(self.fit_btn)
         buttons.addWidget(self.fit_all_btn)
+        # Dean: "there needs to be a table somewhere that holds fit data for all
+        # potentials. There is no way currently to review that data." The per-segment
+        # table shows three traces of ONE segment; this is every fit at once.
+        self.all_fits_btn = QPushButton("All fits…")
+        self.all_fits_btn.setToolTip(
+            "Every fitted segment and trace in one table, with the parameters,\n"
+            "the interval and anything needing review.")
+        self.all_fits_btn.clicked.connect(self.on_show_all_fits)
+        buttons.addWidget(self.all_fits_btn)
         buttons.addStretch()
         form.addRow("", buttons)
 
@@ -222,6 +231,18 @@ class AnalysisTab(QWidget):
             cb.toggled.connect(self._draw_ladder)
             self.trace_checks[trace] = cb
             toggles.addWidget(cb)
+        # A single needs-review point can be 10^11 times the rest -- a dedoping charge
+        # integral that never saturates inside the window returns an enormous tau. On a
+        # linear axis that flattens every real value to zero. Log is the answer rather
+        # than dropping the point, which would be the software deciding again.
+        self.log_y_check = QCheckBox("log y")
+        self.log_y_check.setToolTip(
+            "Use when one fit is orders of magnitude from the rest -- the usual cause\n"
+            "is a trace that has not settled inside the window, which is flagged for\n"
+            "review rather than hidden.")
+        self.log_y_check.toggled.connect(self._draw_ladder)
+        toggles.addSpacing(16)
+        toggles.addWidget(self.log_y_check)
         toggles.addSpacing(16)
         toggles.addWidget(self.ratio_check)
         toggles.addStretch()
@@ -391,6 +412,30 @@ class AnalysisTab(QWidget):
         # default. Dean: "I don't see a point of the auto start check box."
         return (self.start_spin.value() or None), (self.stop_spin.value() or None)
 
+    def on_show_all_fits(self):
+        """Every fit made so far, in one reviewable table."""
+        rows = []
+        for i in range(self.segment_combo.count()):
+            label = self.segment_combo.itemData(i)
+            fits = self._fits.get(label)
+            if not fits:
+                continue
+            seg = self.win.segments_by_label.get(label)
+            potential = self._ladder_potential(seg) if seg is not None else None
+            direction = ("doping" if seg is not None
+                         and seg.data_type == DATA_TYPE_DOPING else "dedoping")
+            for trace in TRACES:
+                fit = fits.get(trace)
+                if fit is None:
+                    continue
+                rows.append((label, potential, direction, trace,
+                             self._fit_wl.get(label), fit))
+        if not rows:
+            QMessageBox.information(self, "No fits yet",
+                                    "Fit a segment first, or use Fit all segments.")
+            return
+        AllFitsDialog(rows, self).exec_()
+
     # --- display ---------------------------------------------------------
 
     def _show_fits(self, fits):
@@ -545,6 +590,25 @@ class AnalysisTab(QWidget):
                     return self.win.segment_potential(other)
         return None
 
+    def _needs_review_spread(self, series, flags):
+        """A hint when needs-review points are orders of magnitude off the rest.
+
+        Returns None unless they actually distort the axis -- the point is to explain
+        a plot that has gone flat, not to nag about every flagged fit.
+        """
+        reviewed, flagged_vals = [], []
+        for name, values in series.items():
+            mask = flags.get(name) or [False] * len(values)
+            for value, is_flagged in zip(values, mask):
+                if value is None or not np.isfinite(value):
+                    continue
+                (flagged_vals if is_flagged else reviewed).append(abs(value))
+        if not reviewed or not flagged_vals:
+            return None
+        if max(flagged_vals) < 100 * max(reviewed):
+            return None
+        return f"{len(flagged_vals)} point(s) need review, off scale — try log y"
+
     def _draw_ladder(self, *_):
         """tau (or the ratio) against the potential doped to, across whatever has been
         fitted so far -- so it builds as segments are fitted, not only at the end."""
@@ -634,6 +698,71 @@ class AnalysisTab(QWidget):
         if not series:
             self.ladder_canvas.show_message("Nothing selected under Show.")
             return
+        # Say so when the spread is what is making the plot unreadable, rather than
+        # leaving the user to work out why everything is flat at zero.
+        spread = self._needs_review_spread(series, flags)
+        if spread is not None and not self.log_y_check.isChecked():
+            title += f"  —  {spread}"
         self.ladder_canvas.plot_series(xs, series, "Potential doped to (V)", ylabel,
                                        title=title, styles=styles, yerr=errors,
-                                       flags=flags)
+                                       flags=flags,
+                                       logy=self.log_y_check.isChecked())
+
+
+class AllFitsDialog(QDialog):
+    """Every fit in one table, so a run can be reviewed across potentials.
+
+    Dean: "there needs to be a table somewhere that holds fit data for all potentials.
+    There is no way currently to review that data." The tab's own table answers "what
+    did the three traces of THIS segment do"; this answers "what did the run do".
+
+    Read-only but selectable, so rows can be copied out until the CSV export in TODO.md
+    exists.
+    """
+
+    COLUMNS = ("segment", "V", "direction", "trace", "lambda (nm)", "model",
+               "tau (s)", "beta", "mean tau (s)", "95% CI", "status")
+
+    def __init__(self, rows, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("All fits")
+        self.resize(1000, 460)
+        layout = QVBoxLayout(self)
+
+        table = QTableWidget(len(rows), len(self.COLUMNS), self)
+        table.setHorizontalHeaderLabels(list(self.COLUMNS))
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+
+        def cell(value, fmt="{:.4g}"):
+            return "" if value is None else (fmt.format(value)
+                                             if isinstance(value, float) else str(value))
+
+        for r, (label, potential, direction, trace, wavelength, fit) in enumerate(rows):
+            if fit.did_not_converge:
+                status = "did not converge"
+            elif fit.needs_review:
+                status = f"NEEDS REVIEW — {fit.reason}"
+            else:
+                status = "ok"
+            values = [label, cell(potential, "{:+.3f}"), direction, trace,
+                      cell(wavelength, "{:.1f}") if trace == "absorbance" else "",
+                      fit.model, cell(fit.tau),
+                      cell(fit.beta) if fit.beta is not None else "-",
+                      cell(fit.mean_tau), cell(fit.mean_tau_ci95), status]
+            for c, text in enumerate(values):
+                item = QTableWidgetItem(text)
+                if fit.needs_review or fit.did_not_converge:
+                    item.setToolTip(status)
+                table.setItem(r, c, item)
+
+        table.resizeColumnsToContents()
+        layout.addWidget(table)
+
+        close = QPushButton("Close", self)
+        close.clicked.connect(self.accept)
+        row = QHBoxLayout()
+        row.addStretch()
+        row.addWidget(close)
+        layout.addLayout(row)

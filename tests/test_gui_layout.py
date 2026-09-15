@@ -1310,3 +1310,50 @@ def test_a_fit_needing_review_keeps_its_numbers_everywhere(analysis_window):
     ys = [v for line in tab.ladder_canvas.ax.get_lines()
           for v in line.get_ydata() if np.isfinite(v)]
     assert ys, "the flagged point must still appear on the ladder"
+
+
+def test_the_all_fits_table_covers_every_segment_and_trace(analysis_window, tmp_path):
+    """Dean: "there needs to be a table somewhere that holds fit data for all
+    potentials. There is no way currently to review that data." The tab's own table
+    shows three traces of ONE segment."""
+    from gui.tabs.analysis_tab import AllFitsDialog
+    tab = analysis_window.analysis_tab
+    tab.on_fit_all()
+
+    rows = []
+    for i in range(tab.segment_combo.count()):
+        label = tab.segment_combo.itemData(i)
+        for trace, fit in (tab._fits.get(label) or {}).items():
+            rows.append((label, 0.3, "doping", trace, 800.0, fit))
+    assert rows, "the fixture should have produced fits"
+
+    dialog = AllFitsDialog(rows, tab)
+    table = dialog.findChild(type(tab.table))
+    assert table.rowCount() == len(rows)
+    headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+    for wanted in ("segment", "V", "trace", "mean tau (s)", "95% CI", "status"):
+        assert wanted in headers, headers
+    assert table.item(0, 0).text(), "rows must be populated"
+
+
+def test_the_ladder_can_use_a_log_axis(analysis_window):
+    """One needs-review point can sit 10^11 above the rest -- a charge integral that
+    never settles inside the window. Log makes both readable instead of dropping it."""
+    tab = analysis_window.analysis_tab
+    tab.on_fit_all()
+    assert tab.ladder_canvas.ax.get_yscale() == "linear"
+    tab.log_y_check.setChecked(True)
+    assert tab.ladder_canvas.ax.get_yscale() == "symlog"
+
+
+def test_an_off_scale_review_point_is_called_out(analysis_window):
+    """Explain why the plot went flat, rather than leaving it to be worked out."""
+    tab = analysis_window.analysis_tab
+    tab.on_fit_all()
+    series = {"charge (doping)": [10.0, 12.0], "charge (dedoping)": [1.0e12, 8.0]}
+    flags = {"charge (dedoping)": [True, False]}
+    hint = tab._needs_review_spread(series, flags)
+    assert hint and "log y" in hint, hint
+    # and no nagging when the flagged point is in range
+    assert tab._needs_review_spread(
+        {"a": [10.0, 12.0]}, {"a": [True, False]}) is None

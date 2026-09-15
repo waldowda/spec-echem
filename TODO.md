@@ -130,10 +130,15 @@ Tab 5 works and is validated on real data (see STATUS.md). What is left:
       growth. The tab already fits any wavelength typed; what is missing is fitting two
       at once and comparing.
 - [ ] **Density of states from the CV** — designed, not built. See
-      [`docs/analysis-design.md`](docs/analysis-design.md). Blocked on recording film
-      volume (thickness × area), which nothing captures today.
-- [ ] **Log y-axis on the ladder**, as an alternative to the per-trace visibility
-      toggles when charge and absorbance are both wanted.
+      [`docs/analysis-design.md`](docs/analysis-design.md). Placement settled (Dean):
+      another option in Tab 4's **Optical view** selector, enabled when a CV segment is
+      chosen. Blocked on recording film volume (thickness × area), which nothing
+      captures today — optional, with a dQ/dV fallback.
+- [x] ~~Log y-axis on the ladder~~ — done, `log y` checkbox beside the Show toggles,
+      with a title hint when needs-review points are off scale.
+- [x] ~~A table of fit data across all potentials~~ — done, **All fits…** on the
+      Analysis tab. CSV export of the same rows is still item 1 under "Getting data
+      and figures OUT".
 
 ## Release gate for v0.3.0 — one bench run before merging `gui-dev` → `main` (Dean, 2026-07-27)
 
