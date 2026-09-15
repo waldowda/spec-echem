@@ -2,6 +2,42 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Sanitising the repository history — Dean, 2026-09-15, future
+
+Dean: *"I wonder about sanitizing the repo at some point in the future and resetting the
+repo so to speak. That history thing is a challenge."*
+
+**What is exposed** (names only; the data files' contents are clean 8-column format):
+
+- `tests/golden/<name>/` — 7 tracked files whose FOLDER name encodes a blend ratio and
+  electrolyte. On `origin/main` and `origin/gui-dev` since `7c49c02` (June 2026).
+- `notebooks/SpecEchem Avantes 0.996-20250717.ipynb` — composition in 18 places.
+- Earlier commits on `gui-dev` from 2026-09-14/15, before `c4f1316` genericised them.
+
+**Options, roughly in increasing order of disruption:**
+
+- [ ] **Rename forward only.** Rename the golden folder, update the three tests that read
+      it (`test_data_format.py`, `test_gamry_data.py`, `test_spectra_reader.py`), commit.
+      Cheap and safe, but **history keeps the old name** — this fixes what a browser sees
+      today, not what `git log -p` sees.
+- [ ] **Rewrite history with `git filter-repo`** (the maintained replacement for
+      `filter-branch`). Genuinely removes the names from every commit. Costs: every SHA
+      changes, so a force-push is required, anyone who has cloned keeps the old objects,
+      open PRs break, and GitHub may keep unreferenced objects cached until asked to
+      purge them.
+- [ ] **Fresh repository from the current tree.** Cleanest result, loses all history —
+      including the bench-session record, which is a real cost here since those commit
+      messages carry the MEASURED findings.
+
+**What NONE of these can undo:** the Zenodo archive (DOI 10.5281/zenodo.17221314) is a
+snapshot taken at release and is not affected by anything done to GitHub. Any existing
+clone or fork keeps what it has.
+
+**Recommendation:** decide what the repository is FOR first. If it stays public as an NSF
+outcome, rename-forward plus the new CLAUDE.md rule is probably proportionate — the
+exposure is a folder name, not data or interpretation. Reach for `filter-repo` only if
+the composition itself must genuinely not be discoverable.
+
 ## Richer models — Dean, 2026-09-15, explicitly for later
 
 Design settled in [`docs/analysis-design.md`](docs/analysis-design.md); not started.

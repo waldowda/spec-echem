@@ -15,6 +15,34 @@ via hardware triggering — the Gamry's DIGOUT0 output is wired directly to the 
 **Zenodo DOI:** 10.5281/zenodo.17221314  
 **Status:** Pre-release — API is not stable
 
+### ⚠️ BEFORE ANY COMMIT: check what is going into a PUBLIC repository
+
+Dean, 2026-09-15, standing instruction: *"please note in the future to always check what
+is going into the public repo for unpublished info / proprietary info."*
+
+Every commit here is world-readable the moment it is pushed, **and stays in history even
+if the file is later deleted or renamed**. Renaming does not scrub it. So check BEFORE
+writing, not after.
+
+Keep OUT of this repository:
+
+- **Sample identity and composition.** Refer to data by DATE (`the 20250710 reference
+  run`), never by a name encoding polymer, blend ratio or electrolyte. Blend work in
+  particular is sparse in the literature and plausibly unpublished.
+- **Unpublished results and their interpretation.** Method and evidence are fine; what
+  the sample *is* and what it *means* are not. See `private-notes/` (a sibling of this
+  repo, not inside it).
+- Serial numbers, machine paths carrying usernames, colleagues' names, meeting notes.
+- Raw data folders whose NAME describes the sample — the filename is disclosure even
+  when the file contents are clean.
+
+`private-notes/` and the datasets under `../tests/` are deliberately OUTSIDE this
+repository. Do not move them in, and do not quote their sample-identifying content here.
+
+**Known pre-existing exposure**, flagged 2026-09-15, not yet resolved — see TODO.md:
+`tests/golden/<name>/` (7 tracked files, on `main` and `gui-dev` since `7c49c02`) and
+`notebooks/SpecEchem Avantes 0.996-20250717.ipynb` both carry composition in names.
+
 ---
 
 ## Repository Structure
