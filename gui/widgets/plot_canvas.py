@@ -250,10 +250,21 @@ class MplCanvas(FigureCanvasQTAgg):
             self.resid_ax.text(0.5, 0.5, "no fit", ha="center", va="center",
                                transform=self.resid_ax.transAxes,
                                color="#888", fontsize=8)
-            # No curve to hang the stats on, so the reason goes in the corner.
-            self.ax.annotate(note or "", xy=(0.98, 0.95), xycoords="axes fraction",
-                             ha="right", va="top", fontsize=8, color="#444",
-                             clip_on=True)
+            # No residuals, so the default 0-1 ticks describe nothing.
+            self.resid_ax.set_yticks([])
+            # A failed fit is the one thing on this plot the user MUST notice, so it
+            # gets a boxed warning across the top rather than grey text in a corner.
+            # It also used to be pinned to the upper right, where it ran straight
+            # through the legend.
+            if note:
+                self.ax.annotate(
+                    "\n".join(textwrap.fill(line, 38)
+                               for line in note.splitlines() or [""]),
+                    xy=(0.5, 0.97), xycoords="axes fraction",
+                    ha="center", va="top", fontsize=9, color="#8a0016",
+                    fontweight="semibold", zorder=6, clip_on=True,
+                    bbox=dict(boxstyle="round,pad=0.45", facecolor="#fdecef",
+                              edgecolor="#b00020", linewidth=1.1, alpha=0.97))
 
         # Grey out what the fit did not see, so a window that excludes the decay
         # itself is visible at a glance rather than inferred from a bad tau.
@@ -268,7 +279,10 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax.set_ylabel(ylabel)
         self.ax.set_xlabel(xlabel)
         self.ax.grid(True, alpha=0.3)
-        self.ax.legend(fontsize=7, loc="best")
+        # Only with a fit: a one-entry legend saying "data" is no use to anyone, and
+        # it is exactly what the failure message was colliding with.
+        if fit_y is not None:
+            self.ax.legend(fontsize=7, loc="best")
         self.resid_ax.set_ylabel("resid.", fontsize=8)
         self.resid_ax.grid(True, alpha=0.3)
         self.resid_ax.tick_params(labelsize=7, labelbottom=False)  # shared x, below
