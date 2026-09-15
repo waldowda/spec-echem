@@ -128,7 +128,12 @@ def read_spectra_absorbance(path):
     corrected-time columns — so show_absorbance can plot a past run unchanged.
     No recomputation: the saved absorbance is used as-is.
     """
-    df = pd.read_csv(path, sep='\t')
+    # Only the three columns this needs, of the eight in the file. MEASURED: on the
+    # 32-bit SpecEchem32 env a 760265-row file allocated 40.6 MiB reading all seven
+    # numeric columns and raised MemoryError on a second run; three columns is ~17.
+    # The dark/reference/raw columns are not used to rebuild the absorbance matrix.
+    df = pd.read_csv(path, sep='\t',
+                     usecols=['Wavelength (nm)', 'Absorbance', 'Corrected time (s)'])
     n = df['Wavelength (nm)'].nunique()          # wavelengths per time block
     if n == 0:
         raise ValueError(f"{Path(path).name}: no wavelength data")

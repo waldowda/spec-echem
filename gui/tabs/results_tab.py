@@ -406,8 +406,20 @@ class ResultsTab(QWidget):
         # A big folder takes seconds per segment and the window simply froze, with no
         # way to tell a slow load from a hung one. Dean asked for a progress window
         # that becomes the "X segments loaded" box.
+        # Release the PREVIOUS run before reading the next. Building the new one
+        # alongside the old doubled peak memory, and on the 32-bit SpecEchem32 env
+        # that is fatal: Dean hit "Unable to allocate 40.6 MiB" on every segment of a
+        # second load. The cost is that a cancelled or failed load now leaves nothing
+        # loaded instead of the previous run -- which is the right trade when the
+        # alternative is not being able to load at all.
+        self._release_loaded_run()
+
         progress = QProgressDialog("Reading run…", "Cancel", 0, len(segs), self)
         progress.setWindowTitle("Loading run")
+        # Windows puts a "?" context-help button in the title bar by default, which
+        # reads as an unanswered question rather than a control.
+        progress.setWindowFlags(progress.windowFlags()
+                                & ~Qt.WindowContextHelpButtonHint)
         progress.setWindowModality(Qt.WindowModal)
         # 250 ms, not 0: a one-segment folder loads in 0.2 s and a dialog that
         # flashes up and vanishes is worse than none. Qt only shows it if the load
@@ -425,10 +437,12 @@ class ResultsTab(QWidget):
         progress.close()
 
         if cancelled:
+            self._release_loaded_run()
             QMessageBox.information(
                 self, "Load cancelled",
-                f"Stopped after {len(results)} of {len(segs)} segment(s). "
-                "Nothing was changed.")
+                f"Stopped after {len(results)} of {len(segs)} segment(s).\n\n"
+                "Nothing is loaded now — the previous run was released first to "
+                "make room. Load again when ready.")
             return
 
         if not results:
@@ -450,6 +464,26 @@ class ResultsTab(QWidget):
         if errors:
             msg += "\n\nSkipped:\n" + "\n".join(errors)
         QMessageBox.information(self, "Run loaded", msg)
+
+    def _release_loaded_run(self):
+        """Drop every reference to the loaded run, so its memory can be reclaimed.
+
+        The plots hold the arrays too -- clearing the dicts alone leaves the figures
+        pinning the previous run's data, which on a 32-bit build is most of what runs
+        the process out of address space.
+        """
+        import gc
+        self.win.results = {}
+        self.win.segments_by_label = {}
+        self.win.loaded_run_settings = None
+        self.win._potential_cache.clear()
+        self.canvas.show_message("No run loaded.")
+        self.echem_canvas.show_message("No run loaded.")
+        self.win.analysis_tab._fits.clear()
+        self.win.analysis_tab._fit_wl.clear()
+        self.refresh_segments()
+        self.win.analysis_tab.refresh_segments()
+        gc.collect()
 
     def _read_segments(self, segs, on_progress=None):
         """Read every segment's absorbance, reporting progress.
