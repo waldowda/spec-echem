@@ -1443,6 +1443,9 @@ def test_the_dos_falls_back_to_dQdV_without_a_film_volume(window, tmp_path):
     """0 area means unknown, and the axis says dQ/dV rather than a volume being
     invented -- the electroactive area is not something to guess."""
     r = _cv_window(window, tmp_path, film_thickness_nm=150.0, film_area_cm2=0.0)
+    # 0 in BOTH places: the run says unknown and so does the form, so there is
+    # genuinely no volume to use.
+    window.settings["film_area_cm2"] = 0.0
     r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
     r.on_segment_changed()
     assert "dQ/dV" in r.canvas.ax.get_ylabel()
@@ -1452,20 +1455,44 @@ def test_the_dos_falls_back_to_dQdV_without_a_film_volume(window, tmp_path):
     assert "eV^-1 cm^-3" in r.canvas.ax.get_ylabel()
 
 
-def test_the_scan_rate_is_converted_from_mv_per_second(window, tmp_path):
-    """cv_scan_rate is stored in mV/s and the formula needs V/s. Getting that wrong
-    scales the whole answer by 1000."""
+def test_the_scan_rate_is_measured_from_the_data_not_the_form(window, tmp_path):
+    """Dean: "why do we get this note? Is that not recorded or accessible from the
+    data?" It is. CV.txt has no time column, but the CV's spectra file carries
+    corrected times, and total path swept / elapsed time is the rate -- so a run with
+    no metadata at all still gets a DOS.
+
+    Same rule as segment potentials: prefer the data over the form."""
     import numpy as np
-    r = _cv_window(window, tmp_path, film_thickness_nm=150.0, film_area_cm2=1.0)
+    r = _cv_window(window, tmp_path, film_thickness_nm=150.0, film_area_cm2=1.6)
+    # spectra spanning 4 s while the sweep covers a known path length
     r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
     r.on_segment_changed()
+    assert "measured" in r.canvas.ax.get_title(), r.canvas.ax.get_title()
+
+    # the nominal value in settings is deliberately absurd and must be ignored
+    r.win.loaded_run_settings["cv_scan_rate"] = 999999.0
+    r.on_segment_changed()
+    assert "measured" in r.canvas.ax.get_title()
+
+
+def test_the_nominal_rate_is_the_fallback_when_the_data_cannot_give_one(window, tmp_path):
+    """One time point means no duration, so there is nothing to measure. Then the
+    settings value is used -- converted from mV/s, which if got wrong scales the whole
+    answer by 1000."""
+    import numpy as np
+    import pandas as pd
+    r = _cv_window(window, tmp_path, film_thickness_nm=150.0, film_area_cm2=1.6)
+    wl = np.linspace(400.0, 1100.0, 20)
+    window.results["CV"] = pd.DataFrame(np.zeros((20, 1)), index=wl, columns=[0.0])
+    r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
+    r.on_segment_changed()
+    assert "nominal" in r.canvas.ax.get_title(), r.canvas.ax.get_title()
     first = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
 
-    r.win.loaded_run_settings["cv_scan_rate"] = 1000.0     # 10x faster
+    r.win.loaded_run_settings["cv_scan_rate"] = 1000.0          # 10x faster
     r.on_segment_changed()
     second = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
     assert second == pytest.approx(first / 10.0, rel=1e-6)
-
 
 def test_the_film_geometry_defaults_are_the_bench_geometry(window):
     """Dean: 150 nm spin-coated, and 2 cm immersed x 0.8 cm wide because the ITO/FTO
@@ -1474,3 +1501,18 @@ def test_the_film_geometry_defaults_are_the_bench_geometry(window):
     settings = window.collect_settings()
     assert settings["film_thickness_nm"] == pytest.approx(150.0)
     assert settings["film_area_cm2"] == pytest.approx(1.6)   # 2.0 x 0.8
+
+
+def test_film_geometry_may_come_from_the_form_for_an_older_run(window, tmp_path):
+    """Segment potentials must NEVER come from the form -- that mislabelled +0.700 V
+    as +0.400 V. Film geometry is the opposite case: it is recorded nowhere in older
+    data, so the form is the only place it can come from. The title says when it did.
+    """
+    r = _cv_window(window, tmp_path)          # run settings carry no geometry
+    window.settings["film_thickness_nm"] = 150.0
+    window.settings["film_area_cm2"] = 1.6
+    r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
+    r.on_segment_changed()
+
+    assert "eV^-1 cm^-3" in r.canvas.ax.get_ylabel(), "the form's geometry should be used"
+    assert "Parameters tab" in r.canvas.ax.get_title(), r.canvas.ax.get_title()
