@@ -290,3 +290,36 @@ def test_an_excluded_pixel_cannot_win_the_opposite_end():
     a = 0.02 + np.outer(np.linspace(0.05, 0.30, len(wl)), frac)
     _grows, bleaches = auto_wavelengths(a, wl)
     assert bleaches > 410.0, f"argmin fell into the masked region at {bleaches:.0f} nm"
+
+
+# --- the optimizer must not talk to the shell --------------------------------
+
+def test_fitting_awkward_data_emits_no_runtime_warnings():
+    """Dean's first launch at PLU printed three numpy RuntimeWarnings from the model
+    functions. They come from curve_fit's trial steps -- tau -> 0, tau < 0 under a
+    fractional beta, a tiny tau1 -- not from the answer, which is validated anyway.
+    Reaching the shell they read as a malfunction, and the project keeps the shell
+    silent.
+
+    Warnings are RECORDED, not raised: simplefilter("error") would turn them into
+    exceptions inside curve_fit, where fit_transient's own except-Exception swallows
+    them, and the test would pass whether or not the fix was present.
+    """
+    import warnings
+
+    t = np.linspace(0.0, 30.0, 300)
+    awkward = {
+        "step-like": 0.5 * (t > 1),
+        "two-scale": 1e-4 * np.exp(-t / 0.02) + 1e-6 * np.exp(-t / 12),
+        "flat noise": np.random.default_rng(0).normal(0.0, 1e-3, 300),
+        "still rising": 0.02 * (t / 30.0) ** 3,
+    }
+    leaked = []
+    for name, y in awkward.items():
+        for model in ("exp", "biexp", "stretched"):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                fit_transient(t, y, model)
+            leaked += [f"{name}/{model}: {w.message}" for w in caught
+                       if issubclass(w.category, RuntimeWarning)]
+    assert not leaked, "numpy warnings reached the caller:\n" + "\n".join(leaked)

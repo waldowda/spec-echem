@@ -298,8 +298,21 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
     # start rather than at the segment's zero.
     t0 = t[0]
     try:
-        popt, pcov = curve_fit(func, t - t0, y, p0=_initial_guess(model, t - t0, y),
-                               maxfev=10000)
+        # The least-squares SEARCH legitimately probes nonsense parameters on its way
+        # to the answer: tau -> 0 (divide by zero), tau < 0 under a fractional beta
+        # ((-x)**beta -> nan), a tiny tau1 (exp overflow). numpy warns on each, and
+        # those warnings were reaching the user's shell on every fit -- three of them
+        # on the first launch at PLU -- which reads like a malfunction when it is the
+        # optimizer doing its job. What matters is the OUTCOME, and that is validated
+        # below: a fit that ends up in one of those regions is rejected by the tau
+        # and uncertainty checks, not by whether a trial step warned.
+        #
+        # Scoped to this call rather than set module-wide, so a genuine numerical
+        # fault anywhere else still surfaces.
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            popt, pcov = curve_fit(func, t - t0, y,
+                                   p0=_initial_guess(model, t - t0, y),
+                                   maxfev=10000)
     except Exception as exc:  # noqa: BLE001 — a failed fit is a normal outcome
         return FitResult(model, reason=str(exc), n=len(t))
 
