@@ -188,7 +188,8 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
-    def plot_series(self, x, series, xlabel, ylabel, title=None, styles=None):
+    def plot_series(self, x, series, xlabel, ylabel, title=None, styles=None,
+                    yerr=None):
         """Several named y-series against one x, as markers joined by lines.
 
         NaN is left as NaN on purpose: the analysis tab uses it where a fit failed, so
@@ -196,7 +197,8 @@ class MplCanvas(FigureCanvasQTAgg):
         never measured. Silently dropping those points would hide which ones failed.
 
         `styles` overrides plot kwargs per series name -- the ladder uses it to draw
-        dedoping dashed against the same colour as its doping counterpart.
+        dedoping dashed against the same colour as its doping counterpart. `yerr` adds
+        error bars per series; NaN entries there simply draw no bar on that point.
         """
         import numpy as _np
 
@@ -206,14 +208,22 @@ class MplCanvas(FigureCanvasQTAgg):
         for name, y in series.items():
             kw = dict(marker="o", ms=4, lw=1.0)
             kw.update((styles or {}).get(name, {}))
-            self.ax.plot(x, _np.asarray(y, dtype=float), label=str(name), **kw)
+            err = (yerr or {}).get(name)
+            if err is None:
+                self.ax.plot(x, _np.asarray(y, dtype=float), label=str(name), **kw)
+            else:
+                # capsize so a point whose interval is smaller than the marker still
+                # reads as "measured precisely" rather than "no error bar drawn".
+                self.ax.errorbar(x, _np.asarray(y, dtype=float),
+                                 yerr=_np.asarray(err, dtype=float),
+                                 label=str(name), capsize=3, elinewidth=1.0, **kw)
         if len(series) > 1:
             self.ax.legend(fontsize="small")
         self._decorate(title)
         self.draw_idle()
 
     def plot_fit(self, t, y, fit_y, xlabel, ylabel, title=None, window=None,
-                 note=None):
+                 note=None, fit_ok=True):
         """Data with the fitted curve over it, plus a residual strip.
 
         The residual panel is the point: an exponential and a stretched exponential
@@ -245,30 +255,42 @@ class MplCanvas(FigureCanvasQTAgg):
 
         if fit_y is not None:
             fit_y = np.asarray(fit_y, dtype=float)
-            self.ax.plot(t, fit_y, "-", lw=1.4, color="#d62728",
-                         label=note or "fit", zorder=3)
+            # A REJECTED fit is still drawn -- dashed and amber so it cannot be taken
+            # for an endorsed one. Seeing it is how you work out what to change, and
+            # the residual panel below is usually where the reason shows.
+            self.ax.plot(t, fit_y,
+                         "-" if fit_ok else "--",
+                         lw=1.4, color="#d62728" if fit_ok else "#e07b00",
+                         label=(note or "fit") if fit_ok else "rejected fit",
+                         zorder=3)
             resid = y - fit_y
             self.resid_ax.plot(t, resid, "o", ms=2.0, color="#1f77b4", alpha=0.6)
-            self.resid_ax.axhline(0.0, ls="-", lw=0.8, color="#d62728", alpha=0.8)
+            self.resid_ax.axhline(0.0, ls="-", lw=0.8,
+                                  color="#d62728" if fit_ok else "#e07b00", alpha=0.8)
+            self.ax.legend(fontsize=7, loc="best")
         else:
             self.resid_ax.text(0.5, 0.5, "no fit", ha="center", va="center",
                                transform=self.resid_ax.transAxes,
                                color="#888", fontsize=8)
-            # No residuals, so the default 0-1 ticks describe nothing.
-            self.resid_ax.set_yticks([])
-            # A failed fit is the one thing on this plot the user MUST notice, so it
-            # gets a boxed warning across the top rather than grey text in a corner.
-            # It also used to be pinned to the upper right, where it ran straight
-            # through the legend.
-            if note:
-                self.ax.annotate(
-                    "\n".join(textwrap.fill(line, 38)
-                               for line in note.splitlines() or [""]),
-                    xy=(0.5, 0.97), xycoords="axes fraction",
-                    ha="center", va="top", fontsize=9, color="#8a0016",
-                    fontweight="semibold", zorder=6, clip_on=True,
-                    bbox=dict(boxstyle="round,pad=0.45", facecolor="#fdecef",
-                              edgecolor="#b00020", linewidth=1.1, alpha=0.97))
+            self.resid_ax.set_yticks([])   # no residuals; 0-1 ticks describe nothing
+
+        if not fit_ok and note:
+            # The one thing on this plot the user MUST notice, so a boxed warning
+            # across the top rather than grey text in a corner -- and not pinned to
+            # the upper right, where it used to run through the legend.
+            self.ax.annotate(
+                "\n".join(textwrap.fill(line, 38)
+                           for line in note.splitlines() or [""]),
+                xy=(0.5, 0.97), xycoords="axes fraction",
+                ha="center", va="top", fontsize=9, color="#8a0016",
+                fontweight="semibold", zorder=6, clip_on=True,
+                bbox=dict(boxstyle="round,pad=0.45", facecolor="#fdecef",
+                          edgecolor="#b00020", linewidth=1.1, alpha=0.97))
+        elif fit_y is None and note:
+            # "not fitted yet" is not a failure, so it stays neutral.
+            self.ax.annotate(note, xy=(0.5, 0.5), xycoords="axes fraction",
+                             ha="center", va="center", fontsize=9, color="#888",
+                             clip_on=True)
 
         # Grey out what the fit did not see, so a window that excludes the decay
         # itself is visible at a glance rather than inferred from a bad tau.
@@ -283,10 +305,6 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax.set_ylabel(ylabel)
         self.ax.set_xlabel(xlabel)
         self.ax.grid(True, alpha=0.3)
-        # Only with a fit: a one-entry legend saying "data" is no use to anyone, and
-        # it is exactly what the failure message was colliding with.
-        if fit_y is not None:
-            self.ax.legend(fontsize=7, loc="best")
         self.resid_ax.set_ylabel("resid.", fontsize=8)
         self.resid_ax.grid(True, alpha=0.3)
         self.resid_ax.tick_params(labelsize=7, labelbottom=False)  # shared x, below

@@ -11,6 +11,7 @@ import logging
 
 import numpy as np
 from scipy.optimize import curve_fit
+from scipy.stats import t as student_t
 from scipy.special import gamma
 
 logger = logging.getLogger(__name__)
@@ -247,10 +248,15 @@ class FitResult:
     wrong value."""
 
     def __init__(self, model, params=None, sd=None, ok=False, reason="", n=0,
-                 t0=0.0, t_first=None, t_last=None):
+                 t0=0.0, t_first=None, t_last=None, cov=None):
         self.model = model
         self.params = params
         self.sd = sd
+        # The FULL covariance, not just its diagonal: <tau> is a nonlinear function
+        # of several parameters, so its uncertainty needs the off-diagonal terms.
+        # tau and beta of a stretched exponential are strongly anticorrelated, and
+        # ignoring that overstates the error badly.
+        self.cov = cov
         self.ok = ok
         self.reason = reason
         self.n = n
@@ -263,10 +269,14 @@ class FitResult:
 
     def curve(self, time):
         """The fitted model evaluated at absolute segment times, for plotting over
-        the data. NaN outside the fitted window — the fit makes no claim there, and
+        the data. Available for a REJECTED fit too, as long as it converged -- seeing
+        what a bad fit looks like is how you work out what to change. None only when
+        there are no parameters at all (curve_fit raised, or too few points).
+
+        NaN outside the fitted window — the fit makes no claim there, and
         extrapolating a decay backwards through the capacitive spike would draw a
         confident line through data it never saw."""
-        if not self.ok:
+        if self.params is None:
             return None
         t = np.asarray(time, dtype=float)
         func, _names = MODELS[self.model]
@@ -300,6 +310,48 @@ class FitResult:
     @property
     def mean_tau(self):
         return mean_relaxation_time(self.model, self.params) if self.ok else None
+
+    @property
+    def mean_tau_sd(self):
+        """1-sigma on <tau>, by the delta method: sigma^2 = grad(f)' C grad(f).
+
+        <tau> is what the ladder plots, and for biexp and stretched it is a nonlinear
+        combination of the fitted parameters -- so its uncertainty is NOT tau_sd. The
+        gradient is numerical because the closed forms (one of which involves the
+        digamma function) would be a second place for the mean-time definition to live
+        and drift out of step with mean_relaxation_time.
+        """
+        if not self.ok or self.cov is None:
+            return None
+        params = np.asarray(self.params, dtype=float)
+        grad = np.zeros(len(params))
+        for i, value in enumerate(params):
+            step = 1e-6 * max(abs(value), 1e-8)
+            up, down = params.copy(), params.copy()
+            up[i], down[i] = value + step, value - step
+            try:
+                grad[i] = ((mean_relaxation_time(self.model, up)
+                            - mean_relaxation_time(self.model, down)) / (2 * step))
+            except (ValueError, ZeroDivisionError, FloatingPointError):
+                return None
+        var = float(grad @ np.asarray(self.cov, dtype=float) @ grad)
+        return float(np.sqrt(var)) if np.isfinite(var) and var >= 0 else None
+
+    @property
+    def mean_tau_ci95(self):
+        """Half-width of the 95% confidence interval on <tau>.
+
+        Student t on (n - p) degrees of freedom, not a flat 1.96: with 600 points the
+        two agree to <1%, but a short segment fitted with a 5-parameter biexp can have
+        few enough degrees of freedom for it to matter.
+        """
+        sd = self.mean_tau_sd
+        if sd is None:
+            return None
+        dof = self.n - len(self.params)
+        if dof < 1:
+            return None
+        return float(student_t.ppf(0.975, dof) * sd)
 
     def __repr__(self):
         if not self.ok:
@@ -382,22 +434,36 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
                          n=len(t))
 
     result = FitResult(model, params=popt, sd=sd, ok=True, n=len(t),
-                       t0=t0, t_first=float(t[0]), t_last=float(t[-1]))
+                       t0=t0, t_first=float(t[0]), t_last=float(t[-1]), cov=pcov)
     tau, tau_sd = result.tau, result.tau_sd
     if tau is None or tau <= 0:
-        return FitResult(model, reason=f"nonphysical tau ({tau})", n=len(t))
+        return _rejected(result, f"nonphysical tau ({tau})")
     span = float(t[-1] - t[0])
     if span > 0 and tau > FIT_MAX_TAU_SPANS * span:
-        return FitResult(
-            model,
-            reason=f"tau ({tau:.3g} s) exceeds {FIT_MAX_TAU_SPANS:g}x the {span:.3g} s "
-                   f"window - not measurable from it",
-            n=len(t))
+        return _rejected(
+            result,
+            f"tau ({tau:.3g} s) exceeds {FIT_MAX_TAU_SPANS:g}x the {span:.3g} s "
+            f"window - not measurable from it")
     if tau_sd > FIT_SD_REJECT_FRACTION * abs(tau):
-        return FitResult(
-            model, reason=f"uncertainty too large (tau = {tau:.4g} +/- {tau_sd:.4g})",
-            n=len(t))
+        return _rejected(
+            result, f"uncertainty too large (tau = {tau:.4g} +/- {tau_sd:.4g})")
     return result
+
+
+def _rejected(result, reason):
+    """A fit that CONVERGED but failed a physical check, keeping its parameters.
+
+    Dean: "I think it is still useful to know what the failed fit looks like... so
+    perhaps we can understand why and setup a method to get a better fit." A rejected
+    exponential running flat through a real decay says change the model; one hugging
+    the capacitive spike says move the window. Discarding the parameters threw away
+    the only evidence of which.
+
+    ok stays False -- the number is still not a measurement. Only the curve survives.
+    """
+    return FitResult(result.model, params=result.params, sd=result.sd, ok=False,
+                     reason=reason, n=result.n, t0=result.t0,
+                     t_first=result.t_first, t_last=result.t_last, cov=result.cov)
 
 
 def tau_ratio(numerator, denominator):

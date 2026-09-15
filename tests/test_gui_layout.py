@@ -1030,6 +1030,17 @@ def _doping_dedoping_pair(window, tmp_path):
     return window.analysis_tab
 
 
+def _series_names(ax):
+    """Named series on an axes, whether drawn with plot() or errorbar().
+
+    errorbar puts the label on its CONTAINER and leaves the underlying lines as
+    _nolegend_, so reading ax.get_lines() alone silently sees nothing.
+    """
+    names = [l.get_label() for l in ax.get_lines()]
+    names += [c.get_label() for c in ax.containers]
+    return [n for n in names if n and not n.startswith("_")]
+
+
 def test_dedoping_plots_against_the_potential_it_was_doped_to(window, tmp_path):
     """Every dedoping segment is held at the same -0.5 V, so against its own potential
     all of them stack on one x and the joining line means nothing. What distinguishes
@@ -1043,7 +1054,7 @@ def test_dedoping_plots_against_the_potential_it_was_doped_to(window, tmp_path):
 def test_the_ladder_separates_doping_from_dedoping(window, tmp_path):
     tab = _doping_dedoping_pair(window, tmp_path)
     tab.on_fit_all()
-    names = [l.get_label() for l in tab.ladder_canvas.ax.get_lines()]
+    names = _series_names(tab.ladder_canvas.ax)
     assert "absorbance (doping)" in names
     assert "absorbance (dedoping)" in names
     assert tab.ladder_canvas.ax.get_xlabel() == "Potential doped to (V)"
@@ -1053,10 +1064,10 @@ def test_hiding_a_trace_removes_it_from_the_ladder(window, tmp_path):
     """Charge tau runs ~100x the others and squashes the rest flat."""
     tab = _doping_dedoping_pair(window, tmp_path)
     tab.on_fit_all()
-    assert any("charge" in l.get_label() for l in tab.ladder_canvas.ax.get_lines())
+    assert any("charge" in n for n in _series_names(tab.ladder_canvas.ax))
     tab.trace_checks["charge"].setChecked(False)
-    assert not any("charge" in l.get_label() for l in tab.ladder_canvas.ax.get_lines())
-    assert any("absorbance" in l.get_label() for l in tab.ladder_canvas.ax.get_lines())
+    assert not any("charge" in n for n in _series_names(tab.ladder_canvas.ax))
+    assert any("absorbance" in n for n in _series_names(tab.ladder_canvas.ax))
 
 
 def test_the_modulation_view_is_doping_only(window, tmp_path):

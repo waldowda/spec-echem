@@ -384,3 +384,66 @@ def test_a_tau_comparable_to_the_window_is_kept():
     fit = fit_transient(t, y, "exp")
     assert fit.ok, fit.reason
     assert fit.tau == pytest.approx(25.0, rel=0.02)
+
+
+# --- uncertainty on <tau> ----------------------------------------------------
+# Dean: "adding SD's are better yet 95% CI to the plot points would be good."
+
+def test_mean_tau_uncertainty_matches_tau_for_a_single_exponential():
+    """<tau> IS tau for an exp, so its uncertainty must be tau_sd exactly -- the
+    delta method has to reduce to the trivial case."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 400)
+    fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0) + rng.normal(0, 0.01, 400), "exp")
+    assert fit.mean_tau_sd == pytest.approx(fit.tau_sd, rel=1e-6)
+
+
+def test_mean_tau_uncertainty_agrees_with_monte_carlo():
+    """The delta method is only right if the covariance propagation is. Refitting
+    noisy realisations and taking the spread of <tau> is the independent check."""
+    rng = np.random.default_rng(7)
+    t = np.linspace(0.0, 20.0, 400)
+    base = 1 + 2 * np.exp(-((t / 3.0) ** 0.6))
+    fit = fit_transient(t, base + rng.normal(0, 0.02, 400), "stretched")
+    spread = [g.mean_tau for g in
+              (fit_transient(t, base + rng.normal(0, 0.02, 400), "stretched")
+               for _ in range(120)) if g.ok]
+    assert len(spread) > 100
+    assert fit.mean_tau_sd == pytest.approx(float(np.std(spread, ddof=1)), rel=0.35)
+
+
+def test_the_stretched_mean_tau_is_less_certain_than_its_raw_tau():
+    """<tau> = (tau/beta)*Gamma(1/beta) depends on BOTH fitted parameters, so quoting
+    tau_sd as its uncertainty would understate it."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 400)
+    fit = fit_transient(t, 1 + 2 * np.exp(-((t / 3.0) ** 0.6))
+                        + rng.normal(0, 0.01, 400), "stretched")
+    assert fit.mean_tau_sd > fit.tau_sd
+
+
+def test_the_95_percent_interval_is_wider_than_one_sigma():
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 400)
+    fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0) + rng.normal(0, 0.01, 400), "exp")
+    assert fit.mean_tau_ci95 == pytest.approx(1.96 * fit.mean_tau_sd, rel=0.02)
+
+
+# --- a rejected fit keeps its curve ------------------------------------------
+
+def test_a_rejected_fit_still_has_a_curve_to_draw():
+    """Dean: "it is still useful to know what the failed fit looks like... so perhaps
+    we can understand why and setup a method to get a better fit." A fit that
+    CONVERGED but failed a physical check keeps its parameters."""
+    t = np.linspace(0.0, 60.0, 600)
+    fit = fit_transient(t, 1.0 + 0.001 * t, "exp")       # tau >> window
+    assert not fit.ok
+    curve = fit.curve(t)
+    assert curve is not None and np.isfinite(curve).any()
+
+
+def test_a_fit_that_never_converged_has_no_curve():
+    """The distinction that matters: no parameters means nothing to draw."""
+    fit = fit_transient(np.linspace(0, 1, 3), np.zeros(3), "biexp")   # too few points
+    assert not fit.ok
+    assert fit.curve(np.linspace(0, 1, 3)) is None
