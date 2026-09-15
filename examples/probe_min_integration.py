@@ -128,8 +128,47 @@ def main():
               + ("   -- agrees" if agree else "   -- DISAGREES with what is accepted"))
     if stated_max is not None:
         print(f"  stated maximum   = {stated_max:.6g} ms")
-    print("\nPaste this whole output back — the defaults and the linearity ramp "
-          "should follow this number, not a hardcoded 0.022 ms.")
+    print("\n--- 3. is that exposure actually HONOURED? ---")
+    # AVS_PrepareMeasure accepting a value only means it passed PARAMETER VALIDATION.
+    # It does not mean the detector integrates for that long: a 2048-pixel readout
+    # alone takes longer than 9 us, so an accepted-but-not-honoured value would be
+    # silently clamped. The real floor is where elapsed time stops tracking the
+    # request. MEASURED 0.009033 ms accepted on a 2048 px detector whose own
+    # stand-alone default is 2.2 ms, which is why this stage exists.
+    from avaspec import AVS_Measure, AVS_PollScan, AVS_GetScopeData
+    import time
+
+    print(f"  {'requested (ms)':>16}  {'elapsed (ms)':>14}  {'ratio':>7}  honoured?")
+    honoured_floor = None
+    for requested in (hi, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0):
+        cfg = _config(handle, pixels, requested)
+        if AVS_PrepareMeasure(handle, cfg) < 0:
+            print(f"  {requested:16.4g}  {'rejected':>14}")
+            continue
+        t0 = time.perf_counter()
+        if AVS_Measure(handle, 0, 1) < 0:
+            print(f"  {requested:16.4g}  {'measure failed':>14}")
+            continue
+        deadline = t0 + max(2.0, requested / 1000.0 * 5.0 + 2.0)
+        while not AVS_PollScan(handle) and time.perf_counter() < deadline:
+            time.sleep(0.0005)
+        elapsed = (time.perf_counter() - t0) * 1000.0
+        try:
+            AVS_GetScopeData(handle)
+        except Exception:                             # noqa: BLE001 — probe script
+            pass
+        ratio = elapsed / requested if requested else float("inf")
+        # Honoured means the elapsed time grew with the request. Well below the
+        # floor, elapsed is dominated by fixed readout and barely moves.
+        ok = "yes" if ratio < 20 else "NO — clamped/readout-bound"
+        if ok == "yes" and honoured_floor is None:
+            honoured_floor = requested
+        print(f"  {requested:16.4g}  {elapsed:14.3f}  {ratio:7.1f}  {ok}")
+
+    print(f"\n  lowest exposure that tracks the request: "
+          f"{honoured_floor if honoured_floor else 'none of those tried'}")
+    print("\nPaste this whole output back. The defaults and the linearity ramp should "
+          "follow the HONOURED floor, not merely what PrepareMeasure accepts.")
 
 
 if __name__ == "__main__":
