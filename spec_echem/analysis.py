@@ -56,7 +56,7 @@ MODELS = {
     "stretched": (model_stretched, ("A", "B", "tau", "beta")),
 }
 
-# The functional form, shown beside the Model dropdown -- Dean: "why don't you put the
+# The functional form, shown beside the Model dropdown -- Requested: "why don't you put the
 # equation to the right of the model choice area above instead of adding yet more info
 # in the graph?" It belongs where the model is CHOSEN, and the legend is already dense.
 # A is what the curve approaches as t -> inf; B is the amplitude of the part that
@@ -131,7 +131,7 @@ def mean_relaxation_time(model, params):
 # --- wavelength selection ----------------------------------------------------
 
 # Below this the lamp and optics deliver nothing on these rigs -- MEASURED 416 counts
-# at 381 nm on 20260709_P3HT_01, against 41250 at 780 nm. Dean: "there should be no
+# at 381 nm on 20260709_P3HT_01, against 41250 at 780 nm. Requested: "there should be no
 # data below 410 nm or so." Pixels outside the window never win the selection.
 ANALYSIS_WL_MIN = 410.0
 ANALYSIS_WL_MAX = None
@@ -294,7 +294,7 @@ class FitResult:
         """The raw τ the user tunes against. For biexp this is the SLOWER component;
         ⟨τ⟩ is what the ratio view uses.
 
-        Available whenever the fit CONVERGED, pass or fail. Dean: "even when a fit
+        Available whenever the fit CONVERGED, pass or fail. Requested: "even when a fit
         'fails', the result should still be viewable... since you didn't share the
         results the scientist doesn't have information to make informed decisions."
         `ok` says whether it passed the physical checks, not whether it has numbers.
@@ -322,7 +322,7 @@ class FitResult:
     def needs_review(self):
         """Converged, but a physical check objected. NOT "failed".
 
-        Dean: "the scientist should have results and make decisions and not have the
+        Requested: "the scientist should have results and make decisions and not have the
         software make decisions about whether the user should see data or fits to
         data... I would highlight these fits as questionable or requiring extra
         review."
@@ -343,7 +343,7 @@ class FitResult:
     def mixed_amplitude_signs(self):
         """True when a multi-component fit's prefactors disagree in sign.
 
-        Dean: "generally the two prefactors need to be the same sign (except say if
+        Requested: "generally the two prefactors need to be the same sign (except say if
         there is a bipolaron stealing abs from the polaron then there are competing
         processes)."
 
@@ -457,7 +457,7 @@ class FitResult:
     def describe(self):
         """Every fitted parameter, one string per line, for the plot legend.
 
-        Dean: "for biexp and strexp, I think it is important to include prefactor 1,
+        Requested: "for biexp and strexp, I think it is important to include prefactor 1,
         tau1, prefactor 2, tau2, and mean tau." The legend showed only the SLOWER tau
         of a biexp, so the fast component -- the capacitive one, and the reason for
         choosing biexp at all -- was invisible.
@@ -478,7 +478,7 @@ class FitResult:
         for name, value, sd in zip(names, self.params, sds):
             unit = " s" if name.startswith("tau") else ""
             lines.append(f"{name} = {value:.4g} +/- {sd:.2g}{unit}")
-        # y(0) = A + sum(B) is an identity of the model, and it is the check Dean
+        # y(0) = A + sum(B) is an identity of the model, and it is the check the user
         # asked for: it must equal the first fitted data point. Showing it also makes
         # the sign of B readable -- B < 0 is a RISING component, climbing to the
         # plateau A from below, which is what a growing polaron band does. Without A
@@ -558,7 +558,7 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
         # to the answer: tau -> 0 (divide by zero), tau < 0 under a fractional beta
         # ((-x)**beta -> nan), a tiny tau1 (exp overflow). numpy warns on each, and
         # those warnings were reaching the user's shell on every fit -- three of them
-        # on the first launch at PLU -- which reads like a malfunction when it is the
+        # on the first launch on the first rig -- which reads like a malfunction when it is the
         # optimizer doing its job. What matters is the OUTCOME, and that is validated
         # below: a fit that ends up in one of those regions is rejected by the tau
         # and uncertainty checks, not by whether a trial step warned.
@@ -598,7 +598,7 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
 def _rejected(result, reason):
     """A fit that CONVERGED but failed a physical check, keeping its parameters.
 
-    Dean: "I think it is still useful to know what the failed fit looks like... so
+    Requested: "I think it is still useful to know what the failed fit looks like... so
     perhaps we can understand why and setup a method to get a better fit." A rejected
     exponential running flat through a real decay says change the model; one hugging
     the capacitive spike says move the window. Discarding the parameters threw away

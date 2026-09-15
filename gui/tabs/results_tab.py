@@ -88,7 +88,7 @@ class ResultsTab(QWidget):
         self.view_combo.addItem("Spectra (all times)", "spectra")
         self.view_combo.addItem("Kinetics (one wavelength)", "kinetics")
         self.view_combo.addItem("Modulation (across the ladder)", "modulation")
-        # Dean: another option here rather than a new tab -- a DOS is another view of
+        # Requested: another option here rather than a new tab -- a DOS is another view of
         # the CV that is already selected, so it needs no new navigation.
         self.view_combo.addItem("Density of states (CV only)", "dos")
         self.view_combo.setToolTip(
@@ -228,7 +228,7 @@ class ResultsTab(QWidget):
         # setValue re-runs on_segment_changed, which redraws with the marker moved.
         self.analysis_wl.setValue(wavelength)
 
-        # Carry it to the Analysis tab. Dean: "if the vertical line has been clicked
+        # Carry it to the Analysis tab. Requested: "if the vertical line has been clicked
         # / selected in tab 4, then that WL should be used instead of Auto(polaron)
         # as there was likely some intention of the user on that WL." A click is a
         # deliberate choice of band; leaving tab 5 on automatic would quietly fit
@@ -305,7 +305,7 @@ class ResultsTab(QWidget):
         +0.8 V excursion and nothing said so until the files were analysed later, by
         which time the next run had been spent on a dead sample.
 
-        Doping only. Dean: "they are not part of the main ladder... I am not sure even
+        Doping only. Requested: "they are not part of the main ladder... I am not sure even
         including them is useful." Every dedoping segment is held at the same potential,
         so they piled onto one x inside the doping curve and dragged the line back
         across it. The full both-directions comparison lives on tab 5, which plots
@@ -506,11 +506,11 @@ class ResultsTab(QWidget):
             return
 
         # A big folder takes seconds per segment and the window simply froze, with no
-        # way to tell a slow load from a hung one. Dean asked for a progress window
+        # way to tell a slow load from a hung one. The requirement was a progress window
         # that becomes the "X segments loaded" box.
         # Release the PREVIOUS run before reading the next. Building the new one
         # alongside the old doubled peak memory, and on the 32-bit SpecEchem32 env
-        # that is fatal: Dean hit "Unable to allocate 40.6 MiB" on every segment of a
+        # that is fatal: the user hit "Unable to allocate 40.6 MiB" on every segment of a
         # second load. The cost is that a cancelled or failed load now leaves nothing
         # loaded instead of the previous run -- which is the right trade when the
         # alternative is not being able to load at all.

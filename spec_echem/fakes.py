@@ -149,7 +149,7 @@ class FakeSpectrometer:
 # ---------------------------------------------------------------------------
 # FakeAutolab — a stand-in for the Metrohm Autolab SDK.
 #
-# Shaped to match what the SDK actually did on the UW rig on 2026-08-31, recorded
+# Shaped to match what the SDK actually did on the second rig on 2026-08-31, recorded
 # in examples/autolab_api_report.txt and docs/autolab-run-api.md. The awkward parts
 # are deliberate, because they are the parts a driver gets wrong:
 #

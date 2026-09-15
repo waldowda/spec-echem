@@ -1,7 +1,7 @@
 """
 Golden-file tests for the spec-echem 8-column output format.
 
-These tests protect the file format that downstream UW analysis tools (OECT_processing) depend on.
+These tests protect the file format that the downstream analysis tools (OECT_processing) depend on.
 Run before and after any refactoring of get_spectra() / data.py to confirm nothing changed.
 """
 import os

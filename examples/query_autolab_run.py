@@ -552,7 +552,7 @@ def inspect_dio(inst):
     `autolab_dio_port = 0` has been an assumption since the first trigger probe, and
     this report did not capture the ports on 2026-08-31. It matters because a DIO48
     connector carries THREE independent 8-bit sections on one 25-pin shell (NOVA
-    16.3.1.3.1: A = pins 1-8, B = 17-24, C = 9-16, pin 25 ground). At the UW rig one
+    16.3.1.3.1: A = pins 1-8, B = 17-24, C = 9-16, pin 25 ground). On the second rig one
     cable leaves the Autolab and splits to the Avantes and the AvaLight-Mini2, so
     whether the trigger and the shutter share a port — or merely a shell — decides
     whether driving all eight pins can disturb the optics.

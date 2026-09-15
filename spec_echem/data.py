@@ -189,7 +189,7 @@ def discover_run_segments(run_folder):
 def write_spectra_file(absorb7, spectra, dark, ref, wavelengths, timestamps,
                        data_type, run_number, data_root, added_path):
     """
-    Write spectra data to a tab-separated file in the UW 8-column format.
+    Write spectra data to a tab-separated file in the 8-column format.
 
     Column 6 is 'Spectrum number' for doping (DATA_TYPE_DOPING=2), 'Index' for all others.
     Dark and ref columns are populated only for time_point 0; NaN elsewhere.

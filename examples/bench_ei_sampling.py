@@ -9,7 +9,7 @@ the question that decides the CA architecture. What that day measured:
     UseFastOptions = True changed it by      ~0        (20260909_test8)
 
 So the ~0.93 s is the procedure walking FHGetSetValues -> FHSetSetpointPotential ->
-FHSwitchCell before it ever reaches FHLevel, and no parameter shortens it. Dean's
+FHSwitchCell before it ever reaches FHLevel, and no parameter shortens it. The
 requirement is cell-on to data inside ONE delta_time (100 ms), which the .nox route
 cannot meet. The alternative is the shape the Gamry driver already has:
 

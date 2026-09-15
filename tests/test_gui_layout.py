@@ -578,7 +578,7 @@ def test_the_auto_wavelength_lands_on_the_growing_band(analysis_window):
 def test_a_failed_fit_shows_its_reason_instead_of_a_number(analysis_window):
     """Two tiers. A fit that NEVER CONVERGED has nothing to show, so the table says
     "no fit". One rejected by a check has converged and keeps its numbers, marked
-    with "!" -- Dean: "please just note the concern from the fit but don't hide the
+    with "!" -- Requested: "please just note the concern from the fit but don't hide the
     results"."""
     import numpy as np
     from spec_echem.analysis import FitResult
@@ -852,7 +852,7 @@ def test_starting_a_run_stops_using_a_loaded_run_s_labels(window):
 
 
 def test_the_label_prefers_the_potential_that_was_actually_measured(window, tmp_path):
-    """Dean: "can you grab the true potential from the raw data?" The echem file is
+    """Requested: "can you grab the true potential from the raw data?" The echem file is
     the only source that cannot disagree with the experiment -- metadata records what
     was REQUESTED, and the Parameters tab may describe a different run entirely."""
     import numpy as np
@@ -981,7 +981,7 @@ def test_the_ladder_says_which_wavelength_it_compared(analysis_window):
 
 
 def test_tab4_auto_polaron_follows_the_polaron_on_dedoping(window, tmp_path):
-    """Dean: tab 4's "auto (polaron)" chose pi-pi*. _chosen_wavelength took the band
+    """Requested: tab 4's "auto (polaron)" chose pi-pi*. _chosen_wavelength took the band
     that GROWS unconditionally -- right on doping, wrong on dedoping, where the polaron
     decays and pi-pi* recovers. The same bug was fixed in tab 5 and not propagated, so
     both tabs now share analysis.probe_wavelength."""
@@ -1007,7 +1007,7 @@ def test_tab4_auto_polaron_follows_the_polaron_on_dedoping(window, tmp_path):
 
 
 def test_clicking_the_spectrum_sets_the_analysis_wavelength(window):
-    """Dean: "seems helpful to have a cursor on the spectra view to move so you don't
+    """Requested: "seems helpful to have a cursor on the spectra view to move so you don't
     have to estimate a place to determine WL"."""
     from types import SimpleNamespace
     r = window.results_tab
@@ -1093,7 +1093,7 @@ def test_hiding_a_trace_removes_it_from_the_ladder(window, tmp_path):
 
 
 def test_the_modulation_view_is_doping_only(window, tmp_path):
-    """Dean: dedoping points "are not part of the main ladder". Every dedoping
+    """Requested: dedoping points "are not part of the main ladder". Every dedoping
     segment sits at the same potential, so they piled onto one x inside the doping
     curve and dragged the line back across it. Tab 5 carries both directions."""
     tab = _doping_dedoping_pair(window, tmp_path)   # one doping + one dedoping
@@ -1113,7 +1113,7 @@ def test_the_modulation_view_is_doping_only(window, tmp_path):
 # --- "auto (polaron)" has to say which wavelength it picked ------------------
 
 def test_tab5_shows_the_wavelength_auto_resolved_to(analysis_window):
-    """Dean: "for what you call auto(polaron) there is no indication what WL you
+    """Requested: "for what you call auto(polaron) there is no indication what WL you
     chose." The plot title carried it, but vanished on the current/charge traces."""
     tab = analysis_window.analysis_tab
     tab.on_fit_segment()
@@ -1167,7 +1167,7 @@ def test_a_cv_gets_no_automatic_polaron(window, tmp_path):
 # --- loading a big run must not look like a hang ----------------------------
 
 def test_reading_segments_reports_progress(window, tmp_path):
-    """Dean: "the GUI goes silent which may make the user wonder if it is working
+    """Requested: "the GUI goes silent which may make the user wonder if it is working
     since it takes a while to load a large folder"."""
     from spec_echem.data import DATA_TYPE_DOPING
 
@@ -1203,7 +1203,7 @@ def test_cancelling_a_load_leaves_nothing_half_read(window, tmp_path):
 
 
 def test_the_table_reports_the_same_statistic_the_plot_draws(analysis_window):
-    """Dean: "the errors are labeled SDs. Is that really the case or are they 95%
+    """Requested: "the errors are labeled SDs. Is that really the case or are they 95%
     CIs?" The column WAS a 1-sigma SD on the raw tau while the error bars were a 95%
     CI on <tau> -- different statistics on different quantities, unlabelled."""
     tab = analysis_window.analysis_tab
@@ -1226,7 +1226,7 @@ def test_the_ladder_says_what_its_bars_are(analysis_window):
 
 
 def test_loading_a_run_releases_the_previous_one(window, tmp_path):
-    """Dean loaded a second run without restarting and every segment failed with
+    """the user loaded a second run without restarting and every segment failed with
     "Unable to allocate 40.6 MiB". Building the new run alongside the old doubles
     peak memory, which the 32-bit build cannot survive."""
     import numpy as np
@@ -1249,7 +1249,7 @@ def test_loading_a_run_releases_the_previous_one(window, tmp_path):
 
 
 def test_clicking_a_wavelength_carries_it_to_the_analysis_tab(window, tmp_path):
-    """Dean: "if the vertical line has been clicked / selected in tab 4, then that WL
+    """Requested: "if the vertical line has been clicked / selected in tab 4, then that WL
     should be used instead of Auto(polaron) as there was likely some intention of the
     user on that WL." A click is a deliberate choice of band."""
     from types import SimpleNamespace
@@ -1274,7 +1274,7 @@ def test_typing_a_wavelength_in_tab4_does_not_move_tab5(window, tmp_path):
 
 
 def test_there_is_no_auto_start_checkbox(analysis_window):
-    """Dean: "I don't see a point of the auto start check box." It computed a start
+    """Requested: "I don't see a point of the auto start check box." It computed a start
     from the peak |I|, which on a potential step is the FIRST sample -- so it
     resolved to 0 and excluded nothing. A control whose only setting was the default."""
     tab = analysis_window.analysis_tab
@@ -1285,7 +1285,7 @@ def test_there_is_no_auto_start_checkbox(analysis_window):
 
 
 def test_a_fit_needing_review_keeps_its_numbers_everywhere(analysis_window):
-    """Dean: "please just note the concern from the fit but don't hide the results in
+    """Requested: "please just note the concern from the fit but don't hide the results in
     the fit or in the kinetics vs pot plots." A rejected fit that CONVERGED shows its
     value in the table, its curve on the plot, and its point on the ladder."""
     import numpy as np
@@ -1316,7 +1316,7 @@ def test_a_fit_needing_review_keeps_its_numbers_everywhere(analysis_window):
 
 
 def test_the_all_fits_table_covers_every_segment_and_trace(analysis_window, tmp_path):
-    """Dean: "there needs to be a table somewhere that holds fit data for all
+    """Requested: "there needs to be a table somewhere that holds fit data for all
     potentials. There is no way currently to review that data." The tab's own table
     shows three traces of ONE segment."""
     from gui.tabs.analysis_tab import AllFitsDialog
@@ -1363,7 +1363,7 @@ def test_an_off_scale_review_point_is_called_out(analysis_window):
 
 
 def test_a_fit_needing_review_still_shows_every_parameter(analysis_window):
-    """Dean: "you still are not plotting all of the fit data on the fit graph in the
+    """Requested: "you still are not plotting all of the fit data on the fit graph in the
     legend... I see the amber box but only tau is shown."
 
     plot_fit took ONE `note` argument for both the legend and the banner, so a fit
@@ -1386,7 +1386,7 @@ def test_a_fit_needing_review_still_shows_every_parameter(analysis_window):
 
 
 def test_the_model_equation_sits_beside_the_model_choice(analysis_window):
-    """Dean: "what are A and B again?" then "why don't you put the equation to the
+    """Requested: "what are A and B again?" then "why don't you put the equation to the
     right of the model choice area above instead of adding yet more info in the
     graph?" It belongs where the model is chosen; the legend is already dense."""
     tab = analysis_window.analysis_tab
@@ -1427,7 +1427,7 @@ def _cv_window(window, tmp_path, **settings):
 
 
 def test_the_dos_view_needs_a_cv(window, tmp_path):
-    """Dean: a fourth Optical view, for the CV. The other three describe a chrono
+    """Requested: a fourth Optical view, for the CV. The other three describe a chrono
     step, so this one says so rather than producing nonsense."""
     r = _cv_window(window, tmp_path)
     labels = [r.view_combo.itemText(i) for i in range(r.view_combo.count())]
@@ -1456,7 +1456,7 @@ def test_the_dos_falls_back_to_dQdV_without_a_film_volume(window, tmp_path):
 
 
 def test_the_scan_rate_is_measured_from_the_data_not_the_form(window, tmp_path):
-    """Dean: "why do we get this note? Is that not recorded or accessible from the
+    """Requested: "why do we get this note? Is that not recorded or accessible from the
     data?" It is. CV.txt has no time column, but the CV's spectra file carries
     corrected times, and total path swept / elapsed time is the rate -- so a run with
     no metadata at all still gets a DOS.
@@ -1495,7 +1495,7 @@ def test_the_nominal_rate_is_the_fallback_when_the_data_cannot_give_one(window, 
     assert second == pytest.approx(first / 10.0, rel=1e-6)
 
 def test_the_film_geometry_defaults_are_the_bench_geometry(window):
-    """Dean: 150 nm spin-coated, and 2 cm immersed x 0.8 cm wide because the ITO/FTO
+    """Requested: 150 nm spin-coated, and 2 cm immersed x 0.8 cm wide because the ITO/FTO
     slide has to clear a 1 cm cell. Both are starting points to check per run, not
     constants -- the area scales the DOS directly."""
     settings = window.collect_settings()

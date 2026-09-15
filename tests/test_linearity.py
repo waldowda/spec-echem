@@ -52,7 +52,7 @@ def test_knee_is_found_and_recommendation_takes_the_tighter_constraint():
 
 
 def test_fill_cap_binds_when_the_detector_stays_linear_to_the_clip():
-    """Dean's real hardware (2026-07-13): the response tracks the fit to within ~1%
+    """Real hardware (2026-07-13): the response tracks the fit to within ~1%
     right up to the hard ADC clip, so the deviation test never fires. Linearity alone
     would put the working point at ~94% of full scale — the fill cap is the only thing
     providing headroom. Regression guard for that."""
