@@ -76,6 +76,7 @@ spec-echem/
 ├── gamry/
 │   └── *.GSequence                  # Gamry sequence files with digital triggers
 ├── docs/
+│   ├── manual.md                 # USER MANUAL — tabs + the maths behind every number
 │   ├── data-format.md               # Output file format specification (DO NOT CHANGE)
 │   ├── sop.md                       # Standard operating procedure (GUI-first)
 │   └── inspect-run.md
