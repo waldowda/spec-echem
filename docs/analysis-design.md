@@ -232,6 +232,13 @@ biexp leaves four times less systematic residual than stretched here. Dean: *"we
 have better models currently"* — so the split is there to show how far short the
 available ones fall, not to choose among a richer set.
 
+**This ranking is specific to THIS system, not a general result.** Dean: *"the conclusion
+about biexp compared to strexp is likely in the context of this particular OMIEC system
+and maybe different for a different system."* P3HT 90:10 in KPF₆ at 800 nm is one
+polymer, one electrolyte, one band. A different OMIEC — different ion, different
+morphology, more dispersive transport — may well rank stretched above biexp. Re-read the
+split per system; do not carry this table forward as a default.
+
 ### Prefactor signs carry physics — MEASURED 2026-09-15
 
 For a sum-of-parts model the prefactors of one process pull the same way. Opposite signs
@@ -255,6 +262,47 @@ wavelength typed; what is missing is fitting two at once and comparing.
 Note the sign convention this implies: at 800 nm the prefactors are NEGATIVE (the
 polaron band RISES to its plateau A) and at 550 nm POSITIVE (π–π* falls). A negative
 prefactor is a direction, not an error, which is why A and y(0) are on the legend.
+
+### Planned — a third component, and joint fits across two bands
+
+Dean, 2026-09-15, explicitly *for later*. Recorded so the design is settled before
+anyone starts.
+
+**Tri-exponential for the bipolaron.** *"For the bipolaron changing the polaron, the fit
+would likely be a tri-exponential. Same two exps as in pi-pi* and an added one to remove
+two polarons to form one bipolaron."*
+
+    y = A + B₁e^(−t/τ₁) + B₂e^(−t/τ₂) + B₃e^(−t/τ₃)
+
+Seven parameters, so it needs the good data and probably bounds. The payoff is that the
+third component has a **predicted signature**: it consumes polarons, so it should appear
+with OPPOSITE sign at the polaron band and be absent or much weaker at π–π*. That is
+exactly the asymmetry `mixed_amplitude_signs` already detects — fires at 800 nm above
++0.5 V, never at 550 nm. The flag is currently the only evidence of a process the models
+cannot represent; a tri-exponential would let it be measured instead of merely flagged.
+
+**Joint fit with shared τ.** *"One could even do dual fits of both polaron and pi-pi*
+with the same tau parameters being optimized as they should be directly related."*
+
+This is the structurally right answer and probably worth more than a third component on
+its own. The two bands are two views of ONE ion-motion process, so the timescales are not
+independent measurements to be compared after the fact — they are the same numbers seen
+twice.
+
+- **Shape:** one parameter vector with SHARED τ (and β), and per-band amplitudes and
+  baselines. Stack the two traces into a single residual vector and fit once; `curve_fit`
+  needs only a wrapper that unpacks a concatenated x. No new solver.
+- **Why it is better than two fits:** it roughly halves the free timescales while
+  doubling the data constraining them, so τ comes out far better determined — and the
+  per-band amplitudes then carry the interesting physics, since they are what actually
+  differs between the bands.
+- **The assumption IS the hypothesis.** A shared-τ fit asserts both bands follow the same
+  kinetics. Where that holds it is a much stronger measurement; where it fails — the
+  polaron band above +0.5 V, if the bipolaron reading is right — it will fail VISIBLY, in
+  the residual split. That failure is a result, not a problem.
+- **Sequencing:** after the tri-exponential, or alongside it. A joint fit that excludes
+  the bipolaron term will be fighting the same missing process the sign flag already
+  points at.
 
 ### Sequencing
 

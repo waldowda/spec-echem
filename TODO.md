@@ -2,6 +2,21 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Richer models — Dean, 2026-09-15, explicitly for later
+
+Design settled in [`docs/analysis-design.md`](docs/analysis-design.md); not started.
+
+- [ ] **Tri-exponential**, for the bipolaron consuming polarons. Its third component
+      should show OPPOSITE sign at the polaron band and be absent at π–π* — which is
+      what `mixed_amplitude_signs` already detects but cannot measure.
+- [ ] **Joint fit of polaron and π–π* with SHARED τ.** Dean: *"they should be directly
+      related."* One parameter vector, shared timescales, per-band amplitudes and
+      baselines; stack the traces into one residual vector, no new solver. Halves the
+      free timescales while doubling the constraining data. Where the shared-τ
+      assumption fails it fails visibly in the residual split, which is itself a result.
+- [ ] **Re-check the model ranking per system.** biexp beating stretched 4:1 is a fact
+      about P3HT 90:10 / KPF₆ at 800 nm, not a default to carry forward.
+
 ## Constrain prefactors to the same sign — Dean, 2026-09-15, not started
 
 Dean: *"Sometimes a poor fit switches prefactor signs. We should consider adding a check
