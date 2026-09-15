@@ -379,7 +379,10 @@ class AnalysisTab(QWidget):
             note = "not fitted yet"
             fit_y = None
         elif not fit.ok:
-            note = f"fit failed: {fit.reason[:48]}"
+            # Not truncated: the reason carries the numbers that tell you what
+            # to change (a tau of 6e4 in a 30 s window says widen or change
+            # model). The canvas wraps it.
+            note = f"FIT FAILED\n{fit.reason}"
             fit_y = None
         else:
             beta = f", beta = {fit.beta:.3g}" if fit.beta is not None else ""

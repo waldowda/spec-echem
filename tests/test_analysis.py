@@ -323,3 +323,43 @@ def test_fitting_awkward_data_emits_no_runtime_warnings():
             leaked += [f"{name}/{model}: {w.message}" for w in caught
                        if issubclass(w.category, RuntimeWarning)]
     assert not leaked, "numpy warnings reached the caller:\n" + "\n".join(leaked)
+
+
+# --- physical bounds ---------------------------------------------------------
+# Dean: "tau > 0 and beta needs to be 0 < beta <(=) 1.0."
+
+def test_beta_cannot_exceed_one():
+    """Above 1 it is a COMPRESSED exponential -- a different physical claim that
+    this model does not offer. Compressed data must clamp, not be reported."""
+    t = np.linspace(0.0, 20.0, 300)
+    y = 0.5 + 2.0 * np.exp(-((t / 3.0) ** 1.8))      # genuinely compressed
+    fit = fit_transient(t, y, "stretched")
+    assert fit.ok
+    assert fit.beta <= 1.0 + 1e-9, f"beta came back {fit.beta}"
+
+
+def test_a_genuine_stretch_is_still_recovered():
+    """The clamp must not flatten real stretched behaviour into beta = 1."""
+    t = np.linspace(0.0, 20.0, 300)
+    y = 0.5 + 2.0 * np.exp(-((t / 3.0) ** 0.6))
+    fit = fit_transient(t, y, "stretched")
+    assert fit.ok
+    assert fit.beta == pytest.approx(0.6, abs=0.02)
+    assert fit.tau == pytest.approx(3.0, abs=0.05)
+
+
+def test_every_time_constant_is_positive():
+    """A negative tau is not a slow decay, it is a growing exponential. The bounds
+    keep the optimizer out of that region instead of rejecting it afterwards."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 30.0, 300)
+    awkward = [rng.normal(0.0, 1e-3, 300),            # noise
+               0.02 * (t / 30.0) ** 3,                # still rising
+               0.5 * (t > 1)]                         # step
+    for y in awkward:
+        for model in ("exp", "biexp", "stretched"):
+            fit = fit_transient(t, y, model)
+            if fit.ok:
+                assert fit.tau > 0
+                if model == "biexp":
+                    assert fit.params[2] > 0 and fit.params[4] > 0
