@@ -354,6 +354,29 @@ ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm
   Precedence: code defaults → lab defaults → this machine → an explicitly loaded experiment JSON.
   `data_root` and `potentiostat_mode` are deliberately ABSENT from the tracked file (machine-specific).
 
+### In-GUI analysis (Tab 5) — DONE and validated on real data 2026-09-14
+
+Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardware) and
+`gui/tabs/analysis_tab.py` the view. **Read [`docs/analysis-design.md`](docs/analysis-design.md)**
+— it carries the design, what real data changed, and the planned CV density-of-states view.
+
+- **`auto_wavelengths` returns `(grows, bleaches)`, NOT `(polaron, pi)`.** Which is which
+  depends on the segment: doping grows the polaron, dedoping decays it while π–π*
+  recovers. Always go through `analysis.probe_wavelength(…, doping=…)` — the first copy
+  of that logic lived in one tab only and the other quietly followed the wrong band.
+- **Pixels below `ANALYSIS_WL_MIN` (410 nm) never win band selection**, nor do pixels
+  whose change is under 10× their own noise. MEASURED: 416 counts at 381 nm against
+  41250 at 780 nm, and the blue edge was beating the real polaron on every segment.
+- **Fits are bounded**: τ > 0, 0 < β ≤ 1 (above 1 is a *compressed* exponential),
+  β ≥ 0.05 (⟨τ⟩ = (τ/β)·Γ(1/β) overflows past 1/β ≈ 170), and τ < 10× the fitted window.
+- **Segment potentials come from the DATA**, via `MainWindow.segment_potential()` →
+  `gamry_data.measured_potential()` (median of `WE(1).Potential`), falling back to the
+  loaded run's own metadata. Never from the live Parameters tab: that mislabelled a
+  +0.700 V segment as "+0.400 V".
+- **`plot_canvas` carries matplotlib-version fallbacks** (`_set_layout`, the colormap
+  lookup) because SpecEchem32 is Python 3.7. Do not "simplify" them away until that env
+  is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
+
 ### Known gaps (see TODO.md)
 - **`gui/` is barely tested.** 165 tests total, of which exactly 4 touch `gui/`
   (`tests/test_gui_layout.py`, headless via `QT_QPA_PLATFORM=offscreen`). Every bug in the 0.2.0
