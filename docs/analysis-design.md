@@ -194,6 +194,44 @@ electronic; where they diverge, it was not. That comparison is the reason to bui
 rather than in a generic echem tool, and it reuses the band-selection work already done for the
 kinetics (see *Auto-wavelength*, above).
 
+### The 95% CI is a WITHIN-MODEL number — read the residual split beside it
+
+⟨τ⟩'s interval comes from the delta method on the full covariance,
+σ² = ∇f'C∇f, with Student *t* on (n−p). That propagation is sound — validated against
+Monte Carlo to 2% (stretched) and 16% (biexp), and it reduces exactly to `tau_sd` for a
+single exponential.
+
+**What it does NOT cover is whether the model is right.** `curve_fit`'s covariance
+assumes independent residuals; a systematic misfit breaks that, and no widening of the
+bar fixes a wrong model — it hides it. So the interval is reported as-is and labelled
+as what it is: given THIS model over THIS window, how well ⟨τ⟩ is pinned.
+
+(An earlier version of this note proposed scaling the CI by √(n/n_eff) from the residual
+autocorrelation. That was wrong: the AR(1) effective-sample-size formula assumes
+stationary correlated NOISE, and reads a smooth systematic trend as near-perfect
+correlation, returning a meaningless number — 14 from 601 points. The fit still has
+n − p = 597 degrees of freedom.)
+
+The honest companion is the **residual split**, on the legend:
+
+```
+resid: noise 3.2e-04, model-miss 1.5e-03 (1.4% of swing)
+```
+
+Successive differences cancel any smooth trend, so the point-to-point scatter IS the
+measurement noise; the RMS above that is a curve the model failed to follow. It ranks
+models directly — MEASURED on `20250710_P3HT9010_KPF6` Doping 0 @ 800 nm:
+
+| model | noise | model-miss | ratio | % of swing |
+|---|---|---|---|---|
+| exp | 1.7e-4 | 1.7e-3 | 10.2× | 1.6% |
+| **biexp** | 1.8e-4 | **3.9e-4** | **2.2×** | **0.4%** |
+| stretched | 3.2e-4 | 1.5e-3 | 4.6× | 1.4% |
+
+biexp leaves four times less systematic residual than stretched here. Dean: *"we don't
+have better models currently"* — so the split is there to show how far short the
+available ones fall, not to choose among a richer set.
+
 ### Prefactor signs carry physics — MEASURED 2026-09-15
 
 For a sum-of-parts model the prefactors of one process pull the same way. Opposite signs
