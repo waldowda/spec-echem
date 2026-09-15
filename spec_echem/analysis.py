@@ -353,6 +353,38 @@ class FitResult:
             return None
         return float(student_t.ppf(0.975, dof) * sd)
 
+    def describe(self):
+        """Every fitted parameter, one string per line, for the plot legend.
+
+        Dean: "for biexp and strexp, I think it is important to include prefactor 1,
+        tau1, prefactor 2, tau2, and mean tau." The legend showed only the SLOWER tau
+        of a biexp, so the fast component -- the capacitive one, and the reason for
+        choosing biexp at all -- was invisible.
+
+        The baseline A is left out: it is an offset, not a kinetic parameter. It is
+        still on self.params for anyone who wants it.
+
+        Note the two DIFFERENT intervals, which is why each is labelled: the
+        per-parameter +/- is 1 SD straight off the covariance diagonal, while <tau>
+        carries the 95% CI that the ladder plots.
+        """
+        if not self.ok or self.params is None:
+            return []
+        names = MODELS[self.model][1]
+        sds = self.sd if self.sd is not None else [float("nan")] * len(names)
+        lines = [f"{self.model}   (+/- = 1 SD)"]
+        for name, value, sd in zip(names, self.params, sds):
+            if name == "A":
+                continue
+            unit = " s" if name.startswith("tau") else ""
+            lines.append(f"{name} = {value:.4g} +/- {sd:.2g}{unit}")
+        ci = self.mean_tau_ci95
+        lines.append(f"mean tau = {self.mean_tau:.4g}"
+                     + (f" +/- {ci:.2g}" if ci is not None else "")
+                     + " s (95% CI)")
+        lines.append(f"{self.n} pts")
+        return lines
+
     def __repr__(self):
         if not self.ok:
             return f"<FitResult {self.model} FAILED: {self.reason}>"

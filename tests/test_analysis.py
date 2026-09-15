@@ -447,3 +447,34 @@ def test_a_fit_that_never_converged_has_no_curve():
     fit = fit_transient(np.linspace(0, 1, 3), np.zeros(3), "biexp")   # too few points
     assert not fit.ok
     assert fit.curve(np.linspace(0, 1, 3)) is None
+
+
+def test_the_summary_lists_both_biexp_components():
+    """Dean: "for biexp and strexp, I think it is important to include prefactor 1,
+    tau1, prefactor 2, tau2, and mean tau." The legend showed only the SLOWER tau, so
+    the fast component -- the reason for choosing biexp at all -- was invisible."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 400)
+    y = 1 + 1.5 * np.exp(-t / 0.8) + 1.0 * np.exp(-t / 6.0) + rng.normal(0, 0.01, 400)
+    lines = "\n".join(fit_transient(t, y, "biexp").describe())
+    for name in ("B1", "tau1", "B2", "tau2", "mean tau"):
+        assert name in lines, f"{name} missing from:\n{lines}"
+    assert "95% CI" in lines and "1 SD" in lines, "both intervals must be labelled"
+
+
+def test_the_summary_lists_tau_and_beta_for_a_stretched_fit():
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 400)
+    y = 1 + 2 * np.exp(-((t / 3.0) ** 0.6)) + rng.normal(0, 0.01, 400)
+    lines = "\n".join(fit_transient(t, y, "stretched").describe())
+    for name in ("tau =", "beta =", "mean tau"):
+        assert name in lines, f"{name} missing from:\n{lines}"
+
+
+def test_the_baseline_is_not_in_the_summary():
+    """A is an offset, not a kinetic parameter, and it would push the legend over
+    the plot. It stays on .params for anyone who wants it."""
+    t = np.linspace(0.0, 20.0, 200)
+    fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0), "exp")
+    assert not any(line.startswith("A =") for line in fit.describe())
+    assert fit.params[0] == pytest.approx(1.0, abs=0.01)
