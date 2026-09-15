@@ -32,7 +32,14 @@ Keep OUT of this repository:
 - **Unpublished results and their interpretation.** Method and evidence are fine; what
   the sample *is* and what it *means* are not. See `private-notes/` (a sibling of this
   repo, not inside it).
-- Serial numbers, machine paths carrying usernames, colleagues' names, meeting notes.
+- **Personal names and institution names in CODE AND DOCS.** Not in comments, not in
+  docstrings, not in test names, not attached to quoted requirements. Write the
+  requirement, not who asked for it: "Requested: ..." or just the reason. Refer to
+  hardware as "the first rig" / "the second rig", never by institution. (The package
+  author field in `setup.py` and the module `Author:` line are legitimate attribution
+  and stay.) This rule was written and then broken repeatedly in the same session —
+  roughly 60 attributions in source and tests before it was caught.
+- Serial numbers, machine paths carrying usernames, meeting notes.
 - Raw data folders whose NAME describes the sample — the filename is disclosure even
   when the file contents are clean.
 

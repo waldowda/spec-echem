@@ -968,7 +968,7 @@ def test_it_is_a_chrono_parameter_only(autolab):
 # Why it exists: the .nox spends ~0.93 s walking FHGetSetValues ->
 # FHSetSetpointPotential -> FHSwitchCell before FHLevel records anything
 # (MEASURED 20260909_test6/7), UseFastOptions moved it by nothing (test8), and
-# Dean's requirement is cell-on to data inside one delta_time. There is no
+# The requirement is cell-on to data inside one delta_time. There is no
 # parameter that gets there; removing the procedure is the only route.
 # ===========================================================================
 

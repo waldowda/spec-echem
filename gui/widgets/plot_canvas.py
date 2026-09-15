@@ -273,7 +273,7 @@ class MplCanvas(FigureCanvasQTAgg):
             # caution rather than an endorsement.
             colour = "#d62728" if fit_ok else "#e07b00"
             # The concern goes INTO the legend entry, in amber, with an amber frame
-            # round the box. Dean: "I would remove the box and put the NEEDS REVIEW
+            # round the box. Requested: "I would remove the box and put the NEEDS REVIEW
             # section in the legend in amber... so you would not need that big in
             # your face box." The banner was covering the parameters it sat next to.
             label = note or ("fit" if fit_ok else "fit — needs review")

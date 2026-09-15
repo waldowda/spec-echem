@@ -166,7 +166,7 @@ class AnalysisTab(QWidget):
         self.fit_all_btn.clicked.connect(self.on_fit_all)
         buttons.addWidget(self.fit_btn)
         buttons.addWidget(self.fit_all_btn)
-        # Dean: "there needs to be a table somewhere that holds fit data for all
+        # Requested: "there needs to be a table somewhere that holds fit data for all
         # potentials. There is no way currently to review that data." The per-segment
         # table shows three traces of ONE segment; this is every fit at once.
         self.all_fits_btn = QPushButton("All fits…")
@@ -427,7 +427,7 @@ class AnalysisTab(QWidget):
         # for a different run. There was a checkbox here that computed a start from
         # the peak |I|; on a potential step that peaks at the FIRST sample, so it
         # resolved to 0 and excluded nothing -- a control whose only setting was the
-        # default. Dean: "I don't see a point of the auto start check box."
+        # default. Requested: "I don't see a point of the auto start check box."
         return (self.start_spin.value() or None), (self.stop_spin.value() or None)
 
     def on_show_all_fits(self):
@@ -465,7 +465,7 @@ class AnalysisTab(QWidget):
                 cells = ["", "no fit"]          # nothing to show, not a judgement
             elif not fit.ok:
                 # FLAGGED, not hidden. The fit converged, so it has numbers worth
-                # seeing -- Dean: "since you didn't share the results the scientist
+                # seeing -- Requested: "since you didn't share the results the scientist
                 # doesn't have information to make informed decisions." The "!" and
                 # the tooltip carry the concern; the reason is on the plot in full.
                 ci = fit.mean_tau_ci95
@@ -663,7 +663,7 @@ class AnalysisTab(QWidget):
                     errs[at[x]] = _ratio_ci95(r, a, c)
                 if present:
                     add(f"ratio ({direction})", vals, "absorbance", direction, errs)
-            # Units on BOTH sides, so it is visible that they cancel. Dean: "so
+            # Units on BOTH sides, so it is visible that they cancel. Requested: "so
             # we know the numerator and denominator have same units and Y is
             # dimensionless."
             ylabel = "(abs mean tau [s]) / (current mean tau [s])"
@@ -714,7 +714,7 @@ class AnalysisTab(QWidget):
 class AllFitsDialog(QDialog):
     """Every fit in one table, so a run can be reviewed across potentials.
 
-    Dean: "there needs to be a table somewhere that holds fit data for all potentials.
+    Requested: "there needs to be a table somewhere that holds fit data for all potentials.
     There is no way currently to review that data." The tab's own table answers "what
     did the three traces of THIS segment do"; this answers "what did the run do".
 
