@@ -1140,3 +1140,35 @@ def test_a_cv_gets_no_automatic_polaron(window, tmp_path):
     r = window.results_tab
     assert r._chosen_wavelength(df, "CV") is None
     assert r.auto_wl_label.text() == ""
+
+
+# --- loading a big run must not look like a hang ----------------------------
+
+def test_reading_segments_reports_progress(window, tmp_path):
+    """Dean: "the GUI goes silent which may make the user wonder if it is working
+    since it takes a while to load a large folder"."""
+    from spec_echem.data import DATA_TYPE_DOPING
+
+    seen = []
+    segs = [("Doping 0", DATA_TYPE_DOPING, 0, tmp_path / "missing0.txt"),
+            ("Doping 1", DATA_TYPE_DOPING, 1, tmp_path / "missing1.txt")]
+    r = window.results_tab
+    results, by_label, errors, cancelled = r._read_segments(
+        segs, lambda done, total, name: (seen.append((done, total)), True)[1])
+
+    assert not cancelled
+    assert seen[0] == (0, 2) and seen[-1] == (2, 2), seen
+    assert len(errors) == 2, "unreadable files are reported, not raised"
+
+
+def test_cancelling_a_load_changes_nothing(window, tmp_path):
+    """A cancelled load must leave the window as it was, not half-populated."""
+    from spec_echem.data import DATA_TYPE_DOPING
+    segs = [("Doping 0", DATA_TYPE_DOPING, 0, tmp_path / "a.txt"),
+            ("Doping 1", DATA_TYPE_DOPING, 1, tmp_path / "b.txt")]
+    r = window.results_tab
+    before = dict(window.results)
+    results, by_label, errors, cancelled = r._read_segments(
+        segs, lambda done, total, name: done < 1)     # cancel on the second
+    assert cancelled
+    assert window.results == before, "the window must not be touched mid-load"
