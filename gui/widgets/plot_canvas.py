@@ -189,7 +189,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self.draw_idle()
 
     def plot_series(self, x, series, xlabel, ylabel, title=None, styles=None,
-                    yerr=None, flags=None):
+                    yerr=None, flags=None, logy=False):
         """Several named y-series against one x, as markers joined by lines.
 
         NaN is left as NaN on purpose: the analysis tab uses it where a fit failed, so
@@ -227,6 +227,10 @@ class MplCanvas(FigureCanvasQTAgg):
                 self.ax.plot(_np.asarray(x, dtype=float)[m], yy[m], "o", ms=11,
                              mfc="none", mec="#e07b00", mew=1.6, zorder=6,
                              linestyle="none", label="_nolegend_")
+        if logy:
+            # symlog, not log: the ratio view can legitimately be near zero, and a
+            # hard log axis would drop those points silently.
+            self.ax.set_yscale("symlog", linthresh=1e-3)
         if len(series) > 1:
             self.ax.legend(fontsize="small")
         self._decorate(title)

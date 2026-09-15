@@ -155,6 +155,26 @@ So the shape of `g(E)` is just the CV with its x-axis flipped to energy and its 
 by constants. **The physics is not in the arithmetic — it is in the four decisions below**, which
 is why this is a design note and not a one-line plot.
 
+### Where it goes — Dean, 2026-09-15
+
+*"For density of states, it seems it could be another option in the Optical View when CV
+is chosen. Does that make sense to you?"*
+
+Yes, and it is better than a new tab. Tab 4's view selector already switches what the
+optical canvas shows for the selected segment — Spectra / Kinetics / Modulation — and a
+DOS is another view of the CV that is already selected. It needs no new navigation, and
+selecting the CV is already how you say "I want to look at the sweep".
+
+- **Enabled only for a CV segment.** The other three views apply to a chrono step; this
+  one applies only to a sweep, so it greys out otherwise rather than producing nonsense.
+  That matches the existing behaviour where a CV gets no automatic polaron band.
+- **It also puts the two DOS estimates in the same place.** The electrochemical one comes
+  from `CV.txt`; the spectroscopic one from `CVspectra.txt` — the same sweep, same
+  segment, same selector. That is exactly the comparison worth having (see below), and
+  splitting them across tabs would make it awkward.
+- Film volume stays an optional input; without it the axis reads dQ/dV in C/V and says
+  so, rather than inventing a volume.
+
 ### What is already on disk
 
 - `CV.txt` — potential and current, both sweep directions, all 3 cycles.
