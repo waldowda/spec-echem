@@ -1161,8 +1161,14 @@ def test_reading_segments_reports_progress(window, tmp_path):
     assert len(errors) == 2, "unreadable files are reported, not raised"
 
 
-def test_cancelling_a_load_changes_nothing(window, tmp_path):
-    """A cancelled load must leave the window as it was, not half-populated."""
+def test_cancelling_a_load_leaves_nothing_half_read(window, tmp_path):
+    """A cancelled load must not leave a PARTIAL run in place.
+
+    Note the window is not restored either: on_load_run releases the previous run
+    BEFORE reading, because holding both at once doubles peak memory and that is
+    fatal on the 32-bit build. Cancel therefore means "nothing loaded", not "back
+    to what you had".
+    """
     from spec_echem.data import DATA_TYPE_DOPING
     segs = [("Doping 0", DATA_TYPE_DOPING, 0, tmp_path / "a.txt"),
             ("Doping 1", DATA_TYPE_DOPING, 1, tmp_path / "b.txt")]
@@ -1195,3 +1201,26 @@ def test_the_ladder_says_what_its_bars_are(analysis_window):
     tab = analysis_window.analysis_tab
     tab.on_fit_all()
     assert "95% CI" in tab.ladder_canvas.ax.get_title()
+
+
+def test_loading_a_run_releases_the_previous_one(window, tmp_path):
+    """Dean loaded a second run without restarting and every segment failed with
+    "Unable to allocate 40.6 MiB". Building the new run alongside the old doubles
+    peak memory, which the 32-bit build cannot survive."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    window.results = {"Doping 0": pd.DataFrame(np.zeros((4, 4)))}
+    window.segments_by_label = {
+        "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 4, 0.1, True)}
+    window.analysis_tab._fits["Doping 0"] = {"absorbance": object()}
+    window.loaded_run_settings = {"doping_potential_start": 0.2}
+
+    window.results_tab._release_loaded_run()
+
+    assert window.results == {}
+    assert window.segments_by_label == {}
+    assert window.loaded_run_settings is None
+    assert window.analysis_tab._fits == {}, "stale fits pin the old arrays too"
