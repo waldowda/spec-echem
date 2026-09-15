@@ -18,7 +18,7 @@ from qtpy.QtWidgets import (
 from qtpy.QtCore import Qt
 
 from spec_echem.analysis import (
-    MODELS, fit_transient, probe_wavelength, tau_ratio,
+    MODELS, MODEL_FORMULAS, fit_transient, probe_wavelength, tau_ratio,
 )
 from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
                              DATA_TYPE_DOPING, DATA_TYPE_DEDOPING)
@@ -85,7 +85,19 @@ class AnalysisTab(QWidget):
             "Applied to absorbance AND current, so the two stay comparable.\n"
             "biexp is also the capacitive-spike model: a fast component plus a\n"
             "slow one is capacitance plus ion motion.")
-        form.addRow("Model:", self.model_combo)
+        model_row = QHBoxLayout()
+        model_row.addWidget(self.model_combo)
+        # The equation beside the choice, so A and B need no explaining and
+        # y(0) = A + sum(B) is self-evident.
+        self.model_formula = QLabel("")
+        self.model_formula.setStyleSheet("color: #555;")
+        self.model_formula.setToolTip(
+            "A is what the curve approaches as t grows; each B is the amplitude of\n"
+            "the part that decays, so y(0) = A + the prefactors.")
+        model_row.addWidget(self.model_formula)
+        model_row.addStretch()
+        self.model_combo.currentIndexChanged.connect(self._sync_model_formula)
+        form.addRow("Model:", model_row)
 
         # The fit window. Both ends are meant to be tuned by hand and refitted —
         # the capacitive spike's RC is not known in advance, so the useful workflow
@@ -256,11 +268,17 @@ class AnalysisTab(QWidget):
         split.addWidget(plot_box)
 
         layout.addWidget(split, stretch=1)
+        self._sync_model_formula()
         self.fit_canvas.show_message("Fit a segment to see the data and its fit.")
         self.ladder_canvas.show_message(
             "Fit a segment to build this plot.")
 
     # --- data ------------------------------------------------------------
+
+    def _sync_model_formula(self, *_):
+        """Show the chosen model's equation next to the dropdown."""
+        self.model_formula.setText(
+            MODEL_FORMULAS.get(self.model_combo.currentData(), ""))
 
     def _segment_display(self, label):
         """'Doping 5  (+0.700 V)'. The ladder plots against potential, so the segment

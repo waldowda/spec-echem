@@ -56,10 +56,11 @@ MODELS = {
     "stretched": (model_stretched, ("A", "B", "tau", "beta")),
 }
 
-# The functional form, for the legend. Dean: "what are A and B again? Oh... A is
-# constant offset? B is prefactor of strexp?" -- he was right, but nothing on screen
-# said so. A is what the curve approaches as t -> inf; B is the amplitude of the part
-# that decays; y(0) = A + sum(B). ASCII so it renders on any matplotlib.
+# The functional form, shown beside the Model dropdown -- Dean: "why don't you put the
+# equation to the right of the model choice area above instead of adding yet more info
+# in the graph?" It belongs where the model is CHOSEN, and the legend is already dense.
+# A is what the curve approaches as t -> inf; B is the amplitude of the part that
+# decays; y(0) = A + sum(B). ASCII so it renders on any matplotlib.
 MODEL_FORMULAS = {
     "exp": "A + B*exp(-t/tau)",
     "biexp": "A + B1*exp(-t/tau1) + B2*exp(-t/tau2)",
@@ -472,8 +473,7 @@ class FitResult:
             return []
         names = MODELS[self.model][1]
         sds = self.sd if self.sd is not None else [float("nan")] * len(names)
-        lines = [f"{self.model}:  {MODEL_FORMULAS[self.model]}",
-                 "(+/- = 1 SD)"
+        lines = [f"{self.model}   (+/- = 1 SD)"
                  + ("" if self.ok else "   [NEEDS REVIEW — see below]")]
         for name, value, sd in zip(names, self.params, sds):
             unit = " s" if name.startswith("tau") else ""

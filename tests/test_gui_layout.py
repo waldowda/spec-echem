@@ -1380,3 +1380,20 @@ def test_a_fit_needing_review_still_shows_every_parameter(analysis_window):
         assert wanted in fit_label[0], f"{wanted} missing from:\n{fit_label[0]}"
     # and the concern is in the banner, not instead of the numbers
     assert any("NEEDS REVIEW" in t.get_text() for t in tab.fit_canvas.ax.texts)
+
+
+def test_the_model_equation_sits_beside_the_model_choice(analysis_window):
+    """Dean: "what are A and B again?" then "why don't you put the equation to the
+    right of the model choice area above instead of adding yet more info in the
+    graph?" It belongs where the model is chosen; the legend is already dense."""
+    tab = analysis_window.analysis_tab
+    for index, expected in ((0, "A + B*exp(-t/tau)"),
+                            (1, "A + B1*exp(-t/tau1) + B2*exp(-t/tau2)"),
+                            (2, "A + B*exp(-(t/tau)^beta)")):
+        tab.model_combo.setCurrentIndex(index)
+        assert tab.model_formula.text() == expected
+
+    # and it is NOT duplicated into the plot legend
+    tab.on_fit_segment()
+    fit = tab._fits["Doping 0"]["absorbance"]
+    assert not any("exp(" in line for line in fit.describe())
