@@ -931,3 +931,28 @@ def test_the_controls_sit_beside_the_table_not_above_it(analysis_window):
     assert isinstance(row, QSplitter)
     assert row.indexOf(tab.table) >= 0
     assert row.indexOf(tab.fit_canvas) == -1, "the plot must not share the top row"
+
+
+def test_the_window_boxes_step_by_one_data_point(analysis_window):
+    """Qt defaults to 1.0. The chrono cadence is 0.1 s, so a click used to jump ten
+    data points -- far too coarse for trimming a capacitive spike."""
+    tab = analysis_window.analysis_tab
+    assert tab.start_spin.singleStep() == pytest.approx(0.1)
+    assert tab.stop_spin.singleStep() == pytest.approx(0.1)
+
+
+def test_the_ladder_says_which_wavelength_it_compared(analysis_window):
+    """In auto mode the band is chosen PER SEGMENT -- 867/778/808 nm across the three
+    potentials of 20260709_P3HT_01 -- so comparing tau between them compares different
+    parts of the polaron band. The plot must not do that silently."""
+    tab = analysis_window.analysis_tab
+    tab.wavelength_spin.setValue(900.0)
+    tab.on_fit_all()
+    assert "900" in tab.ladder_canvas.ax.get_title()
+
+    tab._fit_wl = {"Doping 0": 778.4, "Doping 1": 867.1}
+    assert "VARIES" in tab._ladder_probe_text(["Doping 0", "Doping 1"])
+    assert "778" in tab._ladder_probe_text(["Doping 0", "Doping 1"])
+    # one wavelength, no warning
+    tab._fit_wl = {"Doping 0": 800.0, "Doping 1": 800.2}
+    assert "VARIES" not in tab._ladder_probe_text(["Doping 0", "Doping 1"])

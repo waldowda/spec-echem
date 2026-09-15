@@ -40,6 +40,7 @@ class AnalysisTab(QWidget):
         super().__init__()
         self.win = main_window
         self._fits = {}          # label -> {trace: FitResult}
+        self._fit_wl = {}        # label -> wavelength that fit was made at
         self._wavelength = None  # None = auto
         self._build()
 
@@ -75,6 +76,10 @@ class AnalysisTab(QWidget):
         self.start_spin.setRange(0.0, 100000.0)
         self.start_spin.setDecimals(3)
         self.start_spin.setSuffix(" s")
+        # 0.1 s per click, not Qt's default 1.0: chrono_delta_time is 0.1 s, so one
+        # step is one data point. A 1 s click jumped ten points at a time, which is
+        # far too coarse for trimming a capacitive spike.
+        self.start_spin.setSingleStep(0.1)
         self.start_spin.setToolTip(
             "First point the fit uses. Raise it to exclude the capacitive spike,\n"
             "then refit and watch the residual panel.")
@@ -82,6 +87,7 @@ class AnalysisTab(QWidget):
         self.stop_spin.setRange(0.0, 100000.0)
         self.stop_spin.setDecimals(3)
         self.stop_spin.setSuffix(" s")
+        self.stop_spin.setSingleStep(0.1)   # same reasoning as the start box
         # 0 means "run to the end", so the stop never has to be re-typed for a
         # longer segment. It used to be auto-filled with the first segment's
         # length and then kept, which silently fitted only part of a longer one.
@@ -234,7 +240,9 @@ class AnalysisTab(QWidget):
             if probe is None:
                 return None, None
             row = int(np.abs(wl - probe).argmin())
-            self._wavelength = probe
+        # Recorded whichever branch ran, and as the PIXEL actually used rather than
+        # the value asked for: the ladder has to be able to say what it compared.
+        self._wavelength = float(wl[row])
         return np.asarray(df.columns.values, dtype=float), df.values[row, :]
 
     def _probe_wavelength(self, label, absorbance, wl):
@@ -336,6 +344,9 @@ class AnalysisTab(QWidget):
         traces = self._all_traces(label)
         if not traces:
             return None
+        # _all_traces has just set _wavelength via _absorbance_trace.
+        if "absorbance" in traces:
+            self._fit_wl[label] = self._wavelength
         start, stop = self._window(traces)
         return {name: fit_transient(t, y, model, start, stop)
                 for name, (t, y) in traces.items()}
@@ -421,11 +432,28 @@ class AnalysisTab(QWidget):
         self.fit_canvas.plot_fit(t, y, fit_y, "Time (s)", TRACE_UNITS[trace],
                                  title=title, window=self._window(traces), note=note)
 
+    def _ladder_probe_text(self, labels):
+        """'abs @ 807.9 nm', or a warning when the points do not share a wavelength.
+
+        In auto mode the band is chosen PER SEGMENT, and on 20260709_P3HT_01 that gives
+        867 / 778 / 808 nm across three potentials. Comparing tau between them is then
+        comparing different parts of the polaron band, which the plot must not do
+        silently. Fixing it by locking one wavelength across the ladder is a science
+        decision, so this states the problem rather than hiding it.
+        """
+        wls = [self._fit_wl[l] for l in labels if l in self._fit_wl]
+        if not wls:
+            return "no absorbance"
+        lo, hi = min(wls), max(wls)
+        if hi - lo <= 1.0:
+            return f"abs @ {lo:.1f} nm"
+        return f"abs @ {lo:.0f}-{hi:.0f} nm (AUTO, VARIES)"
+
     def _draw_ladder(self, *_):
         """tau (or the ratio) against the segment potential, across whatever has been
         fitted so far — so it builds as segments are fitted rather than only at the end."""
         xs, series = [], {t: [] for t in TRACES}
-        ratios = []
+        ratios, xs_labels = [], []
         for i in range(self.segment_combo.count()):
             label = self.segment_combo.itemData(i)
             seg = self.win.segments_by_label.get(label)
@@ -436,6 +464,7 @@ class AnalysisTab(QWidget):
             if potential is None:
                 continue
             xs.append(potential)
+            xs_labels.append(label)
             for trace in TRACES:
                 fit = fits.get(trace)
                 series[trace].append(fit.mean_tau if (fit and fit.ok) else np.nan)
@@ -444,6 +473,7 @@ class AnalysisTab(QWidget):
         if not xs:
             self.ladder_canvas.show_message("Fit a segment to build this plot.")
             return
+        probe = self._ladder_probe_text(xs_labels)
         if self.ratio_check.isChecked():
             # None -> NaN so matplotlib leaves a visible gap: a failed fit is
             # information, and silently dropping the point would hide it.
@@ -451,9 +481,9 @@ class AnalysisTab(QWidget):
             self.ladder_canvas.plot_series(
                 xs, {"tau(abs)/tau(current)": ys},
                 "Potential (V)", "mean tau(abs) / mean tau(current)",
-                title="Kinetic coupling (dimensionless)")
+                title=f"Kinetic coupling (dimensionless) - {probe}")
         else:
             self.ladder_canvas.plot_series(
                 xs, {t: series[t] for t in TRACES},
                 "Potential (V)", "mean relaxation time (s)",
-                title="Kinetics vs potential")
+                title=f"Kinetics vs potential - {probe}")
