@@ -273,3 +273,30 @@ def test_the_shipped_default_is_not_one_machines_account():
     root = DEFAULT_SETTINGS["data_root"]
     assert "Users" not in root and "inst-chem" not in root
     assert root.startswith("~")
+
+
+def test_the_spectra_reader_needs_only_three_columns(tmp_path):
+    """Eight columns in the file, three actually used. Reading all of them allocated
+    40.6 MiB for a 760265-row file and raised MemoryError on the 32-bit build when a
+    second run was loaded. A file carrying only the three proves the dependency on
+    the dark/reference/raw columns is really gone.
+    """
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import read_spectra_absorbance
+
+    wl = np.linspace(400.0, 700.0, 4)
+    times = [0.0, 0.5, 1.0]
+    rows = []
+    for k, t in enumerate(times):
+        for j, w in enumerate(wl):
+            rows.append({"Wavelength (nm)": w,
+                         "Absorbance": 0.1 * k + 0.01 * j,
+                         "Corrected time (s)": t})
+    path = tmp_path / "spectra(0).txt"
+    pd.DataFrame(rows).to_csv(path, sep="\t", index=False)
+
+    df = read_spectra_absorbance(path)
+    assert df.shape == (len(wl), len(times))
+    assert list(df.columns) == times
+    assert df.iloc[0, 2] == pytest.approx(0.2)
