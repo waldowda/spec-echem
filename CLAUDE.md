@@ -382,6 +382,27 @@ ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm
   Precedence: code defaults → lab defaults → this machine → an explicitly loaded experiment JSON.
   `data_root` and `potentiostat_mode` are deliberately ABSENT from the tracked file (machine-specific).
 
+### ⚠️ The software raises concerns; the SCIENTIST decides
+
+Dean, 2026-09-15, standing principle: *"the scientist should have results and make
+decisions and not have the software make decisions about whether the user should see
+data or fits to data."*
+
+Never withhold a result. A check that objects to a fit raises a **concern**, visibly,
+next to the number — it does not delete the number, blank the cell, or leave a gap on a
+plot. This has been got wrong twice: once by drawing the curve but hiding every
+parameter, and once by plotting NaN on the ladder where a rejected fit belonged.
+
+The vocabulary matters and is deliberate:
+
+- **`did_not_converge`** — no parameters exist. "FIT DID NOT CONVERGE". A statement of
+  fact: there is nothing to show. The only case where nothing is displayed.
+- **`needs_review`** — converged, but a physical check objected. "NEEDS REVIEW", amber,
+  never "FAILED". The curve is drawn dashed, every parameter is in the legend with the
+  reason beside it, the table shows `? <value>`, and the ladder plots the point ringed.
+- **`ok`** means "passed the checks". It must NOT gate whether numbers are available —
+  that conflation is what caused both regressions.
+
 ### In-GUI analysis (Tab 5) — DONE and validated on real data 2026-09-14
 
 Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardware) and

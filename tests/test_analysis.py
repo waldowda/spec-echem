@@ -111,7 +111,7 @@ def test_the_window_excludes_the_capacitive_spike():
 
 # --- the failures that must not look like numbers ---------------------------
 
-def test_pure_noise_is_flagged_but_its_numbers_stay_visible():
+def test_pure_noise_is_marked_for_review_but_its_numbers_stay_visible():
     """Dean: "even when a fit 'fails', the result should still be viewable... since
     you didn't share the results the scientist doesn't have information to make
     informed decisions."
@@ -128,7 +128,8 @@ def test_pure_noise_is_flagged_but_its_numbers_stay_visible():
     assert fit.reason
     assert fit.tau is not None, "the number must remain readable"
     assert fit.mean_tau is not None
-    assert any("FLAGGED" in line for line in fit.describe())
+    assert any("NEEDS REVIEW" in line for line in fit.describe())
+    assert fit.needs_review and not fit.did_not_converge
 
 def test_too_few_points_for_the_model_is_refused():
     t = np.linspace(0.0, 1.0, 4)
