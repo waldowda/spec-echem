@@ -420,7 +420,8 @@ class ResultsTab(QWidget):
         # a shared axis: a CV's two sweeps do not sample the same points.
         self.canvas.plot_multi_xy(
             [(c["energy_ev"], c["dos"], c["direction"]) for c in curves],
-            "E = -eV  (eV)", units,
+            "E = -eV  (eV)   —   more negative = more oxidising "
+            "(electrons removed)", units,
             title=f"Density of states — last cycle, "
                   f"{rate * 1000:.1f} mV/s ({source})"
                   + ("" if volume else "   (no film volume — dQ/dV)")
