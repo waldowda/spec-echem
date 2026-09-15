@@ -63,11 +63,17 @@ DEFAULT_SETTINGS = {
     "electrolyte": "",
     "notes": "",
     # Film geometry, for the density of states: volume = area x thickness.
-    # Thickness 150 nm is a typical spin-coated OMIEC (Dean). Area defaults to 0 =
-    # NOT SET on purpose: it must be the ELECTROACTIVE (wetted, connected) area,
-    # which is what the measured current flows through -- not the optical spot,
-    # which is usually smaller and would inflate the DOS. With 0 the plot falls back
-    # to dQ/dV and says so, rather than inventing a volume.
+    # Thickness 150 nm is a typical spin-coated OMIEC (Dean).
+    #
+    # Area is the IMMERSED coated area, one side -- the part below the electrolyte
+    # line. NOT the whole coated strip (film above the meniscus cannot dope: doping
+    # needs ion insertion) and NOT the optical spot (the current integrates over the
+    # whole wetted film whether or not it is illuminated). It varies with immersion
+    # depth, so it belongs per-run rather than as a constant.
+    #
+    # Defaults to 0 = NOT SET rather than a guess: an area 1.5x too small makes the
+    # DOS 1.5x too large with nothing looking wrong. With 0 the plot falls back to
+    # dQ/dV and says so.
     "film_thickness_nm": 150.0,
     "film_area_cm2": 0.0,
 
