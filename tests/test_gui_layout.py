@@ -998,3 +998,62 @@ def test_clicking_the_spectrum_sets_the_analysis_wavelength(window):
     r.view_combo.setCurrentIndex(1)
     r._on_spectra_click(SimpleNamespace(inaxes=r.canvas.ax, xdata=12.0, ydata=0.1))
     assert r.analysis_wl.value() == pytest.approx(700.0)
+
+
+# --- the ladder: doping vs dedoping, and which traces to show ----------------
+
+def _doping_dedoping_pair(window, tmp_path):
+    """One doping/dedoping pair at run 0, doped to +0.6 V, dedoped at -0.5 V."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import (DATA_TYPE_DOPING, DATA_TYPE_DEDOPING,
+                                 write_echem_file, EchemData)
+    from spec_echem.experiment import Segment
+
+    wl = np.linspace(400.0, 1100.0, 60)
+    t = np.linspace(0.0, 20.0, 120)
+    frac = 1.0 - np.exp(-t / 3.0)
+    polaron = np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2)
+    window.results = {
+        "Doping 0": pd.DataFrame(0.02 + np.outer(polaron, 0.4 * frac), index=wl, columns=t),
+        "Dedoping 0": pd.DataFrame(0.02 + np.outer(polaron, 0.4 * (1 - frac)),
+                                   index=wl, columns=t)}
+    window.segments_by_label = {
+        "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 120, 0.1, True),
+        "Dedoping 0": Segment("Dedoping 0", DATA_TYPE_DEDOPING, 0, 120, 0.1, True)}
+    for dt, v in ((DATA_TYPE_DOPING, 0.6), (DATA_TYPE_DEDOPING, -0.5)):
+        write_echem_file(EchemData(time=t, potential=np.full(120, v),
+                                   current=3e-5 * np.exp(-t / 3.0)), dt, 0, tmp_path, "run")
+    window.run_folder = tmp_path / "run"
+    window._potential_cache.clear()
+    window.analysis_tab.refresh_segments()
+    return window.analysis_tab
+
+
+def test_dedoping_plots_against_the_potential_it_was_doped_to(window, tmp_path):
+    """Every dedoping segment is held at the same -0.5 V, so against its own potential
+    all of them stack on one x and the joining line means nothing. What distinguishes
+    them is how far the film was doped first."""
+    tab = _doping_dedoping_pair(window, tmp_path)
+    dedope = window.segments_by_label["Dedoping 0"]
+    assert window.segment_potential(dedope) == pytest.approx(-0.5, abs=0.01)
+    assert tab._ladder_potential(dedope) == pytest.approx(0.6, abs=0.01)
+
+
+def test_the_ladder_separates_doping_from_dedoping(window, tmp_path):
+    tab = _doping_dedoping_pair(window, tmp_path)
+    tab.on_fit_all()
+    names = [l.get_label() for l in tab.ladder_canvas.ax.get_lines()]
+    assert "absorbance (doping)" in names
+    assert "absorbance (dedoping)" in names
+    assert tab.ladder_canvas.ax.get_xlabel() == "Potential doped to (V)"
+
+
+def test_hiding_a_trace_removes_it_from_the_ladder(window, tmp_path):
+    """Charge tau runs ~100x the others and squashes the rest flat."""
+    tab = _doping_dedoping_pair(window, tmp_path)
+    tab.on_fit_all()
+    assert any("charge" in l.get_label() for l in tab.ladder_canvas.ax.get_lines())
+    tab.trace_checks["charge"].setChecked(False)
+    assert not any("charge" in l.get_label() for l in tab.ladder_canvas.ax.get_lines())
+    assert any("absorbance" in l.get_label() for l in tab.ladder_canvas.ax.get_lines())
