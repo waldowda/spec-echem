@@ -468,7 +468,22 @@ class AnalysisTab(QWidget):
             # rather than an error in the fit.
             if fit.t_first is not None and len(t):
                 k = int(np.argmin(np.abs(t - fit.t_first)))
-                lines[-1] += f"  vs data {y[k]:.4g}"
+                # Onto the y(0) line specifically. lines[-1] is the point count --
+                # describe() appends mean tau and "n pts" after y(0), so the naive
+                # version hung the comparison off the wrong line.
+                for j, line in enumerate(lines):
+                    if line.startswith("y(0)"):
+                        lines[j] += f"  vs data {y[k]:.4g}"
+                        break
+            # Is this the right model? The parameter uncertainties cannot say -- they
+            # describe the fit WITHIN the model. A residual dominated by systematic
+            # misfit means the model missed something real, however tight the CI.
+            split = fit.residual_split(t, y)
+            if split is not None:
+                noise, systematic, fraction = split
+                lines.append(f"resid: noise {noise:.2g}, model-miss {systematic:.2g}"
+                             + (f" ({fraction * 100:.1f}% of swing)"
+                                if np.isfinite(fraction) else ""))
             note = "\n".join(lines)
             fit_y = fit.curve(t)
 
