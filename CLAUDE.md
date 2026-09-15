@@ -35,7 +35,11 @@ Keep OUT of this repository:
 - **Personal names and institution names in CODE AND DOCS.** Not in comments, not in
   docstrings, not in test names, not attached to quoted requirements. Write the
   requirement, not who asked for it: "Requested: ..." or just the reason. Refer to
-  hardware as "the first rig" / "the second rig", never by institution. (The package
+  hardware by MODEL NUMBER — `PGSTAT302N`, `AvaSpec-ULS2048L`, `AvaSpec-VRS2048CL-EVO`,
+  `Reference 600` — never by institution or owner. A model number carries no identifier
+  and is more useful than "the second rig", since behaviour differs by model (minimum
+  integration time, current ranges, DIO layout). Where the environment is what matters
+  rather than the hardware, name that instead: `SpecEchem32`. (The package
   author field in `setup.py` and the module `Author:` line are legitimate attribution
   and stay.) This rule was written and then broken repeatedly in the same session —
   roughly 60 attributions in source and tests before it was caught.

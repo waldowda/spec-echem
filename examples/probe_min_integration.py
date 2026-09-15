@@ -2,11 +2,11 @@
 Find the spectrometer's MINIMUM integration time — two ways, on the hardware.
 
 Requested: "the initial value put in the int time is not connected to the
-actual Avantes spectrometer. My version on the first rig can go to much smaller int times than
-the one on the second rig."
+actual Avantes spectrometer. My version on one rig can go to much smaller int times than
+the other."
 
 He is right, and it matters more than a bad default: `lin_start_ms` is 0.022 and
-`lin_stop_ms` is 0.15, while docs/metrohm-rig-status.md records the second rig (ULS2048L) as
+`lin_stop_ms` is 0.15, while docs/metrohm-rig-status.md records the AvaSpec-ULS2048L as
 ~1.05 ms minimum. The whole linearity ramp there sits BELOW what the detector can do.
 
 This script answers the question on the actual device rather than from a datasheet:

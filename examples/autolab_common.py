@@ -3,7 +3,7 @@ autolab_common.py — the Autolab SDK calls that are already PROVEN on hardware.
 
 Shared by `bench_autolab_cv.py` and `bench_autolab_ca.py` so the two bench scripts
 contain their experiment and nothing else. The SDK *facts* encoded here were proven on
-the second rig on 2026-08-31 (see docs/autolab-run-api.md and examples/autolab_api_report.txt),
+the PGSTAT302N on 2026-08-31 (see docs/autolab-run-api.md and examples/autolab_api_report.txt),
 not inferred from documentation — the distinction that cost this project several days.
 The *helper functions* wrapping those facts were written the same day but first
 exercised against hardware on 2026-09-03; `set_param()` needed a fix then
