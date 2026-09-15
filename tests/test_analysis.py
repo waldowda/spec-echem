@@ -111,15 +111,24 @@ def test_the_window_excludes_the_capacitive_spike():
 
 # --- the failures that must not look like numbers ---------------------------
 
-def test_pure_noise_is_reported_as_a_failure_not_a_number():
+def test_pure_noise_is_flagged_but_its_numbers_stay_visible():
+    """Dean: "even when a fit 'fails', the result should still be viewable... since
+    you didn't share the results the scientist doesn't have information to make
+    informed decisions."
+
+    So `ok` says the fit failed a check, NOT that it has no numbers. A fit that
+    converged keeps tau, beta and <tau>; what changes is that the reason travels with
+    them.
+    """
     rng = np.random.default_rng(0)
     t = np.linspace(0.0, 10.0, 200)
     fit = fit_transient(t, rng.normal(size=200), "exp")
 
     assert not fit.ok
-    assert fit.tau is None
     assert fit.reason
-
+    assert fit.tau is not None, "the number must remain readable"
+    assert fit.mean_tau is not None
+    assert any("FLAGGED" in line for line in fit.describe())
 
 def test_too_few_points_for_the_model_is_refused():
     t = np.linspace(0.0, 1.0, 4)

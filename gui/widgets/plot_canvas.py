@@ -189,7 +189,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self.draw_idle()
 
     def plot_series(self, x, series, xlabel, ylabel, title=None, styles=None,
-                    yerr=None):
+                    yerr=None, flags=None):
         """Several named y-series against one x, as markers joined by lines.
 
         NaN is left as NaN on purpose: the analysis tab uses it where a fit failed, so
@@ -199,6 +199,9 @@ class MplCanvas(FigureCanvasQTAgg):
         `styles` overrides plot kwargs per series name -- the ladder uses it to draw
         dedoping dashed against the same colour as its doping counterpart. `yerr` adds
         error bars per series; NaN entries there simply draw no bar on that point.
+        `flags` marks individual points with a hollow ring: the ladder uses it for a
+        fit that converged but failed a check, which is PLOTTED rather than dropped so
+        the value can be judged, with the ring saying not to trust it blindly.
         """
         import numpy as _np
 
@@ -208,6 +211,7 @@ class MplCanvas(FigureCanvasQTAgg):
         for name, y in series.items():
             kw = dict(marker="o", ms=4, lw=1.0)
             kw.update((styles or {}).get(name, {}))
+            marked = (flags or {}).get(name)
             err = (yerr or {}).get(name)
             if err is None:
                 self.ax.plot(x, _np.asarray(y, dtype=float), label=str(name), **kw)
@@ -217,6 +221,12 @@ class MplCanvas(FigureCanvasQTAgg):
                 self.ax.errorbar(x, _np.asarray(y, dtype=float),
                                  yerr=_np.asarray(err, dtype=float),
                                  label=str(name), capsize=3, elinewidth=1.0, **kw)
+            if marked is not None and any(marked):
+                m = _np.asarray(marked, dtype=bool)
+                yy = _np.asarray(y, dtype=float)
+                self.ax.plot(_np.asarray(x, dtype=float)[m], yy[m], "o", ms=11,
+                             mfc="none", mec="#b00020", mew=1.4, zorder=6,
+                             linestyle="none", label="_nolegend_")
         if len(series) > 1:
             self.ax.legend(fontsize="small")
         self._decorate(title)
@@ -255,13 +265,13 @@ class MplCanvas(FigureCanvasQTAgg):
 
         if fit_y is not None:
             fit_y = np.asarray(fit_y, dtype=float)
-            # A REJECTED fit is still drawn -- dashed and amber so it cannot be taken
+            # A FLAGGED fit is still drawn -- dashed and amber so it cannot be taken
             # for an endorsed one. Seeing it is how you work out what to change, and
             # the residual panel below is usually where the reason shows.
             self.ax.plot(t, fit_y,
                          "-" if fit_ok else "--",
                          lw=1.4, color="#d62728" if fit_ok else "#e07b00",
-                         label=(note or "fit") if fit_ok else "rejected fit",
+                         label=(note or "fit") if fit_ok else "flagged fit",
                          zorder=3)
             resid = y - fit_y
             self.resid_ax.plot(t, resid, "o", ms=2.0, color="#1f77b4", alpha=0.6)
