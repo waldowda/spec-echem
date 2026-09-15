@@ -4,11 +4,50 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-09-11_
+_Last updated: 2026-09-14_
 
 ---
 
-## First film data (2026-09-11, `gui-dev`) — new
+## In-GUI analysis, validated on real data (2026-09-14, `gui-dev`) — newest
+
+**Tab 5 "Analysis" exists and works on real runs.** Fitting after a run: exp / biexp /
+stretched applied to absorbance, current and charge, with the data and the fitted curve
+drawn together above a residual strip, and mean relaxation time plotted against
+potential across the ladder. The maths is in `spec_echem/analysis.py` (no Qt, no
+hardware); `gui/tabs/analysis_tab.py` is the view. **380 tests.**
+
+Validated against `tests/20250710_P3HT9010_KPF6` (P3HT 90:10 / KPF6, six doping rungs
+0.2→0.7 V, outside this repo). **36/36 fits converge.** Over that ladder the optical τ
+FALLS 1.52 → 0.36 s while the current τ RISES 1.46 → 2.03 s, crossing near 0.45 V, and
+β climbs 0.77 → 1.00 — the kinetics become single-exponential once driven hard. Dean
+notes bipolaron formation likely contributes to the optical trend at high doping, so the
+800 nm τ is not purely polaron growth.
+
+**Real data broke things synthetic data could not**, which is the headline for anyone
+reading this later:
+
+- `auto_wavelengths` picked **381 nm** — the dark floor, 416 counts, SNR 1.8 — over the
+  real polaron at 780 nm (SNR 682), on every segment of `20260709_P3HT_01`. Now gated on
+  significance against per-pixel noise, plus `ANALYSIS_WL_MIN = 410` (no usable data
+  below ~410 nm on these rigs).
+- **The polaron is not always the band that grows.** True on doping; on dedoping it
+  decays while π–π* recovers. Both tabs now share `analysis.probe_wavelength`.
+- **A loaded run was labelled with the Parameters tab's potentials.** A segment held at
+  +0.700 V was titled "+0.400 V". Labels now come from the measured `WE(1).Potential`,
+  falling back to the run's own metadata, and never from the live form.
+- **τ is bounded** — τ > 0, 0 < β ≤ 1, and τ < 10× the fitted window. The charge integral
+  returned τ = 5.5×10¹¹ s from a 60 s segment and flattened the ladder to a flat line.
+- **`python -m gui` would not start on SpecEchem32** — `Figure.set_layout_engine` is
+  matplotlib 3.6+. Fixed with a fallback; see `plot_canvas._set_layout`.
+
+**Next:** Dean is testing on macOS (analysis only); Win11/`SpecEchem32` tomorrow, which is
+the only place the matplotlib fallbacks get exercised. Planned but not built: density of
+states from the CV — design settled in
+[`docs/analysis-design.md`](docs/analysis-design.md), blocked on recording film volume.
+
+---
+
+## First film data (2026-09-11, `gui-dev`)
 
 Full write-up: [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md). Four the test film runs
 (the electrolyte, pseudo Ag/AgCl) plus a dummy check. **The first spectroelectrochemistry

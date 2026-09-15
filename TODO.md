@@ -2,6 +2,28 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## In-GUI analysis — open items (2026-09-14)
+
+Tab 5 works and is validated on real data (see STATUS.md). What is left:
+
+- [ ] **Decide whether the auto wavelength should lock across a ladder.** It is chosen
+      PER SEGMENT and drifts 783 → 808 nm monotonically with potential on
+      `20250710_P3HT9010_KPF6` — probably a real red-shift of the polaron band with
+      doping level, not noise, which is why it was not silently locked. The ladder title
+      says `(AUTO, VARIES)` when the points do not share a wavelength. Dean's call.
+- [ ] **`FIT_MAX_TAU_SPANS = 10` and `FIT_SD_REJECT_FRACTION = 0.5`** are judgement
+      calls that now have real data behind them but have not been tuned against a
+      second sample.
+- [ ] **A second probe wavelength for the bipolaron band.** Dean: bipolaron formation
+      eats the polaron population at high doping, so τ at 800 nm is not purely polaron
+      growth. The tab already fits any wavelength typed; what is missing is fitting two
+      at once and comparing.
+- [ ] **Density of states from the CV** — designed, not built. See
+      [`docs/analysis-design.md`](docs/analysis-design.md). Blocked on recording film
+      volume (thickness × area), which nothing captures today.
+- [ ] **Log y-axis on the ladder**, as an alternative to the per-trace visibility
+      toggles when charge and absorbance are both wanted.
+
 ## Release gate for v0.3.0 — one bench run before merging `gui-dev` → `main` (Dean, 2026-07-27)
 
 Almost everything since the v0.2.0 tag is additive (logging, provenance, docs). **One thing is not:**
