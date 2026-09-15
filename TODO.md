@@ -2,6 +2,31 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Constrain prefactors to the same sign — Dean, 2026-09-15, not started
+
+Dean: *"Sometimes a poor fit switches prefactor signs. We should consider adding a check
+box for same sign-ness."*
+
+`FitResult.mixed_amplitude_signs` already FLAGS it (`46fec8e`). What is missing is the
+option to forbid it, for when the flip is the optimizer wandering rather than real
+competing processes.
+
+- [ ] A checkbox on the Analysis tab, something like **"require same-sign prefactors"**,
+      off by default — competing processes are real and must stay fittable.
+- [ ] `curve_fit` bounds cannot express "same sign" directly. The clean way is to fit
+      TWICE, once with every B bounded ≥ 0 and once with every B bounded ≤ 0, and keep
+      whichever has the lower residual. Two cheap fits, no new solver, and it reports an
+      honest failure if neither converges.
+- [ ] Applies to any sum-of-parts model, so key it off the `B*` names in `MODELS`
+      rather than hardcoding biexp.
+
+**Evidence the flag tracks physics, not fit noise** (MEASURED on
+`20250710_P3HT9010_KPF6`, biexp): at the polaron band (800 nm) the prefactors agree in
+sign at +0.2…+0.5 V and go MIXED at +0.6 and +0.7 V; at π–π* (550 nm) they agree at
+**every** rung including those two. Dean predicted exactly that asymmetry — a bipolaron
+steals from the polaron band without creating a competing process at π–π*. A numerical
+instability would have shown at both wavelengths.
+
 ## Getting data and figures OUT (2026-09-15) — Dean's ask, not started
 
 Dean: *"eventually it would be good to get data out in a nice format such as the

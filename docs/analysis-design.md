@@ -194,6 +194,30 @@ electronic; where they diverge, it was not. That comparison is the reason to bui
 rather than in a generic echem tool, and it reuses the band-selection work already done for the
 kinetics (see *Auto-wavelength*, above).
 
+### Prefactor signs carry physics — MEASURED 2026-09-15
+
+For a sum-of-parts model the prefactors of one process pull the same way. Opposite signs
+mean competing processes or a fit gone wrong, so `FitResult.mixed_amplitude_signs` says
+so on the legend rather than deciding which.
+
+On `20250710_P3HT9010_KPF6`, fitted biexp:
+
+| rung | polaron 800 nm | π–π* 550 nm |
+|---|---|---|
+| +0.2 … +0.5 V | same sign | same sign |
+| **+0.6 V** | **MIXED** | same sign |
+| **+0.7 V** | **MIXED** | same sign |
+
+Dean predicted the asymmetry before it was checked: a bipolaron growing at high doping
+steals from the polaron band, while π–π* simply keeps bleaching and stays single-signed.
+Fit instability would have appeared at both wavelengths. **A second probe on the
+bipolaron band would separate the two components properly** — the tab already fits any
+wavelength typed; what is missing is fitting two at once and comparing.
+
+Note the sign convention this implies: at 800 nm the prefactors are NEGATIVE (the
+polaron band RISES to its plateau A) and at 550 nm POSITIVE (π–π* falls). A negative
+prefactor is a direction, not an error, which is why A and y(0) are on the legend.
+
 ### Sequencing
 
 After the τ-vs-potential ladder is validated on a real above-V_th run. The ladder is the feature
