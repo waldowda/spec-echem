@@ -169,3 +169,69 @@ def test_measure_timing_success_returns_four_tuple(monkeypatch):
     assert ts == 7.0
     assert len(data) == 1660 - 395
     assert t_dif >= 0
+
+
+# --- the detector's minimum integration time ---------------------------------
+# monkeypatch, not a bare assignment: `from avaspec import *` puts AVS_GetParameter
+# in the module's globals, so patching it without restoring leaks into every test
+# that follows -- which is exactly what the first version of these did.
+
+def _spectrometer_with(monkeypatch, devconfig):
+    """Take the class AND the patched global from ONE module object.
+
+    _reload_spectrometer above deletes spec_echem.spectrometer from sys.modules and
+    re-imports it, so importing the class and patching the module separately can
+    reach different module objects -- the method then resolves AVS_GetParameter
+    through globals the patch never touched. These tests passed alone and failed in
+    the file until this was pinned.
+    """
+    mod = sys.modules["spec_echem.spectrometer"]
+    monkeypatch.setattr(mod, "AVS_GetParameter", lambda handle, size: devconfig,
+                        raising=False)
+    spec = mod.AvantesSpectrometer.__new__(mod.AvantesSpectrometer)
+    spec.dev_handle = "H"
+    return spec
+
+
+def test_the_minimum_is_read_from_the_flattened_field(monkeypatch):
+    """The SDK's DeviceConfigType carries m_Detector.m_MinIntegrationTime, but this
+    project's avaspec wrapper returns the struct with FLATTENED names -- the working
+    code reads devcon.m_Detector_m_NrPixels, not devcon.m_Detector.m_NrPixels."""
+    class Flat:
+        m_Detector_m_MinIntegrationTime = 1.05
+
+    spec = _spectrometer_with(monkeypatch, Flat())
+    assert spec.minimum_integration_time() == pytest.approx(1.05)
+
+
+def test_the_minimum_is_also_read_from_the_nested_field(monkeypatch):
+    """The other spelling, in case a wrapper preserves the nested struct."""
+    class Detector:
+        m_MinIntegrationTime = 0.002
+
+    class Nested:
+        m_Detector = Detector()
+
+    spec = _spectrometer_with(monkeypatch, Nested())
+    assert spec.minimum_integration_time() == pytest.approx(0.002)
+
+
+def test_an_sdk_that_does_not_expose_it_returns_none(monkeypatch):
+    """None means "keep your own default", not zero -- a zero would be taken as a
+    valid minimum and let the ramp start below what the detector can do."""
+    class Bare:
+        m_Detector_m_NrPixels = 2048
+
+    spec = _spectrometer_with(monkeypatch, Bare())
+    assert spec.minimum_integration_time() is None
+
+
+def test_a_probe_failure_never_breaks_connect(monkeypatch):
+    def boom(handle, size):
+        raise RuntimeError("device busy")
+
+    mod = sys.modules["spec_echem.spectrometer"]
+    monkeypatch.setattr(mod, "AVS_GetParameter", boom, raising=False)
+    spec = mod.AvantesSpectrometer.__new__(mod.AvantesSpectrometer)
+    spec.dev_handle = "H"
+    assert spec.minimum_integration_time() is None
