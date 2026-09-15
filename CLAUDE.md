@@ -104,9 +104,12 @@ New Python modules go in `spec_echem/`. Notebooks go in `notebooks/`. Gamry file
 
 Three coordinated components:
 
-1. **Gamry Ref-600 Potentiostat**  
-   **Two Reference units exist — a 600 and a 610. The 600 is the one in use.** Do not "correct" `Reference 600` to 610 on seeing the other unit mentioned; this is also why the docs say *not a 600+*. — Applies potentials, measures current. Runs sequences defined
-   in `.GSequence` files. Uses DIGOUT0 (digital output pin) to send trigger pulses.
+1. **Gamry Reference 600 Potentiostat** — Applies potentials, measures current. Runs
+   sequences defined in `.GSequence` files. Uses DIGOUT0 (digital output pin) to send
+   trigger pulses.
+   **Two Reference units exist — a 600 and a 610. The 600 is the one in use.** Do not
+   "correct" `Reference 600` to 610 on encountering the other unit; this is also why the
+   docs say *not a 600+*.
 
 2. **Avantes Spectrometer** — Collects UV-Vis spectra. Controlled via the proprietary `avaspec`
    Python module (comes with the Avantes SDK, not pip-installable).
