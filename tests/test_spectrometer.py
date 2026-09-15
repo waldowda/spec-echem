@@ -216,7 +216,29 @@ def test_the_minimum_is_also_read_from_the_nested_field(monkeypatch):
     assert spec.minimum_integration_time() == pytest.approx(0.002)
 
 
-def test_an_sdk_that_does_not_expose_it_returns_none(monkeypatch):
+def test_an_sdk_without_the_field_falls_back_to_probing(monkeypatch):
+    """MEASURED: no SDK on this wrapper exposes a minimum, so the fallback is the
+    path that actually runs. It bisects what AVS_PrepareMeasure accepts -- trusted
+    because on real hardware the accepted 0.009033 ms was verified against the
+    detector's own integral (counts = 112 + 26051 t, within 1% from 0.009 to 0.1 ms)."""
+    class Bare:
+        m_Detector_m_NrPixels = 2048
+
+    class Cfg:
+        m_IntegrationTime = 2.0
+
+    mod = sys.modules["spec_echem.spectrometer"]
+    spec = _spectrometer_with(monkeypatch, Bare())
+    spec.measconfig = Cfg()
+    # a detector that refuses anything below 1.05 ms
+    monkeypatch.setattr(mod, "AVS_PrepareMeasure",
+                        lambda h, cfg: 0 if cfg.m_IntegrationTime >= 1.05 else -1,
+                        raising=False)
+    assert spec.minimum_integration_time() == pytest.approx(1.05, abs=1e-3)
+    assert spec.measconfig.m_IntegrationTime == 2.0, "must restore what it found"
+
+
+def test_probing_returns_none_when_there_is_no_config_to_probe_with(monkeypatch):
     """None means "keep your own default", not zero -- a zero would be taken as a
     valid minimum and let the ramp start below what the detector can do."""
     class Bare:
