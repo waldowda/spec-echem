@@ -188,12 +188,15 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
-    def plot_series(self, x, series, xlabel, ylabel, title=None):
+    def plot_series(self, x, series, xlabel, ylabel, title=None, styles=None):
         """Several named y-series against one x, as markers joined by lines.
 
         NaN is left as NaN on purpose: the analysis tab uses it where a fit failed, so
         the line shows a visible gap rather than joining across a potential that was
         never measured. Silently dropping those points would hide which ones failed.
+
+        `styles` overrides plot kwargs per series name -- the ladder uses it to draw
+        dedoping dashed against the same colour as its doping counterpart.
         """
         import numpy as _np
 
@@ -201,8 +204,9 @@ class MplCanvas(FigureCanvasQTAgg):
         self._new_axes()
         x = _np.asarray(x, dtype=float)
         for name, y in series.items():
-            self.ax.plot(x, _np.asarray(y, dtype=float), marker="o", ms=4,
-                         lw=1.0, label=str(name))
+            kw = dict(marker="o", ms=4, lw=1.0)
+            kw.update((styles or {}).get(name, {}))
+            self.ax.plot(x, _np.asarray(y, dtype=float), label=str(name), **kw)
         if len(series) > 1:
             self.ax.legend(fontsize="small")
         self._decorate(title)

@@ -21,12 +21,16 @@ from spec_echem.analysis import (
     MODELS, default_fit_start, fit_transient, probe_wavelength, tau_ratio,
 )
 from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
-                             DATA_TYPE_DOPING)
+                             DATA_TYPE_DOPING, DATA_TYPE_DEDOPING)
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
 
 # The three traces fitted per segment, in table order.
 TRACES = ("absorbance", "current", "charge")
+
+# One colour per trace, so doping and dedoping of the SAME trace are visibly a pair
+# rather than two unrelated series.
+TRACE_COLORS = {"absorbance": "#1f77b4", "current": "#ff7f0e", "charge": "#2ca02c"}
 
 TRACE_UNITS = {
     "absorbance": "Absorbance",
@@ -175,7 +179,22 @@ class AnalysisTab(QWidget):
             "exponential the raw tau is not the physical timescale.\n"
             "A potential with a failed fit leaves a gap rather than being skipped.")
         self.ratio_check.toggled.connect(self._draw_ladder)
-        plot_layout.addWidget(self.ratio_check)
+
+        toggles = QHBoxLayout()
+        toggles.addWidget(QLabel("Show:"))
+        # Charge tau runs ~100x the others on a real ladder, which squashes absorbance
+        # and current flat. Hiding a trace rescales the axis to what is left.
+        self.trace_checks = {}
+        for trace in TRACES:
+            cb = QCheckBox(trace)
+            cb.setChecked(True)
+            cb.toggled.connect(self._draw_ladder)
+            self.trace_checks[trace] = cb
+            toggles.addWidget(cb)
+        toggles.addSpacing(16)
+        toggles.addWidget(self.ratio_check)
+        toggles.addStretch()
+        plot_layout.addLayout(toggles)
         # Label it at construction: MplCanvas defaults to the Instrument tab's
         # raw-spectrum axes ("Wavelength (nm)" / "Intensity (counts)"), which are
         # wrong here and visible until the first fit is plotted.
@@ -440,41 +459,95 @@ class AnalysisTab(QWidget):
             return f"abs @ {lo:.1f} nm"
         return f"abs @ {lo:.0f}-{hi:.0f} nm (AUTO, VARIES)"
 
+    def _ladder_potential(self, seg):
+        """x for this segment: the potential the film was DOPED TO.
+
+        For a doping step that is its own potential. For the dedoping step that
+        follows it, it is that doping step's -- every dedoping segment is held at the
+        same -0.5 V, so against its own potential all six stack on one x and the line
+        joining them means nothing. What distinguishes them is how far the film was
+        doped first, which is also the comparison the bench notes actually make.
+
+        Pre-dedoping returns None: it is a single baseline, not a rung on the ladder.
+        """
+        if seg.data_type == DATA_TYPE_DOPING:
+            return self.win.segment_potential(seg)
+        if seg.data_type == DATA_TYPE_DEDOPING:
+            for other in self.win.segments_by_label.values():
+                if (other.data_type == DATA_TYPE_DOPING
+                        and other.run_number == seg.run_number):
+                    return self.win.segment_potential(other)
+        return None
+
     def _draw_ladder(self, *_):
-        """tau (or the ratio) against the segment potential, across whatever has been
-        fitted so far — so it builds as segments are fitted rather than only at the end."""
-        xs, series = [], {t: [] for t in TRACES}
-        ratios, xs_labels = [], []
+        """tau (or the ratio) against the potential doped to, across whatever has been
+        fitted so far -- so it builds as segments are fitted, not only at the end."""
+        rows = []
         for i in range(self.segment_combo.count()):
             label = self.segment_combo.itemData(i)
             seg = self.win.segments_by_label.get(label)
             fits = self._fits.get(label)
             if seg is None or not fits:
                 continue
-            potential = self.win.segment_potential(seg)
-            if potential is None:
+            x = self._ladder_potential(seg)
+            if x is None:
                 continue
-            xs.append(potential)
-            xs_labels.append(label)
-            for trace in TRACES:
-                fit = fits.get(trace)
-                series[trace].append(fit.mean_tau if (fit and fit.ok) else np.nan)
-            ratios.append(tau_ratio(fits.get("absorbance"), fits.get("current")))
+            direction = "doping" if seg.data_type == DATA_TYPE_DOPING else "dedoping"
+            rows.append((x, direction, label, fits))
 
-        if not xs:
+        if not rows:
             self.ladder_canvas.show_message("Fit a segment to build this plot.")
             return
-        probe = self._ladder_probe_text(xs_labels)
+
+        # Doping and dedoping share an x axis (same run number, same rung), so the
+        # series are padded onto the union with NaN rather than plotted separately.
+        xs = sorted({r[0] for r in rows})
+        at = {x: k for k, x in enumerate(xs)}
+        probe = self._ladder_probe_text([r[2] for r in rows])
+        series, styles = {}, {}
+
+        def add(name, values, trace, direction):
+            series[name] = values
+            styles[name] = {
+                "color": TRACE_COLORS.get(trace, None),
+                "linestyle": "-" if direction == "doping" else "--",
+                "marker": "o" if direction == "doping" else "s",
+            }
+
         if self.ratio_check.isChecked():
-            # None -> NaN so matplotlib leaves a visible gap: a failed fit is
-            # information, and silently dropping the point would hide it.
-            ys = [np.nan if r is None else r for r in ratios]
-            self.ladder_canvas.plot_series(
-                xs, {"tau(abs)/tau(current)": ys},
-                "Potential (V)", "mean tau(abs) / mean tau(current)",
-                title=f"Kinetic coupling (dimensionless) - {probe}")
+            for direction in ("doping", "dedoping"):
+                vals, present = [np.nan] * len(xs), False
+                for x, d, _label, fits in rows:
+                    if d != direction:
+                        continue
+                    present = True
+                    # None -> NaN so a failed fit leaves a visible GAP; dropping the
+                    # point would hide which potential failed.
+                    r = tau_ratio(fits.get("absorbance"), fits.get("current"))
+                    vals[at[x]] = np.nan if r is None else r
+                if present:
+                    add(f"ratio ({direction})", vals, "absorbance", direction)
+            ylabel = "mean tau(abs) / mean tau(current)"
+            title = f"Kinetic coupling (dimensionless) - {probe}"
         else:
-            self.ladder_canvas.plot_series(
-                xs, {t: series[t] for t in TRACES},
-                "Potential (V)", "mean relaxation time (s)",
-                title=f"Kinetics vs potential - {probe}")
+            for trace in TRACES:
+                if not self.trace_checks[trace].isChecked():
+                    continue
+                for direction in ("doping", "dedoping"):
+                    vals, present = [np.nan] * len(xs), False
+                    for x, d, _label, fits in rows:
+                        if d != direction or trace not in fits:
+                            continue
+                        present = True
+                        fit = fits[trace]
+                        vals[at[x]] = fit.mean_tau if fit.ok else np.nan
+                    if present:
+                        add(f"{trace} ({direction})", vals, trace, direction)
+            ylabel = "mean relaxation time (s)"
+            title = f"Kinetics vs potential - {probe}"
+
+        if not series:
+            self.ladder_canvas.show_message("Nothing selected under Show.")
+            return
+        self.ladder_canvas.plot_series(xs, series, "Potential doped to (V)", ylabel,
+                                       title=title, styles=styles)
