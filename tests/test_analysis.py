@@ -113,7 +113,7 @@ def test_the_window_excludes_the_capacitive_spike():
 # --- the failures that must not look like numbers ---------------------------
 
 def test_pure_noise_is_marked_for_review_but_its_numbers_stay_visible():
-    """Dean: "even when a fit 'fails', the result should still be viewable... since
+    """Requested: "even when a fit 'fails', the result should still be viewable... since
     you didn't share the results the scientist doesn't have information to make
     informed decisions."
 
@@ -259,7 +259,7 @@ def test_clean_data_is_unaffected_by_the_noise_gate():
 
 
 def test_pixels_below_the_optical_window_never_win():
-    """Dean: "there should be no data below 410 nm or so." Below that the lamp and
+    """Requested: "there should be no data below 410 nm or so." Below that the lamp and
     optics deliver nothing, so whatever the pixel reports is not a measurement."""
     wl = np.linspace(380.0, 1100.0, 200)
     t = np.linspace(0.0, 20.0, 60)
@@ -285,7 +285,7 @@ def test_an_excluded_pixel_cannot_win_the_opposite_end():
 # --- the optimizer must not talk to the shell --------------------------------
 
 def test_fitting_awkward_data_emits_no_runtime_warnings():
-    """Dean's first launch at PLU printed three numpy RuntimeWarnings from the model
+    """the requested first launch on the first rig printed three numpy RuntimeWarnings from the model
     functions. They come from curve_fit's trial steps -- tau -> 0, tau < 0 under a
     fractional beta, a tiny tau1 -- not from the answer, which is validated anyway.
     Reaching the shell they read as a malfunction, and the project keeps the shell
@@ -316,7 +316,7 @@ def test_fitting_awkward_data_emits_no_runtime_warnings():
 
 
 # --- physical bounds ---------------------------------------------------------
-# Dean: "tau > 0 and beta needs to be 0 < beta <(=) 1.0."
+# Requested: "tau > 0 and beta needs to be 0 < beta <(=) 1.0."
 
 def test_beta_cannot_exceed_one():
     """Above 1 it is a COMPRESSED exponential -- a different physical claim that
@@ -377,7 +377,7 @@ def test_a_tau_comparable_to_the_window_is_kept():
 
 
 # --- uncertainty on <tau> ----------------------------------------------------
-# Dean: "adding SD's are better yet 95% CI to the plot points would be good."
+# Requested: "adding SD's are better yet 95% CI to the plot points would be good."
 
 def test_mean_tau_uncertainty_matches_tau_for_a_single_exponential():
     """<tau> IS tau for an exp, so its uncertainty must be tau_sd exactly -- the
@@ -422,7 +422,7 @@ def test_the_95_percent_interval_is_wider_than_one_sigma():
 # --- a rejected fit keeps its curve ------------------------------------------
 
 def test_a_rejected_fit_still_has_a_curve_to_draw():
-    """Dean: "it is still useful to know what the failed fit looks like... so perhaps
+    """Requested: "it is still useful to know what the failed fit looks like... so perhaps
     we can understand why and setup a method to get a better fit." A fit that
     CONVERGED but failed a physical check keeps its parameters."""
     t = np.linspace(0.0, 60.0, 600)
@@ -440,7 +440,7 @@ def test_a_fit_that_never_converged_has_no_curve():
 
 
 def test_the_summary_lists_both_biexp_components():
-    """Dean: "for biexp and strexp, I think it is important to include prefactor 1,
+    """Requested: "for biexp and strexp, I think it is important to include prefactor 1,
     tau1, prefactor 2, tau2, and mean tau." The legend showed only the SLOWER tau, so
     the fast component -- the reason for choosing biexp at all -- was invisible."""
     rng = np.random.default_rng(0)
@@ -464,7 +464,7 @@ def test_the_summary_lists_tau_and_beta_for_a_stretched_fit():
 def test_the_baseline_is_in_the_summary():
     """A was left out at first, which made the negative prefactors unreadable: with
     no plateau on screen, a B < 0 looks like an error rather than a rising component.
-    Dean: "the sum need to equal Y at time 0 of the fit" -- and that identity needs A.
+    Requested: "the sum need to equal Y at time 0 of the fit" -- and that identity needs A.
     """
     t = np.linspace(0.0, 20.0, 200)
     fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0), "exp")
@@ -497,7 +497,7 @@ def test_equal_amplitudes_average_the_two_times():
 
 
 def test_the_amplitudes_and_baseline_reconstruct_y_at_the_window_start():
-    """Dean: "the sum need to equal Y at time 0 of the fit... at least roughly."
+    """Requested: "the sum need to equal Y at time 0 of the fit... at least roughly."
     A + sum(B) = y(0) is an identity of the model, and the one number that ties the
     fitted amplitudes back to the data."""
     t = np.linspace(0.0, 20.0, 400)
@@ -523,7 +523,7 @@ def test_a_negative_prefactor_means_a_rising_component():
 
 
 def test_opposite_sign_prefactors_are_flagged_not_silently_averaged():
-    """Dean: "generally the two prefactors need to be the same sign (except say if
+    """Requested: "generally the two prefactors need to be the same sign (except say if
     there is a bipolaron stealing abs from the polaron then there are competing
     processes)."
 
@@ -557,7 +557,7 @@ def test_a_single_component_fit_can_never_have_mixed_signs():
 
 # --- is it the right model? ---------------------------------------------------
 # The parameter uncertainties cannot answer that: they describe the fit WITHIN the
-# model. Dean: "leave option 1 documented as within the assumed model. Actually the
+# model. Requested: "leave option 1 documented as within the assumed model. Actually the
 # noise / systematic split legend could be helpful."
 
 def test_a_correct_model_leaves_only_noise():

@@ -63,7 +63,7 @@ DEFAULT_SETTINGS = {
     "electrolyte": "",
     "notes": "",
     # Film geometry, for the density of states: volume = area x thickness.
-    # Thickness 150 nm is a typical spin-coated OMIEC (Dean).
+    # Thickness 150 nm is a typical spin-coated OMIEC (the user).
     #
     # Area is the IMMERSED coated area, one side -- the part below the electrolyte
     # line. NOT the whole coated strip (film above the meniscus cannot dope: doping
@@ -71,7 +71,7 @@ DEFAULT_SETTINGS = {
     # whole wetted film whether or not it is illuminated). It varies with immersion
     # depth, so it belongs per-run rather than as a constant.
     #
-    # 1.6 = 2 cm immersed x 0.8 cm wide (Dean): the ITO/FTO slide has to clear a
+    # 1.6 = 2 cm immersed x 0.8 cm wide (the user): the ITO/FTO slide has to clear a
     # 1 cm cell, so it is cut narrower than the cuvette. CHECK IT PER RUN -- the area
     # scales the DOS directly, and immersion depth is the part that moves. Set it to
     # 0 if unknown and the plot falls back to dQ/dV rather than reporting a magnitude
