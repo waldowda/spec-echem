@@ -169,13 +169,18 @@ class AnalysisTab(QWidget):
         top = QSplitter(Qt.Horizontal)
         top.addWidget(controls)
 
-        self.table = QTableWidget(len(TRACES), 4)
-        # The last column is what the ladder PLOTS -- <tau> with its 95% interval --
-        # so the number on screen and the point on the plot are the same thing. It
-        # used to read "SD (s)", which was a 1-sigma SD on the RAW tau: a different
-        # statistic on a different quantity from the error bars, with nothing saying so.
+        self.table = QTableWidget(len(TRACES), 3)
+        # <tau> with its 95% interval is what the ladder PLOTS, so the number here
+        # and the point there are the same thing. It read "SD (s)" once, which was a
+        # 1-sigma SD on the RAW tau -- a different statistic on a different quantity
+        # from the error bars, with nothing saying so.
+        #
+        # The raw tau column is gone: the legend now carries tau, beta and every
+        # prefactor with their SDs, and four columns of this width truncated to
+        # "au (s" and "17....". Raw tau is also ambiguous for a biexp, where it means
+        # only the slower of two. It survives on this cell's tooltip.
         self.table.setHorizontalHeaderLabels(
-            ["trace", "tau (s)", "beta", "mean tau +/- 95% CI (s)"])
+            ["trace", "beta", "mean tau (s), 95% CI"])
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
@@ -183,6 +188,9 @@ class AnalysisTab(QWidget):
         # columns truncated "absorbance" to "absorba..." once the table shared the
         # row with the controls.
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        # Sized to contents rather than stretched: the value carries its interval
+        # too ("2.603 +/- 0.074") and an even split truncated it to "2.603 +/-...".
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         for row, trace in enumerate(TRACES):
             self.table.setItem(row, 0, QTableWidgetItem(trace))
         top.addWidget(self.table)
@@ -406,24 +414,23 @@ class AnalysisTab(QWidget):
         for row, trace in enumerate(TRACES):
             fit = (fits or {}).get(trace)
             if fit is None:
-                cells = ["", "", ""]
+                cells = ["", ""]
             elif not fit.ok:
                 # Just "failed" here: the column is narrow and the full reason is on
                 # the plot in the red banner. The tooltip carries it too, so the
                 # numbers are reachable without switching traces.
-                cells = ["failed", "", ""]
+                cells = ["", "failed"]
             else:
                 ci = fit.mean_tau_ci95
                 mean = fit.mean_tau
-                cells = [f"{fit.tau:.4g}",
-                         f"{fit.beta:.3g}" if fit.beta is not None else "-",
+                cells = [f"{fit.beta:.3g}" if fit.beta is not None else "-",
                          f"{mean:.4g} +/- {ci:.2g}" if ci is not None
                          else f"{mean:.4g} (CI unavailable)"]
             for col, text in enumerate(cells, start=1):
                 item = QTableWidgetItem(text)
                 if fit is not None and not fit.ok:
                     item.setToolTip(fit.reason)
-                elif fit is not None and fit.ok and col == 1:
+                elif fit is not None and fit.ok and col == 2:
                     item.setToolTip(f"raw tau = {fit.tau:.4g} +/- {fit.tau_sd:.2g} s "
                                     f"(1 SD)")
                 self.table.setItem(row, col, item)
@@ -468,9 +475,9 @@ class AnalysisTab(QWidget):
             # change the model, hugging the spike means move the window.
             fit_y = fit.curve(t)
         else:
-            beta = f", beta = {fit.beta:.3g}" if fit.beta is not None else ""
-            note = (f"{fit.model}  tau = {fit.tau:.4g} +/- {fit.tau_sd:.2g} s{beta}"
-                    f"\nmean tau = {fit.mean_tau:.4g} s  ({fit.n} pts)")
+            # Every fitted parameter, not just the headline tau -- a biexp's fast
+            # component is the whole reason for choosing biexp.
+            note = "\n".join(fit.describe())
             fit_y = fit.curve(t)
 
         title = f"{self._segment_display(label)} - {trace}"
