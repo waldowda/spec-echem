@@ -17,7 +17,8 @@ from qtpy.QtWidgets import (
     QProgressDialog, QApplication,
 )
 
-from spec_echem.analysis import probe_wavelength, density_of_states
+from spec_echem.analysis import (probe_wavelength, density_of_states,
+                                 scan_rate_from_sweep)
 from spec_echem.data import (
     echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV,
     DATA_TYPE_DOPING, segment_potential_text, segment_potential,
@@ -201,7 +202,7 @@ class ResultsTab(QWidget):
         elif view == "modulation":
             self._plot_modulation()
         elif view == "dos":
-            self._plot_dos(label)
+            self._plot_dos(label, absorb_df)
         else:
             # "Doping 4" says which segment, not which experiment. The potential is what
             # the reader actually wants, and it comes from data.segment_potential_text()
@@ -339,7 +340,7 @@ class ResultsTab(QWidget):
             "Potential (V)", "Absorbance at end of step",
             title="Modulation across the doping ladder")
 
-    def _plot_dos(self, label):
+    def _plot_dos(self, label, absorb_df=None):
         """Density of states from the CV — g(E) = i / (v·e·V_film).
 
         Last cycle only, forward and reverse as SEPARATE curves: the film is not the
@@ -362,21 +363,46 @@ class ResultsTab(QWidget):
             self.canvas.show_message("No echem file for the CV — nothing to compute.")
             return
 
-        settings = self.win.label_settings()
-        rate_mv = settings.get("cv_scan_rate")
-        if not rate_mv:
-            self.canvas.show_message("No CV scan rate recorded for this run.")
+        try:
+            df = read_cv(path)
+        except Exception as exc:  # noqa: BLE001 — a bad file must not kill the tab
+            self.canvas.show_message(f"Could not read the CV:\n{exc}")
             return
-        # cv_scan_rate is in mV/s; the formula needs V/s. Getting this wrong scales
-        # the whole answer by 1000.
-        rate = float(rate_mv) / 1000.0
 
-        thickness_nm = settings.get("film_thickness_nm") or 0.0
-        area_cm2 = settings.get("film_area_cm2") or 0.0
+        # MEASURED first, nominal second -- the same rule as segment potentials. The
+        # CV file has no time column, but its spectra file does, and total path swept
+        # over elapsed time is the rate. On the reference run that gives 98.4 mV/s
+        # against a nominal 100, and it works for runs with no metadata at all.
+        times = np.asarray(absorb_df.columns.values, dtype=float) \
+            if absorb_df is not None and not absorb_df.empty else None
+        duration = float(times.max() - times.min()) if times is not None and times.size \
+            else None
+        rate = scan_rate_from_sweep(df[POTENTIAL_COL].to_numpy(float), duration)
+        source = "measured"
+        if rate is None:
+            rate_mv = self.win.label_settings().get("cv_scan_rate")
+            if not rate_mv:
+                self.canvas.show_message(
+                    "No scan rate: the CV spectra carry no times and the run has no "
+                    "metadata.\nEnter a CV scan rate on the Parameters tab.")
+                return
+            # cv_scan_rate is in mV/s; the formula needs V/s. Getting this wrong
+            # scales the whole answer by 1000.
+            rate, source = float(rate_mv) / 1000.0, "nominal"
+
+        # Film geometry is the one thing the form MAY supply for a loaded run. Segment
+        # potentials must never come from it -- they are recorded per-run and taking
+        # them from the form mislabelled +0.700 V as +0.400 V. Geometry is different:
+        # it is recorded nowhere in older data, so the form is the only place it can
+        # come from, and the title says when it did.
+        settings = self.win.label_settings()
+        live = self.win.settings
+        thickness_nm = settings.get("film_thickness_nm") or live.get("film_thickness_nm") or 0.0
+        area_cm2 = settings.get("film_area_cm2") or live.get("film_area_cm2") or 0.0
+        from_form = not settings.get("film_area_cm2") and bool(area_cm2)
         volume = (area_cm2 * thickness_nm * 1e-7) if (area_cm2 and thickness_nm) else None
 
         try:
-            df = read_cv(path)
             curves = density_of_states(df[POTENTIAL_COL].to_numpy(float),
                                        df[CURRENT_COL].to_numpy(float),
                                        rate, volume_cm3=volume)
@@ -395,8 +421,10 @@ class ResultsTab(QWidget):
         self.canvas.plot_multi_xy(
             [(c["energy_ev"], c["dos"], c["direction"]) for c in curves],
             "E = -eV  (eV)", units,
-            title=f"Density of states — last cycle, {rate * 1000:.0f} mV/s"
-                  + ("" if volume else "   (no film volume — dQ/dV)"))
+            title=f"Density of states — last cycle, "
+                  f"{rate * 1000:.1f} mV/s ({source})"
+                  + ("" if volume else "   (no film volume — dQ/dV)")
+                  + ("   [geometry from the Parameters tab]" if from_form else ""))
 
     def _plot_echem(self, label):
         """Show the segment's electrochemistry (I-vs-E for CV, I-vs-t for chrono).

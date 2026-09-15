@@ -642,6 +642,34 @@ def tau_ratio(numerator, denominator):
 ELEMENTARY_CHARGE = 1.602176634e-19      # C
 
 
+def scan_rate_from_sweep(potential, duration_s):
+    """Scan rate in V/s, from the potential trace and how long the sweep took.
+
+    CV.txt records potential and current only -- no time column (docs/data-format.md),
+    so the rate cannot come from it alone. But the CV's spectra file carries corrected
+    times, and total path swept / elapsed time IS the rate:
+
+        v = sum(|dV|) / duration
+
+    MEASURED on the reference run: 7.19 V over 73.0 s = 98.4 mV/s, against a nominal
+    100 mV/s. Preferring this over the settings value follows the same rule as
+    segment potentials -- take it from the data, because the form may describe a
+    different experiment.
+
+    Returns None when it cannot be computed. The estimate assumes the spectra cover
+    the whole sweep, which is how a CV segment is acquired; a truncated spectra file
+    would make it read high.
+    """
+    v = np.asarray(potential, dtype=float)
+    v = v[np.isfinite(v)]
+    if v.size < 2 or not duration_s or duration_s <= 0:
+        return None
+    swept = float(np.abs(np.diff(v)).sum())
+    if swept <= 0:
+        return None
+    return swept / float(duration_s)
+
+
 def cv_sweeps(potential):
     """Index slices for each monotonic sweep of a CV, split at every reversal.
 
