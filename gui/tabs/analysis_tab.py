@@ -460,7 +460,16 @@ class AnalysisTab(QWidget):
         else:
             # Every fitted parameter, not just the headline tau -- a biexp's fast
             # component is the whole reason for choosing biexp.
-            note = "\n".join(fit.describe())
+            lines = fit.describe()
+            # The model's y(0) next to the measured one, so the identity
+            # A + sum(B) = y(0) can be checked at a glance. They should agree
+            # ROUGHLY; a large gap means the model is missing the earliest
+            # behaviour, which is a reason to change model or move the window
+            # rather than an error in the fit.
+            if fit.t_first is not None and len(t):
+                k = int(np.argmin(np.abs(t - fit.t_first)))
+                lines[-1] += f"  vs data {y[k]:.4g}"
+            note = "\n".join(lines)
             fit_y = fit.curve(t)
 
         title = f"{self._segment_display(label)} - {trace}"
@@ -562,7 +571,10 @@ class AnalysisTab(QWidget):
                     errs[at[x]] = _ratio_ci95(r, a, c)
                 if present:
                     add(f"ratio ({direction})", vals, "absorbance", direction, errs)
-            ylabel = "mean tau(abs) / mean tau(current)"
+            # Units on BOTH sides, so it is visible that they cancel. Dean: "so
+            # we know the numerator and denominator have same units and Y is
+            # dimensionless."
+            ylabel = "(abs mean tau [s]) / (current mean tau [s])"
             title = f"Kinetic coupling (dimensionless) - {probe} (95% CI)"
         else:
             for trace in TRACES:
