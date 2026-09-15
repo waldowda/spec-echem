@@ -656,8 +656,11 @@ def test_both_sweep_directions_cover_the_same_potential_range():
     vertex -- so the first and last entries from cv_sweeps are PARTIAL. Taking the
     last two gave one full sweep and one truncated tail, and the reverse curve
     covered a shorter range than the forward one on the same plot."""
-    # start at 0, run three full cycles, end back at 0 -- partial at both ends
-    t = np.linspace(0.0, 6.5, 1300)
+    # Start AND end partway along a sweep, as a real CV does: the first and last
+    # entries from cv_sweeps are then partial. Ending on a vertex would leave both
+    # final sweeps complete and the bug invisible, which is how the first version of
+    # this test passed with and without the fix.
+    t = np.linspace(0.0, 6.75, 1350)
     v = np.interp(t % 2.0, [0.0, 0.5, 1.5, 2.0], [0.0, 0.7, -0.5, 0.0])
     i = 1.0e-4 * np.gradient(v, t)
     curves = density_of_states(v, i, scan_rate_v_per_s=1.2, volume_cm3=1.5e-5)
