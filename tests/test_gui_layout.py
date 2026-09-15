@@ -1357,3 +1357,26 @@ def test_an_off_scale_review_point_is_called_out(analysis_window):
     # and no nagging when the flagged point is in range
     assert tab._needs_review_spread(
         {"a": [10.0, 12.0]}, {"a": [True, False]}) is None
+
+
+def test_a_fit_needing_review_still_shows_every_parameter(analysis_window):
+    """Dean: "you still are not plotting all of the fit data on the fit graph in the
+    legend... I see the amber box but only tau is shown."
+
+    plot_fit took ONE `note` argument for both the legend and the banner, so a fit
+    under review lost every parameter to a fixed label. A fit under review needs its
+    numbers MORE than a clean one -- they are how the concern gets judged."""
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    fit = tab._fits["Doping 0"]["absorbance"]
+    fit.ok, fit.reason = False, "tau (1.51e+11 s) exceeds 10x the 60 s window"
+    tab.table.selectRow(0)
+    tab._draw_fit()
+
+    legend = [l.get_label() for l in tab.fit_canvas.ax.get_lines()]
+    fit_label = [l for l in legend if "tau" in l]
+    assert fit_label, f"the legend lost the parameters: {legend}"
+    for wanted in ("A =", "B =", "tau =", "mean tau", "resid:"):
+        assert wanted in fit_label[0], f"{wanted} missing from:\n{fit_label[0]}"
+    # and the concern is in the banner, not instead of the numbers
+    assert any("NEEDS REVIEW" in t.get_text() for t in tab.fit_canvas.ax.texts)

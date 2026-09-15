@@ -496,44 +496,24 @@ class AnalysisTab(QWidget):
         t, y = traces[trace]
 
         fit = (self._fits.get(label) or {}).get(trace)
+        caution = None
         if fit is None:
-            note = "not fitted yet"
-            fit_y = None
-        elif not fit.ok:
-            # Not truncated: the reason carries the numbers that tell you what
-            # to change (a tau of 6e4 in a 30 s window says widen or change
-            # model). The canvas wraps it.
-            # "Did not converge" is a fact -- there is nothing to show. "Needs
-            # review" is a concern raised about a fit that HAS results. Neither is
-            # "failed": the software does not get to decide what is worth seeing.
-            headline = ("FIT DID NOT CONVERGE" if fit.did_not_converge
-                        else "NEEDS REVIEW")
-            note = f"{headline}\n{fit.reason}"
-            # A rejected fit that CONVERGED still has a curve, and seeing it is
-            # how you work out what to change: flat through a real decay means
-            # change the model, hugging the spike means move the window.
-            fit_y = fit.curve(t)
+            note, fit_y = "not fitted yet", None
+        elif fit.did_not_converge:
+            # Nothing to show: no parameters exist. A statement of fact.
+            note, fit_y = None, None
+            caution = f"FIT DID NOT CONVERGE\n{fit.reason}"
         else:
-            # Every fitted parameter, not just the headline tau -- a biexp's fast
-            # component is the whole reason for choosing biexp.
+            # Every parameter, whether or not a check objected. A fit under review
+            # needs its numbers MORE than a clean one, not less -- they are how the
+            # concern gets judged.
             lines = fit.describe()
-            # The model's y(0) next to the measured one, so the identity
-            # A + sum(B) = y(0) can be checked at a glance. They should agree
-            # ROUGHLY; a large gap means the model is missing the earliest
-            # behaviour, which is a reason to change model or move the window
-            # rather than an error in the fit.
             if fit.t_first is not None and len(t):
                 k = int(np.argmin(np.abs(t - fit.t_first)))
-                # Onto the y(0) line specifically. lines[-1] is the point count --
-                # describe() appends mean tau and "n pts" after y(0), so the naive
-                # version hung the comparison off the wrong line.
                 for j, line in enumerate(lines):
                     if line.startswith("y(0)"):
                         lines[j] += f"  vs data {y[k]:.4g}"
                         break
-            # Is this the right model? The parameter uncertainties cannot say -- they
-            # describe the fit WITHIN the model. A residual dominated by systematic
-            # misfit means the model missed something real, however tight the CI.
             split = fit.residual_split(t, y)
             if split is not None:
                 noise, systematic, fraction = split
@@ -542,6 +522,8 @@ class AnalysisTab(QWidget):
                                 if np.isfinite(fraction) else ""))
             note = "\n".join(lines)
             fit_y = fit.curve(t)
+            if fit.needs_review:
+                caution = f"NEEDS REVIEW\n{fit.reason}"
 
         title = f"{self._segment_display(label)} - {trace}"
         if trace == "absorbance" and self.wavelength_spin.value() > 0:
@@ -551,7 +533,8 @@ class AnalysisTab(QWidget):
 
         self.fit_canvas.plot_fit(t, y, fit_y, "Time (s)", TRACE_UNITS[trace],
                                  title=title, window=self._window(traces), note=note,
-                                 fit_ok=bool(fit is not None and fit.ok))
+                                 fit_ok=bool(fit is not None and fit.ok),
+                                 caution=caution)
 
     def _ladder_probe_text(self, labels):
         """'abs @ 807.9 nm', or a warning when the points do not share a wavelength.

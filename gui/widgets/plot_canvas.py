@@ -237,7 +237,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self.draw_idle()
 
     def plot_fit(self, t, y, fit_y, xlabel, ylabel, title=None, window=None,
-                 note=None, fit_ok=True):
+                 note=None, fit_ok=True, caution=None):
         """Data with the fitted curve over it, plus a residual strip.
 
         The residual panel is the point: an exponential and a stretched exponential
@@ -272,10 +272,14 @@ class MplCanvas(FigureCanvasQTAgg):
             # A fit needing review is still drawn -- dashed and amber so it reads as
             # a caution rather than an endorsement. Seeing it is how you work out
             # what to change, and the residual panel is usually where the reason is.
+            # `note` is the PARAMETERS and always goes in the legend; `caution` is the
+            # concern and goes in the banner. They were one argument, so a fit needing
+            # review lost every parameter to a fixed "needs review" label -- exactly
+            # the numbers wanted in order to judge it.
             self.ax.plot(t, fit_y,
                          "-" if fit_ok else "--",
                          lw=1.4, color="#d62728" if fit_ok else "#e07b00",
-                         label=(note or "fit") if fit_ok else "fit — needs review",
+                         label=note or ("fit" if fit_ok else "fit — needs review"),
                          zorder=3)
             resid = y - fit_y
             self.resid_ax.plot(t, resid, "o", ms=2.0, color="#1f77b4", alpha=0.6)
@@ -288,13 +292,13 @@ class MplCanvas(FigureCanvasQTAgg):
                                color="#888", fontsize=8)
             self.resid_ax.set_yticks([])   # no residuals; 0-1 ticks describe nothing
 
-        if not fit_ok and note:
+        if caution:
             # The one thing on this plot the user MUST notice, so a boxed warning
             # across the top rather than grey text in a corner -- and not pinned to
             # the upper right, where it used to run through the legend.
             self.ax.annotate(
                 "\n".join(textwrap.fill(line, 38)
-                           for line in note.splitlines() or [""]),
+                           for line in caution.splitlines() or [""]),
                 xy=(0.5, 0.97), xycoords="axes fraction",
                 ha="center", va="top", fontsize=9, color="#7a4a00",
                 fontweight="semibold", zorder=6, clip_on=True,
@@ -302,7 +306,7 @@ class MplCanvas(FigureCanvasQTAgg):
                 bbox=dict(boxstyle="round,pad=0.45", facecolor="#fff6e5",
                           edgecolor="#e07b00", linewidth=1.1, alpha=0.97))
         elif fit_y is None and note:
-            # "not fitted yet" is not a failure, so it stays neutral.
+            # "not fitted yet" is not a concern, so it stays neutral.
             self.ax.annotate(note, xy=(0.5, 0.5), xycoords="axes fraction",
                              ha="center", va="center", fontsize=9, color="#888",
                              clip_on=True)
