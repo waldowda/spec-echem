@@ -23,6 +23,7 @@ Run it on BOTH rigs and paste the output — the numbers decide what the default
     python examples/probe_min_integration.py
 """
 import sys
+import time
 
 try:
     import avaspec
@@ -128,58 +129,84 @@ def main():
               + ("   -- agrees" if agree else "   -- DISAGREES with what is accepted"))
     if stated_max is not None:
         print(f"  stated maximum   = {stated_max:.6g} ms")
-    print("\n--- 3. is that exposure actually honoured? (LAMP MUST BE ON) ---")
+    print("\n--- 3. is that exposure actually honoured? (LAMP MUST BE ON) ---",
+          flush=True)
     # The clock cannot answer this. MEASURED on a 2048 px detector: elapsed time is
     # ~1.2-1.8 ms of fixed overhead (USB round trip + readout) plus the integration,
     # and the SCATTER in that overhead is ~0.6 ms -- larger than every request below
-    # 1 ms. A 0.05 ms request came back FASTER than a 0.009 ms one, which is noise,
-    # not signal.
+    # 1 ms. A 0.05 ms request came back FASTER than a 0.009 ms one, which is noise.
     #
-    # The detector's own integral is the sensitive probe. Accumulated counts are
-    # proportional to the time actually integrated, so if the hardware clamps
-    # everything below some floor F, counts are FLAT below F and rise linearly above
-    # it. That knee is the real minimum, and it does not care about host timing.
-    from avaspec import AVS_Measure, AVS_PollScan, AVS_GetScopeData
-    import time
+    # Counts are the sensitive probe: accumulated signal is proportional to the time
+    # actually integrated, so if the hardware clamps below some floor, counts are
+    # FLAT below it and rise linearly above. That knee ignores host timing.
+    #
+    # Every step announces itself BEFORE it runs and flushes, so a hang or a hard
+    # failure shows where it happened instead of leaving a silent console.
+    import traceback
 
-    print("  Needs steady illumination. With the lamp off every row reads the dark")
-    print("  floor and the knee cannot be seen.\n")
-    print(f"  {'requested (ms)':>16}  {'mean counts':>12}  {'counts/ms':>12}")
+    try:
+        from avaspec import AVS_Measure, AVS_PollScan, AVS_GetScopeData
+    except Exception:                                 # noqa: BLE001 — probe script
+        print("  could not import the measurement calls:", flush=True)
+        traceback.print_exc()
+        return
 
-    ladder = [hi, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0]
+    print("  Needs steady illumination. With the lamp off every row reads the dark",
+          flush=True)
+    print("  floor and there is no knee to find.\n", flush=True)
+    print(f"  {'requested (ms)':>16}  {'mean counts':>12}  {'counts/ms':>12}", flush=True)
+
     rows = []
-    for requested in ladder:
-        cfg = _config(handle, pixels, requested)
-        if AVS_PrepareMeasure(handle, cfg) < 0:
-            continue
-        if AVS_Measure(handle, 0, 1) < 0:
-            continue
-        deadline = time.perf_counter() + max(2.0, requested / 1000.0 * 5.0 + 2.0)
-        while not AVS_PollScan(handle) and time.perf_counter() < deadline:
-            time.sleep(0.0005)
+    for requested in (hi, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0):
+        print(f"  {requested:16.4g}  ", end="", flush=True)
         try:
-            _stamp, spectrum = AVS_GetScopeData(handle)
-        except Exception as exc:                      # noqa: BLE001 — probe script
-            print(f"  {requested:16.4g}  read failed: {exc}")
-            continue
-        counts = sum(spectrum[:pixels]) / float(pixels)
-        rows.append((requested, counts))
-        print(f"  {requested:16.4g}  {counts:12.1f}  {counts / requested:12.1f}")
+            cfg = _config(handle, pixels, requested)
+            rc = AVS_PrepareMeasure(handle, cfg)
+            if rc < 0:
+                print(f"prepare rejected it (code {rc})", flush=True)
+                continue
+            rc = AVS_Measure(handle, 0, 1)
+            if rc < 0:
+                print(f"measure failed (code {rc})", flush=True)
+                continue
+            deadline = time.perf_counter() + max(3.0, requested / 1000.0 * 5.0 + 3.0)
+            while not AVS_PollScan(handle):
+                if time.perf_counter() > deadline:
+                    print("timed out waiting for data", flush=True)
+                    break
+                time.sleep(0.0005)
+            else:
+                result = AVS_GetScopeData(handle)
+                spectrum = result[1]
+                counts = sum(spectrum[:pixels]) / float(pixels)
+                rows.append((requested, counts))
+                print(f"{counts:12.1f}  {counts / requested:12.1f}", flush=True)
+        except Exception:                             # noqa: BLE001 — probe script
+            print("raised:", flush=True)
+            traceback.print_exc()
 
-    # The knee: walk up from the shortest time until counts start rising with it.
-    # Below the floor the detector integrates for the SAME real time regardless of
-    # what was asked, so counts barely move; above it they scale.
+    if not rows:
+        print("\n  no rows measured — the traceback or message above says why.",
+              flush=True)
+        return
+
+    # The knee: below the floor the detector integrates for the same real time
+    # whatever is asked, so counts barely move; above it they scale with the request.
     floor = None
     for (t_a, c_a), (t_b, c_b) in zip(rows, rows[1:]):
-        if t_b <= t_a:
-            continue
-        grew = (c_b - c_a) / max(c_a, 1.0)
+        grew = (c_b - c_a) / max(abs(c_a), 1.0)
         asked = (t_b - t_a) / max(t_a, 1e-9)
-        if grew > 0.5 * asked:            # counts tracking the request, not flat
+        if grew > 0.5 * asked:
             floor = t_a
             break
-    print(f"\n  counts start tracking the request at ~{floor} ms"
-          if floor else "\n  counts never tracked — is the lamp on?")
-    print("\n  Below that, the detector integrates for the same real time whatever")
-    print("  is asked for. THAT is the minimum the defaults should follow.")
-    print("\nPaste this whole output back.")
+    if floor is not None:
+        print(f"\n  counts start tracking the request at ~{floor} ms", flush=True)
+        print("  Below that the detector integrates the same real time whatever is",
+              flush=True)
+        print("  asked for. THAT is the minimum the defaults should follow.", flush=True)
+    else:
+        print("\n  counts never tracked the request. Either the lamp is off, or the",
+              flush=True)
+        print("  detector is saturated at every step — check the counts column.",
+              flush=True)
+    print("\nPaste this whole output back.", flush=True)
