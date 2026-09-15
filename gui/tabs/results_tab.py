@@ -17,13 +17,14 @@ from qtpy.QtWidgets import (
     QProgressDialog, QApplication,
 )
 
-from spec_echem.analysis import probe_wavelength
+from spec_echem.analysis import probe_wavelength, density_of_states
 from spec_echem.data import (
     echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV,
     DATA_TYPE_DOPING, segment_potential_text, segment_potential,
 )
 from spec_echem.experiment import Segment
-from spec_echem.gamry_data import read_cv, read_chrono
+from spec_echem.gamry_data import (read_cv, read_chrono, POTENTIAL_COL,
+                                   CURRENT_COL)
 from gui.widgets.plot_canvas import MplCanvas
 
 
@@ -86,6 +87,9 @@ class ResultsTab(QWidget):
         self.view_combo.addItem("Spectra (all times)", "spectra")
         self.view_combo.addItem("Kinetics (one wavelength)", "kinetics")
         self.view_combo.addItem("Modulation (across the ladder)", "modulation")
+        # Dean: another option here rather than a new tab -- a DOS is another view of
+        # the CV that is already selected, so it needs no new navigation.
+        self.view_combo.addItem("Density of states (CV only)", "dos")
         self.view_combo.setToolTip(
             "Modulation is the one to watch while a run is going: absorbance at the\n"
             "end of each step, against potential. A film that stops modulating has\n"
@@ -196,6 +200,8 @@ class ResultsTab(QWidget):
             self._plot_kinetics(label, absorb_df)
         elif view == "modulation":
             self._plot_modulation()
+        elif view == "dos":
+            self._plot_dos(label)
         else:
             # "Doping 4" says which segment, not which experiment. The potential is what
             # the reader actually wants, and it comes from data.segment_potential_text()
@@ -332,6 +338,65 @@ class ResultsTab(QWidget):
             np.asarray(xs)[order], {f"{chosen:.0f} nm": np.asarray(ys)[order]},
             "Potential (V)", "Absorbance at end of step",
             title="Modulation across the doping ladder")
+
+    def _plot_dos(self, label):
+        """Density of states from the CV — g(E) = i / (v·e·V_film).
+
+        Last cycle only, forward and reverse as SEPARATE curves: the film is not the
+        same on cycle 1 as on cycle 3, and hysteresis between the directions is a real
+        effect that averaging would hide.
+
+        NOT subtracted: the capacitive baseline. Double-layer charging is not density
+        of states, but whatever is removed changes the answer, so it stays visible
+        until there is a decision about how to remove it (docs/analysis-design.md).
+        """
+        seg = self.win.segments_by_label.get(label)
+        if seg is None or seg.data_type != DATA_TYPE_CV:
+            self.canvas.show_message(
+                "Density of states is computed from a CV sweep.\n"
+                "Select the CV segment.")
+            return
+        path = echem_txt_path(self.win.run_folder, seg.data_type, seg.run_number) \
+            if self.win.run_folder else None
+        if path is None or not path.exists():
+            self.canvas.show_message("No echem file for the CV — nothing to compute.")
+            return
+
+        settings = self.win.label_settings()
+        rate_mv = settings.get("cv_scan_rate")
+        if not rate_mv:
+            self.canvas.show_message("No CV scan rate recorded for this run.")
+            return
+        # cv_scan_rate is in mV/s; the formula needs V/s. Getting this wrong scales
+        # the whole answer by 1000.
+        rate = float(rate_mv) / 1000.0
+
+        thickness_nm = settings.get("film_thickness_nm") or 0.0
+        area_cm2 = settings.get("film_area_cm2") or 0.0
+        volume = (area_cm2 * thickness_nm * 1e-7) if (area_cm2 and thickness_nm) else None
+
+        try:
+            df = read_cv(path)
+            curves = density_of_states(df[POTENTIAL_COL].to_numpy(float),
+                                       df[CURRENT_COL].to_numpy(float),
+                                       rate, volume_cm3=volume)
+        except Exception as exc:  # noqa: BLE001 — a bad file must not kill the tab
+            self.canvas.show_message(f"Could not compute a DOS:\n{exc}")
+            return
+        if not curves:
+            self.canvas.show_message("The CV has no complete sweep to use.")
+            return
+
+        units = curves[0]["units"]
+        x = curves[0]["energy_ev"]
+        series = {c["direction"]: c["dos"] for c in curves}
+        # Directions have their own x, so plot them one at a time rather than forcing
+        # a shared axis: a CV's two sweeps do not sample the same points.
+        self.canvas.plot_multi_xy(
+            [(c["energy_ev"], c["dos"], c["direction"]) for c in curves],
+            "E = -eV  (eV)", units,
+            title=f"Density of states — last cycle, {rate * 1000:.0f} mV/s"
+                  + ("" if volume else "   (no film volume — dQ/dV)"))
 
     def _plot_echem(self, label):
         """Show the segment's electrochemistry (I-vs-E for CV, I-vs-t for chrono).

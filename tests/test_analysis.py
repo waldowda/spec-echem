@@ -10,7 +10,8 @@ import pytest
 
 from spec_echem.analysis import (
     FitResult,
-    auto_wavelengths, fit_transient, mean_relaxation_time,
+    auto_wavelengths, cv_sweeps, density_of_states, fit_transient,
+    mean_relaxation_time,
     tau_ratio, model_exp, model_biexp, model_stretched,
 )
 
@@ -588,3 +589,60 @@ def test_a_wrong_model_leaves_a_systematic_residual():
 def test_the_split_needs_a_curve():
     t = np.linspace(0.0, 1.0, 3)
     assert fit_transient(t, np.zeros(3), "biexp").residual_split(t, np.zeros(3)) is None
+
+
+# --- density of states from a CV ---------------------------------------------
+
+def _triangle_cv(cycles=3, points=400, lo=-0.5, hi=0.7):
+    """A clean triangular sweep with purely capacitive current, i = C·dV/dt."""
+    t = np.linspace(0.0, 2.0 * cycles, points * cycles)
+    ramp = np.abs(((t + 0.5) % 2.0) - 1.0)
+    v = lo + (hi - lo) * ramp
+    return t, v, 1.0e-4 * np.gradient(v, t)
+
+
+def test_a_cv_splits_into_one_sweep_per_direction():
+    _t, v, _i = _triangle_cv(cycles=3)
+    sweeps = cv_sweeps(v)
+    assert len(sweeps) >= 6, f"3 cycles should give at least 6 sweeps, got {len(sweeps)}"
+    for s in sweeps:
+        seg = v[s]
+        rising = np.diff(seg) > 0
+        assert rising.all() or (~rising).all(), "each sweep must be monotonic"
+
+
+def test_the_dos_is_positive_in_both_sweep_directions():
+    """dQ/dV = i/(dV/dt), and on the reverse sweep BOTH are negative, so the quotient
+    is positive. Dividing by the scan rate's MAGNITUDE put the reverse sweep below
+    zero -- a density of states is positive whichever way the sweep runs."""
+    _t, v, i = _triangle_cv()
+    curves = density_of_states(v, i, scan_rate_v_per_s=1.2, volume_cm3=1.5e-5)
+    assert {c["direction"] for c in curves} == {"forward", "reverse"}
+    for c in curves:
+        interior = c["dos"][5:-5]        # the vertex itself is a turnaround
+        assert np.median(interior) > 0, f"{c['direction']} came out negative"
+
+
+def test_without_a_volume_it_reports_dQdV_rather_than_inventing_one():
+    _t, v, i = _triangle_cv()
+    curves = density_of_states(v, i, 1.2, volume_cm3=None)
+    assert "dQ/dV" in curves[0]["units"] and "C/V" in curves[0]["units"]
+    with_volume = density_of_states(v, i, 1.2, volume_cm3=1.5e-5)
+    assert "eV^-1 cm^-3" in with_volume[0]["units"]
+    # and the only difference is the constant e·V
+    ratio = with_volume[0]["dos"][10] / curves[0]["dos"][10]
+    assert ratio == pytest.approx(1.0 / (1.602176634e-19 * 1.5e-5), rel=1e-6)
+
+
+def test_the_last_cycle_is_used_by_default():
+    """The film is not the same on cycle 1 as on cycle 3."""
+    _t, v, i = _triangle_cv(cycles=3)
+    assert len(density_of_states(v, i, 1.2)) == 2
+    assert len(density_of_states(v, i, 1.2, last_cycle_only=False)) > 2
+
+
+def test_a_zero_or_negative_scan_rate_is_refused():
+    _t, v, i = _triangle_cv()
+    for bad in (0.0, -1.0, None):
+        with pytest.raises(ValueError, match="scan rate"):
+            density_of_states(v, i, bad)

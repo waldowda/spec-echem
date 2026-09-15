@@ -136,7 +136,7 @@ Two consequences to build in deliberately:
 
 ---
 
-## Planned — density of states from the CV
+## Density of states from the CV — BUILT 2026-09-15 (v1)
 
 Dean, 2026-09-14: *"I wonder if we could plot density of states from the CV curves. Maybe at
 some point."* **Not built.** Recorded here so the design is settled before anyone starts.
