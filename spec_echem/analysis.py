@@ -694,6 +694,24 @@ def cv_sweeps(potential):
     return [s for s in sweeps if (s.stop - s.start) >= 3]
 
 
+def _last_complete_cycle(v, sweeps):
+    """The last FULL sweep of each direction, in order.
+
+    A CV usually starts and ends partway along a sweep -- at 0 V rather than at a
+    vertex -- so the first and last entries from cv_sweeps are partial. Taking the
+    last two gave one full sweep and one truncated tail, which is why the reverse
+    curve covered a shorter potential range than the forward one on the same plot.
+    """
+    spans = [abs(v[s][-1] - v[s][0]) for s in sweeps]
+    if not spans:
+        return []
+    full = max(spans)
+    complete = [s for s, span in zip(sweeps, spans) if span >= 0.9 * full]
+    last_rising = next((s for s in reversed(complete) if v[s][-1] > v[s][0]), None)
+    last_falling = next((s for s in reversed(complete) if v[s][-1] < v[s][0]), None)
+    return [s for s in (last_rising, last_falling) if s is not None]
+
+
 def density_of_states(potential, current, scan_rate_v_per_s, volume_cm3=None,
                       last_cycle_only=True):
     """DOS against energy, one entry per sweep direction.
@@ -717,7 +735,9 @@ def density_of_states(potential, current, scan_rate_v_per_s, volume_cm3=None,
     if not sweeps:
         return []
     if last_cycle_only:
-        sweeps = sweeps[-2:]
+        sweeps = _last_complete_cycle(v, sweeps)
+        if not sweeps:
+            return []
 
     denom = ELEMENTARY_CHARGE * volume_cm3 if volume_cm3 else 1.0
     units = ("states eV^-1 cm^-3" if volume_cm3 else "dQ/dV (C/V) — no film volume")
@@ -731,7 +751,10 @@ def density_of_states(potential, current, scan_rate_v_per_s, volume_cm3=None,
         # direction. Dividing by the magnitude flipped the reverse sweep below zero.
         rate = scan_rate_v_per_s if rising else -scan_rate_v_per_s
         out.append({
-            "direction": "forward" if rising else "reverse",
+            # Rising potential REMOVES electrons from the film (oxidising, p-doping);
+            # falling potential puts them back (reducing, de-doping). Worth saying on
+            # the plot: "forward" alone does not tell you which way charge is going.
+            "direction": "oxidising (forward)" if rising else "reducing (reverse)",
             # E = -eV: a more positive potential removes electrons, i.e. probes
             # deeper into the occupied states.
             "energy_ev": -vv,

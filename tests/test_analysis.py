@@ -617,7 +617,10 @@ def test_the_dos_is_positive_in_both_sweep_directions():
     zero -- a density of states is positive whichever way the sweep runs."""
     _t, v, i = _triangle_cv()
     curves = density_of_states(v, i, scan_rate_v_per_s=1.2, volume_cm3=1.5e-5)
-    assert {c["direction"] for c in curves} == {"forward", "reverse"}
+    # named for the CHEMISTRY, not just the sweep sense: rising potential removes
+    # electrons (oxidising), falling puts them back (reducing)
+    assert {c["direction"] for c in curves} == {"oxidising (forward)",
+                                                "reducing (reverse)"}
     for c in curves:
         interior = c["dos"][5:-5]        # the vertex itself is a turnaround
         assert np.median(interior) > 0, f"{c['direction']} came out negative"
@@ -646,3 +649,18 @@ def test_a_zero_or_negative_scan_rate_is_refused():
     for bad in (0.0, -1.0, None):
         with pytest.raises(ValueError, match="scan rate"):
             density_of_states(v, i, bad)
+
+
+def test_both_sweep_directions_cover_the_same_potential_range():
+    """A CV usually starts and ends partway along a sweep -- at 0 V rather than at a
+    vertex -- so the first and last entries from cv_sweeps are PARTIAL. Taking the
+    last two gave one full sweep and one truncated tail, and the reverse curve
+    covered a shorter range than the forward one on the same plot."""
+    # start at 0, run three full cycles, end back at 0 -- partial at both ends
+    t = np.linspace(0.0, 6.5, 1300)
+    v = np.interp(t % 2.0, [0.0, 0.5, 1.5, 2.0], [0.0, 0.7, -0.5, 0.0])
+    i = 1.0e-4 * np.gradient(v, t)
+    curves = density_of_states(v, i, scan_rate_v_per_s=1.2, volume_cm3=1.5e-5)
+    assert len(curves) == 2
+    spans = [abs(c["energy_ev"][-1] - c["energy_ev"][0]) for c in curves]
+    assert spans[0] == pytest.approx(spans[1], rel=0.05), spans
