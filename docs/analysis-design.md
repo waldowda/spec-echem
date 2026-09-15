@@ -300,9 +300,41 @@ twice.
   kinetics. Where that holds it is a much stronger measurement; where it fails — the
   polaron band above +0.5 V, if the bipolaron reading is right — it will fail VISIBLY, in
   the residual split. That failure is a result, not a problem.
-- **Sequencing:** after the tri-exponential, or alongside it. A joint fit that excludes
-  the bipolaron term will be fighting the same missing process the sign flag already
-  points at.
+#### Why the joint fit is NECESSARY, not just better — Dean, 2026-09-15
+
+*"I actually have some good derivations that I and Claude did before regarding the
+polaron fits including the leaking of polaron abs to bipolaron abs even though we can't
+see the true bipolaron since we are limited to ~1100nm. Exactly why to use a dual fit
+from pi-pi* and polaron to define tau1 and tau2 then add tau3 for bipolaron kinetics."*
+
+**The bipolaron band is not observable on this instrument.** Silicon QE runs out by
+~1050 nm; MEASURED on the UW ULS2048L, 66 counts of signal above floor at 1100 nm, 17 at
+1123.7 nm, zero past 1150 (`docs/bench-2026-09-04.md`). Seeing it needs an InGaAs
+detector, not a config change. So bipolaron formation is visible ONLY as polaron
+absorbance going missing — a deficit, never a peak.
+
+That is what makes the fit order matter:
+
+1. **τ₁, τ₂ come from the BAND PAIR.** π–π* and the polaron share the ion-motion
+   kinetics, so a shared-τ fit across both determines those timescales using twice the
+   data and none of the bipolaron ambiguity.
+2. **τ₃ is then whatever is left at the polaron band.** With τ₁ and τ₂ pinned, the
+   polaron band's shortfall against the shared kinetics is the bipolaron channel, and
+   its sign is negative by construction — polarons being consumed.
+
+Fitting the polaron band alone cannot separate these. A free tri-exponential has three
+timescales and three amplitudes competing to explain one curve, and it will happily
+trade a wrong τ₃ against a wrong τ₁ and land somewhere plausible. **τ₃ is not
+identifiable without the constraint the second band provides.** That is the argument for
+the joint fit, and it is stronger than "the timescales should agree".
+
+**Dean's derivations for the polaron → bipolaron leakage are not in this repo.** They are
+the specification for the τ₃ term and should be captured before anyone implements it —
+`private-notes/` if they carry sample specifics, `docs/` if not.
+
+- **Sequencing:** shared-τ joint fit FIRST, on the rungs where the prefactor signs agree
+  (+0.2…+0.5 V), which is where it should work and where it validates the machinery. Let
+  it break at +0.6 and +0.7 V. Then add τ₃ to fix exactly that break.
 
 ### Sequencing
 

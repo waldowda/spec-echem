@@ -6,14 +6,19 @@ Running list of planned work and deferred cleanups. (Active design/status notes 
 
 Design settled in [`docs/analysis-design.md`](docs/analysis-design.md); not started.
 
-- [ ] **Tri-exponential**, for the bipolaron consuming polarons. Its third component
-      should show OPPOSITE sign at the polaron band and be absent at π–π* — which is
-      what `mixed_amplitude_signs` already detects but cannot measure.
-- [ ] **Joint fit of polaron and π–π* with SHARED τ.** Dean: *"they should be directly
-      related."* One parameter vector, shared timescales, per-band amplitudes and
-      baselines; stack the traces into one residual vector, no new solver. Halves the
-      free timescales while doubling the constraining data. Where the shared-τ
-      assumption fails it fails visibly in the residual split, which is itself a result.
+- [ ] **1. Joint fit of polaron and π–π* with SHARED τ — do this FIRST.** One parameter
+      vector, shared timescales, per-band amplitudes and baselines; stack the traces into
+      one residual vector, no new solver. Start on the rungs where the prefactor signs
+      agree (+0.2…+0.5 V), where it should work; let it break at +0.6/+0.7 V.
+- [ ] **2. Capture Dean's polaron → bipolaron leakage derivations.** They are the
+      specification for the τ₃ term and are not in this repo. `private-notes/` if they
+      carry sample specifics, `docs/` otherwise. Needed BEFORE implementing τ₃.
+- [ ] **3. Tri-exponential**, τ₃ for the bipolaron channel, with τ₁ and τ₂ pinned by
+      step 1. **The order is not a preference — τ₃ is not identifiable on its own.** The
+      bipolaron band is invisible here (silicon QE ends ~1050 nm; MEASURED 66 counts at
+      1100 nm, 0 past 1150 — it needs InGaAs), so bipolaron formation shows only as
+      polaron absorbance going MISSING. A free tri-exponential fitted to the polaron band
+      alone will trade a wrong τ₃ against a wrong τ₁ and land somewhere plausible.
 - [ ] **Re-check the model ranking per system.** biexp beating stretched 4:1 is a fact
       about P3HT 90:10 / KPF₆ at 800 nm, not a default to carry forward.
 
