@@ -90,17 +90,24 @@ def mean_relaxation_time(model, params):
     ratio view must use this.
 
         exp        <τ> = τ
-        biexp      <τ> = (B₁τ₁ + B₂τ₂) / (B₁ + B₂)     amplitude-weighted
+        biexp      <τ> = (|B₁|τ₁ + |B₂|τ₂) / (|B₁| + |B₂|)   amplitude-weighted
         stretched  <τ> = (τ/β)·Γ(1/β)
     """
     if model == "exp":
         return float(params[2])
     if model == "biexp":
         _, b1, tau1, b2, tau2 = params
-        denom = b1 + b2
+        # |B|, not B. The textbook amplitude-weighted mean assumes both components
+        # decay the same way, and then the signs agree and it does not matter. When
+        # a fit puts a small RISING component against a large falling one -- which
+        # 20250710_P3HT9010_KPF6 does above +0.5 V -- the signed weights partly
+        # cancel and the "mean" leaves the range of its own components: 0.117 s from
+        # tau1 = 0.553 s and tau2 = 4.11 s, and NEGATIVE once the denominator crosses
+        # zero. A mean relaxation time outside [min(tau), max(tau)] is not one.
+        denom = abs(b1) + abs(b2)
         if denom == 0:
             return float("nan")
-        return float((b1 * tau1 + b2 * tau2) / denom)
+        return float((abs(b1) * tau1 + abs(b2) * tau2) / denom)
     if model == "stretched":
         _, _, tau, beta = params
         if beta <= 0:
@@ -293,6 +300,19 @@ class FitResult:
         return float(self.sd[2])
 
     @property
+    def y_at_start(self):
+        """The model at the START of its fitted window: A + sum of the prefactors.
+
+        An identity of every model here, and the one number that ties the fitted
+        amplitudes back to the data -- it must match the first point the fit saw.
+        """
+        if self.params is None:
+            return None
+        amplitudes = [v for name, v in zip(MODELS[self.model][1], self.params)
+                      if name.startswith("B")]
+        return float(self.params[0] + sum(amplitudes))
+
+    @property
     def mean_tau(self):
         return mean_relaxation_time(self.model, self.params) if self.ok else None
 
@@ -359,10 +379,14 @@ class FitResult:
         sds = self.sd if self.sd is not None else [float("nan")] * len(names)
         lines = [f"{self.model}   (+/- = 1 SD)"]
         for name, value, sd in zip(names, self.params, sds):
-            if name == "A":
-                continue
             unit = " s" if name.startswith("tau") else ""
             lines.append(f"{name} = {value:.4g} +/- {sd:.2g}{unit}")
+        # y(0) = A + sum(B) is an identity of the model, and it is the check Dean
+        # asked for: it must equal the first fitted data point. Showing it also makes
+        # the sign of B readable -- B < 0 is a RISING component, climbing to the
+        # plateau A from below, which is what a growing polaron band does. Without A
+        # on screen a negative prefactor looks like an error rather than a direction.
+        lines.append(f"y(0) = {self.y_at_start:.4g}   (A + sum of prefactors)")
         ci = self.mean_tau_ci95
         lines.append(f"mean tau = {self.mean_tau:.4g}"
                      + (f" +/- {ci:.2g}" if ci is not None else "")

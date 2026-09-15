@@ -450,10 +450,62 @@ def test_the_summary_lists_tau_and_beta_for_a_stretched_fit():
         assert name in lines, f"{name} missing from:\n{lines}"
 
 
-def test_the_baseline_is_not_in_the_summary():
-    """A is an offset, not a kinetic parameter, and it would push the legend over
-    the plot. It stays on .params for anyone who wants it."""
+def test_the_baseline_is_in_the_summary():
+    """A was left out at first, which made the negative prefactors unreadable: with
+    no plateau on screen, a B < 0 looks like an error rather than a rising component.
+    Dean: "the sum need to equal Y at time 0 of the fit" -- and that identity needs A.
+    """
     t = np.linspace(0.0, 20.0, 200)
     fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0), "exp")
-    assert not any(line.startswith("A =") for line in fit.describe())
+    lines = fit.describe()
+    assert any(line.startswith("A =") for line in lines)
+    assert any("y(0)" in line for line in lines)
     assert fit.params[0] == pytest.approx(1.0, abs=0.01)
+
+
+def test_the_biexp_mean_stays_between_its_two_components():
+    """A mean relaxation time outside [min(tau), max(tau)] is not one.
+
+    MEASURED on 20250710_P3HT9010_KPF6: above +0.5 V the fit puts a small RISING
+    component against a large falling one, and signed amplitude weights partly
+    cancel -- <tau> came out 0.117 s from tau1 = 0.553 s and tau2 = 4.11 s, and went
+    NEGATIVE once the denominator crossed zero. Weighting by |B| fixes it.
+    """
+    for b1, tau1, b2, tau2 in [(-0.2996, 0.553, +0.03278, 4.11),   # the real case
+                               (-0.2762, 0.633, +0.003492, 23.4),
+                               (1.0, 0.5, 1.0, 5.0),               # same sign
+                               (-1.0, 0.5, -1.0, 5.0)]:
+        mean = mean_relaxation_time("biexp", (0.0, b1, tau1, b2, tau2))
+        assert min(tau1, tau2) <= mean <= max(tau1, tau2), (b1, tau1, b2, tau2, mean)
+        assert mean > 0
+
+
+def test_equal_amplitudes_average_the_two_times():
+    """The sanity case the |B| change must not break."""
+    assert mean_relaxation_time("biexp", (0.0, 2.0, 1.0, 2.0, 3.0)) == pytest.approx(2.0)
+
+
+def test_the_amplitudes_and_baseline_reconstruct_y_at_the_window_start():
+    """Dean: "the sum need to equal Y at time 0 of the fit... at least roughly."
+    A + sum(B) = y(0) is an identity of the model, and the one number that ties the
+    fitted amplitudes back to the data."""
+    t = np.linspace(0.0, 20.0, 400)
+    for model, y in [("exp", 1.0 + 2.0 * np.exp(-t / 3.0)),
+                     ("biexp", 1.0 + 1.5 * np.exp(-t / 0.8) + 0.5 * np.exp(-t / 6.0)),
+                     ("stretched", 1.0 + 2.0 * np.exp(-((t / 3.0) ** 0.7)))]:
+        fit = fit_transient(t, y, model)
+        assert fit.ok, fit.reason
+        assert fit.y_at_start == pytest.approx(y[0], rel=0.02)
+
+
+def test_a_negative_prefactor_means_a_rising_component():
+    """Absorbance GROWS on doping, so the exponentials climb to the plateau A from
+    below and B is negative. That is a direction, not an error -- which is why A and
+    y(0) are on the legend, so the sign is readable."""
+    t = np.linspace(0.0, 20.0, 400)
+    y = 0.11 - 0.10 * np.exp(-t / 2.0)          # rises to a plateau
+    fit = fit_transient(t, y, "exp")
+    assert fit.ok
+    assert fit.params[0] == pytest.approx(0.11, abs=0.005)    # A is the plateau
+    assert fit.params[1] < 0                                   # B is the rise
+    assert fit.y_at_start == pytest.approx(y[0], abs=0.005)
