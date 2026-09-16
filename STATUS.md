@@ -59,7 +59,9 @@ every exposure otherwise — the lamp is too bright to work near the floor, as
 smallest `AVS_PrepareMeasure` accepts, the detector returns 3555 counts where the line
 says 2111 — **~2.1 ms of integration, about double what was asked**. Four consecutive
 scans agree, and revisiting it after every longer exposure gives the same answer, so it is
-not a first-scan artifact.
+not a first-scan artifact. **Confirmed at two light levels differing ~17x**: the equivalent
+exposure is 2.11 ms and 2.085 ms against a 1.048 ms request — exactly double both times,
+so it is firmware timing, not optics.
 
 So the probe's own boundary value is accepted but not honored, and rounding UP off it is a
 safety property rather than a display choice. `init()` now tidies before exposing the
