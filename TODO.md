@@ -657,6 +657,21 @@ Open, roughly in order of value:
   whether the overload flags latch until read or can clear between checks, because
   throttling a self-clearing flag loses events.
 
+  **(b) is now unblocked: the flags SELF-CLEAR** (MEASURED 2026-09-16,
+  `examples/probe_overload_report.txt`) — so throttling the overload check to ~1 Hz
+  WOULD lose events, and that part must not be done. The `IsConnected` check can still
+  be throttled; the overload read cannot.
+
+  **(a) is now OBSERVED, not just predicted.** The GUI run `20260916_test1` (1.1 ms x 20
+  averages, 100 ms slot, `Ei` mode, idle machine) came out at a mean of **103.9-106.0 ms
+  across all five chrono segments**, never at the 100 ms target. The arithmetic closes
+  exactly: the segment logs put `EDGE -> spectrum 0` at **56 ms** — matching
+  `spectrum_cost_seconds`'s prediction of 52 ms — and 56 + `pump()`'s ~50 ms is ~106 ms,
+  which is what the loop actually ran at. So the advisory told the user 52 ms against a
+  100 ms slot, i.e. comfortable, while the real per-loop cost EXCEEDED the slot. The
+  science is unaffected (every spectrum carries its own Avantes timestamp), but the
+  advisory currently approves grids that cannot hold.
+
 - **Cadence outliers in `Ei` mode.** Means hold at 100.0 ms but single intervals of 249.8 ms
   (spectra) and 214.9 ms (echem) appeared in `20260909_test12`. `pump()` now does a
   `Sample()` USB round trip it did not before. Measure before changing anything.
