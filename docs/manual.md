@@ -131,6 +131,8 @@ Fitting, after a run.
 | **Fit segment / Fit all segments** | Fits absorbance, current and charge. |
 | **All fits…** | Every fit in the run, one row per segment per trace. Carries **every fitted parameter with its SD** — the columns follow whichever model was used — plus y(0), ⟨τ⟩, its 95% CI, the point count and the residual split. **Copy as CSV** / **Save CSV…**. |
 | **Show / log y** | Which traces appear on the ladder, and whether its y-axis is logarithmic. |
+| **hide flagged points** | Leave the ringed needs-review points off the ladder, so both axes scale to the fits you trust. Off by default. Does nothing in the ratio view, which rings nothing, so it is disabled there. |
+| **potential range** | Restrict the ladder to a span of potentials. Off by default; ticking it fills the boxes with the full span, so it starts as a no-op. |
 
 The fit plot shows the data, the fitted curve, and a **residual panel above** (the
 convention in XPS/NMR/IR fitting). The residuals are the point: an exponential and a
@@ -286,6 +288,36 @@ Checks that raise a concern:
 
 A flagged ⟨τ⟩ can be orders of magnitude from the rest and flatten the ladder. That is the
 honest cost of not hiding it — use **log y**, or uncheck that trace.
+
+### Leaving rungs out on purpose
+
+Well below threshold there is little to switch. The transients are small, the fits are
+poor, and a τ of 10⁷ s from a trace that never settles will flatten every rung above it
+onto the axis. Two controls under the ladder deal with that, and the distinction between
+them and everything else in this document matters:
+
+**Nothing here is automatic.** The software flags; it never removes. These two controls
+remove, and they only do it because you ticked them. Both are off by default, both state
+in a footnote under the plot exactly what they took out, and the footnote says *"these
+are choices made here, not fit failures"* so a figure cannot be mistaken for one where
+the data simply was not there.
+
+- **hide flagged points** blanks the ringed needs-review points. The rungs keep their
+  potentials — the surviving points are not renumbered onto a shorter axis — but the
+  visible range follows what is left, which is the whole purpose. The fits are still in
+  the table and in **All fits…**; only the plot changes.
+- **potential range** restricts the ladder to a span. Use it to drop rungs below the
+  doping onset. Ticking the box fills the ends with the full span that is currently
+  plotted, so it never removes anything until you move one, and a range you set is not
+  silently widened when you fit another segment.
+
+If the filters empty the plot, it says which filter did it rather than sending you to the
+**Show** toggles.
+
+**The honest use of both is to show the trend among fits you trust, not to improve one.**
+A ladder with rungs removed is a different figure from one without, and the footnote is
+what lets a reader tell. If a rung below threshold fits badly, that is itself a result
+about where the film starts switching — worth noting before you hide it.
 
 ## Density of states
 

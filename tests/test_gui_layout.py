@@ -1653,3 +1653,182 @@ def test_the_footnote_does_not_overprint_the_axis_label(canvas):
 def test_no_footnote_leaves_no_stray_figure_text(canvas):
     canvas.plot_multi_xy([([0.0, 1.0], [1.0, 2.0], "a")], "x", "y")
     assert not _footnote_texts(canvas.fig)
+
+
+# ---------------------------------------------------------------------------
+# Tab 5: excluding rungs from the kinetics-vs-potential ladder
+#
+# Requested for data far below threshold, where there is too little switching to
+# fit and a wild tau sets the scale for every rung that matters. Both controls
+# REMOVE data, so both default to off and both have to say what they took out.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def ladder_window(window, tmp_path):
+    """Four doping rungs at +0.10 .. +0.70 V, the lowest two flagged.
+
+    Fits are constructed directly rather than run: this is about what the plot
+    does with them, and the fitting itself is covered in test_analysis.py.
+    """
+    import numpy as np
+    import pandas as pd
+    from spec_echem.analysis import FitResult
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    # The combo is populated from win.results, so every rung needs an entry there
+    # even though these tests never re-fit.
+    trace = pd.DataFrame(np.zeros((2, 2)), index=[500.0, 900.0], columns=[0.0, 1.0])
+    potentials = [0.10, 0.30, 0.50, 0.70]
+    window.run_folder = tmp_path / "run"
+    window.segments_by_label, window.results = {}, {}
+    tab = window.analysis_tab
+    tab._fits = {}
+    for n, volts in enumerate(potentials):
+        label = f"Doping {n}"
+        window.results[label] = trace
+        window.segments_by_label[label] = Segment(
+            label, DATA_TYPE_DOPING, n, 10, 0.1, True)
+        # Bypass the echem file: segment_potential() caches by this key.
+        window._potential_cache[(str(window.run_folder), DATA_TYPE_DOPING, n)] = volts
+        # Below threshold the fits are the bad ones, which is the case that
+        # prompted these controls.
+        good = volts >= 0.50
+        params = np.array([0.0, 1.0, 4.0 if good else 5.0e7])
+        tab._fits[label] = {"absorbance": FitResult(
+            "exp", params=params, sd=np.array([0.01, 0.01, 0.1]),
+            cov=np.diag([1e-4, 1e-4, 1e-2]), ok=good,
+            reason="" if good else "did not settle inside the window", n=10)}
+    tab.refresh_segments()
+    return window
+
+
+def _ladder_footnote(tab):
+    texts = [t.get_text() for t in tab.ladder_canvas.fig.texts if t.get_text()]
+    return " ".join(texts)
+
+
+def _plotted_x(tab):
+    """The x values actually drawn, from the axes rather than from the model."""
+    xs = set()
+    for line in tab.ladder_canvas.ax.get_lines():
+        xs.update(line.get_xdata().tolist())
+    return sorted(xs)
+
+
+def test_the_ladder_shows_every_rung_by_default(ladder_window):
+    tab = ladder_window.analysis_tab
+    tab._draw_ladder()
+    assert _plotted_x(tab) == [0.10, 0.30, 0.50, 0.70]
+    assert not _ladder_footnote(tab), "nothing was excluded, so nothing to declare"
+
+
+def test_hiding_flagged_points_leaves_the_trusted_ones(ladder_window):
+    import numpy as np
+
+    tab = ladder_window.analysis_tab
+    tab.hide_flagged_check.setChecked(True)
+    finite = []
+    for line in tab.ladder_canvas.ax.get_lines():
+        y = np.asarray(line.get_ydata(), dtype=float)
+        x = np.asarray(line.get_xdata(), dtype=float)
+        finite.extend(x[np.isfinite(y)].tolist())
+    # The two flagged rungs are gone; the two good ones remain.
+    assert sorted(set(finite)) == [0.50, 0.70]
+    # They are blanked, not removed, so the survivors keep their own potentials
+    # rather than being renumbered onto a shorter axis.
+    assert _plotted_x(tab) == [0.10, 0.30, 0.50, 0.70]
+    # The visible axis follows the data that is left -- that is what makes a
+    # runaway tau below threshold stop flattening the rungs above it.
+    assert tab.ladder_canvas.ax.get_xlim()[0] > 0.30
+
+
+def test_hiding_flagged_points_is_declared_on_the_plot(ladder_window):
+    tab = ladder_window.analysis_tab
+    tab.hide_flagged_check.setChecked(True)
+    note = _ladder_footnote(tab)
+    assert "2 flagged point(s) hidden" in note
+    assert "not fit failures" in note, "must read as a choice, not as missing data"
+
+
+def test_the_range_boxes_start_as_a_no_op(ladder_window):
+    """Ticking the box must not silently remove a rung -- it is filled with the
+    full span and only then adjustable."""
+    tab = ladder_window.analysis_tab
+    tab.range_check.setChecked(True)
+    assert tab.range_lo.value() == pytest.approx(0.10)
+    assert tab.range_hi.value() == pytest.approx(0.70)
+    assert _plotted_x(tab) == [0.10, 0.30, 0.50, 0.70]
+    assert not _ladder_footnote(tab)
+
+
+def test_narrowing_the_range_drops_the_low_rungs_and_rescales(ladder_window):
+    tab = ladder_window.analysis_tab
+    tab.range_check.setChecked(True)
+    tab.range_lo.setValue(0.40)
+    assert _plotted_x(tab) == [0.50, 0.70], "the axis must rescale, not leave gaps"
+    assert "outside +0.400 to +0.700 V" in _ladder_footnote(tab)
+
+
+def test_unticking_the_range_restores_every_rung(ladder_window):
+    tab = ladder_window.analysis_tab
+    tab.range_check.setChecked(True)
+    tab.range_lo.setValue(0.40)
+    tab.range_check.setChecked(False)
+    assert _plotted_x(tab) == [0.10, 0.30, 0.50, 0.70]
+
+
+def test_a_range_set_by_the_user_survives_another_segment_being_fitted(ladder_window):
+    """The boxes are seeded ONCE. A redraw after fitting another segment must not
+    silently widen a window the user chose."""
+    tab = ladder_window.analysis_tab
+    tab.range_check.setChecked(True)
+    tab.range_lo.setValue(0.40)
+    tab._draw_ladder()
+    assert tab.range_lo.value() == pytest.approx(0.40)
+    assert _plotted_x(tab) == [0.50, 0.70]
+
+
+def test_an_empty_range_says_so_instead_of_drawing_nothing(ladder_window):
+    tab = ladder_window.analysis_tab
+    tab.range_check.setChecked(True)
+    tab.range_lo.setValue(2.0)
+    tab.range_hi.setValue(3.0)
+    shown = " ".join(t.get_text() for t in tab.ladder_canvas.ax.texts)
+    assert "No fitted segment inside" in shown
+
+
+def test_hiding_every_point_of_a_trace_does_not_leave_an_empty_legend(ladder_window):
+    """With only the two below-threshold rungs in range, hiding flagged points
+    empties the series -- it must be dropped, not drawn as an invisible line."""
+    tab = ladder_window.analysis_tab
+    tab.range_check.setChecked(True)
+    tab.range_hi.setValue(0.40)
+    tab.hide_flagged_check.setChecked(True)
+    assert not tab.ladder_canvas.ax.get_lines()
+    # ...and it must name the filters that emptied it, not blame the Show toggles.
+    # show_message hard-wraps at 48 columns, so compare on collapsed whitespace.
+    shown = " ".join(" ".join(t.get_text().split())
+                     for t in tab.ladder_canvas.ax.texts)
+    assert "2 flagged point(s) hidden" in shown
+    assert "outside +0.100 to +0.400 V" in shown
+    assert "Nothing selected under Show" not in shown
+
+
+def test_hide_flagged_is_disabled_in_the_ratio_view(ladder_window):
+    """It rings nothing, so a live checkbox there would do nothing silently."""
+    tab = ladder_window.analysis_tab
+    assert tab.hide_flagged_check.isEnabled()
+    tab.ratio_check.setChecked(True)
+    assert not tab.hide_flagged_check.isEnabled()
+    tab.ratio_check.setChecked(False)
+    assert tab.hide_flagged_check.isEnabled()
+
+
+def test_the_range_still_applies_to_the_ratio_view(ladder_window):
+    """Unlike hiding flagged points, the potential window is meaningful there."""
+    tab = ladder_window.analysis_tab
+    tab.ratio_check.setChecked(True)
+    tab.range_check.setChecked(True)
+    tab.range_lo.setValue(0.40)
+    assert "outside +0.400 to +0.700 V" in _ladder_footnote(tab)

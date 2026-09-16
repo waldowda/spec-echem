@@ -65,6 +65,7 @@ class AnalysisTab(QWidget):
         self._fits = {}          # label -> {trace: FitResult}
         self._fit_wl = {}        # label -> wavelength that fit was made at
         self._wavelength = None  # None = auto
+        self._range_filled = False   # the range boxes are seeded once, from the data
         self._build()
 
     # --- layout ---------------------------------------------------------
@@ -262,6 +263,46 @@ class AnalysisTab(QWidget):
         toggles.addWidget(self.ratio_check)
         toggles.addStretch()
         plot_layout.addLayout(toggles)
+
+        # Both controls below EXCLUDE data, so both default to off and both say in a
+        # footnote exactly what they removed. Hiding is the scientist's call, made
+        # deliberately -- it is not the software deciding a result should not be seen.
+        limits = QHBoxLayout()
+        self.hide_flagged_check = QCheckBox("hide flagged points")
+        self.hide_flagged_check.setToolTip(
+            "Leave the ringed needs-review points out, so the axis scales to the\n"
+            "fits you trust. They are still in the table and in All fits...; the\n"
+            "plot states how many were hidden.\n"
+            "Only applies to the mean-tau view -- the ratio combines two fits and\n"
+            "rings neither, so there is nothing there for this to hide.")
+        self.hide_flagged_check.toggled.connect(self._draw_ladder)
+        limits.addWidget(self.hide_flagged_check)
+
+        limits.addSpacing(16)
+        # Well below threshold there is little to switch, so the transients are small
+        # and noisy and their tau means little. Restricting the ladder to the rungs
+        # above onset keeps those from setting the scale for the ones that matter.
+        self.range_check = QCheckBox("potential range:")
+        self.range_check.setToolTip(
+            "Restrict the ladder to a span of potentials -- the usual reason is to\n"
+            "drop rungs far below threshold, where there is too little switching to\n"
+            "fit. Opening this fills the boxes with the full span that is plotted.")
+        self.range_check.toggled.connect(self._on_range_toggled)
+        limits.addWidget(self.range_check)
+        self.range_lo = QDoubleSpinBox()
+        self.range_hi = QDoubleSpinBox()
+        for box in (self.range_lo, self.range_hi):
+            box.setRange(-10.0, 10.0)
+            box.setDecimals(3)
+            box.setSingleStep(0.05)
+            box.setSuffix(" V")
+            box.setEnabled(False)
+            box.valueChanged.connect(self._draw_ladder)
+            limits.addWidget(box)
+            if box is self.range_lo:
+                limits.addWidget(QLabel("to"))
+        limits.addStretch()
+        plot_layout.addLayout(limits)
         # Label it at construction: MplCanvas defaults to the Instrument tab's
         # raw-spectrum axes ("Wavelength (nm)" / "Intensity (counts)"), which are
         # wrong here and visible until the first fit is plotted.
@@ -624,9 +665,46 @@ class AnalysisTab(QWidget):
             return None
         return f"{len(flagged_vals)} point(s) need review, off scale — try log y"
 
+    def _on_range_toggled(self, on):
+        """Enable the range boxes, and on first use fill them with the full span.
+
+        Filling them means the control starts as a no-op: ticking the box must not
+        silently remove anything, it only makes the ends adjustable. They are filled
+        once and then left alone, so a redraw after fitting another segment does not
+        undo a window the user has set.
+        """
+        self.range_lo.setEnabled(on)
+        self.range_hi.setEnabled(on)
+        if on and not self._range_filled:
+            span = self._ladder_potentials()
+            if span:
+                for box, value in ((self.range_lo, min(span)),
+                                   (self.range_hi, max(span))):
+                    box.blockSignals(True)
+                    box.setValue(value)
+                    box.blockSignals(False)
+                self._range_filled = True
+        self._draw_ladder()
+
+    def _ladder_potentials(self):
+        """Every potential the ladder can plot, fitted or not -- what the range
+        boxes are filled from."""
+        out = set()
+        for i in range(self.segment_combo.count()):
+            seg = self.win.segments_by_label.get(self.segment_combo.itemData(i))
+            if seg is None:
+                continue
+            x = self._ladder_potential(seg)
+            if x is not None:
+                out.add(x)
+        return out
+
     def _draw_ladder(self, *_):
         """tau (or the ratio) against the potential doped to, across whatever has been
         fitted so far -- so it builds as segments are fitted, not only at the end."""
+        # The ratio view draws no rings, so there is nothing for this to hide. Leaving
+        # the box live there would be a control that silently does nothing.
+        self.hide_flagged_check.setEnabled(not self.ratio_check.isChecked())
         rows = []
         for i in range(self.segment_combo.count()):
             label = self.segment_combo.itemData(i)
@@ -642,6 +720,23 @@ class AnalysisTab(QWidget):
 
         if not rows:
             self.ladder_canvas.show_message("Fit a segment to build this plot.")
+            return
+
+        # Applied BEFORE the x axis is built, so a restricted ladder rescales instead
+        # of leaving empty rungs at the ends.
+        excluded = []
+        if self.range_check.isChecked():
+            lo, hi = self.range_lo.value(), self.range_hi.value()
+            kept = [r for r in rows if lo <= r[0] <= hi]
+            if len(kept) != len(rows):
+                excluded.append(f"{len(rows) - len(kept)} segment(s) outside "
+                                f"{lo:+.3f} to {hi:+.3f} V")
+            rows = kept
+        if not rows:
+            self.ladder_canvas.show_message(
+                "No fitted segment inside "
+                f"{self.range_lo.value():+.3f} to {self.range_hi.value():+.3f} V.\n"
+                "Widen the potential range.")
             return
 
         # Doping and dedoping share an x axis (same run number, same rung), so the
@@ -682,6 +777,8 @@ class AnalysisTab(QWidget):
             ylabel = "(abs mean tau [s]) / (current mean tau [s])"
             title = f"Kinetic coupling (dimensionless) - {probe} (95% CI)"
         else:
+            hide_flagged = self.hide_flagged_check.isChecked()
+            hidden = 0
             for trace in TRACES:
                 if not self.trace_checks[trace].isChecked():
                     continue
@@ -702,25 +799,51 @@ class AnalysisTab(QWidget):
                         errs[at[x]] = np.nan if ci is None else ci
                         if not fit.ok:
                             flagged[at[x]] = True
+                            if hide_flagged:
+                                # NaN rather than removed from the x array, so the
+                                # remaining points keep their potentials. Both axes
+                                # then rescale to the fits that are left, which is the
+                                # point of the control -- one runaway tau below
+                                # threshold otherwise flattens every rung above it.
+                                vals[at[x]] = np.nan
+                                errs[at[x]] = np.nan
+                                hidden += 1
                     if present:
                         name = f"{trace} ({direction})"
+                        # Everything in this series was flagged and is now hidden --
+                        # keeping it would put an entry in the legend that draws
+                        # nothing. The footnote still counts the points.
+                        if hide_flagged and not np.any(np.isfinite(vals)):
+                            continue
                         add(name, vals, trace, direction, errs)
-                        if any(flagged):
+                        if any(flagged) and not hide_flagged:
                             flags[name] = flagged
             ylabel = "mean relaxation time (s)"
             title = f"Kinetics vs potential - {probe} (95% CI)"
+            if hidden:
+                excluded.append(f"{hidden} flagged point(s) hidden")
 
         if not series:
-            self.ladder_canvas.show_message("Nothing selected under Show.")
+            # Two different reasons for an empty plot, and they need different
+            # actions: untick a trace vs widen the filters. Saying the wrong one
+            # sends the user to the wrong control.
+            self.ladder_canvas.show_message(
+                "Nothing left to plot after excluding " + ", ".join(excluded) + "."
+                if excluded else "Nothing selected under Show.")
             return
         # Say so when the spread is what is making the plot unreadable, rather than
         # leaving the user to work out why everything is flat at zero.
         spread = self._needs_review_spread(series, flags)
         if spread is not None and not self.log_y_check.isChecked():
             title += f"  —  {spread}"
+        # Say what was left out, every time. An exclusion the reader cannot see is
+        # the one that turns a plot into a claim it cannot support.
+        footnote = ("excluding " + ", ".join(excluded) +
+                    " - these are choices made here, not fit failures"
+                    ) if excluded else ""
         self.ladder_canvas.plot_series(xs, series, "Potential doped to (V)", ylabel,
                                        title=title, styles=styles, yerr=errors,
-                                       flags=flags,
+                                       flags=flags, footnote=footnote,
                                        logy=self.log_y_check.isChecked())
 
 
