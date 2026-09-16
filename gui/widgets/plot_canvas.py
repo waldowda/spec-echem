@@ -215,7 +215,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self.draw_idle()
 
     def plot_series(self, x, series, xlabel, ylabel, title=None, styles=None,
-                    yerr=None, flags=None, logy=False):
+                    yerr=None, flags=None, logy=False, footnote=""):
         """Several named y-series against one x, as markers joined by lines.
 
         NaN is left as NaN on purpose: the analysis tab uses it where a fit failed, so
@@ -260,6 +260,10 @@ class MplCanvas(FigureCanvasQTAgg):
         if len(series) > 1:
             self.ax.legend(fontsize="small")
         self._decorate(title)
+        if footnote:
+            # The ladder states here what its filters removed -- an exclusion the
+            # reader cannot see is worse than no filter at all.
+            self._draw_footnote(footnote)
         self.draw_idle()
 
     def plot_fit(self, t, y, fit_y, xlabel, ylabel, title=None, window=None,
