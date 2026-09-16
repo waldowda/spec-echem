@@ -9,11 +9,14 @@ crowding them together would make the live view worse at the one thing it is for
 Design: docs/analysis-design.md. The maths lives in spec_echem.analysis, which has no
 Qt, so it is tested against synthetic data with known answers; this file is the view.
 """
+import pathlib
+
 import numpy as np
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, QComboBox,
     QDoubleSpinBox, QPushButton, QCheckBox, QTableWidget, QTableWidgetItem,
-    QSplitter, QMessageBox, QHeaderView, QDialog,
+    QSplitter, QMessageBox, QHeaderView, QDialog, QApplication,
+    QFileDialog,
 )
 from qtpy.QtCore import Qt
 
@@ -442,19 +445,29 @@ class AnalysisTab(QWidget):
             potential = self._ladder_potential(seg) if seg is not None else None
             direction = ("doping" if seg is not None
                          and seg.data_type == DATA_TYPE_DOPING else "dedoping")
+            # The residual split needs the DATA, which only this tab has -- compute it
+            # here rather than making the dialog reach back for traces.
+            traces = self._all_traces(label)
             for trace in TRACES:
                 fit = fits.get(trace)
                 if fit is None:
                     continue
-                rows.append((label, potential, direction, trace,
-                             self._fit_wl.get(label), fit))
+                split = None
+                if trace in traces:
+                    split = fit.residual_split(*traces[trace])
+                rows.append({
+                    "segment": label, "potential": potential,
+                    "direction": direction, "trace": trace,
+                    "wavelength": self._fit_wl.get(label),
+                    "fit": fit, "split": split,
+                })
         if not rows:
             QMessageBox.information(self, "No fits yet",
                                     "Fit a segment first, or use Fit all segments.")
             return
         AllFitsDialog(rows, self).exec_()
 
-    # --- display ---------------------------------------------------------
+    # --- display ---    # --- display ---------------------------------------------------------
 
     def _show_fits(self, fits):
         for row, trace in enumerate(TRACES):
@@ -714,57 +727,123 @@ class AnalysisTab(QWidget):
 class AllFitsDialog(QDialog):
     """Every fit in one table, so a run can be reviewed across potentials.
 
-    Requested: "there needs to be a table somewhere that holds fit data for all potentials.
-    There is no way currently to review that data." The tab's own table answers "what
-    did the three traces of THIS segment do"; this answers "what did the run do".
+    The parameter columns are built from the MODELS registry for whichever models are
+    present, rather than being a fixed set. An earlier version showed only tau, beta
+    and <tau> because exp has three parameters, biexp five and stretched four and a
+    fixed set cannot hold them all -- but that dropped the prefactors, the second time
+    constant, y(0) and the residual split, which is most of what a fit says.
 
-    Read-only but selectable, so rows can be copied out until the CSV export in TODO.md
-    exists.
+    Read-only but selectable, and exportable as CSV.
     """
 
-    COLUMNS = ("segment", "V", "direction", "trace", "lambda (nm)", "model",
-               "tau (s)", "beta", "mean tau (s)", "95% CI", "status")
+    # A canonical order, so a table mixing models still reads left to right sensibly.
+    PARAM_ORDER = ("A", "B", "tau", "beta", "B1", "tau1", "B2", "tau2")
+
+    FIXED_LEFT = ("segment", "V", "direction", "trace", "lambda (nm)", "model")
+    FIXED_RIGHT = ("y(0)", "mean tau (s)", "95% CI", "n pts",
+                   "resid noise", "resid model-miss", "model-miss %", "status")
 
     def __init__(self, rows, parent=None):
         super().__init__(parent)
         self.setWindowTitle("All fits")
-        self.resize(1000, 460)
+        self.resize(1180, 520)
+        self._rows = rows
+
+        # Only the parameters actually present, in canonical order -- a table of exp
+        # fits should not carry four empty biexp columns.
+        present = set()
+        for row in rows:
+            present.update(MODELS[row["fit"].model][1])
+        self._params = [n for n in self.PARAM_ORDER if n in present]
+        self._headers = (list(self.FIXED_LEFT)
+                         + [f"{n} +/- SD" for n in self._params]
+                         + list(self.FIXED_RIGHT))
+
         layout = QVBoxLayout(self)
-
-        table = QTableWidget(len(rows), len(self.COLUMNS), self)
-        table.setHorizontalHeaderLabels(list(self.COLUMNS))
-        table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-
-        def cell(value, fmt="{:.4g}"):
-            return "" if value is None else (fmt.format(value)
-                                             if isinstance(value, float) else str(value))
-
-        for r, (label, potential, direction, trace, wavelength, fit) in enumerate(rows):
-            if fit.did_not_converge:
-                status = "did not converge"
-            elif fit.needs_review:
-                status = f"NEEDS REVIEW — {fit.reason}"
-            else:
-                status = "ok"
-            values = [label, cell(potential, "{:+.3f}"), direction, trace,
-                      cell(wavelength, "{:.1f}") if trace == "absorbance" else "",
-                      fit.model, cell(fit.tau),
-                      cell(fit.beta) if fit.beta is not None else "-",
-                      cell(fit.mean_tau), cell(fit.mean_tau_ci95), status]
-            for c, text in enumerate(values):
+        self.table = QTableWidget(len(rows), len(self._headers), self)
+        self.table.setHorizontalHeaderLabels(self._headers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        for r, row in enumerate(rows):
+            for c, text in enumerate(self._cells(row)):
                 item = QTableWidgetItem(text)
-                if fit.needs_review or fit.did_not_converge:
+                status = self._status(row["fit"])
+                if status != "ok":
                     item.setToolTip(status)
-                table.setItem(r, c, item)
+                self.table.setItem(r, c, item)
+        self.table.resizeColumnsToContents()
+        layout.addWidget(self.table)
 
-        table.resizeColumnsToContents()
-        layout.addWidget(table)
-
+        buttons = QHBoxLayout()
+        copy_btn = QPushButton("Copy as CSV", self)
+        copy_btn.setToolTip("Every column of every row, to the clipboard.")
+        copy_btn.clicked.connect(self._copy_csv)
+        save_btn = QPushButton("Save CSV…", self)
+        save_btn.clicked.connect(self._save_csv)
         close = QPushButton("Close", self)
         close.clicked.connect(self.accept)
-        row = QHBoxLayout()
-        row.addStretch()
-        row.addWidget(close)
-        layout.addLayout(row)
+        buttons.addWidget(copy_btn)
+        buttons.addWidget(save_btn)
+        buttons.addStretch()
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+
+    @staticmethod
+    def _status(fit):
+        if fit.did_not_converge:
+            return "did not converge"
+        if fit.needs_review:
+            return f"NEEDS REVIEW — {fit.reason}"
+        return "ok"
+
+    def _cells(self, row):
+        fit = row["fit"]
+        names = MODELS[fit.model][1]
+        values = dict(zip(names, fit.params)) if fit.params is not None else {}
+        sds = dict(zip(names, fit.sd)) if fit.sd is not None else {}
+
+        def num(value, fmt="{:.4g}"):
+            return "" if value is None else fmt.format(value)
+
+        cells = [row["segment"], num(row["potential"], "{:+.3f}"), row["direction"],
+                 row["trace"],
+                 num(row["wavelength"], "{:.1f}") if row["trace"] == "absorbance" else "",
+                 fit.model]
+        for name in self._params:
+            if name not in values:
+                cells.append("")            # a parameter this model does not have
+            else:
+                sd = sds.get(name)
+                cells.append(f"{values[name]:.4g}"
+                             + (f" +/- {sd:.2g}" if sd is not None else ""))
+        noise, missfit, fraction = row["split"] or (None, None, None)
+        cells += [num(fit.y_at_start), num(fit.mean_tau), num(fit.mean_tau_ci95),
+                  str(fit.n), num(noise, "{:.3g}"), num(missfit, "{:.3g}"),
+                  num(fraction * 100 if fraction is not None else None, "{:.2f}"),
+                  self._status(fit)]
+        return cells
+
+    def _csv(self):
+        import csv
+        import io
+
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(self._headers)
+        for row in self._rows:
+            writer.writerow(self._cells(row))
+        return buffer.getvalue()
+
+    def _copy_csv(self):
+        QApplication.clipboard().setText(self._csv())
+
+    def _save_csv(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save fit results", "fits.csv",
+                                              "CSV files (*.csv)")
+        if not path:
+            return
+        try:
+            pathlib.Path(path).write_text(self._csv(), encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(self, "Could not save", str(exc))

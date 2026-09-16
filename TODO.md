@@ -115,10 +115,10 @@ graphing and formatting capabilities."*
 Suggested order — **the numbers matter more than the pictures**, because a figure is
 where editing stops:
 
-- [ ] **1. CSV of the fit results.** Potential, model, wavelength, τ, β, ⟨τ⟩, 95% CI,
-      doping/dedoping, per segment. This currently exists ONLY on screen, and it is the
-      thing that goes into a paper or to a student. Cheapest item here and the highest
-      value.
+- [x] ~~CSV of the fit results~~ — **done**. *All fits…* now carries every fitted
+      parameter with its SD (columns built from `MODELS`, so they follow the model),
+      plus y(0), ⟨τ⟩, 95% CI, point count and the residual split. **Copy as CSV** and
+      **Save CSV…** on the dialog.
 - [ ] **2. Figure export via `NavigationToolbar2QT`.** ~5 lines per canvas and it brings
       pan/zoom/save for free. **Prefer SVG or PDF** — vector, so it drops into
       Illustrator or Igor without resampling.
