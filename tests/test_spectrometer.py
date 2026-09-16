@@ -18,6 +18,7 @@ import warnings
 import pytest
 
 import spec_echem.spectrometer as sm
+from spec_echem.fakes import FakeSpectrometer
 
 
 def _detached_spectrometer():
@@ -257,3 +258,92 @@ def test_a_probe_failure_never_breaks_connect(monkeypatch):
     spec = mod.AvantesSpectrometer.__new__(mod.AvantesSpectrometer)
     spec.dev_handle = "H"
     assert spec.minimum_integration_time() is None
+
+
+# --- An exposure the detector cannot give must SAY so ----------------------------
+
+def test_an_exposure_below_the_floor_is_refused_with_a_useful_message():
+    """Before this, PrepareMeasure rejected the value, nothing noticed, and the
+    symptom was a poll loop timing out -- which names nothing and reads like a dead
+    instrument rather than a number that is out of range."""
+    spec = FakeSpectrometer()
+    spec.min_integration_time = 1.05
+    spec.init()
+
+    with pytest.raises(ValueError) as excinfo:
+        spec.set_integration_time(0.022)
+
+    message = str(excinfo.value)
+    assert "0.022" in message            # what was asked for
+    assert "1.05" in message             # what the detector will accept
+    assert spec.serial_number in message  # which detector said so
+
+
+def test_the_floor_is_latched_at_init_not_guessed():
+    spec = FakeSpectrometer()
+    spec.min_integration_time = 1.05
+    assert spec.min_integration_ms is None      # nothing known before connecting
+    spec.init()
+    assert spec.min_integration_ms == 1.05
+
+
+def test_an_exposure_at_or_above_the_floor_is_accepted():
+    spec = FakeSpectrometer()
+    spec.min_integration_time = 1.05
+    spec.init()
+    spec.set_integration_time(1.05)             # exactly at the floor is legal
+    spec.set_integration_time(2.6439)
+
+
+def test_the_real_class_refuses_a_sub_floor_exposure(monkeypatch):
+    """The production path, not just the fake's mirror of it."""
+    class Bare:
+        m_Detector_m_NrPixels = 2048
+
+    class Cfg:
+        m_IntegrationTime = 2.0
+
+    spec = _spectrometer_with(monkeypatch, Bare())
+    spec.measconfig = Cfg()
+    spec.serial_number = "SN-TEST-0001"
+    spec.min_integration_ms = 1.05
+
+    with pytest.raises(ValueError) as excinfo:
+        spec.set_integration_time(0.022)
+    assert "1.05" in str(excinfo.value)
+    assert spec.measconfig.m_IntegrationTime == 2.0, "must not touch the device config"
+
+
+def test_the_real_class_accepts_an_exposure_at_the_floor(monkeypatch):
+    class Bare:
+        m_Detector_m_NrPixels = 2048
+
+    class Cfg:
+        m_IntegrationTime = 2.0
+
+    mod = sys.modules["spec_echem.spectrometer"]
+    spec = _spectrometer_with(monkeypatch, Bare())
+    spec.measconfig = Cfg()
+    spec.min_integration_ms = 1.05
+    monkeypatch.setattr(mod, "AVS_PrepareMeasure", lambda h, cfg: 0, raising=False)
+
+    spec.set_integration_time(1.05)
+    assert spec.measconfig.m_IntegrationTime == 1.05
+
+
+def test_the_accepted_boundary_value_itself_is_refused():
+    """MEASURED 2026-09-16 on a SensorType 10 part: at EXACTLY the smallest exposure
+    AVS_PrepareMeasure accepts (1.04803466796875 ms) the detector takes the request and
+    integrates ~2.1 ms -- about double. One step up, at 1.05 ms, counts are linear in
+    exposure to within 1% out to 5 ms. So the bisect's boundary value is accepted but
+    NOT honored, and rounding up off it is a safety property, not a display choice."""
+    spec = FakeSpectrometer()
+    spec.min_integration_time = 1.04803466796875
+    spec.init()
+
+    assert spec.min_integration_ms == 1.05                       # what we operate on
+    assert spec.min_integration_measured_ms == 1.04803466796875  # what was measured
+
+    with pytest.raises(ValueError):
+        spec.set_integration_time(1.04803466796875)
+    spec.set_integration_time(1.05)

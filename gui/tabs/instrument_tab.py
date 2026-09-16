@@ -7,6 +7,7 @@ collect dark / reference spectra with a live preview, and test-measure in raw
 counts or absorbance.
 """
 import logging
+import math
 import time
 from contextlib import contextmanager
 
@@ -43,7 +44,8 @@ def _detail_label():
     return label
 
 from spec_echem.bench import (
-    apply_bench_defaults, load_bench_defaults, save_bench_defaults, user_bench_path,
+    apply_bench_defaults, load_bench_defaults, read_detector_floor,
+    save_bench_defaults, save_detector_floor, user_bench_path,
 )
 from spec_echem.fakes import FakeSpectrometer
 from spec_echem.linearity import (
@@ -52,7 +54,8 @@ from spec_echem.linearity import (
 from spec_echem.potentiostat import (
     TOOLKITPY_AVAILABLE, AUTOLAB_AVAILABLE, probe_identity, autolab_identity,
 )
-from spec_echem.settings import DEFAULT_SETTINGS
+from spec_echem.settings import (DEFAULT_SETTINGS, LIN_STOP_FLOOR_SPANS,
+                                 tidy_detector_floor)
 from spec_echem.acquisition import (SPECTRUM_OVERHEAD_S, spectrum_cost_seconds,
                                     suggest_scan_averages)
 from spec_echem.experiment import build_segments
@@ -887,6 +890,77 @@ class InstrumentTab(QWidget):
             bits.append(f"{len(full)} px · {float(full[0]):.1f}–{float(full[-1]):.1f} nm")
         return "   ".join(bits)
 
+    def _apply_detector_floor(self, spec, serial):
+        """Bring this rig's exposures up to what the CONNECTED detector will accept.
+
+        Detectors differ by ~100x in the shortest exposure they honor (MEASURED:
+        0.009033 ms on a SensorType 22 part, 1.048 ms on a SensorType 10 part), and
+        below its floor the SDK REJECTS the request outright (code -11) rather than
+        clamping. A ramp tuned for the fast detector therefore cannot run at all on
+        the slow one -- and the symptom, before this, was a poll loop timing out.
+
+        Clamp, never overwrite: only a value BELOW the floor moves, and it moves up to
+        the floor exactly. A value already above it was chosen from a linearity check
+        against this rig's lamp, and pulling it down to the hardware minimum would
+        silently destroy that working point.
+
+        Returns a short note describing what moved, or "" if nothing did.
+        """
+        floor = getattr(spec, "min_integration_ms", None)
+        measured = floor is not None
+        if floor is None:
+            # No device to ask (or the probe failed): fall back to what this detector
+            # reported last time. Never the other way round -- a stored floor can be
+            # stale, and a stale floor fails silently.
+            floor = tidy_detector_floor(read_detector_floor(serial))
+        if floor is None:
+            return ""
+        # Already tidied by the spectrometer, which is where it has to happen: at
+        # EXACTLY the bisect's boundary value this detector accepts the request and
+        # then integrates ~2x it (MEASURED 2026-09-16), so stepping up off that value
+        # is a safety property rather than a display choice.
+        floor = float(floor)
+        measured_floor = getattr(spec, "min_integration_measured_ms", None) or floor
+        self.win.spec_min_integration_ms = floor
+        self.win.spec_min_integration_measured_ms = measured_floor
+
+        if measured:
+            try:
+                save_detector_floor(serial, measured_floor)
+            except OSError as exc:  # noqa: BLE001 — a bookkeeping write must not stop Connect
+                logger.warning("Could not record the detector floor: %s", exc)
+
+        moved = []
+        for spin, label in ((self.integration_spin, "Integration time"),
+                            (self.lin_start_spin, "Linearity Start")):
+            # Round the displayed minimum UP to the box's own precision. At 4 decimals
+            # a floor of 1.04803466796875 would otherwise show as 1.0480 -- BELOW the
+            # true floor, so the box would still accept an exposure the hardware
+            # refuses, which is the exact failure this is here to prevent.
+            scale = 10.0 ** spin.decimals()
+            ui_floor = math.ceil(floor * scale) / scale
+            was = spin.value()
+            spin.setMinimum(ui_floor)          # typing below it is no longer possible
+            if was < ui_floor:
+                spin.setValue(ui_floor)
+                moved.append(f"{label} {was:g} to {ui_floor:g} ms")
+
+        # The ramp's stop is an ordering question, not a floor one: whatever happened
+        # above, it has to stay above the start or the check has no range to walk.
+        if self.lin_stop_spin.value() <= self.lin_start_spin.value():
+            was = self.lin_stop_spin.value()
+            new_stop = self.lin_start_spin.value() * LIN_STOP_FLOOR_SPANS
+            self.lin_stop_spin.setValue(new_stop)
+            moved.append(f"Linearity Stop {was:g} to {new_stop:g} ms")
+
+        if not moved:
+            return ""
+        note = "; ".join(moved)
+        logger.info("Detector minimum %g ms (%s, measured %.6g): raised %s",
+                    floor, "measured" if measured else "recorded",
+                    measured_floor, note)
+        return note
+
     def _set_spec_status(self, text, color, detail=""):
         """Mirror of _set_pstat_status: short text inline, variable-length message in
         the wrapping label (an unwrapped inline message widens the window)."""
@@ -928,6 +1002,14 @@ class InstrumentTab(QWidget):
         # the pixel count and reported span do. Also replaces any previous failure text.
         self.spec_detail.setText(self._spectrometer_detail(spec, serial))
         self._set_actions_enabled(True)
+        # BEFORE on_apply(): that is what hands the spin box's value to the detector,
+        # and an exposure below the floor now raises rather than being ignored.
+        floor_note = self._apply_detector_floor(spec, serial)
+        if floor_note:
+            self.spec_detail.setText(
+                self._spectrometer_detail(spec, serial)
+                + f"   ·   below this detector's {self.win.spec_min_integration_ms:g} ms "
+                f"minimum, so raised: {floor_note}")
         self.on_apply()
 
         # Clamp the wavelength spin boxes to what THIS spectrometer actually reports

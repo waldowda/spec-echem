@@ -115,6 +115,10 @@ def test_too_few_points_to_fit():
 
 def test_ramp_against_the_fake_tracks_one_pixel_and_stops_at_saturation():
     spec = FakeSpectrometer()
+    # A fast detector: this ramp starts at 0.005 ms, and the detector has to be one
+    # that accepts it. Stated rather than assumed -- the default fake floor is 0.022,
+    # and a ramp below the floor is rejected outright on real hardware.
+    spec.min_integration_time = 0.001
     spec.init()
     times = np.linspace(0.005, 0.20, 30)
 
@@ -134,6 +138,7 @@ def test_ramp_against_the_fake_tracks_one_pixel_and_stops_at_saturation():
 
 def test_find_saturation_time_bisects_to_a_tight_bracket():
     spec = FakeSpectrometer()
+    spec.min_integration_time = 0.001      # start=0.005 has to be reachable
     spec.init()
 
     sat = find_saturation_time(spec, start=0.005)

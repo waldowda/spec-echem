@@ -8,6 +8,8 @@ synthetic data, so the GUI and acquisition code can run on any machine
 import time
 import numpy as np
 
+from spec_echem.settings import tidy_detector_floor
+
 # Match the real spectrometer's usable pixel window: 1265 points, ~380-1100 nm
 N_POINTS = 1265
 WL_MIN = 380.0
@@ -37,6 +39,10 @@ class FakeSpectrometer:
         # Detectors differ by ~50x in how short an exposure they accept; tests set
         # this to check the GUI follows the hardware rather than a constant.
         self.min_integration_time = 0.022
+        # What init() latched from the knob above -- the real class caches the probe
+        # the same way, so simulated mode exercises the identical code path.
+        self.min_integration_ms = None
+        self.min_integration_measured_ms = None
         self._scan_averages = 200
         self._trigger_mode = 0
         self._call_count = 0
@@ -53,6 +59,8 @@ class FakeSpectrometer:
         self.wavelength = self._wl
         self.serial_number = "FAKE-0001"
         self.measconfig = None
+        self.min_integration_measured_ms = self.minimum_integration_time()
+        self.min_integration_ms = tidy_detector_floor(self.min_integration_measured_ms)
         return self.measconfig, self.serial_number
 
     def wavelengths(self):
@@ -134,6 +142,14 @@ class FakeSpectrometer:
         return self.min_integration_time
 
     def set_integration_time(self, duration, measconfig=None):
+        floor = self.min_integration_ms
+        if floor is not None and duration < floor:
+            raise ValueError(
+                f"Integration time {duration:g} ms is below the shortest exposure this "
+                f"detector reliably honors ({floor:g} ms"
+                + (f", serial {self.serial_number}" if self.serial_number else "")
+                + "). Raise the integration time, or the linearity ramp's start, to at "
+                f"least {floor:g} ms.")
         self._integration_time = duration
 
     def set_scan_averages(self, scans, measconfig=None):

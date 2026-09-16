@@ -4,6 +4,7 @@ No Qt imports. No hardware imports.
 Validation happens at the GUI boundary, not here.
 """
 import json
+import math
 from pathlib import Path
 
 def parse_dio_mask(raw):
@@ -197,3 +198,106 @@ def save_settings(settings, path):
     path = Path(path)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2)
+
+
+# How far above the detector's floor the linearity ramp should reach when the stored
+# stop is unusable. The ramp has to span enough exposure for curvature to appear, and
+# "enough" is lamp-dependent, not a property of the detector — this is a starting
+# point that `Find saturation` then refines, NOT a derived constant. The two detectors
+# measured so far do not share one multiplier (0.15/0.009033 is ~17x; a 1.048 ms
+# detector wants ~8 ms, or ~8x), so treat this as a first guess that gets the ramp
+# into runnable territory rather than a number with physics behind it.
+LIN_STOP_FLOOR_SPANS = 8.0
+
+
+def clamp_to_detector_floor(settings, floor_ms):
+    """
+    Raise any exposure that sits BELOW what the connected detector will accept.
+
+    Detectors differ by ~100x in the shortest exposure they honor (MEASURED: 0.009033 ms
+    on a SensorType 22 part, 1.048 ms on a SensorType 10 part). Below its floor a
+    detector does not clamp politely — `AVS_PrepareMeasure` REJECTS the request with
+    code -11 — so a ramp tuned for the fast detector cannot run at all on the slow one.
+
+    Clamp, never overwrite. Only values below the floor move, and they move up to the
+    floor exactly. A value already above it is a scientific choice — an integration time
+    set from a linearity check against this rig's lamp to land ~85% fill — and pulling
+    that down to the hardware minimum would silently destroy the working point. The
+    floor is a hardware constraint; where to sit above it is the scientist's call.
+
+    Args:
+        settings: dict to modify in place
+        floor_ms: the detector's minimum integration time, or None if unknown
+            (no device, or the probe failed) — then nothing is changed.
+
+    Returns:
+        list of (key, old_value, new_value) for every value that moved, so the caller
+        can SAY what it changed. Empty when nothing did.
+    """
+    if floor_ms is None:
+        return []
+    try:
+        floor = float(floor_ms)
+    except (TypeError, ValueError):
+        return []
+    if not floor > 0:
+        return []
+
+    changes = []
+    for key in ("integration_time_ms", "lin_start_ms"):
+        try:
+            current = float(settings.get(key))
+        except (TypeError, ValueError):
+            continue
+        if current < floor:
+            settings[key] = floor
+            changes.append((key, current, floor))
+
+    # The ramp's stop is not a floor question but an ordering one: whatever happened
+    # above, it has to stay above the start or the check has no range to walk.
+    try:
+        start = float(settings.get("lin_start_ms"))
+        stop = float(settings.get("lin_stop_ms"))
+    except (TypeError, ValueError):
+        return changes
+    if stop <= start:
+        new_stop = floor * LIN_STOP_FLOOR_SPANS
+        if new_stop <= start:                      # pathological floor; keep it ordered
+            new_stop = start * LIN_STOP_FLOOR_SPANS
+        settings["lin_stop_ms"] = new_stop
+        changes.append(("lin_stop_ms", stop, new_stop))
+    return changes
+
+
+def tidy_detector_floor(floor_ms, sig_figs=3):
+    """
+    Round a probed floor UP to a legible number: 1.04803466796875 -> 1.05.
+
+    Rounding UP is what makes this safe -- the result is never below the true floor,
+    so an exposure built on it is always one the detector accepts.
+
+    The trailing digits are not real precision. The floor is found by bisecting
+    `AVS_PrepareMeasure` to a tolerance of 1e-4 ms, so `1.04803466796875` claims
+    fifteen digits of a number known to four, and on a fast detector 1e-4 ms is over
+    1% of the value. Quoting the raw bisect result implies a precision the method does
+    not have, and it is hostile to type, read back, or compare against a datasheet.
+
+    MEASURED floors tidy to: 1.048034... -> 1.05 (datasheet says ~1.05), and
+    0.009033 -> 0.00904.
+
+    The raw value is still what gets logged and written to the run metadata -- this
+    is the number the software OPERATES on, not a replacement for the measurement.
+    """
+    if floor_ms is None:
+        return None
+    try:
+        floor = float(floor_ms)
+    except (TypeError, ValueError):
+        return None
+    if not floor > 0:
+        return None
+    exponent = math.floor(math.log10(floor)) - (sig_figs - 1)
+    step = 10.0 ** exponent
+    # Round after multiplying back up: ceil(x/step)*step lands on values like
+    # 0.009040000000000001, and that dust would go straight into bench.ini.
+    return round(math.ceil(floor / step) * step, max(0, -exponent))

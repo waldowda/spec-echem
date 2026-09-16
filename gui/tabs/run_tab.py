@@ -242,6 +242,14 @@ class RunTab(QWidget):
         }
         if instruments["potentiostat"] is None:
             instruments["potentiostat"] = "unknown (Connect Potentiostat not used)"
+        # What the detector could actually DO, not just what was asked of it. Detectors
+        # differ ~100x in the shortest exposure they honor, so an integration time is
+        # only interpretable next to the floor it was chosen above. Both numbers: the
+        # tidied one the software used, and the raw bisect behind it.
+        if self.win.spec_min_integration_ms is not None:
+            instruments["spectrometer_min_integration_ms"] =                 self.win.spec_min_integration_ms
+        if getattr(self.win, "spec_min_integration_measured_ms", None) is not None:
+            instruments["spectrometer_min_integration_measured_ms"] =                 self.win.spec_min_integration_measured_ms
 
         # Write the self-documenting run metadata and open the per-run log file
         write_run_metadata(settings, settings["data_root"], settings["data_folder"],
