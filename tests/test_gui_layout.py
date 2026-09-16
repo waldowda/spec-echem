@@ -179,7 +179,7 @@ def test_dta_checkbox_belongs_to_gamry_python_mode_only(window):
 
 
 def test_an_unavailable_mode_is_disabled_and_says_why(window):
-    """A greyed radio with no reason reads as a bug. Whichever vendor stack is missing
+    """A grayed radio with no reason reads as a bug. Whichever vendor stack is missing
     here, its radio must be off AND its label must name what is missing."""
     tab = _tab(window)
     for radio, needle in ((tab.pstat_python_radio, "toolkitpy"),
@@ -775,7 +775,7 @@ def test_the_stop_time_follows_a_longer_segment(analysis_window, tmp_path):
 
 
 def test_moving_the_window_redraws_the_shading_before_refitting(analysis_window):
-    """The workflow is move the edge, look, refit — so the greyed region has to
+    """The workflow is move the edge, look, refit — so the grayed region has to
     follow the spin box immediately, not wait for the next fit."""
     tab = analysis_window.analysis_tab
     tab.on_fit_segment()
@@ -911,7 +911,7 @@ def test_a_fit_that_did_not_converge_says_so_and_shows_nothing(analysis_window):
 
 
 def test_a_fit_needing_review_shows_a_prominent_boxed_reason(analysis_window):
-    """The grey corner text was unreadable and ran straight through the legend. A
+    """The gray corner text was unreadable and ran straight through the legend. A
     concern about a fit is the one thing on this plot the user must not miss -- and
     it appears ALONGSIDE the curve and the numbers, never instead of them."""
     tab = analysis_window.analysis_tab
@@ -1467,12 +1467,14 @@ def test_the_scan_rate_is_measured_from_the_data_not_the_form(window, tmp_path):
     # spectra spanning 4 s while the sweep covers a known path length
     r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
     r.on_segment_changed()
-    assert "measured" in r.canvas.ax.get_title(), r.canvas.ax.get_title()
+    # provenance sits under the axis, not in the title -- three clauses of it ran
+    # off both sides of the canvas when it lived there
+    assert "measured" in r.canvas.ax.get_xlabel(), r.canvas.ax.get_xlabel()
 
     # the nominal value in settings is deliberately absurd and must be ignored
     r.win.loaded_run_settings["cv_scan_rate"] = 999999.0
     r.on_segment_changed()
-    assert "measured" in r.canvas.ax.get_title()
+    assert "measured" in r.canvas.ax.get_xlabel()
 
 
 def test_the_nominal_rate_is_the_fallback_when_the_data_cannot_give_one(window, tmp_path):
@@ -1486,7 +1488,7 @@ def test_the_nominal_rate_is_the_fallback_when_the_data_cannot_give_one(window, 
     window.results["CV"] = pd.DataFrame(np.zeros((20, 1)), index=wl, columns=[0.0])
     r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
     r.on_segment_changed()
-    assert "nominal" in r.canvas.ax.get_title(), r.canvas.ax.get_title()
+    assert "nominal" in r.canvas.ax.get_xlabel(), r.canvas.ax.get_xlabel()
     first = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
 
     r.win.loaded_run_settings["cv_scan_rate"] = 1000.0          # 10x faster
@@ -1515,4 +1517,4 @@ def test_film_geometry_may_come_from_the_form_for_an_older_run(window, tmp_path)
     r.on_segment_changed()
 
     assert "eV^-1 cm^-3" in r.canvas.ax.get_ylabel(), "the form's geometry should be used"
-    assert "Parameters tab" in r.canvas.ax.get_title(), r.canvas.ax.get_title()
+    assert "Parameters tab" in r.canvas.ax.get_xlabel(), r.canvas.ax.get_xlabel()

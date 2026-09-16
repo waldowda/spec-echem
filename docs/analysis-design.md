@@ -3,7 +3,7 @@
 Agreed with Dean 2026-09-14. Companion to the TODO entry; this is the version to build from.
 
 **The premise: the value is analysis DURING a run.** On 2026-09-11 a film collapsed after a +0.8 V
-excursion, nothing said so until the files were analysed later, and the next run was spent on a
+excursion, nothing said so until the files were analyzed later, and the next run was spent on a
 sample that was already dead. A modulation number on screen would have caught it.
 
 Everything exploratory stays in Jupyter. This is "is this run worth continuing?", plus enough
@@ -131,7 +131,7 @@ Two consequences to build in deliberately:
 
 - `banded_fits` across a wavelength band — fitting per wavelength, needing residual inspection
 - comparison across runs (film A vs film B, this week vs last)
-- publication figures: axis choices, normalisation, colour maps
+- publication figures: axis choices, normalization, color maps
 - charge integration with baseline decisions that should not be made silently
 
 ---
@@ -167,7 +167,7 @@ selecting the CV is already how you say "I want to look at the sweep".
 
 - **Enabled only for a CV segment.** The other three views apply to a chrono step; this
   one applies only to a sweep, so it greys out otherwise rather than producing nonsense.
-  That matches the existing behaviour where a CV gets no automatic polaron band.
+  That matches the existing behavior where a CV gets no automatic polaron band.
 - **It also puts the two DOS estimates in the same place.** The electrochemical one comes
   from `CV.txt`; the spectroscopic one from `CVspectra.txt` — the same sweep, same
   segment, same selector. That is exactly the comparison worth having (see below), and

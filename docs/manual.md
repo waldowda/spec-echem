@@ -109,7 +109,7 @@ shows for the selected segment:
 
 | View | Shows |
 |---|---|
-| **Spectra (all times)** | Every spectrum in the segment, coloured by elapsed time. Click the plot to set the analysis wavelength — a red line marks it. |
+| **Spectra (all times)** | Every spectrum in the segment, colored by elapsed time. Click the plot to set the analysis wavelength — a red line marks it. |
 | **Kinetics (one wavelength)** | Absorbance against time at one wavelength. |
 | **Modulation (across the ladder)** | Absorbance at the **end** of each doping step, against potential. One point per rung, building during a run. This is the view to watch live: a film that stops modulating has stopped being worth the rest of the ladder. |
 | **Density of states (CV only)** | See Part 2. Requires a CV segment. |
@@ -188,7 +188,7 @@ stretched   y = A + B·exp(−(t/τ)^β)
 - **B** is the amplitude of the part that decays. **A negative B means a rising
   component**, which is correct for a polaron band growing to a plateau.
 - Hence **y(0) = A + ΣB**, shown on the legend next to the measured first point. They
-  should agree roughly; a large gap says the model misses the earliest behaviour.
+  should agree roughly; a large gap says the model misses the earliest behavior.
 
 For a sum of parts, **the prefactors normally share a sign** — two components of one
 process pull the same way. Opposite signs mean either competing processes (one band
@@ -309,7 +309,7 @@ the quotient is positive — a DOS is positive whichever way the sweep runs.
 sweep, so the first and last sweeps are partial and are skipped. Forward and reverse are
 never averaged: hysteresis between them is a real effect.
 
-Rising potential removes electrons (**oxidising**, p-doping); falling potential puts them
+Rising potential removes electrons (**oxidizing**, p-doping); falling potential puts them
 back (**reducing**). The curves are labelled accordingly.
 
 ### How it is plotted, and why
@@ -333,6 +333,18 @@ Two things get flagged rather than reported as measurements:
   is resolved in the range swept, not that the peak is very broad.
 - **σ far above ~250 meV** — usually the unsubtracted capacitive baseline, or a sweep
   that does not span the distribution.
+
+**Axis orientation.** Both conventions are in use, and which is right depends on what
+the figure sits next to:
+
+- **Energy horizontal, log DOS vertical** — what this tab does, and what the
+  electrochemical-DOS papers use when the distribution is shown on its own.
+- **Energy vertical, DOS horizontal** — the solid-state convention, used when the DOS is
+  placed beside a band-structure or energy-level diagram so the two *share* the energy
+  axis. If you want to line the DOS up against HOMO/LUMO levels, this is the one.
+
+Nothing about the calculation changes; it is a transpose. Say the word if the vertical
+form would be more useful.
 
 ### What this implementation does NOT do yet
 

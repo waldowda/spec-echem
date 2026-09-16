@@ -39,7 +39,7 @@ whose `ctypes.WinDLL("./avaspecx64.dll")` resolves against the CWD and never con
 modules by base name (confirmed on this box). What fixed it: the three CLAUDE.md vendored-file edits
 to the env's `site-packages\avaspec.py` — comment out `import globals` and `from PyQt5.QtCore import *`,
 and load the DLL by **bare name** after `os.add_dll_directory(...)`. `SPEC_ECHEM_AVASPEC_DLL_DIR` is
-honoured by that edit (with a hardcoded fallback), so it still means something.
+honored by that edit (with a hardcoded fallback), so it still means something.
 
 ### Machine-local config written here (gitignored)
 
@@ -108,7 +108,7 @@ NOVA-runs-echem "External mode" path on this rig.
    (`_window_fits`, <50% overlap) is parked in the boxes for an explicit Apply instead of being
    silently clamped. Does **not** address item 1 (still 410–1124 for this unit).
 
-3. **Autolab backend** — `examples/query_autolab_run.py` characterised the run API against the
+3. **Autolab backend** — `examples/query_autolab_run.py` characterized the run API against the
    PGSTAT302N + SDK 2.1 on 2026-08-31 (full listing: `examples/autolab_api_report.txt`; full
    handoff incl. dummy-cell validation, contract mapping, open items and the next bench script:
    **[`autolab-run-api.md`](autolab-run-api.md)**). Ready to write the `potentiostat.py` driver from:

@@ -93,7 +93,7 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     If a potentiostat is given (Python-controlled mode), it is started the
     instant the spectrometer trigger is armed and stopped once collection ends —
     so the Gamry runs concurrently with spectrum acquisition. An ExternalPotentiostat
-    (or None) makes this a no-op, preserving the manual two-step behaviour exactly.
+    (or None) makes this a no-op, preserving the manual two-step behavior exactly.
 
     Returns (absorbance_df, path), or None if aborted (no file is written for a
     partial/aborted segment). `path` is None when segment.save is False — the

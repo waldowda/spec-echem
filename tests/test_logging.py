@@ -68,7 +68,7 @@ def test_app_log_opens_at_the_documented_path(app_log, tmp_path):
 
 def test_launch_banner_records_the_environment(app_log):
     """The banner carries the interpreter and driver availability because "Python mode
-    is greyed out" reads like a dead potentiostat but is nearly always the wrong conda
+    is grayed out" reads like a dead potentiostat but is nearly always the wrong conda
     env — toolkitpy is 32-bit only. A pasted log should answer that without asking."""
     import platform
     import struct

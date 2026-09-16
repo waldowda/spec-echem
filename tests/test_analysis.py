@@ -330,7 +330,7 @@ def test_beta_cannot_exceed_one():
 
 
 def test_a_genuine_stretch_is_still_recovered():
-    """The clamp must not flatten real stretched behaviour into beta = 1."""
+    """The clamp must not flatten real stretched behavior into beta = 1."""
     t = np.linspace(0.0, 20.0, 300)
     y = 0.5 + 2.0 * np.exp(-((t / 3.0) ** 0.6))
     fit = fit_transient(t, y, "stretched")
@@ -619,8 +619,8 @@ def test_the_dos_is_positive_in_both_sweep_directions():
     _t, v, i = _triangle_cv()
     curves = density_of_states(v, i, scan_rate_v_per_s=1.2, volume_cm3=1.5e-5)
     # named for the CHEMISTRY, not just the sweep sense: rising potential removes
-    # electrons (oxidising), falling puts them back (reducing)
-    assert {c["direction"] for c in curves} == {"oxidising (forward)",
+    # electrons (oxidizing), falling puts them back (reducing)
+    assert {c["direction"] for c in curves} == {"oxidizing (forward)",
                                                 "reducing (reverse)"}
     for c in curves:
         interior = c["dos"][5:-5]        # the vertex itself is a turnaround

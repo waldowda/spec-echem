@@ -37,7 +37,7 @@ Keep OUT of this repository:
   requirement, not who asked for it: "Requested: ..." or just the reason. Refer to
   hardware by MODEL NUMBER — `PGSTAT302N`, `AvaSpec-ULS2048L`, `AvaSpec-VRS2048CL-EVO`,
   `Reference 600` — never by institution or owner. A model number carries no identifier
-  and is more useful than "the second rig", since behaviour differs by model (minimum
+  and is more useful than "the second rig", since behavior differs by model (minimum
   integration time, current ranges, DIO layout). Where the environment is what matters
   rather than the hardware, name that instead: `SpecEchem32`. (The package
   author field in `setup.py` and the module `Author:` line are legitimate attribution
@@ -177,7 +177,7 @@ run_one_segment(spec, segment, dark, ref, wavelengths, data_root, added_path,
   `on_armed` **from inside itself, after arming** — an edge raised before the spectrometer is armed
   is silently MISSED. Only spectrum 0 of a segment is hardware-triggered; the rest free-run.
 - `segment.save=False` means "run it, write nothing" (the pre-dedoping *discard* option). All three
-  writers honour it: the spectra `.txt`, the echem `.txt`, and `ToolkitPotentiostat._write_dta`.
+  writers honor it: the spectra `.txt`, the echem `.txt`, and `ToolkitPotentiostat._write_dta`.
   Discarded segments also never reach `win.results`, so they don't appear in the Results tab.
 - The GUI's Run tab builds the segment list and hands it to a worker thread (`gui/workers.py`).
 

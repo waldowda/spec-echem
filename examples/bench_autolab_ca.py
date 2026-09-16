@@ -3,7 +3,7 @@ bench_autolab_ca.py — the chronoamperometry bench script for the Autolab.
 
 Closes open item 6 of docs/autolab-run-api.md §4, which is the biggest remaining
 gap: THREE of spec-echem's four data types (doping, dedoping, pre-dedoping) are
-constant-potential holds, and only CV has been characterised so far.
+constant-potential holds, and only CV has been characterized so far.
 
 Phase 0 on the rig (2026-09-03) established the map: Chrono amperometry.nox is a
 three-step template and the hold potential is on the FHSetSetpointPotential command,

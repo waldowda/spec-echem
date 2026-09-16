@@ -370,7 +370,7 @@ def write_run_metadata(settings, data_root, added_path, instruments=None):
     folder.mkdir(parents=True, exist_ok=True)
 
     metadata = {
-        # Which code wrote this folder. Settings alone don't say — and behaviour has
+        # Which code wrote this folder. Settings alone don't say — and behavior has
         # changed across versions (the wavelength crop, for one).
         "spec_echem_version": build_id(),
         "run_started": datetime.now().isoformat(timespec="seconds"),

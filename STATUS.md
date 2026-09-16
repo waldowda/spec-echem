@@ -33,7 +33,7 @@ fit belonged.
 - **Density of states v1** — Tab 4 → Optical view → *Density of states (CV only)*, film
   geometry on Tab 2. Scan rate MEASURED from the data (`CV.txt` has no time column, but
   the spectra file does), signed sweep rate, last complete cycle, directions separate
-  and labelled oxidising/reducing.
+  and labelled oxidizing/reducing.
 - **[`docs/manual.md`](docs/manual.md)** — the tabs, and the mathematics behind every
   number the GUI reports.
 
@@ -115,7 +115,7 @@ on a real sample through this code, and nothing had to change to run one.**
   fine; settled currents in all four film runs are compromised.
 - **Every CV flagged an overload** (never a chrono segment) yet no recorded sweep clips.
   Probably capacitive spikes between recorded staircase points on a sensitive
-  auto-selected range — but two analyses were inconclusive and it is not settled.
+  auto-selected range — but two analyzes were inconclusive and it is not settled.
 - Six GUI/driver defects fixed, all found by running a real experiment: an unnamed
   potential field that cost two runs' dedoping, a dropdown that hid the end of a ladder,
   mode-inappropriate overload advice, connect buttons with no click feedback, a
