@@ -762,3 +762,98 @@ def density_of_states(potential, current, scan_rate_v_per_s, volume_cm3=None,
             "units": units,
         })
     return out
+
+
+def fit_gaussian_dos(energy, dos):
+    """Fit a Gaussian to a DOS curve: the width is what the literature compares.
+
+        g(E) = C + A·exp( −(E − E₀)² / (2σ²) )
+
+    Reported as σ in **meV**, because that is the convention — HOMO distributions come
+    out around 55–95 meV and LUMO around 55–65 meV, and a narrow, intense DOS goes with
+    edge-on orientation and few film defects while a broadened one goes with face-on and
+    defects. See docs/manual.md for the references.
+
+    The constant C is fitted, not assumed zero: an unsubtracted capacitive baseline sits
+    under the whole curve and would otherwise be absorbed into A and σ, widening the
+    apparent distribution. It is NOT a substitute for a proper baseline subtraction —
+    a flat offset is the crudest possible model of double-layer charging.
+
+    Returns a dict with centre_ev, sigma_mev, amplitude, offset, their 1-SD errors and
+    `ok`/`reason`, or ok=False when there is nothing fittable. Never raises.
+    """
+    e = np.asarray(energy, dtype=float)
+    g = np.asarray(dos, dtype=float)
+    keep = np.isfinite(e) & np.isfinite(g)
+    e, g = e[keep], g[keep]
+    if e.size < 5:
+        return {"ok": False, "reason": f"only {e.size} usable points"}
+
+    order = np.argsort(e)          # curve_fit does not care, but a sorted x is easier
+    e, g = e[order], g[order]      # to reason about and to plot back
+    span = float(e[-1] - e[0])
+    if span <= 0:
+        return {"ok": False, "reason": "no energy range"}
+
+    peak = float(np.nanmax(g))
+    floor = float(np.nanmin(g))
+    p0 = [peak - floor, float(e[int(np.nanargmax(g))]), span / 6.0, floor]
+
+    def model(x, amplitude, centre, sigma, offset):
+        return offset + amplitude * np.exp(-((x - centre) ** 2) / (2.0 * sigma ** 2))
+
+    try:
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            popt, pcov = curve_fit(
+                model, e, g, p0=p0, maxfev=10000,
+                # sigma > 0, and the centre must stay inside the measured window --
+                # an unbounded fit will happily put the peak off the edge of the data
+                # and report a width that describes nothing.
+                bounds=([-np.inf, e[0], 1e-6, -np.inf],
+                        [np.inf, e[-1], span, np.inf]),
+                # x_scale="jac" is REQUIRED here, not a nicety. Bounds switch
+                # curve_fit from LM to TRF, whose default scaling assumes parameters
+                # of comparable magnitude -- and these span twenty orders (amplitude
+                # ~1e20 against sigma ~0.075). Without it the fit converges to a
+                # plausible-looking wrong width: 108 meV for a 75 meV Gaussian, and
+                # ~103-116 meV whatever the truth, i.e. it reports roughly the same
+                # answer regardless of the data.
+                x_scale="jac")
+    except Exception as exc:  # noqa: BLE001 — a failed fit is a normal outcome
+        return {"ok": False, "reason": str(exc)}
+
+    sd = np.sqrt(np.abs(np.diag(pcov)))
+    if not np.all(np.isfinite(sd)):
+        return {"ok": False, "reason": "uncertainty is undefined (singular covariance)"}
+    amplitude, centre, sigma, offset = (float(v) for v in popt)
+
+    # A fit sitting ON its bound is not a measurement. sigma is bounded by the width
+    # of the measured window, so sigma -> span means "no resolved peak in here", not
+    # "a very broad peak". MEASURED on a 1.198 V window: the reverse sweep returned
+    # sigma = 1198 meV, i.e. exactly the bound.
+    at_bound = sigma >= 0.98 * span
+    # Even off the bound, a width far outside what a DOS looks like usually means the
+    # capacitive baseline is still in the data (it is -- nothing subtracts it yet) or
+    # the sweep does not span the distribution.
+    implausible = sigma * 1000.0 > 250.0
+    concern = ""
+    if at_bound:
+        concern = (f"sigma hit the window width ({span * 1000:.0f} meV) — no resolved "
+                   f"peak in this range")
+    elif implausible:
+        concern = (f"sigma {sigma * 1000:.0f} meV is far above the 55–95 meV a HOMO "
+                   f"distribution usually shows — likely the unsubtracted capacitive "
+                   f"baseline, or a sweep that does not span the distribution")
+
+    return {
+        "ok": True,
+        "reason": "",
+        "needs_review": bool(concern),
+        "concern": concern,
+        "amplitude": amplitude, "amplitude_sd": float(sd[0]),
+        "centre_ev": centre, "centre_sd": float(sd[1]),
+        "sigma_mev": sigma * 1000.0, "sigma_sd_mev": float(sd[2]) * 1000.0,
+        "offset": offset, "offset_sd": float(sd[3]),
+        "curve": model(e, *popt),
+        "energy": e,
+    }

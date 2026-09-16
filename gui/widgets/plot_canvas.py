@@ -328,7 +328,8 @@ class MplCanvas(FigureCanvasQTAgg):
             self.fig.suptitle(title, fontsize="medium")
         self.draw_idle()
 
-    def plot_multi_xy(self, curves, xlabel, ylabel, title=None):
+    def plot_multi_xy(self, curves, xlabel, ylabel, title=None, logy=False,
+                      extra_note=""):
         """Several (x, y, label) curves that do NOT share an x axis.
 
         plot_series takes one x for every series, which is right for a ladder. A CV's
@@ -339,6 +340,10 @@ class MplCanvas(FigureCanvasQTAgg):
         for x, y, label in curves:
             self.ax.plot(np.asarray(x, dtype=float), np.asarray(y, dtype=float),
                          lw=1.2, label=str(label))
+        if logy:
+            # Non-positive points cannot be drawn on a log axis; matplotlib drops
+            # them. The caller states how many, so they are not silently lost.
+            self.ax.set_yscale("log")
         if len(curves) > 1:
             self.ax.legend(fontsize="small")
         self._decorate(title)
