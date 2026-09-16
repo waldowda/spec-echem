@@ -1,0 +1,44 @@
+
+========================================================================
+probe_current_ranges -- what this instrument actually offers
+========================================================================
+Connected OK — cell NOT switched on.
+Cell switched OFF.
+  The enum type defines 20 members.
+
+  member           full scale  accepted   reads back as
+  CR07_1A                   1  yes        CR07_1A
+  CR06_10A                 10  yes        CR06_10A
+  CR01_100A               100  NO         Invalid argument. SetValue(18,29,-187850
+  CR00_1000A            1e+03  NO         Invalid argument. SetValue(18,29,-187850
+  CR05_20A                 20  yes        CR05_20A
+  CR04_40A                 40  NO         Invalid argument. SetValue(18,29,-187850
+  CR03_50A                 50  NO         Invalid argument. SetValue(18,29,-187850
+  CR02_80A                 80  NO         Invalid argument. SetValue(18,29,-187850
+  CR19_1pA              1e-12  NO         Invalid argument. SetValue(18,29,-187850
+  CR18_10pA             1e-11  NO         Invalid argument. SetValue(18,29,-187850
+  CR17_100pA            1e-10  NO         Invalid argument. SetValue(18,29,-187850
+  CR16_1nA              1e-09  NO         Invalid argument. SetValue(18,29,-187850
+  CR15_10nA             1e-08  yes        CR15_10nA
+  CR14_100nA            1e-07  yes        CR14_100nA
+  CR13_1uA              1e-06  yes        CR13_1uA
+  CR12_10uA             1e-05  yes        CR12_10uA
+  CR11_100uA           0.0001  yes        CR11_100uA
+  CR10_1mA              0.001  yes        CR10_1mA
+  CR09_10mA              0.01  yes        CR09_10mA
+  CR08_100mA              0.1  yes        CR08_100mA
+
+========================================================================
+Summary
+========================================================================
+  accepted : 11
+  rejected : 9
+  span     : 1e-08 A to 20 A full scale
+
+  Anything above ~10 mA is far beyond what an OMIEC film should draw.
+  A range being SETTABLE is not a statement that it is safe to use on a
+  sample -- it sets what the instrument will source before it flags an
+  overload, so an oversized range removes the protection an overload
+  would otherwise give a film.
+Cell switched OFF.
+Disconnected.
