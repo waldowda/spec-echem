@@ -150,14 +150,27 @@ class MplCanvas(FigureCanvasQTAgg):
         fit = result["offset"] + result["slope"] * times
         self.ax.plot(times, fit, "--", lw=1.0, color="#2ca02c", label="linear fit", zorder=2)
 
-        self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888")
-        self.ax.annotate("ADC full scale", xy=(times[0], full_scale), xytext=(2, -10),
-                         textcoords="offset points", fontsize=7, color="#888",
-                         clip_on=True)
+        # How high the DATA actually goes. The source is not fixed -- an ND filter or
+        # a diffuser in the path changes it by orders of magnitude -- so a y-axis pinned
+        # to the ADC ceiling leaves a well-attenuated ramp squashed onto the bottom
+        # axis, which is what it used to do.
+        counts_rec = result.get("counts_recommended")
+        data_top = max(float(np.max(counts)), float(np.max(fit)))
+        if counts_rec is not None and result.get("bound_by") == "fill":
+            data_top = max(data_top, float(counts_rec))
+        # Keep the ceiling in view when the ramp gets anywhere near it -- that is the
+        # whole point of the plot when the source is bright. Drop it when the data is
+        # nowhere close, but SAY so rather than silently omitting a reference line.
+        show_full_scale = data_top >= 0.5 * full_scale
+
+        if show_full_scale:
+            self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888")
+            self.ax.annotate("ADC full scale", xy=(times[0], full_scale), xytext=(2, -10),
+                             textcoords="offset points", fontsize=7, color="#888",
+                             clip_on=True)
 
         # The fill cap usually decides the working point (the detector stays linear
         # nearly to the clip), so show it — otherwise the recommendation looks arbitrary.
-        counts_rec = result.get("counts_recommended")
         if counts_rec is not None and result.get("bound_by") == "fill":
             self.ax.axhline(counts_rec, ls=":", lw=1.0, color="#ff7f0e")
             self.ax.annotate(f"max fill ({counts_rec / full_scale * 100:.0f}% FS)",
@@ -182,7 +195,15 @@ class MplCanvas(FigureCanvasQTAgg):
                              fontsize=8, color="#ff7f0e", ha="left", va="top",
                              clip_on=True)
 
-        self.ax.set_ylim(0, full_scale * 1.08)
+        if show_full_scale:
+            self.ax.set_ylim(0, full_scale * 1.08)
+        else:
+            self.ax.set_ylim(0, data_top * 1.15)
+            self.ax.annotate(
+                f"ADC full scale {full_scale:g}, off scale "
+                f"(peak reaches {data_top / full_scale * 100:.1f}% of it)",
+                xy=(0.03, 0.03), xycoords="axes fraction",
+                fontsize=7, color="#888", ha="left", va="bottom", clip_on=True)
         # Lower right: upper-left collides with the ADC full-scale label.
         self.ax.legend(fontsize=7, loc="lower right")
         self._decorate(title)

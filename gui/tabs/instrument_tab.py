@@ -1247,7 +1247,9 @@ class InstrumentTab(QWidget):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             self.win.spec.set_scan_averages(1)
-            sat = find_saturation_time(self.win.spec, self.lin_start_spin.value())
+            sat = find_saturation_time(
+                self.win.spec, self.lin_start_spin.value(),
+                floor_ms=getattr(self.win.spec, "min_integration_ms", None))
         except LinearityError as exc:
             self.lin_result.setText(str(exc))
             return
