@@ -713,12 +713,19 @@ def _last_complete_cycle(v, sweeps):
 
 
 def density_of_states(potential, current, scan_rate_v_per_s, volume_cm3=None,
-                      last_cycle_only=True):
+                      last_cycle_only=True, v_min=None, v_max=None):
     """DOS against energy, one entry per sweep direction.
 
     Returns a list of dicts: {"direction": "forward"|"reverse", "energy_ev",
     "dos", "units"}. With `volume_cm3` the units are states eV⁻¹cm⁻³; without it the
     value is dQ/dV in C/V and `units` says so, rather than a volume being invented.
+
+    `v_min`/`v_max` restrict BOTH directions to the same potential window, applied
+    after the sweeps are split so each still spans it. Outside the doping range the
+    current is double-layer charging, not the distribution being measured: on one CV
+    running -0.5 to +0.7 V, 42% of every curve sat below 0 V and contributed pure
+    capacitance to the fit. Trimming to the same window also makes the two directions
+    directly comparable, so the hysteresis between them means something.
 
     `last_cycle_only` keeps the final forward/reverse pair — the film has been cycled
     by then, so it is the closest to a settled response. Directions are kept SEPARATE:
@@ -749,6 +756,16 @@ def density_of_states(potential, current, scan_rate_v_per_s, volume_cm3=None,
         # SIGNED sweep rate. dQ/dV = i / (dV/dt), and on the reverse sweep BOTH are
         # negative, so the quotient is positive -- a DOS is positive in either
         # direction. Dividing by the magnitude flipped the reverse sweep below zero.
+        if v_min is not None or v_max is not None:
+            keep = np.ones(vv.size, dtype=bool)
+            if v_min is not None:
+                keep &= vv >= v_min
+            if v_max is not None:
+                keep &= vv <= v_max
+            if keep.sum() < 3:
+                continue
+            vv, ii = vv[keep], ii[keep]
+            rising = vv[-1] > vv[0]
         rate = scan_rate_v_per_s if rising else -scan_rate_v_per_s
         out.append({
             # Rising potential REMOVES electrons from the film (oxidizing, p-doping);
@@ -856,4 +873,59 @@ def fit_gaussian_dos(energy, dos):
         "offset": offset, "offset_sd": float(sd[3]),
         "curve": model(e, *popt),
         "energy": e,
+    }
+
+
+def fit_exponential_tail(energy, dos):
+    """Characteristic energy of an exponential DOS tail, in meV.
+
+        g(E) = g0 · exp( (E − E_ref) / E0 )      i.e. a straight line in log g vs E
+
+    This is what a RISING EDGE supports. A Gaussian needs a peak; fitted to a
+    monotonic edge it reports whatever width least-squares settled on and rails
+    against the window. On one CV the sweep stops at +0.7 V, well before the
+    distribution turns over, so the Gaussian never resolves and E0 is the honest
+    descriptor instead — and exponential tails are a recognized feature of
+    amorphous organic semiconductors in their own right, not just a fallback.
+
+    Fitted as a straight line to log(g), which is what the log axis already shows, so
+    a good fit looks straight on the plot. Non-positive points are dropped — the log
+    is undefined there and they are sweep-turnaround artifacts.
+
+    Returns a dict with e0_mev, its 1-SD, the fitted curve, and `ok`/`reason`.
+    """
+    e = np.asarray(energy, dtype=float)
+    g = np.asarray(dos, dtype=float)
+    keep = np.isfinite(e) & np.isfinite(g) & (g > 0)
+    e, g = e[keep], g[keep]
+    if e.size < 5:
+        return {"ok": False, "reason": f"only {e.size} positive points"}
+
+    order = np.argsort(e)
+    e, g = e[order], g[order]
+    try:
+        # A straight line in log space. polyfit gives the covariance, so the slope
+        # carries an uncertainty rather than being quoted bare.
+        coeffs, cov = np.polyfit(e, np.log(g), 1, cov=True)
+    except Exception as exc:  # noqa: BLE001 — a failed fit is a normal outcome
+        return {"ok": False, "reason": str(exc)}
+    slope, intercept = float(coeffs[0]), float(coeffs[1])
+    if slope == 0 or not np.isfinite(slope):
+        return {"ok": False, "reason": "no slope in log(g)"}
+
+    e0_ev = 1.0 / slope
+    slope_sd = float(np.sqrt(abs(cov[0, 0])))
+    # dE0/dslope = -1/slope^2, so the fractional error carries straight across.
+    e0_sd_ev = abs(e0_ev) * (slope_sd / abs(slope)) if slope else float("nan")
+    fitted = np.exp(intercept + slope * e)
+    # How straight it actually is, in log space -- an R^2 well below 1 means the tail
+    # is not exponential and E0 describes little.
+    residual = np.log(g) - np.log(fitted)
+    total = np.log(g) - np.mean(np.log(g))
+    r_squared = 1.0 - float(np.sum(residual ** 2) / np.sum(total ** 2)) \
+        if np.sum(total ** 2) > 0 else float("nan")
+    return {
+        "ok": True, "reason": "",
+        "e0_mev": e0_ev * 1000.0, "e0_sd_mev": e0_sd_ev * 1000.0,
+        "r_squared": r_squared, "energy": e, "curve": fitted,
     }

@@ -16,11 +16,12 @@ from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel,
     QComboBox, QDoubleSpinBox, QPushButton, QFileDialog, QSplitter, QMessageBox,
-    QProgressDialog, QApplication,
+    QProgressDialog, QApplication, QCheckBox,
 )
 
 from spec_echem.analysis import (probe_wavelength, density_of_states,
-                                 scan_rate_from_sweep, fit_gaussian_dos)
+                                 scan_rate_from_sweep, fit_gaussian_dos,
+                                 fit_exponential_tail)
 from spec_echem.data import (
     echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV,
     DATA_TYPE_DOPING, segment_potential_text, segment_potential,
@@ -117,6 +118,43 @@ class ResultsTab(QWidget):
         self.auto_wl_label.setStyleSheet("color: #555;")
         self.auto_wl_label.setToolTip("The wavelength automatic selection resolved to.")
         view_row.addWidget(self.auto_wl_label)
+
+        # DOS-only controls. Outside the doping range the current is double-layer
+        # charging, not the distribution being measured -- on one CV, 42% of every
+        # curve sat below 0 V. Both directions get the SAME window so they stay
+        # comparable.
+        self.dos_widgets = []
+        self.dos_vmin = QDoubleSpinBox()
+        self.dos_vmin.setRange(-10.0, 10.0)
+        self.dos_vmin.setDecimals(3)
+        self.dos_vmin.setSingleStep(0.05)
+        self.dos_vmin.setSuffix(" V")
+        self.dos_vmin.setValue(0.0)
+        self.dos_vmin.setToolTip(
+            "Lowest potential included, both directions. 0 V is the usual choice --\n"
+            "below it a p-doping film is neutral and the current is capacitive.\n"
+            "Raise it to the doping onset if that is higher for your film.")
+        self.dos_vmax = QDoubleSpinBox()
+        self.dos_vmax.setRange(-10.0, 10.0)
+        self.dos_vmax.setDecimals(3)
+        self.dos_vmax.setSingleStep(0.05)
+        self.dos_vmax.setSuffix(" V")
+        self.dos_vmax.setSpecialValueText("sweep max")
+        self.dos_vmax.setValue(0.0)
+        self.dos_energy_y = QCheckBox("energy on Y")
+        self.dos_energy_y.setToolTip(
+            "Energy vertical, DOS horizontal — the solid-state convention, for\n"
+            "reading the DOS against a band or energy-level diagram.\n"
+            "Unchecked gives energy horizontal, as the electrochemical DOS papers\n"
+            "plot it. Same data either way; it is a transpose.")
+        for widget, label in ((QLabel("  DOS range:"), None), (self.dos_vmin, None),
+                              (QLabel("to"), None), (self.dos_vmax, None),
+                              (self.dos_energy_y, None)):
+            view_row.addWidget(widget)
+            self.dos_widgets.append(widget)
+        for w in (self.dos_vmin, self.dos_vmax):
+            w.valueChanged.connect(self.on_segment_changed)
+        self.dos_energy_y.toggled.connect(self.on_segment_changed)
         view_row.addStretch()
         ctrl_form.addRow("Optical view:", view_row)
 
@@ -199,6 +237,8 @@ class ResultsTab(QWidget):
             return
         absorb_df = self.win.results[label]
         view = self.view_combo.currentData() if hasattr(self, "view_combo") else "spectra"
+        for widget in getattr(self, "dos_widgets", []):
+            widget.setVisible(view == "dos")
         if view == "kinetics":
             self._plot_kinetics(label, absorb_df)
         elif view == "modulation":
@@ -407,7 +447,9 @@ class ResultsTab(QWidget):
         try:
             curves = density_of_states(df[POTENTIAL_COL].to_numpy(float),
                                        df[CURRENT_COL].to_numpy(float),
-                                       rate, volume_cm3=volume)
+                                       rate, volume_cm3=volume,
+                                       v_min=self.dos_vmin.value(),
+                                       v_max=self.dos_vmax.value() or None)
         except Exception as exc:  # noqa: BLE001 — a bad file must not kill the tab
             self.canvas.show_message(f"Could not compute a DOS:\n{exc}")
             return
@@ -421,23 +463,43 @@ class ResultsTab(QWidget):
         # See docs/manual.md for the references.
         plotted, dropped = [], 0
         for curve in curves:
-            fit = fit_gaussian_dos(curve["energy_ev"], curve["dos"])
             label = curve["direction"]
-            if fit["ok"]:
-                label += (f"   sigma = {fit['sigma_mev']:.0f} +/- "
-                          f"{fit['sigma_sd_mev']:.0f} meV")
-                if fit.get("concern"):
-                    # Wrapped: an unwrapped sentence ran off the right of the canvas
-                    # and took the legend box with it.
-                    label += "\n" + "\n".join(
+            # A Gaussian needs a PEAK. Where the sweep stops before the distribution
+            # turns over there is only a rising edge, and the Gaussian rails against
+            # the window reporting a width that describes nothing. An exponential
+            # tail is what an edge supports, so both are tried and each is shown with
+            # how well it actually describes the data.
+            gauss = fit_gaussian_dos(curve["energy_ev"], curve["dos"])
+            tail = fit_exponential_tail(curve["energy_ev"], curve["dos"])
+            resolved = gauss["ok"] and not gauss.get("needs_review")
+
+            if resolved:
+                label += (f"   sigma = {gauss['sigma_mev']:.0f} +/- "
+                          f"{gauss['sigma_sd_mev']:.0f} meV")
+            elif tail["ok"]:
+                label += (f"   no peak in range; tail E0 = "
+                          f"{abs(tail['e0_mev']):.0f} +/- {tail['e0_sd_mev']:.0f} meV"
+                          f"  (R2 {tail['r_squared']:.2f})")
+                if tail["r_squared"] < 0.9:
+                    label += ("\n" + "\n".join(
                         "  ! " + line if i == 0 else "    " + line
-                        for i, line in enumerate(
-                            textwrap.wrap(fit["concern"], 46)))
+                        for i, line in enumerate(textwrap.wrap(
+                            "the tail is not straight in log g either (R2 below 0.9), "
+                            "so neither a Gaussian nor a single exponential describes "
+                            "this window", 46))))
+            elif gauss.get("concern"):
+                label += "\n" + "\n".join(
+                    "  ! " + line if i == 0 else "    " + line
+                    for i, line in enumerate(textwrap.wrap(gauss["concern"], 46)))
+
             plotted.append((curve["energy_ev"], curve["dos"], label))
-            # Do not draw a Gaussian that the fit itself says is not one.
-            if fit["ok"] and not fit.get("needs_review"):
-                plotted.append((fit["energy"], fit["curve"],
+            # Only draw a model the data actually supports.
+            if resolved:
+                plotted.append((gauss["energy"], gauss["curve"],
                                 f"{curve['direction']} — Gaussian"))
+            elif tail["ok"] and tail["r_squared"] >= 0.9:
+                plotted.append((tail["energy"], tail["curve"],
+                                f"{curve['direction']} — exp tail"))
             dropped += int(np.sum(np.asarray(curve["dos"], float) <= 0))
 
         # Log y is the convention: a DOS spans orders of magnitude and the Gaussian is
@@ -459,9 +521,9 @@ class ResultsTab(QWidget):
 
         self.canvas.plot_multi_xy(
             plotted,
-            "E = -eV  (eV)    more negative = more oxidizing\n"
-            + " · ".join(provenance),
-            units, logy=True,
+            "E = -eV  (eV)    more negative = more oxidizing",
+            units, logy=True, swap_axes=self.dos_energy_y.isChecked(),
+            footnote=" · ".join(provenance),
             title="Density of states")
 
     def _plot_echem(self, label):
