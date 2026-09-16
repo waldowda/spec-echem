@@ -55,6 +55,12 @@ class MainWindow(QMainWindow):
         # Recorded into the run log + metadata at Start so a data folder names its
         # hardware, not just its settings. None = never connected this session.
         self.spec_identity = None
+        # Shortest exposure the connected detector accepts, in ms. Filled in at
+        # Connect; travels into the run metadata so a data folder records what its
+        # detector could actually do, not just what was asked of it.
+        self.spec_min_integration_ms = None
+        # The raw bisect result behind it, kept for provenance.
+        self.spec_min_integration_measured_ms = None
         self.pstat_identity = None
 
         # --- tabs ---

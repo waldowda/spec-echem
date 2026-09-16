@@ -15,6 +15,8 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from spec_echem.settings import tidy_detector_floor
 import math
 from pathlib import Path
 import pickle
@@ -97,6 +99,12 @@ class AvantesSpectrometer:
         self.wavelength = None
         self.serial_number = None
         self.measconfig = None
+        # Shortest exposure this detector accepts, in ms. Filled in by init(), because
+        # it is a property of the attached hardware and differs ~100x between parts.
+        # This is the TIDIED value -- the one it is safe to use; see init().
+        self.min_integration_ms = None
+        # The raw bisect result behind it, for the record.
+        self.min_integration_measured_ms = None
         # Wavelength crop (indices into the calibrated window); full by default.
         self._lo_i = 0
         self._hi_i = CAL_WINDOW_LEN - 1
@@ -145,7 +153,21 @@ class AvantesSpectrometer:
         # Configure measurement settings
         self.measconfig = self._create_measurement_config()
         ret = AVS_PrepareMeasure(self.dev_handle, self.measconfig)
-        
+
+        # Ask the detector how short an exposure it will honor. Done here, once, so
+        # every caller can see it and nothing has to guess. MEASURED on a SensorType 10
+        # part: ~70 ms, against ~128 ms for the rest of init(), and bit-reproducible
+        # across runs -- cheaper than storing it and risking a stale value, which would
+        # fail silently in exactly the way this probe exists to prevent.
+        # MEASURED 2026-09-16 on a SensorType 10 part, and the reason the raw value is
+        # not the one we use: at EXACTLY the accepted minimum (1.04803466796875 ms) the
+        # detector accepts the request and then integrates ~2.1 ms -- roughly double.
+        # One step up, at 1.05 ms, counts are linear in exposure to within 1% all the
+        # way to 5 ms. So the bisect's boundary value is accepted but NOT honored, and
+        # rounding up off it is a safety property, not cosmetics.
+        self.min_integration_measured_ms = self.minimum_integration_time()
+        self.min_integration_ms = tidy_detector_floor(self.min_integration_measured_ms)
+
         return self.measconfig, self.serial_number
     
     def _create_measurement_config(self):
@@ -469,7 +491,20 @@ class AvantesSpectrometer:
         """
         if measconfig is None:
             measconfig = self.measconfig
-            
+
+        # Refuse an exposure the hardware will not accept, and SAY SO. Without this the
+        # rejected PrepareMeasure is ignored, the measurement never arrives, and the
+        # symptom is a poll loop timing out -- which names nothing and looks like a
+        # dead instrument rather than a number that is out of range.
+        floor = self.min_integration_ms
+        if floor is not None and duration < floor:
+            raise ValueError(
+                f"Integration time {duration:g} ms is below the shortest exposure this "
+                f"detector reliably honors ({floor:g} ms"
+                + (f", serial {self.serial_number}" if self.serial_number else "")
+                + "). Raise the integration time, or the linearity ramp's start, to at "
+                f"least {floor:g} ms.")
+
         measconfig.m_IntegrationTime = duration
         ret = AVS_PrepareMeasure(self.dev_handle, measconfig)
         logger.info("Integration time set to %s ms", duration)
