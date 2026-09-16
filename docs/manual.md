@@ -334,6 +334,28 @@ Two things get flagged rather than reported as measurements:
 - **σ far above ~250 meV** — usually the unsubtracted capacitive baseline, or a sweep
   that does not span the distribution.
 
+**The potential window matters more than anything else here.** Outside the doping range
+the current is double-layer charging, not the distribution being measured. On one CV
+running −0.5 to +0.7 V, **42% of every curve sat below 0 V** and contributed pure
+capacitance to the fit. The *DOS range* controls default to **0 V → sweep max**, applied
+to BOTH directions so the two stay comparable and their hysteresis means something.
+
+0 V is a principled default — below it a p-doping film is nominally neutral — but it is
+not necessarily the doping **onset**, which is film-dependent and can be several hundred
+mV higher. Raise the lower bound if the kinetics say nothing happens until later.
+
+**If the sweep stops before the distribution turns over, there is no Gaussian to fit.**
+A Gaussian needs a peak; fitted to a monotonic rising edge it rails against the window
+and reports a width describing nothing. The tab then falls back to the **exponential tail
+energy E₀** — the slope of log g against E, which is what an edge actually supports, and
+a recognized feature of amorphous organic semiconductors in its own right.
+
+E₀ comes with an **R²**, and that is the real guard: a tail that is not straight in log g
+still produces a number, and only R² says it means nothing. On one real CV the two
+directions gave R² = 0.66 and 0.36, so **neither a Gaussian nor a single exponential
+describes that window** — which is a result, not a failure. Only a model the data
+supports is drawn.
+
 **Axis orientation.** Both conventions are in use, and which is right depends on what
 the figure sits next to:
 
@@ -343,8 +365,8 @@ the figure sits next to:
   placed beside a band-structure or energy-level diagram so the two *share* the energy
   axis. If you want to line the DOS up against HOMO/LUMO levels, this is the one.
 
-Nothing about the calculation changes; it is a transpose. Say the word if the vertical
-form would be more useful.
+Nothing about the calculation changes; it is a transpose. The **energy on Y** checkbox
+switches between them, and the log scale follows the DOS axis across the swap.
 
 ### What this implementation does NOT do yet
 

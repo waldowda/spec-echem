@@ -10,8 +10,8 @@ import pytest
 
 from spec_echem.analysis import (
     FitResult,
-    auto_wavelengths, cv_sweeps, density_of_states, fit_gaussian_dos,
-    fit_transient,
+    auto_wavelengths, cv_sweeps, density_of_states, fit_exponential_tail,
+    fit_gaussian_dos, fit_transient,
     mean_relaxation_time,
     tau_ratio, model_exp, model_biexp, model_stretched,
 )
@@ -725,3 +725,47 @@ def test_an_implausibly_wide_distribution_is_flagged():
     fit = fit_gaussian_dos(e, g)
     assert fit["ok"] and fit["needs_review"]
     assert "55" in fit["concern"] and "95" in fit["concern"]
+
+
+def test_the_dos_window_trims_both_directions_to_the_same_range():
+    """Outside the doping range the current is double-layer charging, not the
+    distribution being measured. MEASURED on one CV running -0.5 to +0.7 V: 42% of
+    every curve sat below 0 V. Trimming both directions to one window also makes the
+    hysteresis between them mean something."""
+    t = np.linspace(0.0, 6.75, 1350)
+    v = np.interp(t % 2.0, [0.0, 0.5, 1.5, 2.0], [0.0, 0.7, -0.5, 0.0])
+    i = 1.0e-4 * np.gradient(v, t)
+
+    full = density_of_states(v, i, 1.2, volume_cm3=1.5e-5)
+    assert min(float(np.min(-c["energy_ev"])) for c in full) < -0.4
+
+    trimmed = density_of_states(v, i, 1.2, volume_cm3=1.5e-5, v_min=0.0)
+    assert len(trimmed) == 2
+    for c in trimmed:
+        potential = -c["energy_ev"]
+        assert potential.min() >= -1e-9, "nothing below the window"
+    lo = [float(np.min(-c["energy_ev"])) for c in trimmed]
+    hi = [float(np.max(-c["energy_ev"])) for c in trimmed]
+    assert lo[0] == pytest.approx(lo[1], abs=0.02), "both directions, same window"
+    assert hi[0] == pytest.approx(hi[1], abs=0.02)
+
+
+def test_the_exponential_tail_energy_is_recovered():
+    """What a RISING EDGE supports. A Gaussian needs a peak; fitted to a monotonic
+    edge it rails against the window and reports a width describing nothing."""
+    e = np.linspace(-5.6, -5.0, 200)
+    for truth_ev in (0.040, 0.060, 0.090):
+        fit = fit_exponential_tail(e, 1e18 * np.exp(e / truth_ev))
+        assert fit["ok"], fit["reason"]
+        assert abs(fit["e0_mev"]) == pytest.approx(truth_ev * 1000, rel=0.01)
+        assert fit["r_squared"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_a_curved_tail_reports_a_poor_r_squared():
+    """R^2 is the honest guard: a tail that is not straight in log g gets a number
+    anyway, and only R^2 says it means nothing. MEASURED on a real CV: 0.66 and 0.36,
+    so neither a Gaussian nor a single exponential describes that window."""
+    e = np.linspace(-5.6, -5.0, 200)
+    g = 1e18 * np.exp(-((e + 5.3) ** 2) / (2 * 0.08 ** 2))      # a peak, not a tail
+    fit = fit_exponential_tail(e, g)
+    assert fit["ok"] and fit["r_squared"] < 0.9

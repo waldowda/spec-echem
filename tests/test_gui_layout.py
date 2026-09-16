@@ -1497,12 +1497,12 @@ def test_the_scan_rate_is_measured_from_the_data_not_the_form(window, tmp_path):
     r.on_segment_changed()
     # provenance sits under the axis, not in the title -- three clauses of it ran
     # off both sides of the canvas when it lived there
-    assert "measured" in r.canvas.ax.get_xlabel(), r.canvas.ax.get_xlabel()
+    assert any("measured" in t.get_text() for t in r.canvas.fig.texts)
 
     # the nominal value in settings is deliberately absurd and must be ignored
     r.win.loaded_run_settings["cv_scan_rate"] = 999999.0
     r.on_segment_changed()
-    assert "measured" in r.canvas.ax.get_xlabel()
+    assert any("measured" in t.get_text() for t in r.canvas.fig.texts)
 
 
 def test_the_nominal_rate_is_the_fallback_when_the_data_cannot_give_one(window, tmp_path):
@@ -1516,7 +1516,7 @@ def test_the_nominal_rate_is_the_fallback_when_the_data_cannot_give_one(window, 
     window.results["CV"] = pd.DataFrame(np.zeros((20, 1)), index=wl, columns=[0.0])
     r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
     r.on_segment_changed()
-    assert "nominal" in r.canvas.ax.get_xlabel(), r.canvas.ax.get_xlabel()
+    assert any("nominal" in t.get_text() for t in r.canvas.fig.texts)
     first = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
 
     r.win.loaded_run_settings["cv_scan_rate"] = 1000.0          # 10x faster
@@ -1545,7 +1545,7 @@ def test_film_geometry_may_come_from_the_form_for_an_older_run(window, tmp_path)
     r.on_segment_changed()
 
     assert "eV^-1 cm^-3" in r.canvas.ax.get_ylabel(), "the form's geometry should be used"
-    assert "Parameters tab" in r.canvas.ax.get_xlabel(), r.canvas.ax.get_xlabel()
+    assert any("Parameters tab" in t.get_text() for t in r.canvas.fig.texts)
 
 
 # --- The linearity plot must follow the data, not the ADC ceiling ----------------

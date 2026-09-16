@@ -349,26 +349,41 @@ class MplCanvas(FigureCanvasQTAgg):
             self.fig.suptitle(title, fontsize="medium")
         self.draw_idle()
 
-    def plot_multi_xy(self, curves, xlabel, ylabel, title=None, logy=False):
+    def plot_multi_xy(self, curves, xlabel, ylabel, title=None, logy=False,
+                      swap_axes=False, footnote=""):
         """Several (x, y, label) curves that do NOT share an x axis.
 
         plot_series takes one x for every series, which is right for a ladder. A CV's
         forward and reverse sweeps sample different potentials, so each needs its own.
         """
+        # swap_axes transposes the plot, nothing else: a DOS is conventionally drawn
+        # with energy VERTICAL when it sits beside a band or energy-level diagram, so
+        # the two share the energy axis, and horizontal when it stands alone.
+        if swap_axes:
+            xlabel, ylabel = ylabel, xlabel
         self._xlabel, self._ylabel = xlabel, ylabel
         self._new_axes()
         for x, y, label in curves:
-            self.ax.plot(np.asarray(x, dtype=float), np.asarray(y, dtype=float),
-                         lw=1.2, label=str(label))
+            x_arr = np.asarray(x, dtype=float)
+            y_arr = np.asarray(y, dtype=float)
+            if swap_axes:
+                x_arr, y_arr = y_arr, x_arr
+            self.ax.plot(x_arr, y_arr, lw=1.2, label=str(label))
         if logy:
             # Non-positive points cannot be drawn on a log axis; matplotlib drops
             # them. The caller states how many, so they are not silently lost.
-            self.ax.set_yscale("log")
+            # The log belongs to the DOS, so it follows it across a transpose.
+            (self.ax.set_xscale if swap_axes else self.ax.set_yscale)("log")
         if len(curves) > 1:
             # 7pt and inside the axes: a "small" legend carrying wrapped notes was
             # wider than the canvas.
             self.ax.legend(fontsize=7, loc="best", framealpha=0.9)
         self._decorate(title)
+        if footnote:
+            # Always under the plot, never on an axis label: a transpose would put a
+            # long provenance line on the VERTICAL axis, where it is clipped.
+            self.fig.text(0.5, 0.005, footnote, ha="center", va="bottom",
+                          fontsize=7, color="#555")
         self.draw_idle()
 
     def show_message(self, text):
