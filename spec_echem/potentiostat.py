@@ -329,6 +329,32 @@ AUTOLAB_CURRENT_RANGES = [
     ("CR01_100A", "100 A"), ("CR00_1000A", "1000 A"),
 ]
 
+# Full scale above which a current range deserves a warning in the UI.
+#
+# An OMIEC film draws mA to uA. 10 mA is already the top of that; MEASURED on real
+# films 2026-09-11, the largest transient anywhere was 625 uA. Everything above this
+# exists for other electrochemistry entirely -- and on THIS instrument the SDK accepts
+# ranges up to 20 A full scale (probed 2026-09-16), which is not a current any polymer
+# film survives being offered.
+#
+# The danger is indirect and worth stating plainly: a current range does not itself
+# drive anything. It sets what the instrument will source before it declares an
+# overload. So an oversized range does not merely measure coarsely -- it REMOVES the
+# protection that an overload would otherwise give the sample, letting a fault or a
+# short deliver current that a correctly chosen range would have flagged and clipped.
+HIGH_CURRENT_RANGE_A = 1.0e-2
+
+
+def is_high_current_range(member):
+    """True if this range's full scale is above what an OMIEC experiment should need.
+
+    Used to mark a range in the UI, never to forbid one: the right range depends on
+    the system being measured, and that is the scientist's call.
+    """
+    full = range_full_scale_a(member)
+    return full is not None and full > HIGH_CURRENT_RANGE_A
+
+
 # How far Ei.Setpoint may land from what was asked before it counts as a failure.
 #
 # The procedure path verifies parameter writes at 1e-9 because those are software

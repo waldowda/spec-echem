@@ -16,7 +16,8 @@ from qtpy.QtWidgets import (
     QDoubleSpinBox, QSpinBox, QFileDialog, QComboBox,
 )
 
-from spec_echem.potentiostat import AUTOLAB_CURRENT_RANGES
+from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES,
+                                     is_high_current_range)
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import _next_serial_path
 
@@ -242,14 +243,23 @@ class ParametersTab(QWidget):
         # against ~0.11 µA on CR10_1mA. It is NOT a stable constant -- the same
         # range read +1.605 µA on 2026-09-11 and -1.084 µA five days later -- so it
         # is recorded per run rather than corrected for.
-        range_combo = self._combo("autolab_current_range",
-                                  [("", "leave the instrument's own")]
-                                  + [(v, l) for v, l in AUTOLAB_CURRENT_RANGES])
+        # Mark, never forbid. The right range depends on the system being measured,
+        # so the choice stays the scientist's -- but a range above 10 mA is far past
+        # anything an OMIEC film draws, and an oversized one removes the protection an
+        # overload would otherwise give the sample.
+        range_combo = self._combo(
+            "autolab_current_range",
+            [("", "leave the instrument's own")]
+            + [(v, l + ("   [!] high current" if is_high_current_range(v) else ""))
+               for v, l in AUTOLAB_CURRENT_RANGES])
         range_combo.setToolTip(
             "Fixed current range for doping/dedoping/pre-dedoping (Ei mode only).\n"
             "Nothing autoranges there, so choose for the PEAK current, not the\n"
             "settled one - a step draws far more at t=0 than it settles to.\n"
             "The right range depends on the system you are running, not the rig.\n"
+            "Ranges marked [!] are above 10 mA full scale - far more than an\n"
+            "OMIEC film draws, and an oversized range removes the overload\n"
+            "protection that would otherwise stop a fault damaging it.\n"
             "CV is unaffected: it runs the procedure, which ranges itself.")
         dope_form.addRow("Current range (Ei mode):", range_combo)
         layout.addWidget(dope_group)

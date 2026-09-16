@@ -1357,3 +1357,31 @@ def test_procedure_mode_gets_no_range_advice(autolab, caplog):
     with caplog.at_level(logging.INFO):
         p._advise_current_range("CV")
     assert caplog.text == ""
+
+
+# --- High current ranges are marked, never forbidden -----------------------------
+
+def test_ranges_above_ten_milliamps_are_flagged_high():
+    """An OMIEC film draws mA to uA -- MEASURED, the largest transient on real films
+    was 625 uA. This instrument's SDK accepts ranges to 20 A full scale, which is not
+    a current any polymer film survives being offered."""
+    from spec_echem.potentiostat import is_high_current_range
+
+    for member in ("CR08_100mA", "CR07_1A", "CR06_10A", "CR05_20A"):
+        assert is_high_current_range(member), member
+
+
+def test_the_ranges_an_omiec_experiment_uses_are_not_flagged():
+    from spec_echem.potentiostat import is_high_current_range
+
+    for member in ("CR09_10mA", "CR10_1mA", "CR11_100uA", "CR12_10uA",
+                   "CR13_1uA", "CR14_100nA"):
+        assert not is_high_current_range(member), member
+
+
+def test_an_unparseable_range_is_not_flagged():
+    """A name we cannot read is not evidence of danger; it must not raise either."""
+    from spec_echem.potentiostat import is_high_current_range
+
+    assert not is_high_current_range("")
+    assert not is_high_current_range("NOT_A_RANGE")

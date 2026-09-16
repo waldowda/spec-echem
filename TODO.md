@@ -743,6 +743,21 @@ running an actual experiment rather than by testing.
         cannot be calibrated — NOVA may own it — but spec-echem cannot trigger or verify
         one, so it cannot warn that a calibration is overdue.
 
+- [x] ~~Which current ranges does this instrument actually have?~~ — probed
+  2026-09-16 (`examples/probe_current_ranges.py`). The SDK enum defines **20** members
+  and the GUI offers all of them, but this instrument accepts only **11**:
+  `CR15_10nA` through `CR05_20A`. The four finest (`CR19_1pA`…`CR16_1nA`) and the five
+  coarsest (`CR04_40A`…`CR00_1000A`) are refused with "Invalid argument".
+  **Accepted is not the same as physically deliverable** — 20 A full scale is what the
+  hardware-setup file admits, not a claim the base instrument can source it — and it is
+  certainly not a current any polymer film survives. Ranges above 10 mA are now marked
+  `[!] high current` in the Parameters tab, with the reason in the tooltip: an oversized
+  range removes the overload protection rather than merely measuring coarsely.
+- [ ] **Offer only the ranges the connected instrument accepts.** They could be probed
+  at Connect the way the spectrometer's floor is, instead of offering twenty and letting
+  nine fail at run time. Needs the instrument connected before the Parameters tab is
+  populated, which is not the current order, so it is a real change rather than a tweak.
+
 - **Is the CV's auto-ranging picking something too sensitive?** `FHPreCurrentRangingCV`
   presumably probes at the initial potential, where a film draws almost nothing. If so
   the fix is a NOVA edit (fixed range in the CV template), not a code change. Unverified —
