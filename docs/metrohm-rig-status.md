@@ -200,6 +200,21 @@ Reproducible, and not a first-scan artifact: four consecutive scans at that sett
 within 2%, and revisiting it *after* every longer exposure gives the same answer. Only
 that one value misbehaves; 1.05 ms, one step up, is exact.
 
+**Confirmed at two light levels differing ~17x**, which rules out anything optical — the
+factor is exactly two, and it is the INTEGRATION that doubles, not the counts (the counts
+ratio differs between the two because each fit has its own offset):
+
+| | low intensity | high intensity |
+|---|---|---|
+| fitted response | `683 + 1361·t` | `-300 + 23250·t` |
+| 1.048 ms, measured | 3555 | 48170 |
+| the line predicts | 2109 | 24066 |
+| **equivalent exposure** | **2.11 ms** | **2.085 ms** |
+| **× requested** | **2.01** | **1.99** |
+
+So the detector runs exactly double the requested integration at this one setting. A
+firmware timing behavior at the boundary, not a lamp or optics effect.
+
 So the bisect's boundary value is **accepted but not honored**, and the practical minimum
 is the first tidy value above it. This is why `init()` rounds the probe result UP before
 exposing it: `tidy_detector_floor()` turns 1.04803466796875 into 1.05, which steps off the
