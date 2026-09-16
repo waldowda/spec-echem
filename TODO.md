@@ -791,34 +791,58 @@ That split is itself the clue, because the two come from different places. For a
 while the live trace is built from `_live_samples`, which `pump()` accumulates during it.
 Only the live path can glitch without the file glitching.
 
-**A specific candidate, in the code today.** `pump()` calls `sample_ei(inst)` and
-DISCARDS its return value (`spec_echem/potentiostat.py`, ~line 958). `sample_ei` is
-deliberately best-effort — "a failed refresh is a stale reading, not a reason to sink a
-segment" — and returns False when the refresh fails. On that path the latch still holds
-the PREVIOUS potential and current, and `pump()` appends them against a FRESH timestamp:
-a point at the old place on the curve, at a new time. That is what "slightly off, but
-only on screen" looks like.
+**A screenshot settled it, and ruled out the first theory.** The glitch is a WEDGE:
+the trace runs along the line, jumps to a point OFF it, and comes back. That shape is
+the whole diagnosis.
 
-- [ ] **Use the return value.** When the refresh failed, do not append a sample —
-      or append it marked, so the live plot can skip it. A gap is honest; an invented
-      point is not.
-- [ ] **Then check whether it reaches RECORDED data.** This matters more than the plot:
-      in `Ei` mode `_live_samples` is not a display sideline, it IS the segment's echem
-      data, so the same stale sample would be written to `steps(N).txt`. CV is safe
-      because it reads `.Signals`; doping/dedoping/pre-dedoping are not.
+A stale (E, I) PAIR cannot draw it. Both values would be old, so the point would land
+ON the line — just backwards along it — and the trace would retrace itself invisibly.
+An OFF-line point requires E and I to come from DIFFERENT instants: a MISMATCHED pair,
+not a stale one. So the discarded `sample_ei()` return value, the first candidate here,
+is not the mechanism.
 
-**What today's data can and cannot say.** `20260916_test1` has 8-34 consecutive
-identical (E, I) row pairs per chrono segment (up to 11% of rows in `steps(0)`). That is
-CONSISTENT with the stale-sample path but does **not** demonstrate it: the segment held
-a fixed potential across a 10 kOhm resistor, so the true current was constant, and
-consecutive identical readings are exactly what quantisation of a steady signal
-produces. The two causes are indistinguishable on a dummy.
+**The direction says which is which.** MEASURED off the screenshot (`20260916_test1`,
+100 mV/s, 10 mV steps, 10 kOhm dummy): at E ~ -0.28 V the line gives ~-2.85 uA, and the
+glitch point sits near -3.05 uA — the current belonging to E ~ -0.305 V. The POTENTIAL
+is stale and the CURRENT is fresh, displaced by a couple of samples.
 
-- [ ] **The discriminating test needs a CHANGING signal**, where a stale sample lands
-      visibly off the trend instead of on top of it — a real film transient, or a
-      deliberate ramp. Alternatively, instrument `sample_ei` to COUNT failures over a
-      run: if it never returns False, the candidate above is not the mechanism and the
-      glitch is somewhere in the plotting itself.
+That matches the read order exactly. `pump()` builds the sample as
+
+    (t, float(inst.Ei.Potential), float(inst.Ei.Current))
+
+reading Potential FIRST. A latch refresh landing between those two property reads yields
+the old potential with the new current — which is what is plotted.
+
+**Why CV only.** A straddle needs something OTHER than `pump()` refreshing the latch. In
+procedure mode the running `.nox` has its own recorder doing exactly that; in `Ei` mode
+Python's `Sample()` is the only refresher, so there is nothing to straddle. That is
+consistent with the glitch appearing on the CV and nowhere else — though "nothing else
+refreshes in Ei mode" is an assumption about the instrument, not something measured.
+
+- [ ] **Close the straddle window.** Re-read the potential after the current and
+      discard (or re-take) the sample when it moved — a pair that straddled a refresh is
+      not a measurement of anything. Cheap, and it guards `Ei` mode too, where the
+      "nothing else refreshes" assumption is untested.
+- [ ] **Still use `sample_ei`'s return value.** Not the cause here, but `pump()`
+      discarding it means a genuinely failed refresh is appended as a duplicate point
+      with a fresh timestamp. Harmless on a CV; in `Ei` mode `_live_samples` IS the
+      segment's saved echem data, so that one would reach `steps(N).txt`.
+- [ ] **Consider not building the live CV trace from the latch at all.** In procedure
+      mode the recorder's own arrays are the authoritative source and are what the saved
+      file uses; sampling the latch alongside it is what creates the race.
+
+**A dead end worth not repeating.** `20260916_test1` has 8-34 consecutive identical
+(E, I) row pairs per chrono segment (up to 11% of rows in `steps(0)`), which looks like
+evidence for a stale-sample path and is not: those segments held a fixed potential across
+a 10 kOhm resistor, so the true current was constant, and quantisation of a steady signal
+produces exactly that pattern. On a dummy the two are indistinguishable — and the
+screenshot shows the mechanism is a mismatch rather than staleness anyway.
+
+- [ ] **Confirm the straddle directly** by logging, for each live sample, the
+      potential read before AND after the current. Every pair where they differ is a
+      straddle, and counting them over a CV says how often it happens. That also tests
+      the `Ei`-mode assumption for free: if straddles appear there too, the saved
+      `steps(N).txt` has been carrying them all along.
 
 ## HDF5 output alongside the ascii files (the user, 2026-09-11)
 
