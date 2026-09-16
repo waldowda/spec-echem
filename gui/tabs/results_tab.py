@@ -529,9 +529,10 @@ class ResultsTab(QWidget):
         if dropped:
             provenance.append(f"{dropped} non-positive point(s) omitted (log axis)")
 
+        # Unwrapped on purpose -- the canvas wraps it to its own width.
         footnote = " · ".join(provenance)
         if provenance_warning:
-            footnote += "\n" + "\n".join(textwrap.wrap(provenance_warning, 110))
+            footnote += "\n" + provenance_warning
         self.canvas.plot_multi_xy(
             plotted,
             "E = -eV  (eV)    more negative = more oxidizing",
