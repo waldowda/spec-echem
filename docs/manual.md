@@ -129,7 +129,7 @@ Fitting, after a run.
 | **Fit window** | First and last point used. `0` at either end means the segment's own start/end. |
 | **Wavelength** | `auto (polaron)` or typed. The resolved value is shown. |
 | **Fit segment / Fit all segments** | Fits absorbance, current and charge. |
-| **All fits…** | Every fit in the run, one row per segment per trace, for review across potentials. |
+| **All fits…** | Every fit in the run, one row per segment per trace. Carries **every fitted parameter with its SD** — the columns follow whichever model was used — plus y(0), ⟨τ⟩, its 95% CI, the point count and the residual split. **Copy as CSV** / **Save CSV…**. |
 | **Show / log y** | Which traces appear on the ladder, and whether its y-axis is logarithmic. |
 
 The fit plot shows the data, the fitted curve, and a **residual panel above** (the
