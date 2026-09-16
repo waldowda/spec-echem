@@ -44,6 +44,11 @@ class MplCanvas(FigureCanvasQTAgg):
                 # Mutually exclusive on the old API, so clear one before the other.
                 self.fig.set_tight_layout(False)
                 self.fig.set_constrained_layout(True)
+            elif mode == "none":
+                # No engine at all: the caller is about to place the axes itself
+                # with tight_layout(rect=...), which an engine would then override.
+                self.fig.set_constrained_layout(False)
+                self.fig.set_tight_layout(False)
             else:
                 self.fig.set_constrained_layout(False)
                 self.fig.set_tight_layout(True)
@@ -382,11 +387,33 @@ class MplCanvas(FigureCanvasQTAgg):
         if footnote:
             # Always under the plot, never on an axis label: a transpose would put a
             # long provenance line on the VERTICAL axis, where it is clipped.
-            self.fig.text(0.5, 0.005, footnote, ha="center", va="bottom",
-                          fontsize=8 if footnote_warn else 7,
-                          color="#8a0016" if footnote_warn else "#555",
-                          fontweight="semibold" if footnote_warn else "normal")
+            self._draw_footnote(footnote, footnote_warn)
         self.draw_idle()
+
+    def _draw_footnote(self, footnote, warn=False):
+        """Provenance under the axes, wrapped to the canvas and given its own band.
+
+        The caller cannot wrap this: only the canvas knows how wide it is, and a
+        fixed column count ran the text off both edges of the figure. Nor is it
+        enough to drop the text at the bottom -- without reserving the band first it
+        overprints the x-axis label.
+        """
+        size = 8 if warn else 7
+        width_in, height_in = self.fig.get_size_inches()
+        # ~0.55 em per character for the default sans face; 0.96 leaves a margin.
+        cols = max(30, int(width_in * 0.96 * 72 / (0.55 * size)))
+        lines = []
+        for para in str(footnote).splitlines():
+            lines.extend(textwrap.wrap(para, cols) or [""])
+        band = min(0.45, (len(lines) * size * 1.6 / 72) / height_in + 0.015)
+        self._set_layout("none")
+        try:
+            self.fig.tight_layout(rect=(0.0, band, 1.0, 1.0))
+        except Exception:  # noqa: BLE001 — cosmetic, and version-dependent
+            logger.debug("tight_layout(rect=) unsupported by this matplotlib")
+        self.fig.text(0.5, band / 2.0, "\n".join(lines), ha="center", va="center",
+                      fontsize=size, color="#8a0016" if warn else "#555",
+                      fontweight="semibold" if warn else "normal")
 
     def show_message(self, text):
         """Clear the canvas and show a centered note (e.g. 'no echem data yet').

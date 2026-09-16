@@ -1584,3 +1584,72 @@ def test_a_bright_ramp_still_shows_the_adc_ceiling(app):
     canvas.show_linearity(times, counts, _linearity_result(counts), full_scale=65535)
 
     assert canvas.ax.get_ylim()[1] >= 65535
+
+
+# ---------------------------------------------------------------------------
+# Footnote placement on plot_multi_xy
+#
+# The DOS plot carries its provenance and a non-equilibrium warning under the
+# axes. Both regressions below were real: the caller wrapped at a fixed 110
+# columns, which ran off both edges of the figure, and nothing reserved space,
+# so the text printed on top of the x-axis label.
+# ---------------------------------------------------------------------------
+LONG_FOOTNOTE = (
+    "last cycle, 98.4 mV/s (measured) · window -0.50 V to sweep max, both "
+    "directions · 67 non-positive point(s) omitted (log axis)\n"
+    "NOT AT EQUILIBRIUM: the two directions peak 419 mV apart, so the film is "
+    "not keeping up with the sweep — g = i/(v·e·V) assumes it does, and neither "
+    "curve is a density of states until a slower scan brings them together")
+
+
+@pytest.fixture
+def canvas(app):
+    from gui.widgets.plot_canvas import MplCanvas
+    return MplCanvas(None)
+
+
+def _footnote_texts(fig):
+    """The figure-level texts, i.e. everything that is not an axis artist."""
+    return [t for t in fig.texts if t.get_text()]
+
+
+def test_a_long_footnote_is_wrapped_to_the_canvas(canvas):
+    canvas.fig.set_size_inches(5, 3)
+    canvas.plot_multi_xy([([0.0, 1.0], [1.0, 2.0], "a")], "x", "y",
+                         footnote=LONG_FOOTNOTE, footnote_warn=True)
+    texts = _footnote_texts(canvas.fig)
+    assert texts, "the footnote was not drawn"
+    lines = texts[0].get_text().splitlines()
+    # The caller passes two very long paragraphs; on a 5-inch figure they have to
+    # become several short lines or they hang off both sides.
+    assert len(lines) > 2
+    assert max(len(line) for line in lines) < 100
+
+
+def test_a_wider_canvas_wraps_the_same_footnote_less(canvas):
+    widths = []
+    for inches in (5, 12):
+        canvas.fig.set_size_inches(inches, 3)
+        canvas.plot_multi_xy([([0.0, 1.0], [1.0, 2.0], "a")], "x", "y",
+                             footnote=LONG_FOOTNOTE, footnote_warn=True)
+        widths.append(len(_footnote_texts(canvas.fig)[0].get_text().splitlines()))
+    assert widths[0] > widths[1], "wrap width ignored the canvas size"
+
+
+def test_the_footnote_does_not_overprint_the_axis_label(canvas):
+    canvas.fig.set_size_inches(5, 3)
+    canvas.plot_multi_xy([([0.0, 1.0], [1.0, 2.0], "a")], "x", "y",
+                         footnote=LONG_FOOTNOTE, footnote_warn=True)
+    canvas.fig.canvas.draw()
+    text = _footnote_texts(canvas.fig)[0]
+    renderer = canvas.fig.canvas.get_renderer()
+    foot = text.get_window_extent(renderer)
+    label = canvas.ax.xaxis.label.get_window_extent(renderer)
+    # Display coordinates have y increasing upwards, so the footnote must sit
+    # entirely BELOW the x-axis label.
+    assert foot.y1 <= label.y0, "the footnote overlaps the x-axis label"
+
+
+def test_no_footnote_leaves_no_stray_figure_text(canvas):
+    canvas.plot_multi_xy([([0.0, 1.0], [1.0, 2.0], "a")], "x", "y")
+    assert not _footnote_texts(canvas.fig)
