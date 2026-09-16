@@ -6,7 +6,9 @@ from spec_echem.bench import (
     apply_bench_defaults,
     load_bench_defaults,
     read_bench_file,
+    read_detector_floor,
     save_bench_defaults,
+    save_detector_floor,
 )
 from spec_echem.settings import DEFAULT_SETTINGS
 
@@ -186,3 +188,95 @@ def test_the_repo_defaults_cover_every_machine_independent_key():
     values, _ = read_bench_file(REPO_DEFAULTS)
     missing = set(BENCH_KEYS) - machine_specific - set(values)
     assert missing == set(), f"not in config/defaults.ini: {sorted(missing)}"
+
+
+# --- The bench file is hand-maintained: a write must not eat its comments ---------
+
+REAL_WORLD_INI = """# this rig, set up 2026-09-11
+[spectrometer]
+# lands ~85% fill on the reference with the halogen source
+integration_time_ms = 2.6439
+scan_averages = 20
+
+[autolab]
+# MEASURED: bit 0 / pin 1 of P1.Port_A is the only line that fires the Avantes.
+# The other seven gave no scan, so those are real negatives.
+autolab_dio_mask = 1
+autolab_ca_mode = ei
+"""
+
+
+def test_save_as_defaults_keeps_every_comment(tmp_path):
+    """A configparser round-trip drops comments silently. These comments carry
+    measured findings -- why a pin was chosen, what a value was proven to do -- so
+    losing them to a 'Save as defaults' click destroys the record behind the rig."""
+    ini = _write(tmp_path / "bench.ini", REAL_WORLD_INI)
+    save_bench_defaults({"integration_time_ms": 3.0, "scan_averages": 25}, ini)
+
+    text = ini.read_text(encoding="utf-8")
+    assert "# MEASURED: bit 0 / pin 1 of P1.Port_A" in text
+    assert "# lands ~85% fill on the reference" in text
+    assert "# this rig, set up 2026-09-11" in text
+
+
+def test_save_as_defaults_updates_in_place_and_leaves_the_rest_alone(tmp_path):
+    ini = _write(tmp_path / "bench.ini", REAL_WORLD_INI)
+    save_bench_defaults({"integration_time_ms": 3.0}, ini)
+
+    values, warnings = read_bench_file(ini)
+    assert values["integration_time_ms"] == 3.0     # changed
+    assert values["scan_averages"] == 20            # not mentioned -> untouched
+    assert values["autolab_dio_mask"] == 1
+    assert values["autolab_ca_mode"] == "ei"
+    assert warnings == []
+
+
+def test_a_new_key_lands_in_its_own_section(tmp_path):
+    ini = _write(tmp_path / "bench.ini", REAL_WORLD_INI)
+    save_bench_defaults({"lin_start_ms": 1.05, "lin_stop_ms": 8.4}, ini)
+
+    values, _ = read_bench_file(ini)
+    assert values["lin_start_ms"] == 1.05
+    assert values["lin_stop_ms"] == 8.4
+    assert "# MEASURED: bit 0 / pin 1" in ini.read_text(encoding="utf-8")
+
+
+# --- Per-detector records --------------------------------------------------------
+
+def test_detector_floor_roundtrips_and_is_keyed_by_serial(tmp_path):
+    ini = _write(tmp_path / "bench.ini", REAL_WORLD_INI)
+    save_detector_floor("SN-TEST-0001", 1.048, ini)
+
+    assert read_detector_floor("SN-TEST-0001", ini) == 1.048
+    assert read_detector_floor("SOME-OTHER-UNIT", ini) is None
+
+
+def test_recording_the_same_floor_again_writes_nothing(tmp_path):
+    """Connect probes every time. Rewriting the file on every connect would churn a
+    hand-maintained file for no reason."""
+    ini = _write(tmp_path / "bench.ini", REAL_WORLD_INI)
+    assert save_detector_floor("SN-TEST-0001", 1.048, ini) is not None
+    before = ini.read_text(encoding="utf-8")
+    assert save_detector_floor("SN-TEST-0001", 1.048, ini) is None
+    assert ini.read_text(encoding="utf-8") == before
+
+
+def test_a_detector_section_is_not_a_bench_setting(tmp_path):
+    """It is a measured hardware fact, not a preference -- so it must not appear as a
+    bench key, and must not warn as an unknown one either."""
+    ini = _write(tmp_path / "bench.ini", REAL_WORLD_INI)
+    save_detector_floor("SN-TEST-0001", 1.048, ini)
+
+    values, warnings = read_bench_file(ini)
+    assert "min_integration_ms" not in values
+    assert warnings == []
+
+
+def test_the_floor_survives_save_as_defaults(tmp_path):
+    """Nothing in save_bench_defaults knows what a detector section means, so nothing
+    in it may discard one."""
+    ini = _write(tmp_path / "bench.ini", REAL_WORLD_INI)
+    save_detector_floor("SN-TEST-0001", 1.048, ini)
+    save_bench_defaults({"integration_time_ms": 3.0}, ini)
+
+    assert read_detector_floor("SN-TEST-0001", ini) == 1.048
