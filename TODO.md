@@ -698,17 +698,51 @@ running an actual experiment rather than by testing.
   - **The flag SELF-CLEARS**: 0/20 with the cell off afterwards, 0/40 driven again on a
     good range. So `pump()` needs no re-arming, a flag means the overload is happening
     NOW, and a CV that flags has a real excursion worth chasing.
-- **Characterise the range's zero offset**, cell open at 0 V, once per range. It is
-  stable and additive (+1.605 µA on `CR09_10mA`, residuals half a quantum), so it could
-  be subtracted rather than worked around — better than choosing a range for its offset.
-  **A second point, 2026-09-16:** `CR11_100uA` reads ~+22 nA with the cell off. Against
-  `CR09_10mA`'s +1.6 µA that is **~0.02% of full scale on both**, across ranges 100×
-  apart — so the offset looks proportional to the range rather than fixed. That predicts
-  **`CR10_1mA` ≈ +0.2 µA**, an 8× improvement on what the film runs carried. Honest
-  limit: at the 0.34 µA settled currents of 2026-09-11 a 0.2 µA offset is still ~59%, so
-  the range change helps the top of that spread and not the bottom. Subtraction is what
-  fixes the low end. Worth confirming the 0.02% rule on a third range before relying on
-  it to predict one that has not been measured.
+- **Record the range's zero offset, do NOT subtract it** (the user, 2026-09-16:
+  *"Why not just record what is measured? I generally don't like to change raw data."*).
+  Measured across six ranges on the dummy at a 0.000 V setpoint —
+  `examples/probe_zero_offset.py`, transcript in `probe_zero_offset_report.txt`:
+
+  | range | full scale | cell OFF | % FS | cell ON | % FS |
+  |---|---|---|---|---|---|
+  | `CR09_10mA` | 10 mA | −1.084 µA | −0.0108% | −1.068 µA | −0.0107% |
+  | `CR10_1mA` | 1 mA | −0.1125 µA | −0.0113% | −0.1167 µA | −0.0117% |
+  | `CR11_100uA` | 100 µA | +15.5 nA | +0.0155% | +12.9 nA | +0.0129% |
+  | `CR12_10uA` | 10 µA | +1.5 nA | +0.0153% | −0.8 nA | −0.0078% |
+  | `CR13_1uA` | 1 µA | +0.2 nA | +0.021% | −2.2 nA | −0.22% |
+  | `CR14_100nA` | 100 nA | +0.3 nA | +0.28% | −2.2 nA | −2.24% |
+
+  **THE OFFSET IS NOT A STABLE CONSTANT.** `CR09_10mA` measured **+1.605 µA** on
+  2026-09-11 and **−1.084 µA** today — same range, same instrument, opposite sign. So a
+  stored offset applied at analysis time would be worse than none at all, and an earlier
+  claim in this file that it is "stable and additive" and could be subtracted was wrong.
+  So was the "~0.02% of full scale" rule read off two points: the signs differ BETWEEN
+  ranges (CR09/CR10 negative, CR11/CR12 positive), so matching magnitudes were a
+  coincidence. It predicted `CR10_1mA` at +0.2 µA; it measures −0.11 µA.
+
+  - [ ] **Measure it per run and write it to the run metadata JSON**, alongside the
+        instrument identities already there. Cell off at a 0.000 V setpoint on the run's
+        own range, a second or two, mean and sd. The data stays exactly as the
+        instrument reported it; the offset travels beside it so it can be applied in
+        analysis, or not, with the numbers visible either way.
+  - [ ] **Never subtract it from a recorded trace.** Raw data is the contract.
+  - [ ] **The fine ranges have an absolute noise floor.** Scatter is ~3.5 nA (cell off)
+        and ~1.7 nA (cell on), INDEPENDENT of range, so the `CR13`/`CR14` offsets above
+        sit inside their own noise and are not significant. Nothing finer than about
+        `CR12` buys real resolution — consistent with OMIEC currents being mA to µA.
+
+- **Is this a calibration question?** (the user, 2026-09-16: *"On Gamry, I calibrate the
+  potentiostat and cables frequently. I don't know about Autolab."*) The sign flip
+  between sessions is what a drifting, re-zeroed instrument looks like, not a fixed
+  hardware artifact — so this is the leading explanation for the offsets.
+  - [ ] Find out what NOVA offers for Autolab calibration, and how often it is expected.
+        A documentation/vendor question, not an API one.
+  - [ ] **The SDK exposes no calibration surface.** Nothing matching
+        calib/offset/gain/zero/trim/adjust/diagnos on `Instrument`, `Ei` or
+        `AutolabConnection` (2026-09-16). Absence there is not proof the instrument
+        cannot be calibrated — NOVA may own it — but spec-echem cannot trigger or verify
+        one, so it cannot warn that a calibration is overdue.
+
 - **Is the CV's auto-ranging picking something too sensitive?** `FHPreCurrentRangingCV`
   presumably probes at the initial potential, where a film draws almost nothing. If so
   the fix is a NOVA edit (fixed range in the CV template), not a code change. Unverified —
