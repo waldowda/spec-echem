@@ -1546,3 +1546,41 @@ def test_film_geometry_may_come_from_the_form_for_an_older_run(window, tmp_path)
 
     assert "eV^-1 cm^-3" in r.canvas.ax.get_ylabel(), "the form's geometry should be used"
     assert "Parameters tab" in r.canvas.ax.get_xlabel(), r.canvas.ax.get_xlabel()
+
+
+# --- The linearity plot must follow the data, not the ADC ceiling ----------------
+
+def _linearity_result(counts):
+    """A minimal analyze_linearity-shaped dict, fitted through the given ramp."""
+    return {"offset": 683.0, "slope": 1361.0, "t_limit": None, "counts_limit": None,
+            "t_recommended": None, "counts_recommended": None, "bound_by": "linearity"}
+
+
+def test_a_well_attenuated_ramp_is_not_squashed_onto_the_bottom_axis(app):
+    """The source is NOT fixed: an ND filter or a diffuser in the path changes it by
+    orders of magnitude. The y-axis used to run to the ADC ceiling regardless, so a
+    heavily attenuated ramp -- MEASURED here, peak ~7500 of 65535 -- drew as a flat
+    line along the bottom."""
+    from gui.widgets.plot_canvas import MplCanvas
+
+    canvas = MplCanvas()
+    times = [1.05, 1.5, 2.0, 3.0, 5.0]
+    counts = [2115.0, 2725.0, 3405.0, 4766.0, 7488.0]
+    canvas.show_linearity(times, counts, _linearity_result(counts), full_scale=65535)
+
+    top = canvas.ax.get_ylim()[1]
+    assert top < 0.25 * 65535, "y-axis still pinned to the ADC ceiling"
+    assert top > max(counts), "the data must fit inside the axis"
+
+
+def test_a_bright_ramp_still_shows_the_adc_ceiling(app):
+    """The other half: when the ramp does approach full scale, the ceiling is the
+    whole point of the plot and must stay in view."""
+    from gui.widgets.plot_canvas import MplCanvas
+
+    canvas = MplCanvas()
+    times = [1.05, 10.0, 20.0, 40.0]
+    counts = [2115.0, 14300.0, 28200.0, 56000.0]
+    canvas.show_linearity(times, counts, _linearity_result(counts), full_scale=65535)
+
+    assert canvas.ax.get_ylim()[1] >= 65535
