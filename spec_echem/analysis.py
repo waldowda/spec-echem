@@ -233,7 +233,7 @@ def probe_wavelength(absorbance, wavelengths, doping=True):
 
     On DOPING the polaron grows while pi-pi* bleaches, so the polaron is the growth.
     On DEDOPING and pre-dedoping it is the other way round: the polaron DECAYS while
-    pi-pi* recovers, and taking the growth there returns pi labelled as the polaron.
+    pi-pi* recovers, and taking the growth there returns pi labeled as the polaron.
 
     ONE definition, because both the Results tab and the Analysis tab need it and the
     first copy of this logic only went into one of them.
@@ -465,7 +465,7 @@ class FitResult:
         The baseline A is left out: it is an offset, not a kinetic parameter. It is
         still on self.params for anyone who wants it.
 
-        Note the two DIFFERENT intervals, which is why each is labelled: the
+        Note the two DIFFERENT intervals, which is why each is labeled: the
         per-parameter +/- is 1 SD straight off the covariance diagonal, while <tau>
         carries the 95% CI that the ladder plots.
         """
@@ -796,7 +796,7 @@ def fit_gaussian_dos(energy, dos):
     apparent distribution. It is NOT a substitute for a proper baseline subtraction —
     a flat offset is the crudest possible model of double-layer charging.
 
-    Returns a dict with centre_ev, sigma_mev, amplitude, offset, their 1-SD errors and
+    Returns a dict with center_ev, sigma_mev, amplitude, offset, their 1-SD errors and
     `ok`/`reason`, or ok=False when there is nothing fittable. Never raises.
     """
     e = np.asarray(energy, dtype=float)
@@ -874,7 +874,7 @@ def fit_gaussian_dos(energy, dos):
         "needs_review": bool(concern),
         "concern": concern,
         "amplitude": amplitude, "amplitude_sd": float(sd[0]),
-        "centre_ev": center, "centre_sd": float(sd[1]),
+        "center_ev": center, "center_sd": float(sd[1]),
         "sigma_mev": sigma * 1000.0, "sigma_sd_mev": float(sd[2]) * 1000.0,
         "offset": offset, "offset_sd": float(sd[3]),
         "curve": model(e, *popt),

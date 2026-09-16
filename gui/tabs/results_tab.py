@@ -435,7 +435,7 @@ class ResultsTab(QWidget):
 
         # Film geometry is the one thing the form MAY supply for a loaded run. Segment
         # potentials must never come from it -- they are recorded per-run and taking
-        # them from the form mislabelled +0.700 V as +0.400 V. Geometry is different:
+        # them from the form mislabeled +0.700 V as +0.400 V. Geometry is different:
         # it is recorded nowhere in older data, so the form is the only place it can
         # come from, and the title says when it did.
         settings = self.win.label_settings()
@@ -655,7 +655,7 @@ class ResultsTab(QWidget):
         if cancelled:
             self._release_loaded_run()
             QMessageBox.information(
-                self, "Load cancelled",
+                self, "Load canceled",
                 f"Stopped after {len(results)} of {len(segs)} segment(s).\n\n"
                 "Nothing is loaded now — the previous run was released first to "
                 "make room. Load again when ready.")
@@ -676,7 +676,7 @@ class ResultsTab(QWidget):
         notes = []
         if not self.win.loaded_run_settings:
             notes.append("no run metadata — potentials come from the echem files "
-                         "where present, and are otherwise unlabelled")
+                         "where present, and are otherwise unlabeled")
         self.refresh_segments()
         self.win.analysis_tab.refresh_segments()
 

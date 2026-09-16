@@ -309,7 +309,7 @@ CA_KEY_INTERVAL = "Interval time in µs"   # on FHLevel
 # ('Interval time (s)') says seconds, and the template ships 0.01 — which is 10 ms
 # as seconds and an impossible 10 ps as microseconds. The driver writes
 # segment.delta_time in SECONDS, which is what the recorded data agrees with
-# (2026-09-03/04). The vendor's IdName is simply mislabelled.
+# (2026-09-03/04). The vendor's IdName is simply mislabeled.
 
 # EI.EICurrentRange, enumerated from the SDK assembly on this rig 2026-09-11, in
 # ASCENDING CURRENT order (the member numbers run the other way, which is the trap:

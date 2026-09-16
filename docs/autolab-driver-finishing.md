@@ -42,7 +42,7 @@ Then check `config/bench.ini`:
   rig's ~2.6 ms integration and a 100 ms slot, **20** fits with room. `acquire_segment()` warns if
   not, so this is belt-and-braces.
 - **`trigger` must be `true`.** On 2026-09-04 the run went out with `trigger: false` and spectrum 0
-  free-ran ~6 s ahead of the waveform. The checkbox is now labelled "Wait for hardware trigger"
+  free-ran ~6 s ahead of the waveform. The checkbox is now labeled "Wait for hardware trigger"
   rather than "Gamry", but **a saved settings JSON can still carry `false`** — if you load
   `20260904_settings_test_001.json`, re-tick it.
 

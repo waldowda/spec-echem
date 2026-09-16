@@ -223,7 +223,7 @@ single exponential.
 
 **What it does NOT cover is whether the model is right.** `curve_fit`'s covariance
 assumes independent residuals; a systematic misfit breaks that, and no widening of the
-bar fixes a wrong model — it hides it. So the interval is reported as-is and labelled
+bar fixes a wrong model — it hides it. So the interval is reported as-is and labeled
 as what it is: given THIS model over THIS window, how well ⟨τ⟩ is pinned.
 
 (An earlier version of this note proposed scaling the CI by √(n/n_eff) from the residual

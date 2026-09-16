@@ -436,7 +436,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   β ≥ 0.05 (⟨τ⟩ = (τ/β)·Γ(1/β) overflows past 1/β ≈ 170), and τ < 10× the fitted window.
 - **Segment potentials come from the DATA**, via `MainWindow.segment_potential()` →
   `gamry_data.measured_potential()` (median of `WE(1).Potential`), falling back to the
-  loaded run's own metadata. Never from the live Parameters tab: that mislabelled a
+  loaded run's own metadata. Never from the live Parameters tab: that mislabeled a
   +0.700 V segment as "+0.400 V".
 - **`plot_canvas` carries matplotlib-version fallbacks** (`_set_layout`, the colormap
   lookup) because SpecEchem32 is Python 3.7. Do not "simplify" them away until that env
