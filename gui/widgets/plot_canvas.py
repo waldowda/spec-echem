@@ -350,7 +350,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self.draw_idle()
 
     def plot_multi_xy(self, curves, xlabel, ylabel, title=None, logy=False,
-                      swap_axes=False, footnote=""):
+                      swap_axes=False, footnote="", footnote_warn=False):
         """Several (x, y, label) curves that do NOT share an x axis.
 
         plot_series takes one x for every series, which is right for a ladder. A CV's
@@ -383,7 +383,9 @@ class MplCanvas(FigureCanvasQTAgg):
             # Always under the plot, never on an axis label: a transpose would put a
             # long provenance line on the VERTICAL axis, where it is clipped.
             self.fig.text(0.5, 0.005, footnote, ha="center", va="bottom",
-                          fontsize=7, color="#555")
+                          fontsize=8 if footnote_warn else 7,
+                          color="#8a0016" if footnote_warn else "#555",
+                          fontweight="semibold" if footnote_warn else "normal")
         self.draw_idle()
 
     def show_message(self, text):
