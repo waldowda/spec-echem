@@ -27,7 +27,10 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   MEASURED: at exactly 1.04803466796875 ms — the smallest exposure `AVS_PrepareMeasure`
   accepts — the detector integrates ~2.1 ms, roughly double the request. One step up, at
   1.05 ms, counts are linear in exposure to within 1% out to 5 ms. Reproducible across
-  repeated scans and on a revisit after longer exposures, so not a first-scan artifact.
+  repeated scans and on a revisit after longer exposures, so not a first-scan artifact —
+  and confirmed at two light levels differing ~17x, where the equivalent exposure came
+  out 2.11 ms and 2.085 ms against a request of 1.048 ms. Exactly double, both times, so
+  it is a firmware timing behavior rather than anything optical.
   `init()` therefore rounds the probed floor UP to three significant figures before
   exposing it, which steps off that exposure; the raw value is still recorded.
 - **`set_integration_time()` refuses a sub-floor exposure** with a message naming the
