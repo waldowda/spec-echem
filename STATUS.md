@@ -8,7 +8,68 @@ _Last updated: 2026-09-15_
 
 ---
 
-## Analysis matured, DOS built, manual written (2026-09-15, `gui-dev`) — newest
+## The detector's floor is read from the hardware (2026-09-16, `gui-dev`) — newest
+
+**454 tests.** Both detectors in this project are now MEASURED, and every exposure the
+software chooses follows the one that is actually attached.
+
+| detector | SensorType | floor | below it |
+|---|---|---|---|
+| the fast part | 22 | 0.009033 ms | accepts, and genuinely integrates |
+| `AvaSpec-ULS2048L` | 10 | **1.048 ms** | **rejects, code -11** |
+
+**A ~100x spread, and the code defaults were on the wrong side of it.** `lin_start_ms`
+0.022 and `lin_stop_ms` 0.15 both sit below the ULS2048L's floor, where the SDK refuses
+the request outright instead of clamping — so the linearity check could not run there at
+all, and a fresh checkout raised *inside Connect*. That last part was found by a test:
+`test_connect_failure_message_is_still_shown_somewhere` assumes no hardware in CI, and on
+an instrument box it took the success path into `on_apply()` and threw.
+
+- **Clamp, never overwrite.** Connect raises a value below the floor and leaves one above
+  it alone. An integration time chosen from a linearity check to land ~85% fill is a
+  scientific choice; the floor is a hardware constraint. On this rig nothing moves —
+  2.6439 / 1.1 / 5.0 are all already above 1.048.
+- **Probed every Connect, ~70 ms MEASURED** against ~128 ms for the rest of `init()`, and
+  bit-reproducible. Stored per serial in `[detector.<serial>]` so it is tied to the
+  detector rather than the machine, but the stored value is only a fallback — a stale
+  floor fails silently in exactly the way the probe prevents.
+- **Rounded UP to three significant figures**: 1.04803466796875 → **1.05 ms**. The bisect
+  resolves to 1e-4 ms, so the raw figure quoted fifteen digits of a number known to four.
+  Rounding up keeps it legal; the raw value is still logged and stored.
+- **A sub-floor exposure now says so**, naming the request, the floor and the serial,
+  instead of a poll loop timing out and looking like a dead instrument.
+
+**Two bugs found on the way, neither of them about integration time:**
+
+- **"Save as defaults" deleted every comment in `config/bench.ini`.** It rewrote the file
+  through `configparser`, which parses to a dict and re-emits. On this rig those comments
+  carry the measured reasoning behind the current range, the DIO pin and the wait
+  parameter — one click would have erased the record of the work. The file is now edited
+  as text, in place.
+- **The probe script measured on a different ADC scale than the application** (no
+  `AVS_UseHighResAdc`) and reported only the mean across 2048 pixels, which cannot tell a
+  clipped band from dark current. It now reports peak too — and that immediately showed
+  the real story below.
+
+**The accepted minimum turned out not to be the usable minimum**, which is the finding
+of the day and the reason the rounding matters. With the beam attenuated (it saturates at
+every exposure otherwise — the lamp is too bright to work near the floor, as
+`metrohm-rig-status.md` already suspected), counts are linear from 1.05 ms to within 1%:
+`counts = 683 + 1361·t`. But at **exactly 1.048 ms**, the value the bisect returns as the
+smallest `AVS_PrepareMeasure` accepts, the detector returns 3555 counts where the line
+says 2111 — **~2.1 ms of integration, about double what was asked**. Four consecutive
+scans agree, and revisiting it after every longer exposure gives the same answer, so it is
+not a first-scan artifact.
+
+So the probe's own boundary value is accepted but not honored, and rounding UP off it is a
+safety property rather than a display choice. `init()` now tidies before exposing the
+floor, so nothing downstream can select that exposure. Open: whether the fast detector's
+boundary value misbehaves the same way — its minimum was verified from 0.009 ms, not from
+the boundary itself.
+
+---
+
+## Analysis matured, DOS built, manual written (2026-09-15, `gui-dev`)
 
 **430 tests.** A long session driven almost entirely by running the GUI against real
 runs and fixing what that exposed.

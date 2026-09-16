@@ -11,6 +11,51 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Fixed
+
+- **A detector's minimum integration time is now read from the hardware**, not assumed.
+  MEASURED: the two detectors in this project differ by ~100x — 0.009033 ms on a
+  SensorType 22 part, **1.048 ms** on the `AvaSpec-ULS2048L` (SensorType 10). The code
+  defaults (`integration_time_ms` and `lin_start_ms` at 0.022 ms, `lin_stop_ms` at
+  0.15 ms) sit entirely below the slower detector's floor, where `AVS_PrepareMeasure`
+  **rejects** the request outright (code -11) rather than clamping — so the linearity
+  check could not run at all there, and a fresh checkout raised inside Connect. Connect
+  now probes the floor (~70 ms, bit-reproducible) and **raises** any exposure below it,
+  never lowering one already above: a working integration time chosen from a linearity
+  check is a scientific choice, while the floor is a hardware constraint.
+- **The probe's own boundary value is accepted but NOT honored, on the ULS2048L.**
+  MEASURED: at exactly 1.04803466796875 ms — the smallest exposure `AVS_PrepareMeasure`
+  accepts — the detector integrates ~2.1 ms, roughly double the request. One step up, at
+  1.05 ms, counts are linear in exposure to within 1% out to 5 ms. Reproducible across
+  repeated scans and on a revisit after longer exposures, so not a first-scan artifact.
+  `init()` therefore rounds the probed floor UP to three significant figures before
+  exposing it, which steps off that exposure; the raw value is still recorded.
+- **`set_integration_time()` refuses a sub-floor exposure** with a message naming the
+  request, the floor and the serial. Previously the rejected `AVS_PrepareMeasure` was
+  ignored, the measurement never arrived, and the symptom was a poll loop timing out —
+  which names nothing and reads like a dead instrument.
+- **"Save as defaults" no longer deletes every comment in `config/bench.ini`.** The file
+  was rewritten through `configparser`, which parses to a dict and re-emits; each write
+  silently dropped the hand-written notes that record why a value was chosen. An existing
+  file is now edited as text, in place, so comments and layout survive.
+- **`examples/probe_min_integration.py` ran on a different ADC scale than the
+  application** (14-bit, missing `AVS_UseHighResAdc`), and reported only the mean across
+  all 2048 pixels — which cannot distinguish a bright band clipped at full scale from
+  dark current alone. It now matches the application's ADC, reports **peak** beside the
+  mean, and says outright when the beam is saturated. It also crashed on a cp1252 console
+  before reaching its third stage, because it printed non-ASCII characters.
+
+### Added
+
+- **Per-detector records in `config/bench.ini`**, as `[detector.<serial>]` sections,
+  holding what was MEASURED from one physical detector rather than how a rig is
+  configured. Kept out of `BENCH_SCHEMA` on purpose — that list is a closed contract for
+  hand-editable preferences. The hardware is still asked at every Connect; the stored
+  value is only a fallback, because a stale floor fails silently in exactly the way the
+  probe exists to prevent.
+- **The detector's floor travels into each run's metadata JSON**, so a data folder
+  records what its detector could do, not only what was asked of it.
+
 ### Changed
 
 - **Default `data_root` is now `~/specechem_data`**, expanded at every write, instead of a path
