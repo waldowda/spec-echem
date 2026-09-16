@@ -10,7 +10,8 @@ import pytest
 
 from spec_echem.analysis import (
     FitResult,
-    auto_wavelengths, cv_sweeps, density_of_states, fit_exponential_tail,
+    auto_wavelengths, cv_sweeps, density_of_states, dos_equilibrium_check,
+    fit_exponential_tail,
     fit_gaussian_dos, fit_transient,
     mean_relaxation_time,
     tau_ratio, model_exp, model_biexp, model_stretched,
@@ -795,3 +796,32 @@ def test_too_few_physical_points_is_reported_as_such():
     fit = fit_gaussian_dos(e, -np.ones(20))
     assert not fit["ok"]
     assert "g > 0" in fit["reason"]
+
+
+def test_directions_that_disagree_are_called_out_as_non_equilibrium():
+    """The two sweep directions are each other's control: g = i/(v*e*V) assumes the
+    film keeps up with the sweep, so if it does they measure the SAME distribution.
+    MEASURED on one film at 100 mV/s: the anodic current is still rising at +0.70 V
+    while the cathodic peaks at +0.25 V -- 419 mV apart, where a reversible process
+    gives ~59 mV. Near mirror-image curves are not a DOS with hysteresis."""
+    e = np.linspace(-0.7, 0.0, 200)
+    far = [{"direction": "oxidizing (forward)", "energy_ev": e,
+            "dos": 1e21 * np.exp(-((e + 0.65) ** 2) / (2 * 0.1 ** 2))},
+           {"direction": "reducing (reverse)", "energy_ev": e,
+            "dos": 1e21 * np.exp(-((e + 0.20) ** 2) / (2 * 0.1 ** 2))}]
+    ok, msg = dos_equilibrium_check(far)
+    assert not ok and "not keeping up" in msg
+
+    close = [dict(far[0]),
+             {"direction": "reducing (reverse)", "energy_ev": e,
+              "dos": 1e21 * np.exp(-((e + 0.60) ** 2) / (2 * 0.1 ** 2))}]
+    assert dos_equilibrium_check(close)[0], "50 mV apart is ordinary hysteresis"
+
+
+def test_one_direction_alone_cannot_be_checked():
+    """No control, so no verdict -- and silence is the honest answer, not a pass
+    dressed up as evidence."""
+    e = np.linspace(-0.7, 0.0, 50)
+    ok, msg = dos_equilibrium_check(
+        [{"direction": "oxidizing (forward)", "energy_ev": e, "dos": np.ones(50)}])
+    assert ok and msg == ""
