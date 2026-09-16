@@ -646,7 +646,7 @@ Open, roughly in order of value:
   record when the sample was actually taken) and keeps the two series paired, but it
   means anything done here moves the echem timing too.
 
-- **`pump()` costs ~50 ms per spectrum and the cadence advisory does not know it.**
+- [x] ~~**`pump()` costs ~50 ms per spectrum and the cadence advisory does not know it.**~~ **(a) FIXED 2026-09-16.**
   MEASURED 2026-09-09 (`examples/bench_ei_sampling_report.txt`): `Sampler.Sample()` is
   25.0 ms and each latch read is 5.0 ms — the reads are NOT free. `pump()` does five
   reads plus the sample, so ~50 ms of a 100 ms slot, against a `SPECTRUM_OVERHEAD_S` of
@@ -662,7 +662,14 @@ Open, roughly in order of value:
   WOULD lose events, and that part must not be done. The `IsConnected` check can still
   be throttled; the overload read cannot.
 
-  **(a) is now OBSERVED, not just predicted.** The GUI run `20260916_test1` (1.1 ms x 20
+  **(a) is FIXED.** `spectrum_cost_seconds()` and `suggest_scan_averages()` take a
+  `potentiostat_mode` and charge `POTENTIOSTAT_POLL_S` for it (Autolab 50 ms; the Gamry
+  path is left at zero rather than guessed, since it polls its own curve and has never
+  been measured — a wrong number quoted to the user would be worse than a missing one).
+  The advisory now shows the term in its breakdown. Predicts 102 ms for the run below,
+  against 103.9-106.0 measured. The evidence that prompted it:
+
+  **(a) was OBSERVED, not just predicted.** The GUI run `20260916_test1` (1.1 ms x 20
   averages, 100 ms slot, `Ei` mode, idle machine) came out at a mean of **103.9-106.0 ms
   across all five chrono segments**, never at the 100 ms target. The arithmetic closes
   exactly: the segment logs put `EDGE -> spectrum 0` at **56 ms** — matching

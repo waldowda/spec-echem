@@ -23,24 +23,69 @@ logger = logging.getLogger(__name__)
 # depends on it — the acquisition loop is unchanged.
 SPECTRUM_OVERHEAD_S = 0.030
 
+# What polling the potentiostat costs per spectrum, by potentiostat_mode.
+#
+# MEASURED for the Autolab 2026-09-09 (examples/bench_ei_sampling_report.txt):
+# Sampler.Sample() is 25.0 ms and each latch read is 5.0 ms -- the reads are NOT free,
+# because Ei's scalars are a latch and touching one is a round trip. pump() does a
+# sample plus five reads, so ~50 ms, which is HALF a 100 ms slot.
+#
+# OBSERVED in a real run 2026-09-16 (20260916_test1): 1.1 ms x 20 averages into a
+# 100 ms slot ran at a mean of 103.9-106.0 ms across all five chrono segments. The
+# arithmetic closes -- the logs put EDGE -> spectrum 0 at 56 ms, and 56 + 50 is ~106 --
+# and before this constant existed the advisory reported 52 ms against that slot and
+# called it comfortable.
+#
+# The Gamry path polls its own curve rather than a latch and has never been measured,
+# so it is left at zero rather than guessed at: a wrong number here would be worse than
+# a missing one, because it would be quoted to the user as though it were known.
+POTENTIOSTAT_POLL_S = {
+    "autolab": 0.050,
+    "python": 0.0,
+    "external": 0.0,
+}
 
-def spectrum_cost_seconds(integration_ms, scan_averages):
-    """What one spectrum really costs: integration x averages, plus overhead.
 
-    The number that has to fit inside a segment's delta_time. Pure arithmetic on
-    two numbers so the GUI can call it from its spin boxes, before any hardware
-    exists.
+def potentiostat_poll_seconds(potentiostat_mode):
+    """Per-spectrum cost of polling this potentiostat, in seconds. 0 if unknown.
+
+    In Ei mode this is not a side job -- pump() IS the echem acquisition -- so it
+    belongs in any budget that claims to say whether a grid fits.
     """
-    return (float(integration_ms) * int(scan_averages)) / 1000.0 + SPECTRUM_OVERHEAD_S
+    if not potentiostat_mode:
+        return 0.0
+    return POTENTIOSTAT_POLL_S.get(str(potentiostat_mode).strip().lower(), 0.0)
 
 
-def suggest_scan_averages(integration_ms, delta_time):
+def spectrum_cost_seconds(integration_ms, scan_averages, potentiostat_mode=None):
+    """What one loop iteration really costs: integration x averages, plus overhead,
+    plus whatever polling the potentiostat costs.
+
+    The number that has to fit inside a segment's delta_time. Pure arithmetic so the
+    GUI can call it from its spin boxes, before any hardware exists.
+
+    `potentiostat_mode` is optional and defaults to charging nothing, which is what
+    this function did before it existed -- but omitting it on a rig that polls a
+    potentiostat UNDERSTATES the cost by ~50 ms, which was enough to approve a grid
+    that could not hold. See POTENTIOSTAT_POLL_S.
+    """
+    return ((float(integration_ms) * int(scan_averages)) / 1000.0
+            + SPECTRUM_OVERHEAD_S
+            + potentiostat_poll_seconds(potentiostat_mode))
+
+
+def suggest_scan_averages(integration_ms, delta_time, potentiostat_mode=None):
     """The largest scan-averages count that still fits inside delta_time.
 
     Returns 0 when even a single average cannot fit — then the integration time
     or the slot itself has to change, and no averaging choice rescues it.
+
+    Takes the potentiostat's polling cost out of the room available, for the same
+    reason spectrum_cost_seconds adds it: a suggestion that ignores half the budget
+    is a suggestion that does not fit.
     """
-    room = float(delta_time) - SPECTRUM_OVERHEAD_S
+    room = (float(delta_time) - SPECTRUM_OVERHEAD_S
+            - potentiostat_poll_seconds(potentiostat_mode))
     if float(integration_ms) <= 0 or room <= 0:
         return 0
     return max(0, int(room * 1000.0 // float(integration_ms)))

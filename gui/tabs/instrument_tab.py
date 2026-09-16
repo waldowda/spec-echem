@@ -56,8 +56,8 @@ from spec_echem.potentiostat import (
 )
 from spec_echem.settings import (DEFAULT_SETTINGS, LIN_STOP_FLOOR_SPANS,
                                  tidy_detector_floor)
-from spec_echem.acquisition import (SPECTRUM_OVERHEAD_S, spectrum_cost_seconds,
-                                    suggest_scan_averages)
+from spec_echem.acquisition import (SPECTRUM_OVERHEAD_S, potentiostat_poll_seconds,
+                                    spectrum_cost_seconds, suggest_scan_averages)
 from spec_echem.experiment import build_segments
 from spec_echem.spectral_range import recommend_wavelength_range
 from gui.widgets.plot_canvas import MplCanvas
@@ -596,15 +596,23 @@ class InstrumentTab(QWidget):
         try:
             integration = self.integration_spin.value()
             averages = self.averages_spin.value()
-            cost = spectrum_cost_seconds(integration, averages)
 
+            # The potentiostat is part of the budget, not a side job: in Ei mode
+            # pump() IS the echem acquisition, and it costs ~50 ms of a 100 ms slot.
+            # Leaving it out is what let this advisory call a grid comfortable while
+            # the loop ran 4-6% long (MEASURED, 20260916_test1).
+            mode = None
             tightest = None
             try:
-                segments = build_segments(self.win.collect_settings())
+                settings = self.win.collect_settings()
+                mode = settings.get("potentiostat_mode")
+                segments = build_segments(settings)
                 if segments:
                     tightest = min(segments, key=lambda seg: seg.delta_time)
             except Exception:  # noqa: BLE001 — no experiment defined yet is normal
                 tightest = None
+            cost = spectrum_cost_seconds(integration, averages, mode)
+            pstat = potentiostat_poll_seconds(mode)
 
             if tightest is None or tightest.delta_time <= 0:
                 self.cadence_note.setText(f"~{cost * 1000:.0f} ms")
@@ -612,10 +620,11 @@ class InstrumentTab(QWidget):
                 return
 
             slot = tightest.delta_time
-            fits = suggest_scan_averages(integration, slot)
+            fits = suggest_scan_averages(integration, slot, mode)
+            pstat_term = (f" + {pstat * 1000:.0f} ms potentiostat" if pstat else "")
             head = (f"~{cost * 1000:.0f} ms "
                     f"({integration:.4g} ms x {averages} + "
-                    f"{SPECTRUM_OVERHEAD_S * 1000:.0f} ms overhead) vs a "
+                    f"{SPECTRUM_OVERHEAD_S * 1000:.0f} ms overhead{pstat_term}) vs a "
                     f"{slot * 1000:.0f} ms step ({tightest.label}).")
 
             if cost > slot:
