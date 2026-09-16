@@ -1,5 +1,13 @@
 # Next session — probe the ULS2048L's minimum integration time
 
+> **DONE 2026-09-16. Outcome A: the floor is 1.048 ms**, and the ~1.05 ms in
+> `docs/metrohm-rig-status.md` was right — it now rests on hardware. Below the floor the
+> SDK **rejects** the request (code -11) rather than clamping. Stage 3 could not run: the
+> beam saturates the detector at every exposure it accepts, which needs attenuating and a
+> re-run. The wiring described below is implemented. Kept for the reasoning, which is
+> still the best account of why host timing cannot measure a floor.
+
+
 **One job.** Everything else in this file is context for it.
 
 Written 2026-09-15 for the session on the instrument box at the other lab. Branch

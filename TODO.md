@@ -83,28 +83,62 @@ sign at +0.2…+0.5 V and go MIXED at +0.6 and +0.7 V; at π–π* (550 nm) they
 steals from the polaron band without creating a competing process at π–π*. A numerical
 instability would have shown at both wavelengths.
 
-## Minimum integration time — wire it once both detectors are probed
+## Minimum integration time — BOTH detectors probed, and wired (2026-09-16)
 
-MEASURED on a 2048 px detector (SensorType 22): the SDK exposes NO minimum under
-either spelling, and `AVS_PrepareMeasure` accepts down to **0.009033 ms**. Verified
-genuine against the detector's own integral — `counts = 112 + 26051·t` to within 1%
-from 0.009 to 0.1 ms — so the cheap bisect is trustworthy and now runs as the fallback
-in `minimum_integration_time()`.
+MEASURED on both parts in this project. The SDK exposes NO minimum under either
+spelling on either one, so `minimum_integration_time()` bisects what
+`AVS_PrepareMeasure` accepts.
 
-- [ ] **Probe the other detector** — handoff written up in
-      [`docs/next-session-integration-probe.md`](docs/next-session-integration-probe.md). (`AvaSpec-ULS2048L`, docs say ~1.05 ms) with
-      `examples/probe_min_integration.py`. If it comes back near 1.05 ms that confirms
-      a >100× spread between detectors; if it comes back at 0.009 too, the 1.05 ms in
-      `metrohm-rig-status.md` came from a datasheet rather than the hardware.
-- [ ] **Then wire it:** default `integration_time_ms` and `lin_start_ms` follow the
-      probe at Connect instead of the hardcoded 0.022. **This is a live bug on the
-      ULS2048L** — `lin_start_ms` 0.022 and `lin_stop_ms` 0.15 both sit below a
-      1.05 ms floor, so the entire linearity ramp is unachievable there.
-- [ ] **Scale `lin_stop_ms` from the floor too.** On a 1.05 ms detector the stop wants
-      to be nearer 8 ms to show curvature. On the fast detector the existing 0.15 is
-      about right: counts depart the linear fit by 13% at 0.2 ms.
-- [ ] **Reject out-of-range exposures with a clear message** rather than letting the
-      poll loop time out, which is the symptom otherwise.
+| detector | SensorType | floor | how it refuses below it |
+|---|---|---|---|
+| the fast part | 22 | **0.009033 ms** | n/a — accepts, and genuinely integrates |
+| `AvaSpec-ULS2048L` | 10 | **1.048 ms** | **rejects outright, code -11** |
+
+A **~100x spread**, so nothing may hardcode an exposure. On the fast part the accepted
+minimum was verified genuine against the detector's own integral (`counts = 112 +
+26051·t`, within 1% from 0.009 to 0.1 ms). On the ULS2048L the question does not arise:
+sub-floor requests are refused, not clamped.
+
+- [x] ~~Probe the other detector~~ — done 2026-09-16, full write-up in
+      [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md). The ~1.05 ms that doc
+      carried was RIGHT; it now rests on hardware rather than a datasheet.
+- [x] ~~Wire it~~ — `init()` caches the floor (~70 ms MEASURED, bit-reproducible);
+      Connect **raises** `integration_time_ms` and `lin_start_ms` to it when they sit
+      below, and never lowers a value already above it.
+- [x] ~~Scale `lin_stop_ms` from the floor~~ — done, via `LIN_STOP_FLOOR_SPANS`, but see
+      the open item below: it is a starting guess, not a derived constant.
+- [x] ~~Reject out-of-range exposures with a clear message~~ — `set_integration_time()`
+      names the request, the floor and the serial.
+- [x] ~~Tie the floor to the specific spectrometer~~ — recorded per serial in
+      `config/bench.ini` under `[detector.<serial>]`, and written into each run's
+      metadata JSON. The hardware is still asked at every Connect; the stored value is
+      only a fallback, because a stale floor fails silently in exactly the way the probe
+      exists to prevent.
+
+### Still open
+
+- [x] ~~Finish stage 3 on the ULS2048L~~ — done 2026-09-16 with the beam attenuated,
+      and it changed the answer. **The accepted minimum is not the usable minimum.** At
+      exactly 1.048 ms the detector accepts the request and integrates ~2.1 ms, about
+      double; from 1.05 ms up it is linear to within 1% (`counts = 683 + 1361·t`, out to
+      5 ms). Reproducible across four scans and on a revisit after every longer exposure,
+      so not a first-scan artifact. `init()` therefore rounds the probe result UP before
+      exposing it, which steps off the one exposure this detector gets wrong.
+- [ ] **Does the fast detector's boundary value misbehave too?** Its accepted minimum
+      (0.009033 ms) was verified genuine against `counts = 112 + 26051·t`, but that check
+      started at 0.009 ms rather than at the bisect's last accepted value, which is the
+      one that failed here. Same test, four scans at the exact boundary against the fitted
+      line. Cheap, and it decides whether the rounding-up is a general rule or a
+      single-detector workaround.
+- [ ] **`LIN_STOP_FLOOR_SPANS = 8.0` has no physics behind it.** The two known detectors
+      do not share one multiplier: 0.15/0.009033 is ~17x, while a 1.048 ms part wants
+      ~8 ms, or ~8x. The stop is really "where curvature appears", which is lamp- and
+      optics-dependent, not a property of the detector. It gets the ramp into runnable
+      territory; `Find saturation` is what finds the real top.
+- [ ] **`Find saturation` cannot advise "lower Start" at the floor.** Its message says
+      "Lower Start, or attenuate the light", and on a rig that saturates at the minimum
+      exposure the first half is impossible. Worth detecting that Start is already at the
+      floor and saying only the half that can be acted on.
 
 ## Getting data and figures OUT (2026-09-15) — the ask, not started
 
