@@ -801,10 +801,16 @@ def fit_gaussian_dos(energy, dos):
     """
     e = np.asarray(energy, dtype=float)
     g = np.asarray(dos, dtype=float)
-    keep = np.isfinite(e) & np.isfinite(g)
+    # g > 0, not merely finite. A NEGATIVE density of states is unphysical, and it
+    # happens for a real reason: just past a sweep vertex the current has not reversed
+    # yet, so dividing by the now-negative sweep rate flips the sign. MEASURED on one
+    # CV, the reverse sweep runs negative above +0.57 V -- 13% of the window -- and
+    # including those points dragged the Gaussian onto its bound and hid a peak that
+    # is plainly there at +0.28 V.
+    keep = np.isfinite(e) & np.isfinite(g) & (g > 0)
     e, g = e[keep], g[keep]
     if e.size < 5:
-        return {"ok": False, "reason": f"only {e.size} usable points"}
+        return {"ok": False, "reason": f"only {e.size} physical points (g > 0)"}
 
     order = np.argsort(e)          # curve_fit does not care, but a sorted x is easier
     e, g = e[order], g[order]      # to reason about and to plot back

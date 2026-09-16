@@ -769,3 +769,29 @@ def test_a_curved_tail_reports_a_poor_r_squared():
     g = 1e18 * np.exp(-((e + 5.3) ** 2) / (2 * 0.08 ** 2))      # a peak, not a tail
     fit = fit_exponential_tail(e, g)
     assert fit["ok"] and fit["r_squared"] < 0.9
+
+
+def test_a_negative_dos_is_excluded_from_the_gaussian_fit():
+    """A negative density of states is unphysical, and it happens for a real reason:
+    just past a sweep vertex the current has not reversed yet, so dividing by the
+    now-negative sweep rate flips the sign. MEASURED on one CV, the reverse sweep runs
+    negative above +0.57 V -- 13% of the window -- and including those points dragged
+    the Gaussian onto its bound and hid a peak plainly present at +0.28 V."""
+    e = np.linspace(-0.6, 0.0, 200)
+    g = 1e21 * np.exp(-((e + 0.28) ** 2) / (2 * 0.09 ** 2))
+    contaminated = g.copy()
+    contaminated[:25] = -np.linspace(1e21, 1e20, 25)      # post-vertex artifact
+
+    clean = fit_gaussian_dos(e, g)
+    fixed = fit_gaussian_dos(e, contaminated)
+    assert clean["ok"] and fixed["ok"]
+    # the fit must not be dragged by points that cannot be a density of states
+    assert fixed["sigma_mev"] == pytest.approx(clean["sigma_mev"], rel=0.05)
+    assert fixed["centre_ev"] == pytest.approx(clean["centre_ev"], abs=0.01)
+
+
+def test_too_few_physical_points_is_reported_as_such():
+    e = np.linspace(-0.6, 0.0, 20)
+    fit = fit_gaussian_dos(e, -np.ones(20))
+    assert not fit["ok"]
+    assert "g > 0" in fit["reason"]
