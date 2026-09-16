@@ -1315,28 +1315,56 @@ def test_a_fit_needing_review_keeps_its_numbers_everywhere(analysis_window):
     assert ys, "the flagged point must still appear on the ladder"
 
 
-def test_the_all_fits_table_covers_every_segment_and_trace(analysis_window, tmp_path):
-    """Requested: "there needs to be a table somewhere that holds fit data for all
-    potentials. There is no way currently to review that data." The tab's own table
-    shows three traces of ONE segment."""
+def test_the_all_fits_table_carries_every_fitted_parameter(analysis_window, tmp_path):
+    """The columns are built from MODELS for whichever models are present. An earlier
+    version showed only tau, beta and <tau> because exp has three parameters, biexp
+    five and stretched four -- but that dropped the prefactors, the second time
+    constant, y(0) and the residual split, which is most of what a fit says."""
     from gui.tabs.analysis_tab import AllFitsDialog
     tab = analysis_window.analysis_tab
+    tab.model_combo.setCurrentIndex(1)              # biexp: the widest parameter set
     tab.on_fit_all()
 
     rows = []
     for i in range(tab.segment_combo.count()):
         label = tab.segment_combo.itemData(i)
+        traces = tab._all_traces(label)
         for trace, fit in (tab._fits.get(label) or {}).items():
-            rows.append((label, 0.3, "doping", trace, 800.0, fit))
+            rows.append({"segment": label, "potential": 0.3, "direction": "doping",
+                         "trace": trace, "wavelength": 800.0, "fit": fit,
+                         "split": fit.residual_split(*traces[trace])
+                                  if trace in traces else None})
     assert rows, "the fixture should have produced fits"
 
     dialog = AllFitsDialog(rows, tab)
-    table = dialog.findChild(type(tab.table))
-    assert table.rowCount() == len(rows)
-    headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
-    for wanted in ("segment", "V", "trace", "mean tau (s)", "95% CI", "status"):
+    headers = [dialog.table.horizontalHeaderItem(c).text()
+               for c in range(dialog.table.columnCount())]
+    for wanted in ("segment", "V", "trace", "model", "mean tau (s)", "95% CI",
+                   "y(0)", "n pts", "resid noise", "resid model-miss", "status"):
         assert wanted in headers, headers
-    assert table.item(0, 0).text(), "rows must be populated"
+    # every biexp parameter, each with its SD
+    for name in ("A", "B1", "tau1", "B2", "tau2"):
+        assert f"{name} +/- SD" in headers, headers
+    # and no empty columns for parameters this model does not have
+    assert "beta +/- SD" not in headers, headers
+    assert dialog.table.rowCount() == len(rows)
+    assert dialog.table.item(0, 0).text(), "rows must be populated"
+
+
+def test_the_all_fits_table_exports_csv(analysis_window, tmp_path):
+    """Requested as "the table of csv data" -- so it should actually produce some."""
+    from gui.tabs.analysis_tab import AllFitsDialog
+    tab = analysis_window.analysis_tab
+    tab.on_fit_all()
+    rows = [{"segment": "Doping 0", "potential": 0.3, "direction": "doping",
+             "trace": t, "wavelength": 800.0, "fit": f, "split": None}
+            for t, f in tab._fits["Doping 0"].items()]
+
+    text = AllFitsDialog(rows, tab)._csv()
+    lines = text.strip().splitlines()
+    assert len(lines) == len(rows) + 1, "a header plus one line per fit"
+    assert lines[0].startswith("segment,V,direction,trace")
+    assert "tau" in lines[0] and "status" in lines[0]
 
 
 def test_the_ladder_can_use_a_log_axis(analysis_window):
