@@ -312,6 +312,64 @@ never averaged: hysteresis between them is a real effect.
 Rising potential removes electrons (**oxidising**, p-doping); falling potential puts them
 back (**reducing**). The curves are labelled accordingly.
 
+### How it is plotted, and why
+
+**Log y-axis.** A DOS spans orders of magnitude and the literature reports the
+distribution "over about two of them"; a linear axis flattens the tails, which is where
+the interesting part is. Points at or below zero cannot appear on a log axis — those are
+the sweep turnarounds, where the current has not reversed yet — so the plot states how
+many were excluded rather than losing them quietly.
+
+**A Gaussian is fitted to each direction, and σ is reported in meV.** That width is the
+quantitative descriptor the literature compares: HOMO distributions typically come out
+**55–95 meV** and LUMO **55–65 meV**, with a narrow, intense DOS associated with edge-on
+orientation and few film defects, and a broadened one with face-on orientation and
+defects. A constant offset is fitted alongside, so an unsubtracted capacitive baseline is
+partly absorbed rather than inflating σ.
+
+Two things get flagged rather than reported as measurements:
+
+- **σ at the window width** — the fit has railed against its bound, which means no peak
+  is resolved in the range swept, not that the peak is very broad.
+- **σ far above ~250 meV** — usually the unsubtracted capacitive baseline, or a sweep
+  that does not span the distribution.
+
+### What this implementation does NOT do yet
+
+**The energy axis is the applied potential, negated — not an absolute scale.** The
+convention is to reference to vacuum via an internal ferrocene standard:
+
+```
+E(vs vacuum) = −( E_applied vs Fc/Fc⁺ + 4.8 eV )
+```
+
+so a HOMO lands around −4.5 to −5.5 eV and can be compared with published values. Until
+a reference offset and a measured ferrocene E½ are supplied, the axis here is **relative**
+and the absolute numbers should not be compared with the literature.
+
+Two cautions if you add that calibration. A recent absolute-calibration study puts
+ferrocene's adiabatic ionisation energy in MeCN at **4.94 ± 0.05 eV** rather than the
+customary 4.8, and notes that competing reference scales differ by **up to 0.3 eV**. And
+a *pseudo* reference electrode drifts, so it cannot place an absolute scale on its own —
+a ferrocene calibration in the same electrolyte is what fixes it.
+
+### References for the DOS treatment
+
+- Bässler *et al.*, *Mapping the Density of States Distribution of Organic Semiconductors
+  by Employing Energy Resolved–Electrochemical Impedance Spectroscopy*, **Adv. Funct.
+  Mater.** 2021 — Gaussian DOS over two orders of magnitude; σ ≈ 55–95 meV (HOMO),
+  55–65 meV (LUMO). <https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.202007738>
+- *Tailoring the Density of State of n-Type Conjugated Polymers through Solvent
+  Engineering for Organic Electrochemical Transistors*, **ACS Appl. Mater. Interfaces**
+  2024 — DOS profile vs morphology; narrow/intense for edge-on, broadened for face-on.
+  <https://pubs.acs.org/aamick/article-abstract/16/30/39693/1218480/Tailoring-the-Density-of-State-of-n-Type>
+- *Absolute Calibration for Cyclic Voltammetry from the Solution-Phase Ionisation of
+  Ferrocene*, **ACS Electrochem.** 2026 — ferrocene IE 4.94 ± 0.05 eV in MeCN; scale
+  discrepancies up to 0.3 eV. <https://pubs.acs.org/doi/10.1021/acselectrochem.5c00382>
+- *Modeling cyclic voltammetry and electrochemical impedance spectroscopy measurements of
+  PEDOT:PSS layers with finite density of states*, **J. Appl. Phys.** 2026.
+  <https://pubs.aip.org/aip/jap/article-abstract/139/22/225501/3394458/Modeling-cyclic-voltammetry-and-electrochemical>
+
 ### The area to enter
 
 **The immersed coated area, one side** — the part below the electrolyte line.

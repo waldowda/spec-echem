@@ -154,6 +154,12 @@ Tab 5 works and is validated on real data (see STATUS.md). What is left:
 - [x] ~~Density of states from the CV~~ — **v1 built**: Tab 4 → Optical view →
       *Density of states (CV only)*, film geometry on Tab 2. Last cycle, directions
       separate, dQ/dV fallback without a volume.
+- [ ] **Absolute energy axis for the DOS.** Reference to vacuum via an internal
+      ferrocene standard: E = −(E vs Fc/Fc⁺ + 4.8 eV). Needs a reference-offset setting
+      and a measured ferrocene E½. Note the 2026 absolute-calibration work puts
+      ferrocene at 4.94 ± 0.05 eV, and scales differ by up to 0.3 eV — and a PSEUDO
+      reference cannot place an absolute scale without a ferrocene calibration in the
+      same electrolyte. Until then the axis is relative and the manual says so.
 - [ ] **DOS v2 — the capacitive baseline.** Double-layer charging is not density of
       states, and v1 subtracts nothing. Needs a decision about how, and it must be
       visible on the plot.

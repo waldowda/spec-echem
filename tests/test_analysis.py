@@ -10,7 +10,8 @@ import pytest
 
 from spec_echem.analysis import (
     FitResult,
-    auto_wavelengths, cv_sweeps, density_of_states, fit_transient,
+    auto_wavelengths, cv_sweeps, density_of_states, fit_gaussian_dos,
+    fit_transient,
     mean_relaxation_time,
     tau_ratio, model_exp, model_biexp, model_stretched,
 )
@@ -667,3 +668,60 @@ def test_both_sweep_directions_cover_the_same_potential_range():
     assert len(curves) == 2
     spans = [abs(c["energy_ev"][-1] - c["energy_ev"][0]) for c in curves]
     assert spans[0] == pytest.approx(spans[1], rel=0.05), spans
+
+
+# --- Gaussian width of a DOS --------------------------------------------------
+# The literature reports sigma, typically 55-95 meV for a HOMO distribution.
+
+def test_the_gaussian_width_is_recovered_exactly():
+    """x_scale="jac" is REQUIRED, not a nicety. Bounds switch curve_fit from LM to
+    TRF, whose default scaling assumes parameters of comparable magnitude -- and
+    these span twenty orders (amplitude ~1e20 against sigma ~0.075). Without it the
+    fit returns ~103-116 meV whatever the truth, i.e. the same answer regardless of
+    the data."""
+    e = np.linspace(-5.6, -4.6, 300)
+    for truth_ev in (0.055, 0.075, 0.095):
+        g = 2e20 + 8e20 * np.exp(-((e + 5.15) ** 2) / (2 * truth_ev ** 2))
+        fit = fit_gaussian_dos(e, g)
+        assert fit["ok"], fit["reason"]
+        assert fit["sigma_mev"] == pytest.approx(truth_ev * 1000, rel=0.01)
+        assert fit["centre_ev"] == pytest.approx(-5.15, abs=0.005)
+        assert not fit["needs_review"], fit["concern"]
+
+
+def test_a_pedestal_is_fitted_rather_than_widening_the_peak():
+    """An unsubtracted capacitive baseline sits under the whole curve. Fitting a
+    constant absorbs it; assuming zero would inflate sigma."""
+    e = np.linspace(-5.6, -4.6, 300)
+    g = 5e20 + 8e20 * np.exp(-((e + 5.15) ** 2) / (2 * 0.075 ** 2))
+    fit = fit_gaussian_dos(e, g)
+    assert fit["sigma_mev"] == pytest.approx(75.0, rel=0.01)
+    assert fit["offset"] == pytest.approx(5e20, rel=0.01)
+
+
+def test_a_feature_wider_than_its_window_is_reported_as_unresolved():
+    """sigma is bounded by the window width, so sigma -> span means "nothing resolved
+    here", not "a very broad peak". A fit sitting ON its bound is not a measurement.
+    MEASURED: a real reverse sweep over 1.198 V returned exactly 1198 meV."""
+    e = np.linspace(-5.15, -5.05, 200)          # 100 meV window
+    g = 2e20 + 8e20 * np.exp(-((e + 5.10) ** 2) / (2 * 0.5 ** 2))   # 500 meV feature
+    fit = fit_gaussian_dos(e, g)
+    assert fit["ok"] and fit["needs_review"]
+    assert "no resolved peak" in fit["concern"], fit["concern"]
+
+
+def test_a_shape_with_no_peak_at_all_is_still_flagged():
+    """A monotonic ramp has no Gaussian in it. The width that comes back is whatever
+    least-squares settled on, and it is flagged as implausible rather than reported
+    as a measurement."""
+    e = np.linspace(-5.6, -4.6, 300)
+    fit = fit_gaussian_dos(e, 2e20 + 1e19 * e)
+    assert fit["ok"] and fit["needs_review"]
+
+
+def test_an_implausibly_wide_distribution_is_flagged():
+    e = np.linspace(-6.0, -4.0, 400)
+    g = 2e20 + 8e20 * np.exp(-((e + 5.0) ** 2) / (2 * 0.40 ** 2))
+    fit = fit_gaussian_dos(e, g)
+    assert fit["ok"] and fit["needs_review"]
+    assert "55" in fit["concern"] and "95" in fit["concern"]
