@@ -825,8 +825,17 @@ the old potential with the new current — which is what is plotted.
 **Why CV only.** A straddle needs something OTHER than `pump()` refreshing the latch. In
 procedure mode the running `.nox` has its own recorder doing exactly that; in `Ei` mode
 Python's `Sample()` is the only refresher, so there is nothing to straddle. That is
-consistent with the glitch appearing on the CV and nowhere else — though "nothing else
-refreshes in Ei mode" is an assumption about the instrument, not something measured.
+consistent with the glitch appearing on the CV and nowhere else.
+
+**And "nothing else refreshes in Ei mode" is PROVEN, not assumed** — by `20260909_test11`,
+which recorded one identical row forever because `Sample()` was never called. Had anything
+else been refreshing the latch, those rows would have varied. Nothing does, and in `Ei`
+mode no procedure is loaded, so there is no recorder to do it.
+
+**So this is DISPLAY-ONLY, and minor.** The saved `CV.txt` comes from `.Signals` and is
+unaffected; `steps(N).txt` cannot straddle. Worth fixing for the plot's sake, not worth
+instrument time to chase further. (the user, 2026-09-16: *"I think it is minor given the
+recorded data."*)
 
 - [ ] **Close the straddle window.** Re-read the potential after the current and
       discard (or re-take) the sample when it moved — a pair that straddled a refresh is
@@ -847,11 +856,10 @@ a 10 kOhm resistor, so the true current was constant, and quantisation of a stea
 produces exactly that pattern. On a dummy the two are indistinguishable — and the
 screenshot shows the mechanism is a mismatch rather than staleness anyway.
 
-- [ ] **Confirm the straddle directly** by logging, for each live sample, the
-      potential read before AND after the current. Every pair where they differ is a
-      straddle, and counting them over a CV says how often it happens. That also tests
-      the `Ei`-mode assumption for free: if straddles appear there too, the saved
-      `steps(N).txt` has been carrying them all along.
+- [ ] **Optional, if ever curious how often:** log the potential read before AND
+      after the current for each live sample; every differing pair is a straddle. Not
+      needed to fix it — the guard above is correct whatever the rate — and not worth
+      bench time on its own.
 
 ## HDF5 output alongside the ascii files (the user, 2026-09-11)
 
