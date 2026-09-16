@@ -18,7 +18,7 @@ from qtpy.QtWidgets import (
 )
 
 from spec_echem.analysis import (probe_wavelength, density_of_states,
-                                 scan_rate_from_sweep)
+                                 scan_rate_from_sweep, fit_gaussian_dos)
 from spec_echem.data import (
     echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV,
     DATA_TYPE_DOPING, segment_potential_text, segment_potential,
@@ -414,18 +414,43 @@ class ResultsTab(QWidget):
             return
 
         units = curves[0]["units"]
-        x = curves[0]["energy_ev"]
-        series = {c["direction"]: c["dos"] for c in curves}
-        # Directions have their own x, so plot them one at a time rather than forcing
-        # a shared axis: a CV's two sweeps do not sample the same points.
+        # A Gaussian width is what the literature reports for a DOS -- around
+        # 55-95 meV for a HOMO -- so fit each direction and put sigma on the legend.
+        # See docs/manual.md for the references.
+        plotted, dropped = [], 0
+        for curve in curves:
+            fit = fit_gaussian_dos(curve["energy_ev"], curve["dos"])
+            label = curve["direction"]
+            if fit["ok"]:
+                label += (f"   sigma = {fit['sigma_mev']:.0f} +/- "
+                          f"{fit['sigma_sd_mev']:.0f} meV"
+                          f"  @ {fit['centre_ev']:+.3f} V")
+                if fit.get("concern"):
+                    label += f"\n   ! {fit['concern']}"
+            plotted.append((curve["energy_ev"], curve["dos"], label))
+            # Do not draw a Gaussian that the fit itself says is not one.
+            if fit["ok"] and not fit.get("needs_review"):
+                plotted.append((fit["energy"], fit["curve"],
+                                f"{curve['direction']} — Gaussian"))
+            dropped += int(np.sum(np.asarray(curve["dos"], float) <= 0))
+
+        # Log y is the convention: a DOS spans orders of magnitude and the Gaussian is
+        # reported over about two of them, which a linear axis flattens away. Points at
+        # or below zero cannot be drawn on it -- they are the sweep turnarounds, where
+        # the current has not reversed yet -- so the count is stated rather than
+        # silently lost.
+        note = f"   ({dropped} non-positive point(s) not shown on the log axis)" \
+            if dropped else ""
         self.canvas.plot_multi_xy(
-            [(c["energy_ev"], c["dos"], c["direction"]) for c in curves],
+            plotted,
             "E = -eV  (eV)   —   more negative = more oxidising "
             "(electrons removed)", units,
+            logy=True, extra_note=note,
             title=f"Density of states — last cycle, "
                   f"{rate * 1000:.1f} mV/s ({source})"
                   + ("" if volume else "   (no film volume — dQ/dV)")
-                  + ("   [geometry from the Parameters tab]" if from_form else ""))
+                  + ("   [geometry from the Parameters tab]" if from_form else "")
+                  + note)
 
     def _plot_echem(self, label):
         """Show the segment's electrochemistry (I-vs-E for CV, I-vs-t for chrono).
