@@ -801,10 +801,19 @@ An OFF-line point requires E and I to come from DIFFERENT instants: a MISMATCHED
 not a stale one. So the discarded `sample_ei()` return value, the first candidate here,
 is not the mechanism.
 
-**The direction says which is which.** MEASURED off the screenshot (`20260916_test1`,
-100 mV/s, 10 mV steps, 10 kOhm dummy): at E ~ -0.28 V the line gives ~-2.85 uA, and the
-glitch point sits near -3.05 uA — the current belonging to E ~ -0.305 V. The POTENTIAL
-is stale and the CURRENT is fresh, displaced by a couple of samples.
+**It is an X ERROR — the point is displaced horizontally, not vertically** (the
+user's reading, and the clearest way to describe it). The current is CORRECT; the
+potential plotted against it is from an earlier instant. So one coordinate is stale, not
+both: a partial staleness rather than the whole-sample staleness first proposed.
+
+The direction confirms it. On this sweep E runs negative, so a stale E is LESS negative
+and the point lands to the RIGHT of the line — which is the way the wedge opens.
+Off the screenshot (`20260916_test1`, 100 mV/s, 10 mV steps, 10 kOhm dummy): the point
+near E ~ -0.28 V carries the current belonging to E ~ -0.305 V, a displacement of a
+couple of sample intervals.
+
+That the CURRENT is the trustworthy coordinate is what pins the cause to the read ORDER
+rather than to a failed refresh.
 
 That matches the read order exactly. `pump()` builds the sample as
 
