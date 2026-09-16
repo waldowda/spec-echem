@@ -210,12 +210,14 @@ class RunTab(QWidget):
         # that can raise would be worse than no note at all.
         try:
             cost = spectrum_cost_seconds(settings.get("integration_time_ms", 0.0),
-                                         settings.get("scan_averages", 1))
+                                         settings.get("scan_averages", 1),
+                                         settings.get("potentiostat_mode"))
             slow = [seg for seg in segments if cost > seg.delta_time > 0]
             if slow:
                 tightest = min(slow, key=lambda seg: seg.delta_time)
                 fits = suggest_scan_averages(settings.get("integration_time_ms", 0.0),
-                                             tightest.delta_time)
+                                             tightest.delta_time,
+                                             settings.get("potentiostat_mode"))
                 self.log(
                     f"WARNING: one spectrum takes ~{cost * 1000:.0f} ms, but "
                     f"{len(slow)} of {len(segments)} step(s) ask for one every "
