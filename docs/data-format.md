@@ -40,9 +40,18 @@ Gamry Framework writes its own `.DTA`, converted separately by
 | 3 | Column 3 (a. u.) | Dark spectrum | Only for time_point == 0; empty otherwise |
 | 4 | Column 4 (a. u.) | Reference spectrum | Only for time_point == 0; empty otherwise |
 | 5 | Measured value (a.u.) | Raw intensity | Direct spectrometer output |
-| 6 | Spectrum number | Integer index | Sequential across all time points |
+| 6 | `Spectrum number` **or** `Index` | Integer index | Sequential across all time points. **The header differs by file type** — see the note below |
 | 7 | Time (s) | Absolute timestamp | Seconds since acquisition start |
 | 8 | Corrected time (s) | Relative timestamp | Time relative to first spectrum in step |
+
+**Column 6's header is not the same in every file.** `spectra(N).txt` (doping,
+`DATA_TYPE_DOPING`) writes **`Spectrum number`**; `CVspectra.txt`,
+`dedopingspectra(N).txt` and `prededopingspectra(N).txt` all write **`Index`**. The
+column's contents are identical either way — a sequential integer — and this is
+deliberate rather than a defect (`spec_echem/data.py`, `col6_name`), inherited from the
+notebook-era output that downstream analysis already reads. It is recorded here because
+this file is the authority a reader would be written against, and reading column 6 by
+NAME rather than by position will silently miss three of the four file types.
 
 **Absorbance calculation pipeline:**
 
