@@ -21,7 +21,7 @@ from qtpy.QtWidgets import (
 
 from spec_echem.analysis import (probe_wavelength, density_of_states,
                                  scan_rate_from_sweep, fit_gaussian_dos,
-                                 fit_exponential_tail)
+                                 fit_exponential_tail, dos_equilibrium_check)
 from spec_echem.data import (
     echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV,
     DATA_TYPE_DOPING, segment_potential_text, segment_potential,
@@ -129,11 +129,12 @@ class ResultsTab(QWidget):
         self.dos_vmin.setDecimals(3)
         self.dos_vmin.setSingleStep(0.05)
         self.dos_vmin.setSuffix(" V")
-        self.dos_vmin.setValue(0.0)
+        self.dos_vmin.setValue(-0.5)
         self.dos_vmin.setToolTip(
-            "Lowest potential included, both directions. 0 V is the usual choice --\n"
-            "below it a p-doping film is neutral and the current is capacitive.\n"
-            "Raise it to the doping onset if that is higher for your film.")
+            "Lowest potential included — applied to BOTH directions, so the two stay\n"
+            "comparable. Below the doping onset the current is capacitive, but cutting\n"
+            "at 0 V truncates the reducing distribution while leaving the oxidizing one\n"
+            "untouched, so the default reaches into the dedoping region equally.")
         self.dos_vmax = QDoubleSpinBox()
         self.dos_vmax.setRange(-10.0, 10.0)
         self.dos_vmax.setDecimals(3)
@@ -502,6 +503,15 @@ class ResultsTab(QWidget):
                                 f"{curve['direction']} — exp tail"))
             dropped += int(np.sum(np.asarray(curve["dos"], float) <= 0))
 
+        # The two directions are each other's control: if the film keeps up with the
+        # sweep they measure the same distribution. When they do not, say so loudly --
+        # every sigma and E0 below is then describing a transient, not a DOS.
+        equilibrium_ok, equilibrium_msg = dos_equilibrium_check(curves)
+        if not equilibrium_ok:
+            provenance_warning = "NOT AT EQUILIBRIUM: " + equilibrium_msg
+        else:
+            provenance_warning = ""
+
         # Log y is the convention: a DOS spans orders of magnitude and the Gaussian is
         # reported over about two of them, which a linear axis flattens away. Points at
         # or below zero cannot be drawn on it -- they are the sweep turnarounds, where
@@ -519,11 +529,14 @@ class ResultsTab(QWidget):
         if dropped:
             provenance.append(f"{dropped} non-positive point(s) omitted (log axis)")
 
+        footnote = " · ".join(provenance)
+        if provenance_warning:
+            footnote += "\n" + "\n".join(textwrap.wrap(provenance_warning, 110))
         self.canvas.plot_multi_xy(
             plotted,
             "E = -eV  (eV)    more negative = more oxidizing",
             units, logy=True, swap_axes=self.dos_energy_y.isChecked(),
-            footnote=" · ".join(provenance),
+            footnote=footnote, footnote_warn=bool(provenance_warning),
             title="Density of states")
 
     def _plot_echem(self, label):

@@ -935,3 +935,41 @@ def fit_exponential_tail(energy, dos):
         "e0_mev": e0_ev * 1000.0, "e0_sd_mev": e0_sd_ev * 1000.0,
         "r_squared": r_squared, "energy": e, "curve": fitted,
     }
+
+
+def dos_equilibrium_check(curves):
+    """Do the two sweep directions agree enough for g(E) to mean anything?
+
+    The DOS formula g = i / (v·e·V) assumes quasi-equilibrium: the film keeps up with
+    the sweep, so the current at each potential reports the states there. If it holds,
+    the two directions measure the SAME distribution and should nearly superimpose.
+
+    They are therefore each other's control, and this is the only check available from
+    one CV. MEASURED on one film at 100 mV/s: the anodic current is still rising at
+    +0.70 V while the cathodic peaks at +0.25 V, a separation above 450 mV where a
+    reversible one-electron process gives ~59 mV. The two "DOS" curves came out near
+    mirror images — which is not a density of states with hysteresis, it is a film
+    that cannot follow the sweep.
+
+    Returns (ok, message). A pass is not proof of equilibrium — only a scan-rate
+    series showing i/v collapsing onto one curve is that — but a failure is decisive.
+    """
+    peaks = {}
+    for curve in curves:
+        g = np.asarray(curve["dos"], dtype=float)
+        e = np.asarray(curve["energy_ev"], dtype=float)
+        good = np.isfinite(g) & np.isfinite(e) & (g > 0)
+        if good.sum() < 3:
+            continue
+        peaks[curve["direction"]] = float(e[good][int(np.argmax(g[good]))])
+    if len(peaks) < 2:
+        return True, ""
+
+    (_, a), (_, b) = sorted(peaks.items())
+    separation = abs(a - b)
+    if separation <= 0.15:
+        return True, ""
+    return False, (
+        f"the two directions peak {separation * 1000:.0f} mV apart, so the film is not "
+        f"keeping up with the sweep — g = i/(v·e·V) assumes it does, and neither curve "
+        f"is a density of states until a slower scan brings them together")
