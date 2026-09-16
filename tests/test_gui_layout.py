@@ -402,7 +402,7 @@ def test_every_potential_field_names_what_it_drives(window):
         # The label has to distinguish this field from its siblings: a bare
         # "Potential" does not.
         assert text.strip().rstrip(":") not in ("potential", "potential (vs vref)"), (
-            f"{key} is labelled {label.text()!r} — too generic to tell apart from the "
+            f"{key} is labeled {label.text()!r} — too generic to tell apart from the "
             f"other potential fields")
 
 
@@ -787,7 +787,7 @@ def test_moving_the_window_redraws_the_shading_before_refitting(analysis_window)
 def test_the_probe_follows_the_polaron_on_dedoping(analysis_window, tmp_path):
     """auto_wavelengths returns (grows, bleaches). On DOPING the polaron grows; on
     DEDOPING it DECAYS while pi-pi* recovers, so taking the growth there hands back
-    pi labelled as the polaron. MEASURED on 20260709_P3HT_01, where every dedoping
+    pi labeled as the polaron. MEASURED on 20260709_P3HT_01, where every dedoping
     segment auto-selected ~555 nm instead of ~800 nm."""
     import numpy as np
     import pandas as pd
@@ -811,9 +811,9 @@ def test_the_probe_follows_the_polaron_on_dedoping(analysis_window, tmp_path):
     assert 850 < probe < 950, f"got {probe:.0f} nm — that is the pi band, not the polaron"
 
 
-# --- a loaded run must be labelled with ITS OWN potentials -------------------
+# --- a loaded run must be labeled with ITS OWN potentials -------------------
 
-def test_a_loaded_run_is_labelled_from_its_own_metadata(window, tmp_path):
+def test_a_loaded_run_is_labeled_from_its_own_metadata(window, tmp_path):
     """20260709_P3HT_01 was run at 0.3/0.5/0.7 V. The GUI defaults give 0.2/0.3/0.4,
     so every graph title read "+0.400 V" for a segment held at +0.700 V -- silently,
     and plausibly. Tab 5's tau-vs-potential axis was plotting against those too."""
@@ -828,7 +828,7 @@ def test_a_loaded_run_is_labelled_from_its_own_metadata(window, tmp_path):
 
     window.loaded_run_settings = _read_run_settings(folder)
     text = segment_potential_text(window.label_settings(), DATA_TYPE_DOPING, 2)
-    assert text == "+0.700 V", f"labelled {text}, but the run applied +0.700 V"
+    assert text == "+0.700 V", f"labeled {text}, but the run applied +0.700 V"
 
 
 def test_a_run_with_no_metadata_is_not_given_invented_potentials(window, tmp_path):
@@ -1205,7 +1205,7 @@ def test_cancelling_a_load_leaves_nothing_half_read(window, tmp_path):
 def test_the_table_reports_the_same_statistic_the_plot_draws(analysis_window):
     """Requested: "the errors are labeled SDs. Is that really the case or are they 95%
     CIs?" The column WAS a 1-sigma SD on the raw tau while the error bars were a 95%
-    CI on <tau> -- different statistics on different quantities, unlabelled."""
+    CI on <tau> -- different statistics on different quantities, unlabeled."""
     tab = analysis_window.analysis_tab
     tab.on_fit_segment()
     header = tab.table.horizontalHeaderItem(2).text()
@@ -1534,7 +1534,7 @@ def test_the_film_geometry_defaults_are_the_bench_geometry(window):
 
 
 def test_film_geometry_may_come_from_the_form_for_an_older_run(window, tmp_path):
-    """Segment potentials must NEVER come from the form -- that mislabelled +0.700 V
+    """Segment potentials must NEVER come from the form -- that mislabeled +0.700 V
     as +0.400 V. Film geometry is the opposite case: it is recorded nowhere in older
     data, so the form is the only place it can come from. The title says when it did.
     """

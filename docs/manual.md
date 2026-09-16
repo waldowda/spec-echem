@@ -310,7 +310,7 @@ sweep, so the first and last sweeps are partial and are skipped. Forward and rev
 never averaged: hysteresis between them is a real effect.
 
 Rising potential removes electrons (**oxidizing**, p-doping); falling potential puts them
-back (**reducing**). The curves are labelled accordingly.
+back (**reducing**). The curves are labeled accordingly.
 
 ### How it is plotted, and why
 
@@ -334,15 +334,50 @@ Two things get flagged rather than reported as measurements:
 - **σ far above ~250 meV** — usually the unsubtracted capacitive baseline, or a sweep
   that does not span the distribution.
 
-**The potential window matters more than anything else here.** Outside the doping range
-the current is double-layer charging, not the distribution being measured. On one CV
-running −0.5 to +0.7 V, **42% of every curve sat below 0 V** and contributed pure
-capacitance to the fit. The *DOS range* controls default to **0 V → sweep max**, applied
-to BOTH directions so the two stay comparable and their hysteresis means something.
+**The potential window matters more than anything else here**, and the one rule that
+must not be broken is that **the same window is applied to both directions**. The *DOS
+range* controls do exactly that: whatever bounds you set, oxidizing and reducing get the
+same ones, so the hysteresis between them means something. A window that clips one
+direction and not the other manufactures a difference that is not in the film.
 
-0 V is a principled default — below it a p-doping film is nominally neutral — but it is
-not necessarily the doping **onset**, which is film-dependent and can be several hundred
-mV higher. Raise the lower bound if the kinetics say nothing happens until later.
+The default is **−0.5 V → sweep max**, which on a typical −0.5 to +0.7 V CV is the whole
+sweep. The tempting alternative — starting at 0 V, below which a p-doping film is
+nominally neutral — turns out to be the asymmetric case in disguise. On one real CV it
+removed nothing from the oxidizing curve (its density at the 0 V edge is 0.3% of peak)
+while cutting the low-energy half off the reducing one, whose Gaussian then railed at a
+flagged 559 meV instead of resolving at 208 meV.
+
+The cost of the wider window is that the capacitive region is included: outside the
+doping range the current is double-layer charging, not the distribution being measured.
+A constant offset is fitted alongside the Gaussian, which absorbs part of it. Raise the
+lower bound if your film's doping **onset** is well above 0 V — it is film-dependent and
+can be several hundred mV higher — but raise it for both directions, which is what the
+control does.
+
+### The equilibrium check — read this before quoting a σ
+
+`g = i / (v·e·V_film)` rests entirely on `i = v·dQ/dV`, which says the film's charge
+state is a function of potential alone. That is true only if the film keeps up with the
+sweep. If it lags, the current at a given potential reflects how fast charge is moving,
+not how many states are there, and the number the formula returns is a transient.
+
+**The two directions are each other's control.** At equilibrium they measure the same
+distribution and their peaks coincide; a reversible couple separates by about 59 mV. The
+tab computes the separation and, past **150 mV**, prints a red warning under the plot.
+On one real run the separation is **419 mV**, so every σ and E₀ on that figure is
+describing a transient rather than a density of states.
+
+The curves are still drawn and the fits still reported — they are the best available
+estimate and the decision is yours — but the warning is the thing to act on. The fix is
+experimental, not computational: **repeat the CV at a slower scan rate**. If σ and the
+peak position stop moving as the rate drops, the film is at quasi-equilibrium and the
+numbers mean what they say. If they keep moving, they do not.
+
+A large separation is not always an artifact to be eliminated. Molecular rearrangement
+in the doped state can genuinely shift the distribution seen on the way back, and a
+lower-energy distribution after doped rearrangement is a reasonable expectation. But
+that interpretation is only available *after* a scan-rate series has shown the
+separation is not simply kinetic lag.
 
 **If the sweep stops before the distribution turns over, there is no Gaussian to fit.**
 A Gaussian needs a peak; fitted to a monotonic rising edge it rails against the window
