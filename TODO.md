@@ -683,18 +683,38 @@ running an actual experiment rather than by testing.
   MEASURED +1.6 µA zero offset — 10–100% of the settled currents recorded. The peaks are
   fine; the steady-state currents are not quantitatively trustworthy. Dedoping −0.5 V,
   and do not go past +0.7 V (the test film does not survive +0.8 V — film A never recovered).
-- **`examples/probe_overload.py` — still unwritten, now more clearly worth it.** Every CV
-  in every film run flagged `CURRENT OVERLOAD` and no recorded sweep clips. Hold 0.1 V on
-  the 10 kΩ dummy at a deliberately too-sensitive range (`CR13_1uA` gives 10 µA, i.e. 10×
-  over full scale) and watch what the flag AND the recorded data do. Answers three things
-  at once: what a clipped trace looks like, whether the CV overload matters, and whether
-  the flag LATCHES or self-clears — which is what gates the `pump()` throttle above.
+- [x] ~~`examples/probe_overload.py`~~ — **written and run 2026-09-16**; transcript in
+  `examples/probe_overload_report.txt`. It answers all three questions, and the first
+  answer dissolves the CV mystery:
+  - **An overloaded range does NOT clip the reading.** On `CR13_1uA` (1 µA full scale)
+    asked for 10 µA it reported **9.488 µA** — 10× full scale, only ~6% low — while
+    flagging on 40/40 samples. So "every CV flags and nothing clips" was never a
+    contradiction: the instrument flags and keeps reporting a plausible number.
+  - **It is the applied POTENTIAL that goes wrong.** Measured potential drooped to
+    0.0968 V against 0.0998 V on the control, same 0.100 V setpoint — the amplifier
+    cannot carry the load, so the potentiostat loses control. Both readings stay
+    self-consistent, so **an overloaded segment cannot be recognised from its own data.**
+    The flag is the only evidence, which is why `Ei.Current` being a latch mattered.
+  - **The flag SELF-CLEARS**: 0/20 with the cell off afterwards, 0/40 driven again on a
+    good range. So `pump()` needs no re-arming, a flag means the overload is happening
+    NOW, and a CV that flags has a real excursion worth chasing.
 - **Characterise the range's zero offset**, cell open at 0 V, once per range. It is
   stable and additive (+1.605 µA on `CR09_10mA`, residuals half a quantum), so it could
   be subtracted rather than worked around — better than choosing a range for its offset.
+  **A second point, 2026-09-16:** `CR11_100uA` reads ~+22 nA with the cell off. Against
+  `CR09_10mA`'s +1.6 µA that is **~0.02% of full scale on both**, across ranges 100×
+  apart — so the offset looks proportional to the range rather than fixed. That predicts
+  **`CR10_1mA` ≈ +0.2 µA**, an 8× improvement on what the film runs carried. Honest
+  limit: at the 0.34 µA settled currents of 2026-09-11 a 0.2 µA offset is still ~59%, so
+  the range change helps the top of that spread and not the bottom. Subtraction is what
+  fixes the low end. Worth confirming the 0.02% rule on a third range before relying on
+  it to predict one that has not been measured.
 - **Is the CV's auto-ranging picking something too sensitive?** `FHPreCurrentRangingCV`
   presumably probes at the initial potential, where a film draws almost nothing. If so
-  the fix is a NOVA edit (fixed range in the CV template), not a code change. Unverified.
+  the fix is a NOVA edit (fixed range in the CV template), not a code change. Unverified —
+  but now the leading explanation, since 2026-09-16 establishes that the flag is truthful
+  and self-clearing, so those CV flags reported real excursions that the recorded sweep
+  could not show.
 
 ## HDF5 output alongside the ascii files (the user, 2026-09-11)
 

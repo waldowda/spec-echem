@@ -1,0 +1,86 @@
+
+========================================================================
+probe_overload -- 10 kOhm dummy, 0.1 V, two current ranges
+========================================================================
+Reading a flag needs Sampler.Sample() first; the flags are a latch.
+Connected OK — cell NOT switched on.
+Cell switched OFF.
+
+========================================================================
+0. baseline -- cell OFF on the fine range, nothing driven
+========================================================================
+
+  baseline  (CR13_1uA, cell OFF)
+    samples          10
+    current          first 4.028e-09 A   last 1.556e-09 A   max |I| 4.028e-09 A
+    expected         1e-05 A  (0.1 V / 10 kOhm)
+    overload flagged 0 of 10 samples
+    first sample     t=0.000s  E=0.00017 V  I=4.028e-09 A  CUR_OV=False  POT_OV=False
+    last sample      t=0.905s  E=0.00024 V  I=1.556e-09 A  CUR_OV=False  POT_OV=False
+
+========================================================================
+1. the control -- a range that CAN carry 10 uA
+========================================================================
+
+  control  (CR11_100uA, cell ON)
+    samples          40
+    current          first 1.01e-05 A   last 1.01e-05 A   max |I| 1.01e-05 A
+    expected         1e-05 A  (0.1 V / 10 kOhm)
+    overload flagged 0 of 40 samples
+    first sample     t=0.000s  E=0.09982 V  I=1.01e-05 A  CUR_OV=False  POT_OV=False
+    last sample      t=3.920s  E=0.09982 V  I=1.01e-05 A  CUR_OV=False  POT_OV=False
+
+========================================================================
+2. the overload -- a range 10x too fine for 10 uA
+========================================================================
+
+  overload  (CR13_1uA, cell ON)
+    samples          40
+    current          first 9.488e-06 A   last 9.494e-06 A   max |I| 9.494e-06 A
+    expected         1e-05 A  (0.1 V / 10 kOhm)
+    overload flagged 40 of 40 samples
+    first sample     t=0.000s  E=0.09680 V  I=9.488e-06 A  CUR_OV=True  POT_OV=False
+    last sample      t=3.922s  E=0.09698 V  I=9.494e-06 A  CUR_OV=True  POT_OV=False
+
+========================================================================
+3. does the flag LATCH? cell off, back to the good range
+========================================================================
+
+  after  (CR11_100uA, cell OFF)
+    samples          20
+    current          first 1.923e-08 A   last 2.472e-08 A   max |I| 2.502e-08 A
+    expected         1e-05 A  (0.1 V / 10 kOhm)
+    overload flagged 0 of 20 samples
+    first sample     t=0.000s  E=-0.00002 V  I=1.923e-08 A  CUR_OV=False  POT_OV=False
+    last sample      t=1.909s  E=0.00034 V  I=2.472e-08 A  CUR_OV=False  POT_OV=False
+
+========================================================================
+4. and driven again on the good range?
+========================================================================
+
+  recovery  (CR11_100uA, cell ON)
+    samples          40
+    current          first 1.01e-05 A   last 1.01e-05 A   max |I| 1.01e-05 A
+    expected         1e-05 A  (0.1 V / 10 kOhm)
+    overload flagged 0 of 40 samples
+    first sample     t=0.000s  E=0.09985 V  I=1.01e-05 A  CUR_OV=False  POT_OV=False
+    last sample      t=3.919s  E=0.09991 V  I=1.01e-05 A  CUR_OV=False  POT_OV=False
+
+========================================================================
+VERDICT
+========================================================================
+  control flagged   0/40
+  overload flagged  40/40
+  after, cell off   0/20
+  recovery, driven  0/40
+
+  SELF-CLEARING: the flag tracks the present sample. A flag means the
+  overload is happening NOW, pump() reporting it once per segment is
+  right, and a CV that flags has a real excursion somewhere in it.
+
+  Clipped current reached |I| <= 9.494e-06 A against a 1e-05 A cell current.
+  The recorded current is NOT obviously pinned, so a clipped segment
+  cannot be recognised from the data alone -- the flag is the only
+  evidence, which makes the latch question decisive.
+Cell switched OFF.
+Disconnected.
