@@ -451,7 +451,7 @@ def test_the_summary_lists_both_biexp_components():
     lines = "\n".join(fit_transient(t, y, "biexp").describe())
     for name in ("B1", "tau1", "B2", "tau2", "mean tau"):
         assert name in lines, f"{name} missing from:\n{lines}"
-    assert "95% CI" in lines and "1 SD" in lines, "both intervals must be labelled"
+    assert "95% CI" in lines and "1 SD" in lines, "both intervals must be labeled"
 
 
 def test_the_summary_lists_tau_and_beta_for_a_stretched_fit():
@@ -686,7 +686,7 @@ def test_the_gaussian_width_is_recovered_exactly():
         fit = fit_gaussian_dos(e, g)
         assert fit["ok"], fit["reason"]
         assert fit["sigma_mev"] == pytest.approx(truth_ev * 1000, rel=0.01)
-        assert fit["centre_ev"] == pytest.approx(-5.15, abs=0.005)
+        assert fit["center_ev"] == pytest.approx(-5.15, abs=0.005)
         assert not fit["needs_review"], fit["concern"]
 
 
@@ -788,7 +788,7 @@ def test_a_negative_dos_is_excluded_from_the_gaussian_fit():
     assert clean["ok"] and fixed["ok"]
     # the fit must not be dragged by points that cannot be a density of states
     assert fixed["sigma_mev"] == pytest.approx(clean["sigma_mev"], rel=0.05)
-    assert fixed["centre_ev"] == pytest.approx(clean["centre_ev"], abs=0.01)
+    assert fixed["center_ev"] == pytest.approx(clean["center_ev"], abs=0.01)
 
 
 def test_too_few_physical_points_is_reported_as_such():

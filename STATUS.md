@@ -96,7 +96,7 @@ fit belonged.
 - **Density of states v1** — Tab 4 → Optical view → *Density of states (CV only)*, film
   geometry on Tab 2. Scan rate MEASURED from the data (`CV.txt` has no time column, but
   the spectra file does), signed sweep rate, last complete cycle, directions separate
-  and labelled oxidizing/reducing.
+  and labeled oxidizing/reducing.
 - **[`docs/manual.md`](docs/manual.md)** — the tabs, and the mathematics behind every
   number the GUI reports.
 
@@ -105,7 +105,7 @@ fit belonged.
 - **Loading a second run ran the 32-bit build out of memory.** The reader pulled all
   eight columns to rebuild a matrix needing three, and the new run was built alongside
   the old. Peak went 246 → 476 MiB on the second load; now it stays at 246.
-- **A loaded run was labelled with the Parameters tab's potentials** — a segment held at
+- **A loaded run was labeled with the Parameters tab's potentials** — a segment held at
   +0.700 V titled "+0.400 V". Labels now come from the measured `WE(1).Potential`.
 
 **Minimum integration time — probed, not assumed.** The SDK exposes no minimum; the
@@ -144,7 +144,7 @@ reading this later:
   below ~410 nm on these rigs).
 - **The polaron is not always the band that grows.** True on doping; on dedoping it
   decays while π–π* recovers. Both tabs now share `analysis.probe_wavelength`.
-- **A loaded run was labelled with the Parameters tab's potentials.** A segment held at
+- **A loaded run was labeled with the Parameters tab's potentials.** A segment held at
   +0.700 V was titled "+0.400 V". Labels now come from the measured `WE(1).Potential`,
   falling back to the run's own metadata, and never from the live form.
 - **τ is bounded** — τ > 0, 0 < β ≤ 1, and τ < 10× the fitted window. The charge integral
