@@ -91,7 +91,8 @@ genuine against the detector's own integral — `counts = 112 + 26051·t` to wit
 from 0.009 to 0.1 ms — so the cheap bisect is trustworthy and now runs as the fallback
 in `minimum_integration_time()`.
 
-- [ ] **Probe the other detector** (`AvaSpec-ULS2048L`, docs say ~1.05 ms) with
+- [ ] **Probe the other detector** — handoff written up in
+      [`docs/next-session-integration-probe.md`](docs/next-session-integration-probe.md). (`AvaSpec-ULS2048L`, docs say ~1.05 ms) with
       `examples/probe_min_integration.py`. If it comes back near 1.05 ms that confirms
       a >100× spread between detectors; if it comes back at 0.009 too, the 1.05 ms in
       `metrohm-rig-status.md` came from a datasheet rather than the hardware.
