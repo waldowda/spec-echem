@@ -780,6 +780,46 @@ running an actual experiment rather than by testing.
   and self-clearing, so those CV flags reported real excursions that the recorded sweep
   could not show.
 
+## Live CV plot shows points the recorded data does not (the user, 2026-09-16)
+
+Reported from the GUI run `20260916_test1`: *"Some times a data point gets plotted
+slightly off but in the final data it is not off."* So it is a DISPLAY glitch on the
+Run tab's live echem trace, and the saved `CV.txt` is clean.
+
+That split is itself the clue, because the two come from different places. For a CV
+(always procedure mode) the recorded trace is read from `command.Signals` AFTER the run,
+while the live trace is built from `_live_samples`, which `pump()` accumulates during it.
+Only the live path can glitch without the file glitching.
+
+**A specific candidate, in the code today.** `pump()` calls `sample_ei(inst)` and
+DISCARDS its return value (`spec_echem/potentiostat.py`, ~line 958). `sample_ei` is
+deliberately best-effort — "a failed refresh is a stale reading, not a reason to sink a
+segment" — and returns False when the refresh fails. On that path the latch still holds
+the PREVIOUS potential and current, and `pump()` appends them against a FRESH timestamp:
+a point at the old place on the curve, at a new time. That is what "slightly off, but
+only on screen" looks like.
+
+- [ ] **Use the return value.** When the refresh failed, do not append a sample —
+      or append it marked, so the live plot can skip it. A gap is honest; an invented
+      point is not.
+- [ ] **Then check whether it reaches RECORDED data.** This matters more than the plot:
+      in `Ei` mode `_live_samples` is not a display sideline, it IS the segment's echem
+      data, so the same stale sample would be written to `steps(N).txt`. CV is safe
+      because it reads `.Signals`; doping/dedoping/pre-dedoping are not.
+
+**What today's data can and cannot say.** `20260916_test1` has 8-34 consecutive
+identical (E, I) row pairs per chrono segment (up to 11% of rows in `steps(0)`). That is
+CONSISTENT with the stale-sample path but does **not** demonstrate it: the segment held
+a fixed potential across a 10 kOhm resistor, so the true current was constant, and
+consecutive identical readings are exactly what quantisation of a steady signal
+produces. The two causes are indistinguishable on a dummy.
+
+- [ ] **The discriminating test needs a CHANGING signal**, where a stale sample lands
+      visibly off the trend instead of on top of it — a real film transient, or a
+      deliberate ramp. Alternatively, instrument `sample_ei` to COUNT failures over a
+      run: if it never returns False, the candidate above is not the mechanism and the
+      glitch is somewhere in the plotting itself.
+
 ## HDF5 output alongside the ascii files (the user, 2026-09-11)
 
 **Why:** disk. A single long run already writes ~1.6 M rows per spectra file, and the
