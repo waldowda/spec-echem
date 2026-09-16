@@ -826,7 +826,7 @@ probe should report **both** numbers so the choice is made with them visible.
 
 **The value is doing it WHILE the run is going, not afterwards.** On 2026-09-11, film A
 collapsed after the +0.8 V excursion in `film2` and nothing said so until the files were
-analysed later — `film3` was then spent on a film that was already dead. A modulation-per-step
+analyzed later — `film3` was then spent on a film that was already dead. A modulation-per-step
 number on screen would have shown it during `film2`, in time to stop.
 
 That is the whole argument. Publication-quality and exploratory work stays in Jupyter.
@@ -842,7 +842,7 @@ Revisit only if the controls crowd the tab.
 
 ### What "core" means — Raj's `oect_processing/specechem/`
 
-His `UVVis` class and `uvvis_plot` are the reference for which analyses earn a place:
+His `UVVis` class and `uvvis_plot` are the reference for which analyzes earn a place:
 
 | method | what it gives |
 |---|---|

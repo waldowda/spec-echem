@@ -751,10 +751,10 @@ def density_of_states(potential, current, scan_rate_v_per_s, volume_cm3=None,
         # direction. Dividing by the magnitude flipped the reverse sweep below zero.
         rate = scan_rate_v_per_s if rising else -scan_rate_v_per_s
         out.append({
-            # Rising potential REMOVES electrons from the film (oxidising, p-doping);
+            # Rising potential REMOVES electrons from the film (oxidizing, p-doping);
             # falling potential puts them back (reducing, de-doping). Worth saying on
             # the plot: "forward" alone does not tell you which way charge is going.
-            "direction": "oxidising (forward)" if rising else "reducing (reverse)",
+            "direction": "oxidizing (forward)" if rising else "reducing (reverse)",
             # E = -eV: a more positive potential removes electrons, i.e. probes
             # deeper into the occupied states.
             "energy_ev": -vv,
@@ -799,14 +799,14 @@ def fit_gaussian_dos(energy, dos):
     floor = float(np.nanmin(g))
     p0 = [peak - floor, float(e[int(np.nanargmax(g))]), span / 6.0, floor]
 
-    def model(x, amplitude, centre, sigma, offset):
-        return offset + amplitude * np.exp(-((x - centre) ** 2) / (2.0 * sigma ** 2))
+    def model(x, amplitude, center, sigma, offset):
+        return offset + amplitude * np.exp(-((x - center) ** 2) / (2.0 * sigma ** 2))
 
     try:
         with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
             popt, pcov = curve_fit(
                 model, e, g, p0=p0, maxfev=10000,
-                # sigma > 0, and the centre must stay inside the measured window --
+                # sigma > 0, and the center must stay inside the measured window --
                 # an unbounded fit will happily put the peak off the edge of the data
                 # and report a width that describes nothing.
                 bounds=([-np.inf, e[0], 1e-6, -np.inf],
@@ -825,7 +825,7 @@ def fit_gaussian_dos(energy, dos):
     sd = np.sqrt(np.abs(np.diag(pcov)))
     if not np.all(np.isfinite(sd)):
         return {"ok": False, "reason": "uncertainty is undefined (singular covariance)"}
-    amplitude, centre, sigma, offset = (float(v) for v in popt)
+    amplitude, center, sigma, offset = (float(v) for v in popt)
 
     # A fit sitting ON its bound is not a measurement. sigma is bounded by the width
     # of the measured window, so sigma -> span means "no resolved peak in here", not
@@ -851,7 +851,7 @@ def fit_gaussian_dos(energy, dos):
         "needs_review": bool(concern),
         "concern": concern,
         "amplitude": amplitude, "amplitude_sd": float(sd[0]),
-        "centre_ev": centre, "centre_sd": float(sd[1]),
+        "centre_ev": center, "centre_sd": float(sd[1]),
         "sigma_mev": sigma * 1000.0, "sigma_sd_mev": float(sd[2]) * 1000.0,
         "offset": offset, "offset_sd": float(sd[3]),
         "curve": model(e, *popt),

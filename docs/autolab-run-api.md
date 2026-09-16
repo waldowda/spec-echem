@@ -244,7 +244,7 @@ Standard CV, 0 → +1 → −1 → 0 V at 0.1 V/s:
 - **Units:** amps. **Sign:** current same sign as V/R — **no inversion**. **Linearity:** flat
   ~9.9 kΩ across the whole ±1 V sweep (within resistor tol + instrument accuracy).
 - **Timebase:** Δt = 0.024414 s constant; array starts at ~6 s (the `FHWait`), so zero it.
-- **`Scan`** stayed 1 for one full cycle — multi-cycle behaviour of idx-4 still unknown.
+- **`Scan`** stayed 1 for one full cycle — multi-cycle behavior of idx-4 still unknown.
 
 ---
 
@@ -268,7 +268,7 @@ driver. The GUI wiring is deliberately not written yet.
 | `open` | `Instrument()`, set ADX/HDW, `Connect()`, assert `IsConnected` |
 | `prepare(segment)` | `proc = LoadProcedure(template_for(segment.data_type))`; write CV vertices / scan rate / conditioning V / wait into `proc.Commands[...]CommandParameters[idx].ValueAsObject` from settings + `run_number` (doping V = `start + run_number*step`) |
 | `fire` | `proc.Measure()` (returns immediately); then pulse `inst.Dio.DioPortsP1[0]` during the `FHWait` window (spectrometer already armed) |
-| `finish` | poll `proc.IsMeasuring` → False; read `proc.Commands["FHCyclicVoltammetry2"].Signals`; build `data.EchemData(time = CalcTime − CalcTime[0], potential = EI_0.CalcPotential, current = EI_0.CalcCurrent)`; hand to `write_echem_file()`; honour `segment.save == False` |
+| `finish` | poll `proc.IsMeasuring` → False; read `proc.Commands["FHCyclicVoltammetry2"].Signals`; build `data.EchemData(time = CalcTime − CalcTime[0], potential = EI_0.CalcPotential, current = EI_0.CalcCurrent)`; hand to `write_echem_file()`; honor `segment.save == False` |
 | `stop` | `proc.Abort()`; then `_switch_cell(inst.Ei, off)` as a backstop |
 | `pump` / `live_data` | `inst.Ei.Sampler.GetSignal("WE(1).Potential"/"WE(1).Current").Value` (scalars) |
 | `last_data` | the `EchemData` built in `finish` |

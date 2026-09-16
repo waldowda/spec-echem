@@ -201,7 +201,7 @@ convenience is a small change.
 
 ### Why CV tolerates all of this and CA does not (Dean, 2026-09-06)
 
-**CV is run as ~3 cycles and the steady-state cycle — the second or third — is what gets analysed.**
+**CV is run as ~3 cycles and the steady-state cycle — the second or third — is what gets analyzed.**
 Cycle 1 is discarded by practice. So the conditioning hold, the ranging, and whatever the film does
 during the first sweep are all in the part that was going to be thrown away regardless. The preamble
 is free.
@@ -340,7 +340,7 @@ port.
 **It stops being harmless when the AvaLight-Mini2 shutter is wired.** That lamp is TTL-controlled
 and NOVA's own procedures use the Autolab DIO for lamp/shutter control
 (`metrohm-rig-status.md`). An 0xFF pulse would then move the shutter on **every segment, mid-run** —
-corrupting the optics in a way that reads as sample behaviour rather than as a fault.
+corrupting the optics in a way that reads as sample behavior rather than as a fault.
 
 ### Now configurable, default unchanged
 

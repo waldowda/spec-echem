@@ -60,7 +60,7 @@ C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Chrono
 
 — not a hand-built procedure from `Documents\NOVA 2.1\`. The design intent is to drive the vendor's
 *standard* measurement (the way the Gamry driver uses toolkitpy's own signal constructors), so the
-probe should characterise a standard procedure.
+probe should characterize a standard procedure.
 
 For **Q8 only** (does the `.nox` already pulse P1.A?), a second **non-energized** run pointed at one
 of the rig's `PC_Spectral*` procedures is worth it — those contain the trigger pulse. Do **not**

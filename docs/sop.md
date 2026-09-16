@@ -84,7 +84,7 @@ C:\Users\inst-chem\AppData\Local\anaconda3\python.exe
 
 `EchemToolkitPy` is 32-bit-only until Gamry ships 64-bit support (targeted ~Sept 2026). In a
 64-bit environment the app **automatically disables Python mode** and falls back to External —
-you don't have to do anything, but the Python radio button will be greyed out.
+you don't have to do anything, but the Python radio button will be grayed out.
 
 **64-bit (`SpecEchem`):**
 
@@ -441,7 +441,7 @@ Each launch is marked by a banner you can find while scrolling:
 ```
 
 Those last two lines settle the most common false alarm in this program. If **Python — drive the
-Gamry from here** is greyed out with *"toolkitpy not available"*, that is almost never a broken
+Gamry from here** is grayed out with *"toolkitpy not available"*, that is almost never a broken
 potentiostat — it's the wrong environment. `toolkitpy` is 32-bit only, so it cannot load in the
 64-bit `SpecEchem` env. Check the banner: `env SpecEchem32` and `toolkitpy: yes` means Python mode
 is available; anything else means `conda activate SpecEchem32` and relaunch.
@@ -465,7 +465,7 @@ native `.DTA` files in a `dta/` subfolder if you enabled them.
 - Check USB; make sure it was powered on before launching the app
 - Confirm `avaspec.py` is in site-packages and the DLL path edit was applied (§1.4)
 
-**Python mode is greyed out**
+**Python mode is grayed out**
 - You're in a 64-bit environment. `EchemToolkitPy` is 32-bit only — use `SpecEchem32`, or stay in
   External mode.
 
@@ -579,7 +579,7 @@ files land with the spectra.
 0.1 V and stepping 0.1 V, that's **2 cycles**. Raise the threshold for more.
 
 **Individual step dialogs** (double-click, then OK) — you generally change nothing here; the
-potentials and times are greyed out and driven by the variables above.
+potentials and times are grayed out and driven by the variables above.
 
 - **Cyclic Voltammetry** (`CV.DTA`) — you *may* adjust **Scan Rate**, **Step Size**, **Max Current**
 - **Set Digital Out** — appears in pairs bracketing each step (HIGH before, LOW after). These *are*

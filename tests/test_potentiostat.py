@@ -588,7 +588,7 @@ def test_close_switches_the_cell_off_and_disconnects(autolab):
 # port: an 0xFF pulse would move the shutter mid-segment.
 
 def test_the_pulse_drives_all_pins_by_default(autolab):
-    """Unchanged behaviour until the wired pin is measured."""
+    """Unchanged behavior until the wired pin is measured."""
     p, inst = autolab()
     p.prepare(_cv_segment())
     p.fire()

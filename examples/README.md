@@ -37,7 +37,7 @@ software up on a machine or a rig it has never run on. The Autolab ones are 64-b
 Run them in that order — a failure early makes everything after it ambiguous. The procedure is
 `docs/metrohm-bench-check.md`; the findings so far are `docs/metrohm-rig-status.md`.
 
-## Autolab bench scripts — characterising the templates
+## Autolab bench scripts — characterizing the templates
 
 Written against the API proven by the probes (`docs/autolab-run-api.md`), these run real
 measurements on a **10 kΩ dummy resistor** and answer what is left before the

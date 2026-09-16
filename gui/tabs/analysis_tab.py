@@ -44,7 +44,7 @@ def _ratio_ci95(ratio, numerator, denominator):
 # The three traces fitted per segment, in table order.
 TRACES = ("absorbance", "current", "charge")
 
-# One colour per trace, so doping and dedoping of the SAME trace are visibly a pair
+# One color per trace, so doping and dedoping of the SAME trace are visibly a pair
 # rather than two unrelated series.
 TRACE_COLORS = {"absorbance": "#1f77b4", "current": "#ff7f0e", "charge": "#2ca02c"}
 
@@ -101,7 +101,7 @@ class AnalysisTab(QWidget):
 
         # The fit window. Both ends are meant to be tuned by hand and refitted —
         # the capacitive spike's RC is not known in advance, so the useful workflow
-        # is move the edge, look at the residuals, fit again. The greyed region on
+        # is move the edge, look at the residuals, fit again. The grayed region on
         # the plot updates live as these move, before any refit.
         span = QHBoxLayout()
         self.start_spin = QDoubleSpinBox()
@@ -128,7 +128,7 @@ class AnalysisTab(QWidget):
         self.stop_spin.setValue(0.0)
         self.stop_spin.setToolTip(
             "Last point the fit uses. 0 = the end of the segment.")
-        # Live: the greyed excluded region follows these before any refit, so the
+        # Live: the grayed excluded region follows these before any refit, so the
         # effect of moving an edge is visible while choosing it.
         self.start_spin.valueChanged.connect(self._draw_fit)
         self.stop_spin.valueChanged.connect(self._draw_fit)
@@ -422,7 +422,7 @@ class AnalysisTab(QWidget):
 
     def _window(self, traces):
         """(start, stop) for the fit, shared by fitting and by the shading on the
-        plot — one definition, so the grey region cannot disagree with the fit."""
+        plot — one definition, so the gray region cannot disagree with the fit."""
         # 0 means "the whole segment" at both ends, so neither box needs re-typing
         # for a different run. There was a checkbox here that computed a start from
         # the peak |I|; on a potential step that peaks at the FIRST sample, so it

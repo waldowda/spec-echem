@@ -197,7 +197,7 @@ class MplCanvas(FigureCanvasQTAgg):
         never measured. Silently dropping those points would hide which ones failed.
 
         `styles` overrides plot kwargs per series name -- the ladder uses it to draw
-        dedoping dashed against the same colour as its doping counterpart. `yerr` adds
+        dedoping dashed against the same color as its doping counterpart. `yerr` adds
         error bars per series; NaN entries there simply draw no bar on that point.
         `flags` marks individual points with a hollow ring: the ladder uses it for a
         fit that converged but failed a check, which is PLOTTED rather than dropped so
@@ -271,7 +271,7 @@ class MplCanvas(FigureCanvasQTAgg):
             fit_y = np.asarray(fit_y, dtype=float)
             # A fit under review is still drawn, dashed and amber so it reads as a
             # caution rather than an endorsement.
-            colour = "#d62728" if fit_ok else "#e07b00"
+            color = "#d62728" if fit_ok else "#e07b00"
             # The concern goes INTO the legend entry, in amber, with an amber frame
             # round the box. Requested: "I would remove the box and put the NEEDS REVIEW
             # section in the legend in amber... so you would not need that big in
@@ -279,11 +279,11 @@ class MplCanvas(FigureCanvasQTAgg):
             label = note or ("fit" if fit_ok else "fit — needs review")
             if caution:
                 label = f"{label}\n{caution}"
-            self.ax.plot(t, fit_y, "-" if fit_ok else "--", lw=1.4, color=colour,
+            self.ax.plot(t, fit_y, "-" if fit_ok else "--", lw=1.4, color=color,
                          label=label, zorder=3)
             resid = y - fit_y
             self.resid_ax.plot(t, resid, "o", ms=2.0, color="#1f77b4", alpha=0.6)
-            self.resid_ax.axhline(0.0, ls="-", lw=0.8, color=colour, alpha=0.8)
+            self.resid_ax.axhline(0.0, ls="-", lw=0.8, color=color, alpha=0.8)
 
             legend = self.ax.legend(fontsize=7, loc="best")
             if not fit_ok:
@@ -296,7 +296,7 @@ class MplCanvas(FigureCanvasQTAgg):
                                transform=self.resid_ax.transAxes,
                                color="#888", fontsize=8)
             self.resid_ax.set_yticks([])   # no residuals; 0-1 ticks describe nothing
-            # No curve, so nothing to hang a legend entry on: a plain centred note.
+            # No curve, so nothing to hang a legend entry on: a plain centered note.
             message = caution or note or ""
             if message:
                 self.ax.annotate(
@@ -306,7 +306,7 @@ class MplCanvas(FigureCanvasQTAgg):
                     ha="center", va="center", fontsize=9, clip_on=True,
                     color="#7a4a00" if caution else "#888")
 
-        # Grey out what the fit did not see, so a window that excludes the decay
+        # Gray out what the fit did not see, so a window that excludes the decay
         # itself is visible at a glance rather than inferred from a bad tau.
         if window is not None and len(t):
             lo, hi = window
@@ -328,8 +328,7 @@ class MplCanvas(FigureCanvasQTAgg):
             self.fig.suptitle(title, fontsize="medium")
         self.draw_idle()
 
-    def plot_multi_xy(self, curves, xlabel, ylabel, title=None, logy=False,
-                      extra_note=""):
+    def plot_multi_xy(self, curves, xlabel, ylabel, title=None, logy=False):
         """Several (x, y, label) curves that do NOT share an x axis.
 
         plot_series takes one x for every series, which is right for a ladder. A CV's
@@ -345,7 +344,9 @@ class MplCanvas(FigureCanvasQTAgg):
             # them. The caller states how many, so they are not silently lost.
             self.ax.set_yscale("log")
         if len(curves) > 1:
-            self.ax.legend(fontsize="small")
+            # 7pt and inside the axes: a "small" legend carrying wrapped notes was
+            # wider than the canvas.
+            self.ax.legend(fontsize=7, loc="best", framealpha=0.9)
         self._decorate(title)
         self.draw_idle()
 

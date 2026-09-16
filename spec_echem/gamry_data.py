@@ -59,7 +59,7 @@ def measured_potential(path):
     This is ground truth in a way neither source of nominal values is: the run
     metadata records what was REQUESTED, and the live Parameters tab may describe a
     different experiment entirely. On 20260709_P3HT_01 it reads 0.301 / 0.500 /
-    0.700 V where the GUI was labelling 0.200 / 0.300 / 0.400 V.
+    0.700 V where the GUI was labeling 0.200 / 0.300 / 0.400 V.
     """
     try:
         df = read_chrono(path)

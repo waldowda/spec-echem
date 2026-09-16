@@ -102,7 +102,7 @@ DEFAULT_SETTINGS = {
     "autolab_nox_ca": "",           # chronoamperometry procedure template
     "autolab_dio_port": 0,          # DioPortsP1 index; 0 = P1.A
     # Which pins of that port the trigger pulse drives. 0xFF = all eight, the
-    # historical behaviour; safe only while nothing else shares the port. Set a
+    # historical behavior; safe only while nothing else shares the port. Set a
     # single bit once examples/probe_dio_pin.py has found the wired pin.
     # Parsed by parse_dio_mask() below, so 0x04 / 0b100 / 4 all mean the same thing.
     "autolab_dio_mask": 0xFF,
@@ -116,7 +116,7 @@ DEFAULT_SETTINGS = {
     # False). True is an experiment: see AutolabPotentiostat._apply_fast_options.
     "autolab_ca_fast_options": None,
     # Who runs a chrono hold. "procedure" loads the .nox for every segment (shipped
-    # behaviour); "ei" drives doping/dedoping/pre-dedoping from Python via Ei and
+    # behavior); "ei" drives doping/dedoping/pre-dedoping from Python via Ei and
     # leaves CV on the procedure. Ei exists because the .nox spends ~0.93 s reaching
     # its recorder (measured 2026-09-09) and nothing configurable shortens it.
     "autolab_ca_mode": "procedure",

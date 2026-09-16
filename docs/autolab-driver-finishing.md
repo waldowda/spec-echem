@@ -131,7 +131,7 @@ loads `CLAUDE.md` automatically. Paste this:
 > SpecEchem env, 10 kΩ 1% dummy resistor available (2-electrode: W+WS one leg, RE+CE the other).
 >
 > Read **`docs/autolab-driver-finishing.md` — the "PLAN FOR THE NEXT UW TRIP" section at the top is
-> what we are doing** — plus `docs/autolab-run-api.md` for the proven SDK behaviour. Work that plan
+> what we are doing** — plus `docs/autolab-run-api.md` for the proven SDK behavior. Work that plan
 > in order: pre-flight `scan_averages`, then `examples/bench_autolab_fullrun.py` headless on the
 > dummy, then check the written files against `docs/data-format.md`, then the same run through the
 > GUI, and only then an old sample.

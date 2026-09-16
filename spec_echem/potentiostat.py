@@ -7,7 +7,7 @@ starts the Gamry*:
 
     ExternalPotentiostat  — the proven Phase-1 path. The human starts a
                             `.GSequence` in Gamry Framework; this object does
-                            nothing. Behaviour is byte-identical to before.
+                            nothing. Behavior is byte-identical to before.
     ToolkitPotentiostat   — Phase-2 path. Python drives the Gamry through the
                             `toolkitpy` (EchemToolkitPy) library and fires
                             DIGOUT0 itself, so no manual start is needed.
@@ -226,7 +226,7 @@ class Potentiostat:
 #
 # Everything below follows docs/autolab-run-api.md, which records what the SDK
 # actually did on the PGSTAT302N — the run-API on 2026-08-31, then all of §4 (CV/CA
-# maps, abort, lifecycle, fault behaviour, trigger skew) on the rig 2026-09-03.
+# maps, abort, lifecycle, fault behavior, trigger skew) on the rig 2026-09-03.
 # The one remaining bench check is positional command-list indexing, used only by
 # _neutralise_extra_ca_steps and guarded there. See docs/autolab-driver-finishing.md.
 #
@@ -733,7 +733,7 @@ class AutolabPotentiostat(Potentiostat):
         # cannot produce one. A bad value should stop the run before it starts.
         self._dio_mask = parse_dio_mask(
             self.settings.get("autolab_dio_mask", 0xFF))
-        # "procedure" runs the .nox for every segment (the shipped behaviour);
+        # "procedure" runs the .nox for every segment (the shipped behavior);
         # "ei" drives chrono holds from Python and leaves CV on the procedure.
         self._ca_mode = str(self.settings.get("autolab_ca_mode") or "procedure").lower()
         if self._ca_mode not in ("procedure", "ei"):
@@ -1347,7 +1347,7 @@ class AutolabPotentiostat(Potentiostat):
             # These two contradict each other. autolab_pulse_delay_s is an absolute
             # number measured against whatever FHWait the template had at the time;
             # once the wait is rewritten it is stale by exactly the amount it moved,
-            # and honouring it would fire the trigger seconds away from the recorder.
+            # and honoring it would fire the trigger seconds away from the recorder.
             # The derived value is self-consistent by construction, so it wins.
             get_run_logger().warning(
                 "Autolab: ignoring autolab_pulse_delay_s (%.3f s) because "
@@ -1620,7 +1620,7 @@ def make_potentiostat(settings):
 
 
 class ExternalPotentiostat(Potentiostat):
-    """Phase-1 behaviour: a human starts the Gamry sequence. Pure no-op."""
+    """Phase-1 behavior: a human starts the Gamry sequence. Pure no-op."""
     pass
 
 
