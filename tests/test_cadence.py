@@ -273,3 +273,48 @@ def test_no_callback_is_fine(monkeypatch):
     spectra, ts = acq.acquire_segment(spec, 3, delta_time=0.100, trigger=True,
                                       on_armed=lambda: None)
     assert len(ts) == 3
+
+
+# --- The potentiostat is part of the budget --------------------------------------
+
+def test_polling_the_autolab_costs_half_a_hundred_millisecond_slot():
+    """MEASURED 2026-09-09: Sampler.Sample() is 25 ms and each latch read is 5 ms --
+    Ei's scalars are a latch, so touching one is a round trip. pump() does a sample
+    plus five reads."""
+    from spec_echem.acquisition import potentiostat_poll_seconds
+
+    assert potentiostat_poll_seconds("autolab") == pytest.approx(0.050)
+    assert potentiostat_poll_seconds("external") == 0.0
+    assert potentiostat_poll_seconds(None) == 0.0
+    assert potentiostat_poll_seconds("something else") == 0.0
+
+
+def test_the_budget_matches_what_the_instrument_actually_ran():
+    """The regression this exists to prevent. 20260916_test1 ran 1.1 ms x 20 averages
+    into a 100 ms slot and came out at a mean of 103.9-106.0 ms on every chrono
+    segment. The advisory had reported 52 ms and called it comfortable."""
+    from spec_echem.acquisition import spectrum_cost_seconds
+
+    blind = spectrum_cost_seconds(1.1, 20)
+    informed = spectrum_cost_seconds(1.1, 20, "autolab")
+
+    assert blind == pytest.approx(0.052)            # what it used to say
+    assert informed == pytest.approx(0.102)         # against 0.1039-0.1060 measured
+    assert informed > 0.100, "must not call this grid a fit"
+
+
+def test_a_suggestion_that_ignores_the_potentiostat_does_not_fit():
+    from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
+
+    fits = suggest_scan_averages(1.1, 0.100, "autolab")
+    assert spectrum_cost_seconds(1.1, fits, "autolab") <= 0.100
+    assert spectrum_cost_seconds(1.1, fits + 1, "autolab") > 0.100
+    assert fits < suggest_scan_averages(1.1, 0.100), "must be stricter, not looser"
+
+
+def test_omitting_the_mode_keeps_the_old_arithmetic():
+    """Callers that predate the argument must not silently change behavior."""
+    from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
+
+    assert spectrum_cost_seconds(2.6439, 20) == pytest.approx(0.0829, abs=1e-4)
+    assert suggest_scan_averages(2.6439, 0.100) == 26
