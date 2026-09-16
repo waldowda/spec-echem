@@ -236,9 +236,12 @@ class ParametersTab(QWidget):
         # bench.ini: one film draws µA and the next draws mA. It applies to the
         # chrono steps only — a CV runs the .nox, which sets and auto-ranges its own.
         # Pick for the PEAK: in Ei mode nothing autoranges, so a range too small
-        # clips the transient, and one too large buys a coarse quantum and a zero
-        # offset (MEASURED 2026-09-11: ~1.6 µA on CR09_10mA, which is 32% of a 5 µA
-        # settled current).
+        # clips the transient, and one too large buys a coarse quantum and a larger
+        # zero offset. MEASURED across six ranges 2026-09-16: the offset runs
+        # ~0.01-0.02% of full scale down to CR12_10uA, so ~1.1 µA on CR09_10mA
+        # against ~0.11 µA on CR10_1mA. It is NOT a stable constant -- the same
+        # range read +1.605 µA on 2026-09-11 and -1.084 µA five days later -- so it
+        # is recorded per run rather than corrected for.
         range_combo = self._combo("autolab_current_range",
                                   [("", "leave the instrument's own")]
                                   + [(v, l) for v, l in AUTOLAB_CURRENT_RANGES])
@@ -246,6 +249,7 @@ class ParametersTab(QWidget):
             "Fixed current range for doping/dedoping/pre-dedoping (Ei mode only).\n"
             "Nothing autoranges there, so choose for the PEAK current, not the\n"
             "settled one - a step draws far more at t=0 than it settles to.\n"
+            "The right range depends on the system you are running, not the rig.\n"
             "CV is unaffected: it runs the procedure, which ranges itself.")
         dope_form.addRow("Current range (Ei mode):", range_combo)
         layout.addWidget(dope_group)
