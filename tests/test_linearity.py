@@ -163,3 +163,33 @@ def test_find_saturation_time_rejects_a_saturated_start():
     spec.init()
     with pytest.raises(LinearityError, match="Already saturated at Start"):
         find_saturation_time(spec, start=5.0)
+
+
+def test_saturation_at_the_floor_advises_attenuation_not_a_lower_start():
+    """The source is not a fixed property of the rig -- an ND filter or a diffuser
+    changes it by orders of magnitude -- and on a bright one this detector saturates at
+    the shortest exposure it will honor. Telling the user to 'lower Start' there is
+    advice they cannot take."""
+    spec = FakeSpectrometer()
+    spec.min_integration_time = 1.05
+    spec.init()
+    spec._lamp = spec._lamp * 1000.0        # a source that clips at any exposure
+
+    with pytest.raises(LinearityError) as excinfo:
+        find_saturation_time(spec, start=1.05, floor_ms=1.05)
+
+    message = str(excinfo.value)
+    assert "ttenuate" in message
+    assert "lower start" not in message.lower()
+
+
+def test_saturation_above_the_floor_still_offers_both_remedies():
+    spec = FakeSpectrometer()
+    spec.min_integration_time = 1.05
+    spec.init()
+    spec._lamp = spec._lamp * 1000.0
+
+    with pytest.raises(LinearityError) as excinfo:
+        find_saturation_time(spec, start=5.0, floor_ms=1.05)
+
+    assert "Lower Start" in str(excinfo.value)
