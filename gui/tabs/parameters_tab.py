@@ -72,7 +72,7 @@ class ParametersTab(QWidget):
         return w
 
     def _hint(self, widget, text):
-        """Wrap a field with a grey example/format hint to its right."""
+        """Wrap a field with a gray example/format hint to its right."""
         box = QWidget()
         row = QHBoxLayout(box)
         row.setContentsMargins(0, 0, 0, 0)
@@ -203,7 +203,7 @@ class ParametersTab(QWidget):
             "The pre-dedoping step still runs exactly as usual (the film is conditioned) "
             "but no files are written for it — no spectra .txt, no echem .txt, no .dta.\n"
             "Leave unchecked to save it as before.")
-        # Discard only means anything if the step runs at all. Grey it out otherwise —
+        # Discard only means anything if the step runs at all. Gray it out otherwise —
         # its checked state is kept, so re-enabling pre-dedoping restores the choice.
         discard.setEnabled(include_pre.isChecked())
         include_pre.toggled.connect(discard.setEnabled)

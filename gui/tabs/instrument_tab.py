@@ -292,7 +292,7 @@ class InstrumentTab(QWidget):
             "stay linear almost to the clip, so this — not linearity — usually sets the "
             "working point, and leaves headroom for lamp drift.")
         # Two compact rows, not one long one: a single row of five label+spin pairs gave
-        # the left column a large MINIMUM width, and Qt honours minimums before it
+        # the left column a large MINIMUM width, and Qt honors minimums before it
         # applies stretch — so the left box hogged the width and squeezed the plot on
         # the right into a tall, skinny strip.
         lin_form = QGridLayout()
@@ -621,17 +621,17 @@ class InstrumentTab(QWidget):
                 tail += (f" About {fits} averages would fit." if fits >= 1 else
                          " Even 1 average does not fit — use a coarser CV step or a"
                          " longer delta time.")
-                colour = "#b00020"
+                color = "#b00020"
             elif cost > 0.8 * slot:
                 tail = (f" Fits, but only {(slot - cost) * 1000:.0f} ms spare"
                         f" — {fits} averages is the ceiling here.")
-                colour = "#a86400"
+                color = "#a86400"
             else:
                 tail = f" Fits (up to {fits} averages)."
-                colour = "#555"
+                color = "#555"
 
             self.cadence_note.setText(head + tail)
-            self.cadence_note.setStyleSheet(f"color: {colour};")
+            self.cadence_note.setStyleSheet(f"color: {color};")
         except Exception:  # noqa: BLE001 — advisory only; stay quiet and harmless
             try:
                 self.cadence_note.setText("—")
@@ -661,7 +661,7 @@ class InstrumentTab(QWidget):
         if wl_max is not None:
             self.wl_max_spin.setValue(wl_max)
         # An unavailable mode falls back to External rather than selecting a radio the
-        # machine cannot honour — a saved "autolab" on the Gamry rig must not disarm it.
+        # machine cannot honor — a saved "autolab" on the Gamry rig must not disarm it.
         mode = settings.get("potentiostat_mode", "external")
         if mode == "python" and self.pstat_python_radio.isEnabled():
             self.pstat_python_radio.setChecked(True)

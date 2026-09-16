@@ -69,7 +69,7 @@ def test_measure_success_without_on_armed(monkeypatch):
 
 
 # --- AvaSpec DLL preload (SPEC_ECHEM_AVASPEC_DLL_DIR) ------------------------
-# Import-time behaviour, so each case reloads the module. ctypes.WinDLL exists only
+# Import-time behavior, so each case reloads the module. ctypes.WinDLL exists only
 # on Windows; it is faked here so the guard can be tested anywhere.
 
 def _reload_spectrometer(monkeypatch, dll_dir, loader=None):

@@ -12,7 +12,7 @@ sits *below* saturation. This module ramps the integration time, tracks a single
 detector pixel, fits the linear region, and reports where the response departs
 from that line.
 
-Run with the reference solution in place and the lamp on: the check characterises
+Run with the reference solution in place and the lamp on: the check characterizes
 the detector under the light level you will actually measure at.
 
 Pure / Qt-free / no vendor SDK — safe to unit-test anywhere.

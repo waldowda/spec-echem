@@ -7,6 +7,8 @@ is wired together with the Instrument-tab preview in the plotting increment.
 """
 from pathlib import Path
 
+import textwrap
+
 import numpy as np
 
 from qtpy.QtCore import Qt, QUrl
@@ -56,7 +58,7 @@ class ResultsTab(QWidget):
         # end of its ladder is exactly the wrong thing for this tab to imply.
         self.segment_combo.setMaxVisibleItems(SEGMENT_COMBO_VISIBLE)
         # Qt ignores maxVisibleItems when a style uses a NATIVE popup (Windows does).
-        # This forces the list-view popup, which honours it and scrolls beyond it.
+        # This forces the list-view popup, which honors it and scrolls beyond it.
         self.segment_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
         self.segment_combo.currentTextChanged.connect(self.on_segment_changed)
         ctrl_form.addRow("Segment:", self.segment_combo)
@@ -302,7 +304,7 @@ class ResultsTab(QWidget):
         per rung, so it BUILDS during a run.
 
         This is the plot that earns the tab: on 2026-09-11 a film collapsed after a
-        +0.8 V excursion and nothing said so until the files were analysed later, by
+        +0.8 V excursion and nothing said so until the files were analyzed later, by
         which time the next run had been spent on a dead sample.
 
         Doping only. Requested: "they are not part of the main ladder... I am not sure even
@@ -423,10 +425,14 @@ class ResultsTab(QWidget):
             label = curve["direction"]
             if fit["ok"]:
                 label += (f"   sigma = {fit['sigma_mev']:.0f} +/- "
-                          f"{fit['sigma_sd_mev']:.0f} meV"
-                          f"  @ {fit['centre_ev']:+.3f} V")
+                          f"{fit['sigma_sd_mev']:.0f} meV")
                 if fit.get("concern"):
-                    label += f"\n   ! {fit['concern']}"
+                    # Wrapped: an unwrapped sentence ran off the right of the canvas
+                    # and took the legend box with it.
+                    label += "\n" + "\n".join(
+                        "  ! " + line if i == 0 else "    " + line
+                        for i, line in enumerate(
+                            textwrap.wrap(fit["concern"], 46)))
             plotted.append((curve["energy_ev"], curve["dos"], label))
             # Do not draw a Gaussian that the fit itself says is not one.
             if fit["ok"] and not fit.get("needs_review"):
@@ -441,16 +447,22 @@ class ResultsTab(QWidget):
         # silently lost.
         note = f"   ({dropped} non-positive point(s) not shown on the log axis)" \
             if dropped else ""
+        # Provenance goes UNDER the axis, not into the title: three clauses of it ran
+        # off both sides of the canvas.
+        provenance = [f"last cycle, {rate * 1000:.1f} mV/s ({source})"]
+        if not volume:
+            provenance.append("no film volume — dQ/dV")
+        if from_form:
+            provenance.append("geometry from the Parameters tab")
+        if dropped:
+            provenance.append(f"{dropped} non-positive point(s) omitted (log axis)")
+
         self.canvas.plot_multi_xy(
             plotted,
-            "E = -eV  (eV)   —   more negative = more oxidising "
-            "(electrons removed)", units,
-            logy=True, extra_note=note,
-            title=f"Density of states — last cycle, "
-                  f"{rate * 1000:.1f} mV/s ({source})"
-                  + ("" if volume else "   (no film volume — dQ/dV)")
-                  + ("   [geometry from the Parameters tab]" if from_form else "")
-                  + note)
+            "E = -eV  (eV)    more negative = more oxidizing\n"
+            + " · ".join(provenance),
+            units, logy=True,
+            title="Density of states")
 
     def _plot_echem(self, label):
         """Show the segment's electrochemistry (I-vs-E for CV, I-vs-t for chrono).

@@ -36,9 +36,9 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
   **Chronoamperometry is not yet supported** — the CA parameter index map is still unknown, so
   doping/dedoping/pre-dedoping raise `NotImplementedError` naming
-  `docs/autolab-driver-finishing.md`. CV works. Existing External and Python (Gamry) behaviour is
+  `docs/autolab-driver-finishing.md`. CV works. Existing External and Python (Gamry) behavior is
   unchanged: External remains the default, and a saved `autolab` mode falls back to External on a
-  machine without the SDK rather than selecting a mode it cannot honour.
+  machine without the SDK rather than selecting a mode it cannot honor.
 
 - **Build identity.** `spec_echem.build_id()` reports `0.2.0` at a tag and `0.2.0+5.gaadf15a`
   between tags (`.dirty` if the tree has uncommitted changes). It now appears in three places:
@@ -57,7 +57,7 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
   Each launch writes a banner carrying the build id, the **Python version, bitness and conda env**,
   and whether `avaspec` / `toolkitpy` imported. That last part earns its place: "Python mode is
-  greyed out" looks like a dead potentiostat but is nearly always the wrong environment, since
+  grayed out" looks like a dead potentiostat but is nearly always the wrong environment, since
   `toolkitpy` is 32-bit only. A pasted log now answers that without anyone having to ask.
 
   Until now the only logging began when you pressed Start, so everything before a run — connecting
@@ -139,7 +139,7 @@ poll loop, the live-plot timer) were deliberately left untouched.
   complete and its partial echem is real data. *(bench-reproduced; new tests)*
 - **The blind-run safety net now says so.** When a segment that never fired is cancelled, the log
   records that the waveform was not applied — previously it acted silently, so a log showing only
-  the upstream spectrometer error left the Gamry's behaviour unaccounted for.
+  the upstream spectrometer error left the Gamry's behavior unaccounted for.
 
 ---
 

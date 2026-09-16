@@ -16,7 +16,7 @@ This script answers the question on the actual device rather than from a datashe
      property of the detector, and the struct is mostly calibration.
   2. Failing that, finds it EMPIRICALLY: bisect the integration time and ask
      AVS_PrepareMeasure to accept it. An out-of-range value returns an error code,
-     so the smallest accepted value is the minimum the device will honour.
+     so the smallest accepted value is the minimum the device will honor.
 
 Run it on BOTH rigs and paste the output — the numbers decide what the defaults become.
 
@@ -108,7 +108,7 @@ def main():
 
     print("\n--- 2. smallest AVS_PrepareMeasure actually ACCEPTS ---")
     # Cross-check, not a fallback only: the EEPROM value and what the device
-    # will honour need not agree, and it is the accepted value that governs.
+    # will honor need not agree, and it is the accepted value that governs.
     lo, hi = 0.0, 1.0
     # widen until something is accepted, so a slow detector is not assumed fast
     while AVS_PrepareMeasure(handle, _config(handle, pixels, hi)) < 0:
@@ -129,7 +129,7 @@ def main():
               + ("   -- agrees" if agree else "   -- DISAGREES with what is accepted"))
     if stated_max is not None:
         print(f"  stated maximum   = {stated_max:.6g} ms")
-    print("\n--- 3. is that exposure actually honoured? (LAMP MUST BE ON) ---",
+    print("\n--- 3. is that exposure actually honored? (LAMP MUST BE ON) ---",
           flush=True)
     # The clock cannot answer this. MEASURED on a 2048 px detector: elapsed time is
     # ~1.2-1.8 ms of fixed overhead (USB round trip + readout) plus the integration,

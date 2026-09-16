@@ -10,7 +10,7 @@ shutter is TTL-controlled**, and NOVA's own procedures use the Autolab DIO for l
 and shutter control (see docs/metrohm-rig-status.md). Once that line is wired, an
 0xFF pulse opens or closes the shutter on every segment — in the middle of a
 measurement, on every doping cycle, corrupting the optics in a way that would look
-like sample behaviour.
+like sample behavior.
 
 So: find the bit, drive only that bit.
 

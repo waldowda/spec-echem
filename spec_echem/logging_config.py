@@ -10,7 +10,7 @@ and rotated nightly, keeping every day (nothing is deleted). This is the session
 narrative: connecting an instrument, collecting a dark, a failed Connect — all of which
 happen long before any run exists, and used to go nowhere but the shell. It is the log a
 student goes back to when asking "what did I do this afternoon, and where did it go
-wrong?" — so it is organised by DAY: spec-echem.log is today, spec-echem.log.2026-07-26
+wrong?" — so it is organized by DAY: spec-echem.log is today, spec-echem.log.2026-07-26
 is yesterday.
 
 The app handler lives on the PACKAGE logger (`spec_echem`), the parent of every module
@@ -113,7 +113,7 @@ def _log_launch_banner(logger):
     timestamp/level prefix indents every line ~35 chars — without the whitespace the
     rule doesn't read as a break.
 
-    The environment lines earn their place: "Python mode is greyed out" looks like a
+    The environment lines earn their place: "Python mode is grayed out" looks like a
     dead potentiostat but is almost always the wrong conda env (toolkitpy is 32-bit
     only). Recording it means any pasted log answers that question by itself.
     """

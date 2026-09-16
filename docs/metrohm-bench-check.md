@@ -70,7 +70,7 @@ either — both look correct in the Windows documentation and neither works here
 environment's `site-packages\avaspec.py`, comment out `import globals` and
 `from PyQt5.QtCore import *`, and change the DLL load to a **bare name** after an
 `os.add_dll_directory(...)`. Once the wrapper loads by bare name, the search path applies and this
-variable is honoured:
+variable is honored:
 
 ```
 set SPEC_ECHEM_AVASPEC_DLL_DIR=C:\AvaSpecX64-DLL_9.14.0.0
