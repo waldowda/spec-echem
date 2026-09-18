@@ -13,6 +13,20 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ---
 
+## [0.3.1] — 2026-09-18
+
+### Fixed
+
+- **The linearity plot's labels no longer run off the canvas or cover each other.**
+  On the Win11 rig's canvas, "limit" ran off the right edge and the ADC full-scale line
+  struck through "recommended". The reference lines (ADC full scale, max fill, linear
+  limit, suggested) are now named in the legend, which sits in the lower-right, inside
+  the plot and clear of the ramp. Data and fit share its first row ("● , – – data, fit")
+  to keep it short, and "recommended" became "suggested" on the plot for the same
+  reason. Checked on the Win11 rig at its own canvas size.
+
+---
+
 ## [0.3.0] — 2026-09-18
 
 Theme: **analysis in the GUI, a second potentiostat, and provenance.** Fitting and a

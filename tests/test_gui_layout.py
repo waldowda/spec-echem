@@ -2190,3 +2190,33 @@ def test_the_floor_shows_the_same_number_in_the_box_and_the_log(window, monkeypa
     tab._apply_detector_floor(spec, "TEST")
     assert tab.lin_start_spin.value() == pytest.approx(0.00904)
     assert tab.lin_start_spin.text().startswith("0.00904")
+
+
+@pytest.mark.parametrize("size", [(4, 2.6), (5, 3), (7, 3.5)])
+def test_linearity_labels_stay_inside_the_canvas(app, size):
+    """Reported from the Gamry rig (2026-09-18): free labels ran off the right edge,
+    then covered each other. The reference lines are legend entries, and the legend
+    stays lower-right inside the axes (preferred to outside, which cost a third of
+    the plot's width) with data and fit sharing one line to keep it short."""
+    import numpy as np
+    from gui.widgets.plot_canvas import MplCanvas
+    canvas = MplCanvas()
+    canvas.fig.set_size_inches(*size)
+    times = np.linspace(0.00904, 0.1275, 17)
+    counts = 900.0 + 514169.0 * times
+    result = {"offset": 900.0, "slope": 514169.0, "t_limit": 0.1129,
+              "counts_limit": 58264.0, "t_recommended": 0.1066,
+              "counts_recommended": 55705.0, "bound_by": "fill"}
+    canvas.show_linearity(times, counts, result, full_scale=65535)
+    canvas.fig.canvas.draw()
+    legend = canvas.ax.get_legend()
+    names = [t.get_text() for t in legend.get_texts()]
+    assert names[0] == "data, fit", "data and fit share the first line"
+    for want in ("ADC full scale", "max fill", "linear limit 0.1129 ms",
+                 "suggested 0.1066 ms"):
+        assert any(want in n for n in names), (want, names)
+    assert len(names) == 5
+    assert not [t for t in canvas.ax.texts if t.get_text()], "no free text to collide"
+    r = canvas.fig.canvas.get_renderer()
+    box, ax_box = legend.get_window_extent(r), canvas.ax.get_window_extent(r)
+    assert box.x0 >= ax_box.x0 and box.x1 <= ax_box.x1, "legend stays inside the axes"
