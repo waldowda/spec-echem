@@ -551,10 +551,12 @@ def test_the_window_start_defaults_to_the_current_peak(analysis_window):
     """Where the capacitive spike ends — computed from the data, not guessed."""
     tab = analysis_window.analysis_tab
     tab.on_segment_changed()
-    assert tab.start_spin.value() == 0.0            # 0 = "start of segment"
-    assert tab.start_spin.specialValueText() == "start of segment"
-    assert tab.stop_spin.value() == 0.0            # 0 = "end of segment"
-    assert tab.stop_spin.specialValueText() == "end of segment"
+    # Numbers, not "start of segment" / "end of segment" (requested).
+    assert tab.start_spin.value() == 0.0
+    assert tab.start_spin.specialValueText() == ""
+    assert tab.stop_spin.value() == pytest.approx(20.0)   # the fixture's last time
+    assert tab.stop_spin.specialValueText() == ""
+    assert tab._window(None) == (None, None), "untouched = the whole segment"
 
 
 def test_fitting_a_segment_fills_all_three_traces(analysis_window):
@@ -1289,8 +1291,6 @@ def test_there_is_no_auto_start_checkbox(analysis_window):
     tab = analysis_window.analysis_tab
     assert not hasattr(tab, "auto_start_check")
     assert tab.start_spin.isEnabled()
-    assert tab.start_spin.specialValueText() == "start of segment"
-    assert tab.stop_spin.specialValueText() == "end of segment"
 
 
 def test_a_fit_needing_review_keeps_its_numbers_everywhere(analysis_window):
@@ -1761,9 +1761,11 @@ def test_hiding_flagged_points_is_declared_on_the_plot(ladder_window):
 
 
 def test_the_range_boxes_start_as_a_no_op(ladder_window):
-    """Ticking the box must not silently remove a rung -- it is filled with the
-    full span and only then adjustable."""
+    """Ticking the box must not silently remove a rung. While off, the boxes show
+    the plotted span as numbers, not "0.000 to 0.000"."""
     tab = ladder_window.analysis_tab
+    tab._draw_ladder()
+    assert tab.range_lo.value() == pytest.approx(0.10)     # before ticking
     tab.range_check.setChecked(True)
     assert tab.range_lo.value() == pytest.approx(0.10)
     assert tab.range_hi.value() == pytest.approx(0.70)
@@ -1854,7 +1856,6 @@ def measured_ladder(ladder_window):
     w = ladder_window
     for n, volts in enumerate([0.099742, 0.299612, 0.399627, 0.699498]):
         w._potential_cache[(str(w.run_folder), DATA_TYPE_DOPING, n)] = volts
-    w.analysis_tab._range_filled = False
     return w
 
 
@@ -1934,3 +1935,47 @@ def test_the_footnote_uses_a_weight_every_platform_has(canvas):
     canvas.plot_multi_xy([([0.0, 1.0], [1.0, 2.0], "a")], "x", "y",
                          footnote="x", footnote_warn=True)
     assert _footnote_texts(canvas.fig)[0].get_fontweight() in ("bold", 700)
+
+
+
+def test_an_untouched_stop_follows_each_segment_to_its_own_end(analysis_window):
+    """The trap this box once fell into: filled with the FIRST segment's end and
+    kept, it silently fitted only part of every longer segment."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+    w = analysis_window
+    tab = w.analysis_tab
+    tab.on_segment_changed()
+    assert tab.stop_spin.value() == pytest.approx(20.0)
+    longer = w.results["Doping 0"].copy()
+    longer.columns = np.linspace(0.0, 60.0, longer.shape[1])
+    w.results["Doping 1"] = longer
+    w.segments_by_label["Doping 1"] = Segment("Doping 1", DATA_TYPE_DOPING, 1,
+                                              longer.shape[1], 0.1, True)
+    tab.refresh_segments()
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 1"))
+    assert tab.stop_spin.value() == pytest.approx(60.0)
+    assert tab._window(None)[1] is None, "fits to the end, whatever is displayed"
+
+
+def test_a_typed_stop_is_kept_and_used(analysis_window):
+    tab = analysis_window.analysis_tab
+    tab.on_segment_changed()
+    tab.stop_spin.setValue(12.5)
+    tab.on_segment_changed()
+    assert tab.stop_spin.value() == pytest.approx(12.5)
+    assert tab._window(None)[1] == pytest.approx(12.5)
+
+
+def test_dos_controls_are_hidden_before_any_run_is_loaded(window):
+    """Reported from the Win11 rig: on an empty Results tab the DOS range and
+    energy-on-Y controls sat beside the spectra view -- visibility was only set
+    after a segment existed."""
+    r = window.results_tab
+    window.results = {}
+    r.refresh_segments()
+    assert r.view_combo.currentData() == "spectra"
+    assert r.dos_vmax.isHidden() and r.dos_energy_y.isHidden()
+    assert not r.analysis_wl.isHidden()

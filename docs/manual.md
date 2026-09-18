@@ -129,13 +129,13 @@ Fitting, after a run.
 |---|---|
 | **Segment** | Which step to fit. Shows its potential. CVs are not offered — a sweep has no single transient. |
 | **Model** | `exp`, `biexp`, or `stretched`. The equation appears beside it. |
-| **Fit window** | First and last point used. `0` at either end means the segment's own start/end. |
+| **Fit window** | First and last point used, in seconds. The end shows each segment's own end time until you change it, and an untouched end always fits to the end of whichever segment is being fitted, so **Fit all segments** never cuts a longer one short. A value you type applies to every segment. |
 | **Wavelength** | The wavelength fitted, always as a number. **auto** follows the polaron band per segment; typing a value turns it off. |
 | **Fit segment / Fit all segments** | Fits absorbance, current and charge. |
 | **All fits…** | Every fit in the run, one row per segment per trace. Carries **every fitted parameter with its SD** — the columns follow whichever model was used — plus y(0), ⟨τ⟩, its 95% CI, the point count and the residual split. **Copy as CSV** / **Save CSV…**. |
 | **Show / log y** | Which traces appear on the ladder, and whether its y-axis is logarithmic. |
 | **hide flagged points** | Leave the ringed needs-review points off the ladder, so both axes scale to the fits you trust. Off by default. Does nothing in the ratio view, which rings nothing, so it is disabled there. |
-| **potential range** | Restrict the ladder to a span of potentials. Off by default; ticking it fills the boxes with the full span, so it starts as a no-op. |
+| **potential range** | Restrict the ladder to a span of potentials. Off by default; while off, the boxes show the span plotted, so ticking it removes nothing until you move an end. A rung counts as inside if its measured potential is within 10 mV of the range. |
 
 The fit plot shows the data, the fitted curve, and a **residual panel above** (the
 convention in XPS/NMR/IR fitting). The residuals are the point: an exponential and a

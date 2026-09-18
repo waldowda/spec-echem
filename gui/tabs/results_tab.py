@@ -172,6 +172,7 @@ class ResultsTab(QWidget):
         self.dos_energy_y.toggled.connect(self.on_segment_changed)
         view_row.addStretch()
         ctrl_form.addRow("Optical view:", view_row)
+        self._sync_view_controls()
 
         layout.addWidget(ctrl_group)
 
@@ -246,11 +247,13 @@ class ResultsTab(QWidget):
         text = self.win.segment_potential_text(seg)
         return f"{label}  ({text})" if text else label
 
-    def on_segment_changed(self, *_):
-        label = self.segment_combo.currentText()
-        if not label or label not in self.win.results:
-            return
-        absorb_df = self.win.results[label]
+    def _sync_view_controls(self):
+        """Show only the controls the selected view uses.
+
+        Separate from on_segment_changed, and run BEFORE its no-data early return:
+        inside it, nothing was hidden until a run was loaded, so the DOS controls sat
+        beside the spectra view on an empty tab.
+        """
         view = self.view_combo.currentData() if hasattr(self, "view_combo") else "spectra"
         for widget in getattr(self, "dos_widgets", []):
             widget.setVisible(view == "dos")
@@ -260,6 +263,14 @@ class ResultsTab(QWidget):
                        getattr(self, "wl_auto", None)):
             if widget is not None:
                 widget.setVisible(view != "dos")
+        return view
+
+    def on_segment_changed(self, *_):
+        view = self._sync_view_controls()
+        label = self.segment_combo.currentText()
+        if not label or label not in self.win.results:
+            return
+        absorb_df = self.win.results[label]
         if view == "kinetics":
             self._plot_kinetics(label, absorb_df)
         elif view == "modulation":
