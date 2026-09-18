@@ -177,8 +177,7 @@ class MplCanvas(FigureCanvasQTAgg):
         # Free labels collided at one canvas size or another -- the limit ran off the
         # right edge, the ADC line struck through "recommended", then the stacked
         # corner labels covered "ADC full scale" on the Win11 rig's narrower canvas.
-        # The legend lays itself out, and the lower-right is empty: a ramp runs from
-        # lower-left to upper-right.
+        # The legend lays itself out, outside the axes.
         if show_full_scale:
             self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888",
                             label=f"ADC full scale ({full_scale:g})")
@@ -207,7 +206,12 @@ class MplCanvas(FigureCanvasQTAgg):
                 xy=(0.03, 0.03), xycoords="axes fraction",
                 fontsize=7, color="#888", ha="left", va="bottom", clip_on=True)
         # Lower right: upper-left collides with the ADC full-scale label.
-        self.ax.legend(fontsize=7, loc="lower right")
+        # OUTSIDE the axes, to the right. Six entries make a tall legend, and inside
+        # the axes it covered data at some canvas size wherever it went: lower-right
+        # hid a point on the Win11 rig, and upper-left does the same on a small
+        # canvas. Tight layout (matplotlib >= 3.0) makes room for it.
+        self.ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.02, 1.0),
+                       borderaxespad=0.0)
         self._decorate(title)
         self.draw_idle()
 
