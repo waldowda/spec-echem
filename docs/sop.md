@@ -255,7 +255,7 @@ In practice the fill cap is what binds, and that's the one that leaves room for 
 4. Click **Use recommended** to load it into Integration time — or type your own. You are never
    forced to take the recommendation.
 
-Re-run this whenever you change the lamp, the ND filter, or the cell.
+Re-run this whenever anything in the light path changes: the lamp, an ND filter, a diffuser or anything else attenuating or scattering the light, the fiber or its alignment, or the cell. Saturation belongs to the optical setup on the day, not to the detector.
 
 ### 3.4 Instrument Tab — Wavelength Range (optional)
 
