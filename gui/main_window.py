@@ -14,8 +14,9 @@ from spec_echem.bench import (
 )
 from spec_echem.build_info import build_id
 from spec_echem.data import (echem_txt_path, DATA_TYPE_CV, DATA_TYPE_DOPING,
-                             DATA_TYPE_DEDOPING, segment_potential)
-from spec_echem.gamry_data import measured_potential
+                             DATA_TYPE_DEDOPING, segment_potential,
+                             segment_potential_text as nominal_potential_text)
+from spec_echem.gamry_data import measured_potential, measured_sweep_range
 from spec_echem.settings import DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import InstrumentTab
 from gui.tabs.parameters_tab import ParametersTab
@@ -156,12 +157,30 @@ class MainWindow(QMainWindow):
                     return self.segment_potential(other)
         return None
 
+    def _cv_range_text(self, seg):
+        """'-0.499 to +0.699 V' -- the range the CV actually swept, measured from
+        its file, else the nominal range for this run. Cached like the step
+        potentials: the file is read once, not on every redraw."""
+        key = (str(self.run_folder), seg.data_type, seg.run_number)
+        if key not in self._potential_cache:
+            span = None
+            if self.run_folder is not None:
+                span = measured_sweep_range(
+                    echem_txt_path(self.run_folder, seg.data_type, seg.run_number))
+            self._potential_cache[key] = (
+                f"{span[0]:+.3f} to {span[1]:+.3f} V" if span is not None
+                else nominal_potential_text(self.label_settings(), seg.data_type,
+                                            seg.run_number))
+        return self._potential_cache[key]
+
     def segment_potential_text(self, seg):
         """'+0.700 V' for a graph title, or '' when nothing can vouch for a value.
 
         Dedoping reads '-0.500 V after +0.600 V'. Requested: the dedoping steps
         were indistinguishable, all showing the one potential they share.
         """
+        if seg is not None and seg.data_type == DATA_TYPE_CV:
+            return self._cv_range_text(seg)
         v = self.segment_potential(seg)
         if v is None:
             return ""
