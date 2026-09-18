@@ -6,6 +6,11 @@ averages (with an inline timing test), show a phase-aware potentiostat status,
 collect dark / reference spectra with a live preview, and test-measure in raw
 counts or absorbance.
 """
+import logging
+import math
+import time
+from contextlib import contextmanager
+
 import numpy as np
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +19,7 @@ from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea, QGridLayout,
     QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
-    QApplication, QMessageBox, QTabWidget,
+    QApplication, QMessageBox, QTabWidget, QSizePolicy,
 )
 
 # Cap spin boxes so the left column's minimum width stays small — Qt satisfies
@@ -22,17 +27,44 @@ from qtpy.QtWidgets import (
 # plot beside it regardless of the stretch factors.
 SPIN_W = 110
 
+
+def _detail_label():
+    """A wrapping label for text whose length we don't control — hardware error
+    messages, mostly.
+
+    A QLabel inside a layout asks for its full text width and the layout GRANTS it,
+    dragging the whole window wider; it does not clip. So any message that varies in
+    length needs its own wrapping label, and one that cannot drive the width at all
+    (Ignored) or it re-creates the problem at the wrapped width.
+    """
+    label = QLabel("")
+    label.setWordWrap(True)
+    label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
+    label.setStyleSheet("color: #b00;")
+    return label
+
 from spec_echem.bench import (
-    apply_bench_defaults, load_bench_defaults, save_bench_defaults, user_bench_path,
+    apply_bench_defaults, load_bench_defaults, read_detector_floor,
+    save_bench_defaults, save_detector_floor, user_bench_path,
 )
 from spec_echem.fakes import FakeSpectrometer
 from spec_echem.linearity import (
     LinearityError, analyze_linearity, find_saturation_time, measure_linearity_series,
 )
-from spec_echem.potentiostat import TOOLKITPY_AVAILABLE, probe_identity
-from spec_echem.settings import DEFAULT_SETTINGS
+from spec_echem.potentiostat import (
+    TOOLKITPY_AVAILABLE, AUTOLAB_AVAILABLE, probe_identity, autolab_identity,
+)
+from spec_echem.settings import (DEFAULT_SETTINGS, LIN_STOP_FLOOR_SPANS,
+                                 tidy_detector_floor)
+from spec_echem.acquisition import (SPECTRUM_OVERHEAD_S, potentiostat_poll_seconds,
+                                    spectrum_cost_seconds, suggest_scan_averages)
+from spec_echem.experiment import build_segments
 from spec_echem.spectral_range import recommend_wavelength_range
 from gui.widgets.plot_canvas import MplCanvas
+
+# Under the spec_echem package logger so setup actions — which all happen before any
+# run exists — land in the app log rather than vanishing.
+logger = logging.getLogger("spec_echem.gui.instrument")
 
 try:
     from spec_echem import AvantesSpectrometer
@@ -49,6 +81,9 @@ def _next_serial_path(folder, date, kind, ext=".txt"):
         n += 1
     return folder / f"{date}_{kind}_{n:03d}{ext}"
 
+
+# Decimals on every integration-time box; see integration_spin for why 5.
+INTEGRATION_DECIMALS = 5
 
 class InstrumentTab(QWidget):
     def __init__(self, main_window):
@@ -86,17 +121,20 @@ class InstrumentTab(QWidget):
         row.addWidget(self.connect_btn)
         row.addWidget(self.spec_status)
         row.addStretch()
+        self.spec_detail = _detail_label()
         conn_layout.addWidget(self.simulated_check)
         conn_layout.addLayout(row)
+        conn_layout.addWidget(self.spec_detail)
 
         # --- Spectrometer settings (incl. timing test, which depends on these) ---
         settings_group = QGroupBox("Spectrometer Settings")
         form = QFormLayout(settings_group)
         self.integration_spin = QDoubleSpinBox()
-        self.integration_spin.setRange(0.0001, 10000.0)
-        # 4 decimals: working integration times are ~0.02-0.11 ms, so 3 decimals
-        # would round the linearity recommendation to ~2 significant figures.
-        self.integration_spin.setDecimals(4)
+        self.integration_spin.setRange(0.00001, 10000.0)
+        # 5 decimals: working times are ~0.02-0.11 ms, and the fast detector's floor
+        # is 0.009033 ms. At 4 decimals the floor could only show as 0.0091 (0.0090
+        # is below it), disagreeing with the 0.00904 the log reports.
+        self.integration_spin.setDecimals(INTEGRATION_DECIMALS)
         self.integration_spin.setSuffix(" ms")
         self.integration_spin.setMaximumWidth(SPIN_W)
         self.averages_spin = QSpinBox()
@@ -106,6 +144,15 @@ class InstrumentTab(QWidget):
         self.apply_btn.clicked.connect(self.on_apply)
         form.addRow("Integration time:", self.integration_spin)
         form.addRow("Scan averages:", self.averages_spin)
+        # Advisory only. The cost of a spectrum is set here; the step it has to fit
+        # inside is set on the Parameters tab — so the collision between them is
+        # invisible on either tab alone. Nothing below blocks a run, and every path
+        # through it is wrapped: a broken advisory must never break the tab.
+        self.cadence_note = QLabel("—")
+        self.cadence_note.setWordWrap(True)
+        form.addRow("Per spectrum:", self.cadence_note)
+        self.integration_spin.valueChanged.connect(self._update_cadence_note)
+        self.averages_spin.valueChanged.connect(self._update_cadence_note)
         form.addRow(self.apply_btn)
         timing_row = QHBoxLayout()
         self.timing_btn = QPushButton("Run Timing Test")
@@ -164,13 +211,22 @@ class InstrumentTab(QWidget):
             "External — start the Gamry sequence in Gamry Framework")
         self.pstat_python_radio = QRadioButton(
             "Python — drive the Gamry from here (EchemToolkitPy)")
+        self.pstat_autolab_radio = QRadioButton(
+            "Autolab — drive a Metrohm Autolab from here (Autolab SDK)")
+        # External stays the default on every machine: it is the proven path and the
+        # only one that works with no vendor stack installed.
         self.pstat_external_radio.setChecked(True)
         if not TOOLKITPY_AVAILABLE:
             self.pstat_python_radio.setEnabled(False)
             self.pstat_python_radio.setText(
                 "Python — drive the Gamry from here (EchemToolkitPy) — toolkitpy not available")
+        if not AUTOLAB_AVAILABLE:
+            self.pstat_autolab_radio.setEnabled(False)
+            self.pstat_autolab_radio.setText(
+                "Autolab — drive a Metrohm Autolab from here (Autolab SDK) — pythonnet not available")
         pstat_layout.addWidget(self.pstat_external_radio)
         pstat_layout.addWidget(self.pstat_python_radio)
+        pstat_layout.addWidget(self.pstat_autolab_radio)
 
         # Connect (Python mode): verify the Gamry is reachable + show its name/serial,
         # mirroring the spectrometer's Connect button + status dot.
@@ -182,7 +238,9 @@ class InstrumentTab(QWidget):
         connect_row.addWidget(self.pstat_connect_btn)
         connect_row.addWidget(self.pstat_status)
         connect_row.addStretch()
+        self.pstat_detail = _detail_label()
         pstat_layout.addLayout(connect_row)
+        pstat_layout.addWidget(self.pstat_detail)
 
         # Python mode only: also save Gamry-native .DTA files alongside the clean .txt
         self.save_dta_check = QCheckBox("Also save Gamry .DTA files (dta/ subfolder)")
@@ -193,6 +251,7 @@ class InstrumentTab(QWidget):
         pstat_layout.addWidget(self.save_dta_check)
 
         self.pstat_external_radio.toggled.connect(self._update_pstat_controls)
+        self.pstat_autolab_radio.toggled.connect(self._update_pstat_controls)
         self._update_pstat_controls()
 
         # --- Linearity check (sits beside Spectrometer Settings, which it feeds) ---
@@ -209,13 +268,13 @@ class InstrumentTab(QWidget):
 
         lin_form = QHBoxLayout()
         self.lin_start_spin = QDoubleSpinBox()
-        self.lin_start_spin.setRange(0.0001, 10000.0)
-        self.lin_start_spin.setDecimals(4)
+        self.lin_start_spin.setRange(0.00001, 10000.0)
+        self.lin_start_spin.setDecimals(INTEGRATION_DECIMALS)
         self.lin_start_spin.setSuffix(" ms")
         self.lin_start_spin.setToolTip("Lowest integration time in the ramp — must be safely linear")
         self.lin_stop_spin = QDoubleSpinBox()
-        self.lin_stop_spin.setRange(0.0001, 10000.0)
-        self.lin_stop_spin.setDecimals(4)
+        self.lin_stop_spin.setRange(0.00001, 10000.0)
+        self.lin_stop_spin.setDecimals(INTEGRATION_DECIMALS)
         self.lin_stop_spin.setSuffix(" ms")
         self.lin_stop_spin.setValue(0.150)
         self.lin_stop_spin.setToolTip("Highest integration time — should reach saturation")
@@ -240,7 +299,7 @@ class InstrumentTab(QWidget):
             "stay linear almost to the clip, so this — not linearity — usually sets the "
             "working point, and leaves headroom for lamp drift.")
         # Two compact rows, not one long one: a single row of five label+spin pairs gave
-        # the left column a large MINIMUM width, and Qt honours minimums before it
+        # the left column a large MINIMUM width, and Qt honors minimums before it
         # applies stretch — so the left box hogged the width and squeezed the plot on
         # the right into a tall, skinny strip.
         lin_form = QGridLayout()
@@ -523,6 +582,79 @@ class InstrumentTab(QWidget):
         self.win.apply_settings(settings)
         self._report_bench_state()
 
+    def showEvent(self, event):
+        """Refresh the cadence note whenever this tab comes forward — the step
+        length it compares against lives on the Parameters tab and can change
+        while this tab is hidden."""
+        super().showEvent(event)
+        self._update_cadence_note()
+
+    def _update_cadence_note(self):
+        """What one spectrum costs, against the tightest step in this experiment.
+
+        Advisory: it names the numbers and suggests a scan-averages count that
+        would fit. It never changes a setting and never stops a run. The whole
+        body is guarded — this label is a convenience, and a convenience that can
+        raise would take the Instrument tab down with it.
+        """
+        try:
+            integration = self.integration_spin.value()
+            averages = self.averages_spin.value()
+
+            # The potentiostat is part of the budget, not a side job: in Ei mode
+            # pump() IS the echem acquisition, and it costs ~50 ms of a 100 ms slot.
+            # Leaving it out is what let this advisory call a grid comfortable while
+            # the loop ran 4-6% long (MEASURED, 20260916_test1).
+            mode = None
+            tightest = None
+            try:
+                settings = self.win.collect_settings()
+                mode = settings.get("potentiostat_mode")
+                segments = build_segments(settings)
+                if segments:
+                    tightest = min(segments, key=lambda seg: seg.delta_time)
+            except Exception:  # noqa: BLE001 — no experiment defined yet is normal
+                tightest = None
+            cost = spectrum_cost_seconds(integration, averages, mode)
+            pstat = potentiostat_poll_seconds(mode)
+
+            if tightest is None or tightest.delta_time <= 0:
+                self.cadence_note.setText(f"~{cost * 1000:.0f} ms")
+                self.cadence_note.setStyleSheet("color: #555;")
+                return
+
+            slot = tightest.delta_time
+            fits = suggest_scan_averages(integration, slot, mode)
+            pstat_term = (f" + {pstat * 1000:.0f} ms potentiostat" if pstat else "")
+            head = (f"~{cost * 1000:.0f} ms "
+                    f"({integration:.4g} ms x {averages} + "
+                    f"{SPECTRUM_OVERHEAD_S * 1000:.0f} ms overhead{pstat_term}) vs a "
+                    f"{slot * 1000:.0f} ms step ({tightest.label}).")
+
+            if cost > slot:
+                tail = (f" Does NOT fit: spectra will land ~{cost * 1000:.0f} ms apart"
+                        f" and this step may outlive the electrochemistry.")
+                tail += (f" About {fits} averages would fit." if fits >= 1 else
+                         " Even 1 average does not fit — use a coarser CV step or a"
+                         " longer delta time.")
+                color = "#b00020"
+            elif cost > 0.8 * slot:
+                tail = (f" Fits, but only {(slot - cost) * 1000:.0f} ms spare"
+                        f" — {fits} averages is the ceiling here.")
+                color = "#a86400"
+            else:
+                tail = f" Fits (up to {fits} averages)."
+                color = "#555"
+
+            self.cadence_note.setText(head + tail)
+            self.cadence_note.setStyleSheet(f"color: {color};")
+        except Exception:  # noqa: BLE001 — advisory only; stay quiet and harmless
+            try:
+                self.cadence_note.setText("—")
+                self.cadence_note.setStyleSheet("color: #555;")
+            except Exception:  # noqa: BLE001
+                pass
+
     def _wrap(self, inner_layout):
         box = QWidget()
         box.setLayout(inner_layout)
@@ -544,9 +676,13 @@ class InstrumentTab(QWidget):
             self.wl_min_spin.setValue(wl_min)
         if wl_max is not None:
             self.wl_max_spin.setValue(wl_max)
+        # An unavailable mode falls back to External rather than selecting a radio the
+        # machine cannot honor — a saved "autolab" on the Gamry rig must not disarm it.
         mode = settings.get("potentiostat_mode", "external")
         if mode == "python" and self.pstat_python_radio.isEnabled():
             self.pstat_python_radio.setChecked(True)
+        elif mode == "autolab" and self.pstat_autolab_radio.isEnabled():
+            self.pstat_autolab_radio.setChecked(True)
         else:
             self.pstat_external_radio.setChecked(True)
         self.save_dta_check.setChecked(settings.get("save_dta", True))
@@ -562,8 +698,12 @@ class InstrumentTab(QWidget):
         else:
             settings["wavelength_min"] = self.wl_min_spin.value()
             settings["wavelength_max"] = self.wl_max_spin.value()
-        settings["potentiostat_mode"] = (
-            "python" if self.pstat_python_radio.isChecked() else "external")
+        if self.pstat_python_radio.isChecked():
+            settings["potentiostat_mode"] = "python"
+        elif self.pstat_autolab_radio.isChecked():
+            settings["potentiostat_mode"] = "autolab"
+        else:
+            settings["potentiostat_mode"] = "external"
         settings["save_dta"] = self.save_dta_check.isChecked()
         settings["lin_start_ms"] = self.lin_start_spin.value()
         settings["lin_stop_ms"] = self.lin_stop_spin.value()
@@ -623,32 +763,93 @@ class InstrumentTab(QWidget):
         self.wl_suggest_btn.setEnabled(
             getattr(self, "_actions_enabled", False) and self._last_test_abs is not None)
 
-    def _set_pstat_status(self, text, color):
+    def _set_pstat_status(self, text, color, detail=""):
+        """`text` goes inline and must stay short; `detail` is for messages whose
+        length we don't control (toolkitpy errors) and gets the wrapping label."""
         self.pstat_status.setText(text)
         self.pstat_status.setStyleSheet(f"color: {color};")
+        self.pstat_detail.setText(detail)
 
     def _update_pstat_controls(self):
         python = self.pstat_python_radio.isChecked()
-        self.pstat_connect_btn.setEnabled(python and TOOLKITPY_AVAILABLE)
-        # .DTA files only exist in Python mode (External writes its own via Framework)
+        autolab = self.pstat_autolab_radio.isChecked()
+        driven = python or autolab          # Python is holding the instrument
+        available = TOOLKITPY_AVAILABLE if python else AUTOLAB_AVAILABLE
+        # Respect the run lock: toggling the mode radios during a run must NOT
+        # re-enable Connect, which would re-init the vendor stack and collide with the
+        # thread driving the live run. _actions_enabled is False during a run.
+        self.pstat_connect_btn.setEnabled(
+            driven and available and getattr(self, "_actions_enabled", True))
+        # .DTA is a Gamry format written by toolkitpy — meaningless in the other two
+        # modes (External writes its own via Framework; the Autolab has no .DTA).
         self.save_dta_check.setEnabled(python)
-        if not python:
+        if not driven:
             self._set_pstat_status("● Runs from Gamry Framework", "#555")
         elif not self._pstat_connected:
             self._set_pstat_status("● Not connected", "#b00")
         # else: keep the green "● Connected — …" so it survives run-end / re-toggle
 
-    def on_connect_pstat(self):
-        self._set_pstat_status("● Connecting…", "#555")
+    @contextmanager
+    def _click_landed(self, button, show, *widgets):
+        """Show that the click registered, and make a second one impossible until it
+        has finished.
+
+        Setting a status label is not enough. Both connect probes block the GUI
+        THREAD for seconds — the Autolab one does a full connect / report /
+        disconnect over USB — and Qt cannot repaint until the event loop runs again,
+        so the user sees nothing change and clicks again. That is what put two
+        connect cycles into the 2026-09-11 crash log, on a USB stack that has now
+        twice failed under repeated open/close (2026-09-03 stale link, 2026-09-09
+        WinUSB teardown).
+
+        So: disable FIRST (a click on a disabled button is discarded, not queued),
+        then repaint the affected widgets synchronously. repaint() rather than
+        processEvents() on purpose — it paints these widgets now without re-entering
+        event handling, so nothing else can run while we are mid-probe.
+        """
+        was = button.isEnabled()
+        button.setEnabled(False)
+        show("● Connecting…", "#555")
+        for w in (button,) + widgets:
+            w.repaint()
         try:
-            label, serial = probe_identity()
-        except Exception as exc:  # noqa: BLE001 — surface any toolkitpy/hardware failure
-            self._pstat_connected = False
-            self._set_pstat_status(f"● Connect failed: {exc}", "#b00")
-            return
-        label = (label or "").strip()
-        who = f"{label} (serial {serial})" if label else f"serial {serial}"
+            yield
+        finally:
+            button.setEnabled(was)
+
+    def on_connect_pstat(self):
+        """Verify the selected potentiostat is reachable and report WHICH unit it is.
+
+        Both probes are read-only: the Gamry one opens and reads its label/serial, the
+        Autolab one connects and disconnects without touching the cell.
+        """
+        autolab = self.pstat_autolab_radio.isChecked()
+        # Timed because nothing records it today, so "it took a while" cannot be
+        # compared with anything. An Autolab connect spins up Adk.x and runs hardware
+        # setup, and this rig's USB link has now misbehaved three times (2026-09-03
+        # stale link, 2026-09-09 WinUSB teardown, 2026-09-11 crash). Whether a
+        # degrading link shows up as slower connects is a SUSPICION, not a known
+        # fact — logging the number is what would let the data answer it.
+        t0 = time.perf_counter()
+        with self._click_landed(self.pstat_connect_btn, self._set_pstat_status,
+                                self.pstat_status):
+            try:
+                if autolab:
+                    who = autolab_identity(self.win.settings)
+                else:
+                    label, serial = probe_identity()
+                    label = (label or "").strip()
+                    who = (f"{label} (serial {serial})" if label
+                           else f"Gamry serial {serial}")
+            except Exception as exc:  # noqa: BLE001 — surface any hardware failure
+                self._pstat_connected = False
+                logger.warning("Potentiostat connect failed: %s", exc)
+                self._set_pstat_status("● Connect failed", "#b00", detail=str(exc))
+                return
         self._pstat_connected = True
+        self.win.pstat_identity = who
+        logger.info("Potentiostat connected in %.1f s: %s",
+                    time.perf_counter() - t0, who)
         self._set_pstat_status(f"● Connected — {who}", "#080")
 
     def _update_cal_plot(self):
@@ -693,42 +894,184 @@ class InstrumentTab(QWidget):
             return np.asarray(arr)[i0:i0 + len(wl)]
         return None
 
+    def _spectrometer_detail(self, spec, serial):
+        """One line naming the connected detector: pixels and full calibrated span."""
+        kind = "Simulated spectrometer" if isinstance(spec, FakeSpectrometer) else "Avantes"
+        bits = [f"{kind} · serial {serial}"]
+        full = getattr(self, "_full_wl", None)
+        if full is not None and len(full):
+            bits.append(f"{len(full)} px · {float(full[0]):.1f}–{float(full[-1]):.1f} nm")
+        return "   ".join(bits)
+
+    def _apply_detector_floor(self, spec, serial):
+        """Bring this rig's exposures up to what the CONNECTED detector will accept.
+
+        Detectors differ by ~100x in the shortest exposure they honor (MEASURED:
+        0.009033 ms on a SensorType 22 part, 1.048 ms on a SensorType 10 part), and
+        below its floor the SDK REJECTS the request outright (code -11) rather than
+        clamping. A ramp tuned for the fast detector therefore cannot run at all on
+        the slow one -- and the symptom, before this, was a poll loop timing out.
+
+        Clamp, never overwrite: only a value BELOW the floor moves, and it moves up to
+        the floor exactly. A value already above it was chosen from a linearity check
+        against this rig's lamp, and pulling it down to the hardware minimum would
+        silently destroy that working point.
+
+        Returns a short note describing what moved, or "" if nothing did.
+        """
+        floor = getattr(spec, "min_integration_ms", None)
+        measured = floor is not None
+        if floor is None:
+            # No device to ask (or the probe failed): fall back to what this detector
+            # reported last time. Never the other way round -- a stored floor can be
+            # stale, and a stale floor fails silently.
+            floor = tidy_detector_floor(read_detector_floor(serial))
+        if floor is None:
+            return ""
+        # Already tidied by the spectrometer, which is where it has to happen: at
+        # EXACTLY the bisect's boundary value this detector accepts the request and
+        # then integrates ~2x it (MEASURED 2026-09-16), so stepping up off that value
+        # is a safety property rather than a display choice.
+        floor = float(floor)
+        measured_floor = getattr(spec, "min_integration_measured_ms", None) or floor
+        self.win.spec_min_integration_ms = floor
+        self.win.spec_min_integration_measured_ms = measured_floor
+
+        if measured:
+            try:
+                save_detector_floor(serial, measured_floor)
+            except OSError as exc:  # noqa: BLE001 — a bookkeeping write must not stop Connect
+                logger.warning("Could not record the detector floor: %s", exc)
+
+        moved = []
+        for spin, label in ((self.integration_spin, "Integration time"),
+                            (self.lin_start_spin, "Linearity Start")):
+            # Round the displayed minimum UP to the box's own precision. At 4 decimals
+            # a floor of 1.04803466796875 would otherwise show as 1.0480 -- BELOW the
+            # true floor, so the box would still accept an exposure the hardware
+            # refuses, which is the exact failure this is here to prevent.
+            scale = 10.0 ** spin.decimals()
+            ui_floor = math.ceil(floor * scale) / scale
+            was = spin.value()
+            spin.setMinimum(ui_floor)          # typing below it is no longer possible
+            if was < ui_floor:
+                spin.setValue(ui_floor)
+                moved.append(f"{label} {was:g} to {ui_floor:g} ms")
+
+        # The ramp's stop is an ordering question, not a floor one: whatever happened
+        # above, it has to stay above the start or the check has no range to walk.
+        if self.lin_stop_spin.value() <= self.lin_start_spin.value():
+            was = self.lin_stop_spin.value()
+            new_stop = self.lin_start_spin.value() * LIN_STOP_FLOOR_SPANS
+            self.lin_stop_spin.setValue(new_stop)
+            moved.append(f"Linearity Stop {was:g} to {new_stop:g} ms")
+
+        if not moved:
+            return ""
+        note = "; ".join(moved)
+        logger.info("Detector minimum %g ms (%s, measured %.6g): raised %s",
+                    floor, "measured" if measured else "recorded",
+                    measured_floor, note)
+        return note
+
+    def _set_spec_status(self, text, color, detail=""):
+        """Mirror of _set_pstat_status: short text inline, variable-length message in
+        the wrapping label (an unwrapped inline message widens the window)."""
+        self.spec_status.setText(text)
+        self.spec_status.setStyleSheet(f"color: {color};")
+        if detail:
+            self.spec_detail.setText(detail)
+
     def on_connect(self):
         if self.simulated_check.isChecked() or AvantesSpectrometer is None:
             spec = FakeSpectrometer()
         else:
             spec = AvantesSpectrometer()
-        try:
-            _, serial = spec.init()
-        except Exception as exc:  # noqa: BLE001 — surface any hardware init failure to the user
-            self.spec_status.setText(f"● Connect failed: {exc}")
-            self.spec_status.setStyleSheet("color: #b00;")
-            return
+        # spec.init() blocks the GUI thread on USB — same "did my click land?" problem
+        # the potentiostat button had. See _click_landed().
+        t0 = time.perf_counter()
+        with self._click_landed(self.connect_btn, self._set_spec_status,
+                                self.spec_status):
+            try:
+                _, serial = spec.init()
+            except Exception as exc:  # noqa: BLE001 — surface any hardware failure
+                logger.warning("Spectrometer connect failed: %s", exc)
+                self._set_spec_status("● Connect failed", "#b00", detail=str(exc))
+                return
         self.win.spec = spec
         _, self.win.wavelengths = spec.wavelengths()
         # A fresh connection is at the full window; remember it so loaded (full-range)
         # dark/ref files can be sliced to a narrower window later.
         self._full_wl = np.asarray(self.win.wavelengths)
+        self.win.spec_identity = (f"simulated ({serial})"
+                                  if isinstance(spec, FakeSpectrometer)
+                                  else f"Avantes serial {serial}")
+        logger.info("Spectrometer connected in %.1f s: %s",
+                    time.perf_counter() - t0, self.win.spec_identity)
         self.spec_status.setText(f"● Connected ({serial})")
         self.spec_status.setStyleSheet("color: #080;")
+        # Which detector is this, in terms you can check against the instrument on the
+        # bench? A serial alone doesn't distinguish a ULS2048L from a VRS2048CL-EVO;
+        # the pixel count and reported span do. Also replaces any previous failure text.
+        self.spec_detail.setText(self._spectrometer_detail(spec, serial))
         self._set_actions_enabled(True)
+        # BEFORE on_apply(): that is what hands the spin box's value to the detector,
+        # and an exposure below the floor now raises rather than being ignored.
+        floor_note = self._apply_detector_floor(spec, serial)
+        if floor_note:
+            self.spec_detail.setText(
+                self._spectrometer_detail(spec, serial)
+                + f"   ·   below this detector's {self.win.spec_min_integration_ms:g} ms "
+                f"minimum, so raised: {floor_note}")
         self.on_apply()
 
-        # Apply this rig's saved wavelength range automatically — otherwise "it comes up
-        # the way I left it" wouldn't hold: the bench default would sit in the spin boxes
-        # while the spectrometer quietly ran at full range.
+        # Clamp the wavelength spin boxes to what THIS spectrometer actually reports
+        # (its calibrated span) — they otherwise accept 0–5000 nm regardless of the
+        # hardware, so a crop tuned for one detector silently misapplies to another.
+        full_lo = float(self._full_wl[0]) if len(self._full_wl) else None
+        full_hi = float(self._full_wl[-1]) if len(self._full_wl) else None
+        if full_lo is not None:
+            for spin in (self.wl_min_spin, self.wl_max_spin):
+                spin.setRange(full_lo, full_hi)
+
+        # Apply this rig's saved wavelength crop automatically — "it comes up the way I
+        # left it" — UNLESS it clearly doesn't belong to the spectrometer now connected
+        # (a different unit, or a stale settings JSON): then come up at the full range
+        # with the saved values parked in the boxes for an explicit Apply, rather than
+        # silently clamping a window drawn for another detector.
         wl_min = self.win.settings.get("wavelength_min")
         wl_max = self.win.settings.get("wavelength_max")
-        if wl_min is not None and wl_max is not None:
+        have_saved = wl_min is not None and wl_max is not None
+        fits = (have_saved and full_lo is not None
+                and self._window_fits(float(wl_min), float(wl_max), full_lo, full_hi))
+        if have_saved and fits:
             self.wl_min_spin.setValue(float(wl_min))
             self.wl_max_spin.setValue(float(wl_max))
-            self._apply_window(float(wl_min), float(wl_max))
+            self._apply_window(self.wl_min_spin.value(), self.wl_max_spin.value())
+            self.wl_status.setText(
+                f"Spectrometer {full_lo:.0f}–{full_hi:.0f} nm · " + self.wl_status.text())
+        elif have_saved and full_lo is not None:   # saved crop doesn't fit this unit
+            self.wl_min_spin.setValue(float(wl_min))
+            self.wl_max_spin.setValue(float(wl_max))
+            self.wl_status.setText(
+                f"Saved crop {float(wl_min):.0f}–{float(wl_max):.0f} nm doesn't fit this "
+                f"spectrometer's {full_lo:.0f}–{full_hi:.0f} nm range — showing full range. "
+                "Adjust and Apply.")
         elif len(self.win.wavelengths):
             self.wl_min_spin.setValue(float(self.win.wavelengths[0]))
             self.wl_max_spin.setValue(float(self.win.wavelengths[-1]))
             self.wl_status.setText(
                 f"Full range: {self._full_wl[0]:.0f}–{self._full_wl[-1]:.0f} nm "
                 f"({len(self._full_wl)} px). Set your lamp's usable range, then Apply.")
+
+    @staticmethod
+    def _window_fits(wl_min, wl_max, full_lo, full_hi):
+        """False only when the saved crop was clearly drawn for a different detector —
+        i.e. it overlaps this spectrometer's calibrated span by less than half its own
+        width. A small edge mismatch (e.g. a 400 nm setting vs a 410 nm floor) still fits."""
+        overlap = max(0.0, min(wl_max, full_hi) - max(wl_min, full_lo))
+        want = max(1e-9, wl_max - wl_min)
+        return overlap >= 0.5 * want
 
     def on_apply(self):
         if self.win.spec is None:
@@ -741,6 +1084,8 @@ class InstrumentTab(QWidget):
             return
         _, spectrum = self.win.spec.measure()
         self.win.dark = spectrum
+        logger.info("Dark collected (%d px, max %.0f counts)",
+                    len(spectrum), np.max(spectrum))
         self.dark_status.setText(f"Dark: collected ({len(spectrum)} px)")
         self._update_cal_plot()
         self._update_absorbance_enabled()
@@ -801,6 +1146,8 @@ class InstrumentTab(QWidget):
             return
         _, spectrum = self.win.spec.measure()
         self.win.ref = spectrum
+        logger.info("Reference collected (%d px, max %.0f counts)",
+                    len(spectrum), np.max(spectrum))
         self.ref_status.setText(f"Reference: collected ({len(spectrum)} px)")
         self._update_cal_plot()
         self._update_absorbance_enabled()
@@ -913,7 +1260,9 @@ class InstrumentTab(QWidget):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             self.win.spec.set_scan_averages(1)
-            sat = find_saturation_time(self.win.spec, self.lin_start_spin.value())
+            sat = find_saturation_time(
+                self.win.spec, self.lin_start_spin.value(),
+                floor_ms=getattr(self.win.spec, "min_integration_ms", None))
         except LinearityError as exc:
             self.lin_result.setText(str(exc))
             return

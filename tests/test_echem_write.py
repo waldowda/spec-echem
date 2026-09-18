@@ -1,38 +1,36 @@
 """
 Tests for spec_echem.data.write_echem_file — the Python-mode clean-txt echem
-writer. Feeds synthetic acq_data() structured arrays (no hardware) and checks the
-output satisfies the reader contract in gamry_data.py. No Qt, no toolkitpy.
+writer. Feeds synthetic EchemData (no hardware) and checks the output satisfies the
+reader contract in gamry_data.py. No Qt, no toolkitpy. The Gamry-specific
+acq_data->EchemData conversion is tested in test_potentiostat.py.
 """
 import numpy as np
 import pytest
 
 from spec_echem.data import (
-    write_echem_file, echem_txt_path,
+    EchemData, write_echem_file, echem_txt_path,
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
 )
 from spec_echem.gamry_data import read_cv, read_chrono, CV_COLUMNS, CHRONO_COLUMNS
 
 
 def chrono_acq(n=5, t0=10.0):
-    """Synthetic chrono acq_data() — note the non-zero start time t0 to prove the
+    """Synthetic chrono segment — note the non-zero start time t0 to prove the
     writer rebases both time columns to 0 (drops the vestigial +100)."""
-    dt = np.dtype([('point', 'i4'), ('time', 'f8'), ('vf', 'f8'), ('im', 'f8')])
-    arr = np.zeros(n, dtype=dt)
-    arr['point'] = np.arange(n)
-    arr['time'] = t0 + np.arange(n) * 0.1
-    arr['vf'] = 0.2
-    arr['im'] = np.linspace(1e-6, 5e-6, n)
-    return arr
+    return EchemData(
+        time=t0 + np.arange(n) * 0.1,
+        potential=np.full(n, 0.2),
+        current=np.linspace(1e-6, 5e-6, n),
+    )
 
 
 def cv_acq(n=6):
-    """Synthetic CV acq_data() — includes the extra `cycle` field CV returns."""
-    dt = np.dtype([('point', 'i4'), ('time', 'f8'), ('vf', 'f8'),
-                   ('im', 'f8'), ('cycle', 'i4')])
-    arr = np.zeros(n, dtype=dt)
-    arr['vf'] = np.linspace(0.0, 0.5, n)
-    arr['im'] = np.linspace(-1e-6, 1e-6, n)
-    return arr
+    """Synthetic CV segment."""
+    return EchemData(
+        time=np.arange(n) * 0.1,
+        potential=np.linspace(0.0, 0.5, n),
+        current=np.linspace(-1e-6, 1e-6, n),
+    )
 
 
 # --- CV ---
@@ -79,13 +77,6 @@ def test_time_columns_start_at_zero_no_plus_100(tmp_path):
 def test_run_number_in_filename(tmp_path):
     path = write_echem_file(chrono_acq(), DATA_TYPE_DEDOPING, 3, tmp_path, "20250715_Test")
     assert path.name == "dedoping(3).txt"
-
-
-def test_missing_field_raises(tmp_path):
-    # A structured array without 'vf' should fail loudly, not write garbage.
-    bad = np.zeros(3, dtype=np.dtype([('time', 'f8'), ('im', 'f8')]))
-    with pytest.raises(ValueError, match="vf"):
-        write_echem_file(bad, DATA_TYPE_DOPING, 0, tmp_path, "20250715_Test")
 
 
 # --- echem_txt_path: the public accessor the GUI uses to find a segment's file ---

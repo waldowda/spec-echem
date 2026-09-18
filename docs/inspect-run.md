@@ -44,7 +44,7 @@ For a CV + N doping/dedoping-cycle run, the run folder should contain (parenthes
   prededoping(0).txt                  # clean echem, 5 cols (if it ran)           [Python mode]
   dta/CV.dta, dta/steps(0).dta, …     # native Gamry .dta                         [Python mode]
   <run_folder>_metadata.json          # sample name, electrolyte, notes, settings snapshot
-  <run_folder>.log                    # full DEBUG log incl. per-segment cadence lines
+  <run_folder>_log.log                # full DEBUG log incl. per-segment cadence lines
 ```
 
 - **Python mode** → the clean `*.txt` echem files and `dta/` are written by spec-echem *inside the

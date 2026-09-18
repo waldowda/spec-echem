@@ -12,7 +12,7 @@ sits *below* saturation. This module ramps the integration time, tracks a single
 detector pixel, fits the linear region, and reports where the response departs
 from that line.
 
-Run with the reference solution in place and the lamp on: the check characterises
+Run with the reference solution in place and the lamp on: the check characterizes
 the detector under the light level you will actually measure at.
 
 Pure / Qt-free / no vendor SDK — safe to unit-test anywhere.
@@ -228,7 +228,7 @@ def analyze_linearity(times, counts, tolerance_pct=2.0, max_fill_frac=MAX_FILL_F
 
 
 def find_saturation_time(spec, start, max_time=10000.0, full_scale=FULL_SCALE_COUNTS,
-                         max_steps=20, bisect_steps=6):
+                         max_steps=20, bisect_steps=6, floor_ms=None):
     """
     Find where the detector saturates: double the integration time until it clips,
     then bisect the bracket to pin the threshold.
@@ -257,9 +257,18 @@ def find_saturation_time(spec, start, max_time=10000.0, full_scale=FULL_SCALE_CO
 
     peak = peak_at(t)
     if peak >= sat_level:
+        # "Lower Start" is impossible advice when Start is already the shortest
+        # exposure the detector will honor, which is the case on a bright source: the
+        # only remaining lever is the light itself. Say only the half that can be
+        # acted on -- and attenuating is a normal move, not a last resort, since the
+        # source is not a fixed property of the rig (ND filter, diffuser, lamp level).
+        at_floor = floor_ms is not None and t <= floor_ms * 1.001
+        remedy = ("Attenuate the light -- an ND filter or a diffuser in the path. "
+                  f"Start is already at this detector's minimum ({t:.4g} ms), so it "
+                  "cannot go lower."
+                  if at_floor else "Lower Start, or attenuate the light.")
         raise LinearityError(
-            f"Already saturated at Start ({t:.4g} ms, {peak:.0f} counts). "
-            "Lower Start, or attenuate the light.")
+            f"Already saturated at Start ({t:.4g} ms, {peak:.0f} counts). " + remedy)
 
     # Double until it clips, keeping the last unsaturated time as the lower bracket.
     lo, counts_lo, hi = t, peak, None

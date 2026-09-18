@@ -52,7 +52,7 @@ def test_knee_is_found_and_recommendation_takes_the_tighter_constraint():
 
 
 def test_fill_cap_binds_when_the_detector_stays_linear_to_the_clip():
-    """Dean's real hardware (2026-07-13): the response tracks the fit to within ~1%
+    """Real hardware (2026-07-13): the response tracks the fit to within ~1%
     right up to the hard ADC clip, so the deviation test never fires. Linearity alone
     would put the working point at ~94% of full scale — the fill cap is the only thing
     providing headroom. Regression guard for that."""
@@ -115,6 +115,10 @@ def test_too_few_points_to_fit():
 
 def test_ramp_against_the_fake_tracks_one_pixel_and_stops_at_saturation():
     spec = FakeSpectrometer()
+    # A fast detector: this ramp starts at 0.005 ms, and the detector has to be one
+    # that accepts it. Stated rather than assumed -- the default fake floor is 0.022,
+    # and a ramp below the floor is rejected outright on real hardware.
+    spec.min_integration_time = 0.001
     spec.init()
     times = np.linspace(0.005, 0.20, 30)
 
@@ -134,6 +138,7 @@ def test_ramp_against_the_fake_tracks_one_pixel_and_stops_at_saturation():
 
 def test_find_saturation_time_bisects_to_a_tight_bracket():
     spec = FakeSpectrometer()
+    spec.min_integration_time = 0.001      # start=0.005 has to be reachable
     spec.init()
 
     sat = find_saturation_time(spec, start=0.005)
@@ -158,3 +163,33 @@ def test_find_saturation_time_rejects_a_saturated_start():
     spec.init()
     with pytest.raises(LinearityError, match="Already saturated at Start"):
         find_saturation_time(spec, start=5.0)
+
+
+def test_saturation_at_the_floor_advises_attenuation_not_a_lower_start():
+    """The source is not a fixed property of the rig -- an ND filter or a diffuser
+    changes it by orders of magnitude -- and on a bright one this detector saturates at
+    the shortest exposure it will honor. Telling the user to 'lower Start' there is
+    advice they cannot take."""
+    spec = FakeSpectrometer()
+    spec.min_integration_time = 1.05
+    spec.init()
+    spec._lamp = spec._lamp * 1000.0        # a source that clips at any exposure
+
+    with pytest.raises(LinearityError) as excinfo:
+        find_saturation_time(spec, start=1.05, floor_ms=1.05)
+
+    message = str(excinfo.value)
+    assert "ttenuate" in message
+    assert "lower start" not in message.lower()
+
+
+def test_saturation_above_the_floor_still_offers_both_remedies():
+    spec = FakeSpectrometer()
+    spec.min_integration_time = 1.05
+    spec.init()
+    spec._lamp = spec._lamp * 1000.0
+
+    with pytest.raises(LinearityError) as excinfo:
+        find_saturation_time(spec, start=5.0, floor_ms=1.05)
+
+    assert "Lower Start" in str(excinfo.value)
