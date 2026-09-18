@@ -2024,3 +2024,22 @@ def test_the_results_tab_lists_segments_with_their_potentials(window, tmp_path):
     assert "Dedoping 1  (-0.500 V after +0.600 V)" in shown
     r.segment_combo.setCurrentIndex(r.segment_combo.findData("Dedoping 1"))
     assert r._current_label() == "Dedoping 1"
+
+
+def test_the_cv_is_labeled_with_the_range_it_actually_swept(window, tmp_path):
+    """Requested: the CV had no potential on its label. A sweep is not held
+    anywhere, so it gets its measured span."""
+    import numpy as np
+    from spec_echem.data import DATA_TYPE_CV, write_echem_file, EchemData
+    from spec_echem.experiment import Segment
+    v = np.concatenate([np.linspace(-0.499, 0.699, 50), np.linspace(0.699, -0.499, 50)])
+    write_echem_file(EchemData(time=np.arange(100) * 0.1, potential=v,
+                               current=np.zeros(100)),
+                     DATA_TYPE_CV, 0, tmp_path, "run")
+    window.run_folder = tmp_path / "run"
+    seg = Segment("CV", DATA_TYPE_CV, 0, 100, 0.1, True)
+    window.segments_by_label = {"CV": seg}
+    window._potential_cache.clear()
+    assert window.segment_potential_text(seg) == "-0.499 to +0.699 V"
+    # ...and the step potentials are unaffected by the CV sharing the cache.
+    assert window.segment_potential(seg) is None

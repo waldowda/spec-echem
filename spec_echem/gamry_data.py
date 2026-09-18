@@ -49,6 +49,21 @@ def read_chrono(path):
     return df
 
 
+def measured_sweep_range(path):
+    """(lowest, highest) potential a CV actually reached, from its echem file.
+
+    The sweep's counterpart to measured_potential: a CV is not held anywhere, so
+    what identifies it is the span. Measured rather than nominal for the same
+    reason -- it cannot disagree with the experiment. None if unreadable.
+    """
+    try:
+        v = read_cv(path)[POTENTIAL_COL].to_numpy(dtype=float)
+        v = v[np.isfinite(v)]
+        return (float(v.min()), float(v.max())) if v.size else None
+    except (OSError, KeyError, ValueError):
+        return None
+
+
 def measured_potential(path):
     """The potential a segment was actually HELD at, from its echem file.
 
