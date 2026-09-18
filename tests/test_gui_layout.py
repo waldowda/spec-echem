@@ -2173,3 +2173,20 @@ def test_the_table_tooltip_is_tied_to_its_cell(analysis_window, monkeypatch):
     tab.eventFilter(tab.table.viewport(), ev)
     assert shown and shown[0][0] == tab.table.item(2, 1).toolTip()
     assert shown[0][1] == rect
+
+
+def test_the_floor_shows_the_same_number_in_the_box_and_the_log(window, monkeypatch):
+    """Reported from the Gamry rig: the log said 0.00904 ms while the Start box
+    showed 0.0091 -- at 4 decimals 0.0090 is below the floor, so it rounded up to
+    the next value it could show. At 5 decimals they agree."""
+    from types import SimpleNamespace
+    import gui.tabs.instrument_tab as it
+    monkeypatch.setattr(it, "save_detector_floor", lambda *a, **k: None)
+    tab = window.instrument_tab
+    tab.lin_start_spin.setMinimum(0.00001)
+    tab.lin_start_spin.setValue(0.0001)
+    spec = SimpleNamespace(min_integration_ms=0.00904,
+                           min_integration_measured_ms=0.0090332)
+    tab._apply_detector_floor(spec, "TEST")
+    assert tab.lin_start_spin.value() == pytest.approx(0.00904)
+    assert tab.lin_start_spin.text().startswith("0.00904")
