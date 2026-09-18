@@ -951,10 +951,26 @@ def test_the_controls_sit_beside_the_table_not_above_it(analysis_window):
     the full width and squeeze it into a third."""
     from qtpy.QtWidgets import QSplitter
     tab = analysis_window.analysis_tab
-    row = tab.table.parent()
+    table_box = tab.table.parent()                 # the table and its click hint
+    row = table_box.parent()
     assert isinstance(row, QSplitter)
-    assert row.indexOf(tab.table) >= 0
+    assert row.indexOf(table_box) >= 0
     assert row.indexOf(tab.fit_canvas) == -1, "the plot must not share the top row"
+
+
+def test_the_plotted_trace_row_stays_visibly_selected(analysis_window):
+    """Reported from the Win11 rig: the selected row faded to near-white once focus
+    left the table, so it was not obvious the rows could be clicked, or which trace
+    was plotted. Same strong highlight with or without focus, and a hint."""
+    from qtpy.QtGui import QPalette, QColor
+    from gui.tabs.analysis_tab import SELECTED_ROW_BG
+    tab = analysis_window.analysis_tab
+    pal = tab.table.palette()
+    assert pal.color(QPalette.Inactive, QPalette.Highlight) == QColor(SELECTED_ROW_BG)
+    assert pal.color(QPalette.Active, QPalette.Highlight) == QColor(SELECTED_ROW_BG)
+    assert "click" in tab.table_hint.text().lower()
+    tab.table.selectRow(1)
+    assert [i.row() for i in tab.table.selectionModel().selectedRows()] == [1]
 
 
 def test_the_window_boxes_step_by_one_data_point(analysis_window):
