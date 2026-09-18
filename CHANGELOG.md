@@ -11,6 +11,44 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Added — analysis
+
+- **Analysis tab (Tab 5): fitting doping and dedoping transients.** Absorbance, current and
+  charge are fitted per segment with `exp`, `biexp` or `stretched`. The data, fitted curve and
+  residual panel (drawn above the data) are always shown, with an adjustable fit window.
+  Reports the mean relaxation time ⟨τ⟩ with a delta-method 95% CI on the full covariance, and
+  splits the residual into noise and systematic parts to help rank models. The auto
+  wavelength picks the band that grows or bleaches, and the probe wavelength is shown on
+  every plot.
+- **Flag, never hide.** A fit that converged but failed a check (τ beyond 10× the window,
+  SD over 50%, β outside (0, 1], mixed-sign prefactors) keeps every number, is drawn dashed
+  in amber and is ringed on the ladder. Only a fit that did not converge shows no value.
+- **Kinetics-vs-potential ladder**, plotted against the potential each step was doped
+  *to*. It has per-trace Show toggles, log y, the τ(abs)/τ(current) ratio with its CI,
+  and opt-in **hide flagged points** and **potential range** filters. Whenever those
+  filters remove something, the plot says what in a footnote.
+- **All fits…** — every fit in the run in one table with every parameter and its SD,
+  y(0), ⟨τ⟩ and its CI, the point count and the residual split. Copy or save as CSV.
+- **Density of states from the CV — under development.** g(E) = i/(v·e·V_film) is computed
+  from the last complete cycle, with the two sweep directions kept separate. The scan
+  rate is measured from the data, one potential window applies to both directions, and
+  the y-axis is logarithmic, with an energy-on-Y option. Reports a Gaussian σ or an
+  exponential-tail E₀, each with its quality measure. A red warning appears when the two
+  directions peak more than 150 mV apart (quasi-equilibrium not reached). Not yet
+  validated against a scan-rate series, and no capacitive baseline is subtracted.
+- **Loading a saved run** into the Results tab, with a progress dialog. Segment
+  potentials are measured from each run's own echem files, never taken from the live
+  Parameters tab.
+- **User manual**, `docs/manual.md`: the tabs, plus the mathematics behind the fitting
+  models, ⟨τ⟩, error propagation and the density of states.
+
+### Fixed — analysis
+
+- Loading a second run on the 32-bit build no longer runs out of memory: peak memory
+  stays at 246 MiB instead of 476.
+- A plot footnote no longer runs off the canvas or prints over the x-axis label.
+- The GUI no longer crashes at startup on matplotlib older than 3.6 (`set_layout_engine`).
+
 ### Fixed
 
 - **A detector's minimum integration time is now read from the hardware**, not assumed.
@@ -70,7 +108,10 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
-- **Metrohm Autolab support (in progress).** A third potentiostat mode, `autolab`, alongside
+- **Metrohm Autolab support.** Bench-validated on real films on 2026-09-11 (Autolab
+  PGSTAT302N + AvaSpec-ULS2048L): four film runs, every one `Run finished: done`, with the
+  timing measured on a dummy resistor holding unchanged. See `docs/bench-2026-09-11.md`.
+  A third potentiostat mode, `autolab`, alongside
   `external` and `python`. `AutolabPotentiostat` drives a Metrohm Autolab through its SDK, running
   NOVA's standard CV/CA procedures with the parameters written from settings — the same approach the
   Gamry driver takes with toolkitpy's own signal constructors. Simpler than the Gamry path because
