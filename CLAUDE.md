@@ -11,9 +11,48 @@ and organic mixed ionic-electronic conductors (OMIECs).
 The key technical challenge is precise temporal correlation between the two instruments, solved
 via hardware triggering — the Gamry's DIGOUT0 output is wired directly to the Avantes trigger input.
 
-**GitHub:** github.com/waldowda/spec-echem (private)  
+**GitHub:** github.com/waldowda/spec-echem — **PUBLIC** (verified via the API 2026-09-14; this line said "private" until then, which was wrong and is exactly the kind of mistake that puts the wrong thing in a commit). Anything written here is world-readable the moment it is pushed, and stays in the history even if the file is deleted. Meeting notes, remarks about named people, machine paths with usernames, and anything unpublished belong outside the repo.  
 **Zenodo DOI:** 10.5281/zenodo.17221314  
 **Status:** Pre-release — API is not stable
+
+### ⚠️ BEFORE ANY COMMIT: check what is going into a PUBLIC repository
+
+Dean, 2026-09-15, standing instruction: *"please note in the future to always check what
+is going into the public repo for unpublished info / proprietary info."*
+
+Every commit here is world-readable the moment it is pushed, **and stays in history even
+if the file is later deleted or renamed**. Renaming does not scrub it. So check BEFORE
+writing, not after.
+
+Keep OUT of this repository:
+
+- **Sample identity and composition.** Refer to data by DATE (`the 20250710 reference
+  run`), never by a name encoding polymer, blend ratio or electrolyte. Blend work in
+  particular is sparse in the literature and plausibly unpublished.
+- **Unpublished results and their interpretation.** Method and evidence are fine; what
+  the sample *is* and what it *means* are not. See `private-notes/` (a sibling of this
+  repo, not inside it).
+- **Personal names and institution names in CODE AND DOCS.** Not in comments, not in
+  docstrings, not in test names, not attached to quoted requirements. Write the
+  requirement, not who asked for it: "Requested: ..." or just the reason. Refer to
+  hardware by MODEL NUMBER — `PGSTAT302N`, `AvaSpec-ULS2048L`, `AvaSpec-VRS2048CL-EVO`,
+  `Reference 600` — never by institution or owner. A model number carries no identifier
+  and is more useful than "the second rig", since behavior differs by model (minimum
+  integration time, current ranges, DIO layout). Where the environment is what matters
+  rather than the hardware, name that instead: `SpecEchem32`. (The package
+  author field in `setup.py` and the module `Author:` line are legitimate attribution
+  and stay.) This rule was written and then broken repeatedly in the same session —
+  roughly 60 attributions in source and tests before it was caught.
+- Serial numbers, machine paths carrying usernames, meeting notes.
+- Raw data folders whose NAME describes the sample — the filename is disclosure even
+  when the file contents are clean.
+
+`private-notes/` and the datasets under `../tests/` are deliberately OUTSIDE this
+repository. Do not move them in, and do not quote their sample-identifying content here.
+
+**Known pre-existing exposure**, flagged 2026-09-15, not yet resolved — see TODO.md:
+`tests/golden/<name>/` (7 tracked files, on `main` and `gui-dev` since `7c49c02`) and
+`notebooks/SpecEchem Avantes 0.996-20250717.ipynb` both carry composition in names.
 
 ---
 
@@ -41,11 +80,12 @@ spec-echem/
 ├── gamry/
 │   └── *.GSequence                  # Gamry sequence files with digital triggers
 ├── docs/
+│   ├── manual.md                 # USER MANUAL — tabs + the maths behind every number
 │   ├── data-format.md               # Output file format specification (DO NOT CHANGE)
 │   ├── sop.md                       # Standard operating procedure (GUI-first)
 │   └── inspect-run.md
 ├── examples/                        # Bench/validation scripts + identify_hardware.py
-├── tests/                           # Unit tests (150) — no hardware required
+├── tests/                           # Unit tests (165) — no hardware required
 ├── data/                            # Sample data directory
 ├── CHANGELOG.md                     # What changed between versions
 ├── STATUS.md                        # Human-readable project status + next steps
@@ -64,8 +104,12 @@ New Python modules go in `spec_echem/`. Notebooks go in `notebooks/`. Gamry file
 
 Three coordinated components:
 
-1. **Gamry Ref-600 Potentiostat** — Applies potentials, measures current. Runs sequences defined
-   in `.GSequence` files. Uses DIGOUT0 (digital output pin) to send trigger pulses.
+1. **Gamry Reference 600 Potentiostat** — Applies potentials, measures current. Runs
+   sequences defined in `.GSequence` files. Uses DIGOUT0 (digital output pin) to send
+   trigger pulses.
+   **Two Reference units exist — a 600 and a 610. The 600 is the one in use.** Do not
+   "correct" `Reference 600` to 610 on encountering the other unit; this is also why the
+   docs say *not a 600+*.
 
 2. **Avantes Spectrometer** — Collects UV-Vis spectra. Controlled via the proprietary `avaspec`
    Python module (comes with the Avantes SDK, not pip-installable).
@@ -133,7 +177,7 @@ run_one_segment(spec, segment, dark, ref, wavelengths, data_root, added_path,
   `on_armed` **from inside itself, after arming** — an edge raised before the spectrometer is armed
   is silently MISSED. Only spectrum 0 of a segment is hardware-triggered; the rest free-run.
 - `segment.save=False` means "run it, write nothing" (the pre-dedoping *discard* option). All three
-  writers honour it: the spectra `.txt`, the echem `.txt`, and `ToolkitPotentiostat._write_dta`.
+  writers honor it: the spectra `.txt`, the echem `.txt`, and `ToolkitPotentiostat._write_dta`.
   Discarded segments also never reach `win.results`, so they don't appear in the Results tab.
 - The GUI's Run tab builds the segment list and hands it to a worker thread (`gui/workers.py`).
 
@@ -285,9 +329,65 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   `spec_echem_version` (the build id), sample name, electrolyte, notes, and a full settings snapshot,
   making each data folder self-documenting.
 
+### Metrohm / Autolab rig — Python drives it; chrono runs from `Ei` (2026-09-09)
+
+**Read [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md) first** (the first film
+data), then [`bench-2026-09-09.md`](docs/bench-2026-09-09.md) (where `Ei` mode and the
+timing came from). Headlines:
+
+- **Validated on real samples 2026-09-11.** Four the test film runs; the timing measured on a
+  resistor held unchanged on films, and nothing needed changing to run one.
+- **The current range wants dropping to `CR10_1mA`.** Every film run used `CR09_10mA`
+  and nothing exceeded 625 µA; that range has a MEASURED +1.6 µA zero offset, which is
+  10–100% of the settled currents those runs recorded.
+- **Every CV flags an overload and none of them clip.** `autolab_current_range` does not
+  apply to a CV — it runs the procedure, which auto-ranges. Unresolved; see §4 there.
+
+- **Two backends for a chrono hold**, chosen by `autolab_ca_mode`:
+  - `procedure` (default) — loads the `.nox` for every segment.
+  - `ei` — Python writes Mode/CurrentRange/Setpoint while the cell is still OPEN, then
+    cell ON → trigger edge → samples `Ei` itself. **No procedure is loaded.** CV always
+    keeps the procedure; the staircase is a real waveform worth the instrument generating.
+- **Why `ei` exists:** `Measure()` hands control to the `.nox`, which walks
+  `FHGetSetValues → FHSetSetpointPotential → FHSwitchCell` before `FHLevel` records.
+  MEASURED ~0.93 s, and it is a sum of per-command overheads (one command ≈ 0.23 s), so
+  no parameter shortens it — `FHWait=0` and `UseFastOptions` both changed nothing.
+  `ei` gets cell-on → edge to **19–30 ms** and → first sample to **85–125 ms**.
+- **`Ei.Current` IS NOT LIVE.** It, `Ei.Potential` and the overload flags hold whatever
+  `Ei.Sampler.Sample()` last loaded. Call `sample_ei(inst)` BEFORE any read — `pump()`
+  does. Without it a run records one identical row forever and looks entirely normal
+  (that was `20260909_test11`). `fakes._FakeEi` models the latch on purpose; set
+  `true_potential`/`true_current` in tests, not `Potential`/`Current`.
+- **Never verify a hardware value at `1e-9`.** Procedure parameters are software values
+  and round-trip exactly; `Ei.Setpoint` is a DAC and snaps (55 µV). See
+  `AUTOLAB_SETPOINT_TOL_V`.
+- **The trigger is pin 1** (`autolab_dio_mask = 1`) of `DioPortsP1[0]` = `Port_A`.
+  `Port_C_Upper`/`Port_C_Lower` are the NIBBLES of `Port_C`, so a different port index is
+  not automatically an independent line.
+- **`Interval time in µs` is a vendor mislabel** — MICRO SIGN U+00B5, and the value is in
+  SECONDS. Do not "fix" it into a 10⁶ scaling bug.
+- **Timing is measured, not inferred.** Every segment logs `timing, from cell ON:` with
+  the cell-on / edge / spectrum-0 marks and `EDGE -> spectrum 0`, which is what proves the
+  Avantes is genuinely gated on the pulse (+30–34 ms = its own exposure).
+
+### Metrohm / Autolab rig — bring-up, findings in `docs/metrohm-rig-status.md`
+spec-echem was brought up on a Metrohm-Autolab rig (Autolab **PGSTAT302N** + AvaSpec-**ULS2048L**,
+2026-08-28). **Read [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md)** — it is the
+cross-session handoff. Headlines: the Autolab connects under **64-bit** Python (no 32/64-bit split,
+unlike Gamry); the SDK 2.1 **does** expose digital I/O (`Instrument.Dio`) plus `Ei` / `LoadProcedure`
+/ `Sampler`; and the DIO→Avantes hardware trigger works from one Python process
+(`examples/query_avantes_trigger.py`). So a Python-driven Autolab backend in `potentiostat.py` (the
+analogue of `ToolkitPotentiostat`) is the recommended direction. **That backend now exists
+and is hardware-validated — see the section above.** Open item there: the calibrated
+pixel window (`CAL_START_PX`/`CAL_STOP_PX` in `spectrometer.py`) is hardcoded for the original
+VRS2048CL-EVO. **Closed 2026-09-04 as not worth changing:** measured with the lamp on, this
+ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm edge and 0 past
+1150 — silicon QE ends by ~1050 nm, so the existing window already reaches past usable signal.
+>1100 nm needs an InGaAs detector, not a config change. See `docs/bench-2026-09-04.md`.
+
 ### Modularization — DONE
 `get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
-`data.py`; hardware is faked (`fakes.py`) so all 150 tests run with no instruments attached.
+`data.py`; hardware is faked (`fakes.py`) so all 165 tests run with no instruments attached.
 
 ### Settings: two layers, don't confuse them
 - **Experiment settings** (`settings.py`, `DEFAULT_SETTINGS`) — *this run*: sample, folder, CV
@@ -298,9 +398,56 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   Precedence: code defaults → lab defaults → this machine → an explicitly loaded experiment JSON.
   `data_root` and `potentiostat_mode` are deliberately ABSENT from the tracked file (machine-specific).
 
+### ⚠️ The software raises concerns; the SCIENTIST decides
+
+Dean, 2026-09-15, standing principle: *"the scientist should have results and make
+decisions and not have the software make decisions about whether the user should see
+data or fits to data."*
+
+Never withhold a result. A check that objects to a fit raises a **concern**, visibly,
+next to the number — it does not delete the number, blank the cell, or leave a gap on a
+plot. This has been got wrong twice: once by drawing the curve but hiding every
+parameter, and once by plotting NaN on the ladder where a rejected fit belonged.
+
+The vocabulary matters and is deliberate:
+
+- **`did_not_converge`** — no parameters exist. "FIT DID NOT CONVERGE". A statement of
+  fact: there is nothing to show. The only case where nothing is displayed.
+- **`needs_review`** — converged, but a physical check objected. "NEEDS REVIEW", amber,
+  never "FAILED". The curve is drawn dashed, every parameter is in the legend with the
+  reason beside it, the table shows `? <value>`, and the ladder plots the point ringed.
+- **`ok`** means "passed the checks". It must NOT gate whether numbers are available —
+  that conflation is what caused both regressions.
+
+### In-GUI analysis (Tab 5) — DONE and validated on real data 2026-09-14
+
+Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardware) and
+`gui/tabs/analysis_tab.py` the view. **Read [`docs/analysis-design.md`](docs/analysis-design.md)**
+— it carries the design, what real data changed, and the planned CV density-of-states view.
+
+- **`auto_wavelengths` returns `(grows, bleaches)`, NOT `(polaron, pi)`.** Which is which
+  depends on the segment: doping grows the polaron, dedoping decays it while π–π*
+  recovers. Always go through `analysis.probe_wavelength(…, doping=…)` — the first copy
+  of that logic lived in one tab only and the other quietly followed the wrong band.
+- **Pixels below `ANALYSIS_WL_MIN` (410 nm) never win band selection**, nor do pixels
+  whose change is under 10× their own noise. MEASURED: 416 counts at 381 nm against
+  41250 at 780 nm, and the blue edge was beating the real polaron on every segment.
+- **Fits are bounded**: τ > 0, 0 < β ≤ 1 (above 1 is a *compressed* exponential),
+  β ≥ 0.05 (⟨τ⟩ = (τ/β)·Γ(1/β) overflows past 1/β ≈ 170), and τ < 10× the fitted window.
+- **Segment potentials come from the DATA**, via `MainWindow.segment_potential()` →
+  `gamry_data.measured_potential()` (median of `WE(1).Potential`), falling back to the
+  loaded run's own metadata. Never from the live Parameters tab: that mislabeled a
+  +0.700 V segment as "+0.400 V".
+- **`plot_canvas` carries matplotlib-version fallbacks** (`_set_layout`, the colormap
+  lookup) because SpecEchem32 is Python 3.7. Do not "simplify" them away until that env
+  is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
+
 ### Known gaps (see TODO.md)
-- **`gui/` has no test coverage** while `spec_echem/` has 150 tests. Every bug in the 0.2.0 cycle
-  lived in GUI wiring, and the core suite passed through all of them.
+- **`gui/` is barely tested.** 165 tests total, of which exactly 4 touch `gui/`
+  (`tests/test_gui_layout.py`, headless via `QT_QPA_PLATFORM=offscreen`). Every bug in the 0.2.0
+  cycle lived in GUI wiring and the core suite passed through all of them, so this is where new
+  coverage pays. Qt-dependent tests must `pytest.importorskip("qtpy")` — the suite has to keep
+  running in environments with no Qt.
 - **The trigger cable's build** (connector, pinout, shielding) is undocumented — only its endpoints.
 
 ---

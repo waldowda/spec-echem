@@ -7,6 +7,7 @@ is injected, so this is fully testable with FakeSpectrometer.
 """
 from dataclasses import dataclass
 
+import math
 import numpy as np
 
 from spec_echem.acquisition import acquire_segment
@@ -30,16 +31,24 @@ class Segment:
 
 def n_doping_cycles(settings):
     """
-    Number of doping/dedoping cycles, derived from the doping potential
-    start/end/step. The count is meaningful (it must match the Gamry sequence);
-    the potential values themselves are documentation-only in this phase.
+    Number of doping/dedoping cycles: every potential start, start+step, ... that
+    does NOT pass `end`.
+
+    Rounded DOWN, never to nearest. In Python and Autolab modes the driver applies
+    start + n*step, so the count decides the highest potential the film sees, and
+    the end is a limit the user set -- it must never be exceeded. Rounding to
+    nearest did exceed it: start 0.05, end 0.2, step 0.1 gave round(1.5) + 1 = 3
+    steps and held the film at +0.25 V (found on the bench, 2026-09-18).
+
+    The small tolerance only absorbs binary float error, so a ladder that lands
+    exactly on its end keeps that step: (0.7 - 0.2) / 0.1 is 4.999999999999999.
     """
     start = settings["doping_potential_start"]
     end = settings["doping_potential_end"]
     step = settings["doping_potential_step"]
     if step == 0:
         return 1
-    return max(1, int(round((end - start) / step)) + 1)
+    return max(1, int(math.floor((end - start) / step + 1e-9)) + 1)
 
 
 def build_segments(settings):
@@ -53,19 +62,26 @@ def build_segments(settings):
         cv_path = (abs(settings["cv_initial_v"] - settings["cv_limit1_v"])
                    + abs(settings["cv_limit1_v"] - settings["cv_limit2_v"])
                    + abs(settings["cv_limit2_v"] - settings["cv_final_v"]))
-        cv_points = int(cv_path / settings["cv_step_size"]
-                        * 1000 * settings["cv_cycles"] + 1)
+        # round() not truncation: exact ratios land at N-epsilon in binary float
+        # (e.g. 1.4/10*1000 = 139.9999…), so int()+1 would drop a spectrum. round
+        # keeps the count matching the waveform's duration. (Clean ratios unchanged.)
+        cv_points = int(round(cv_path / settings["cv_step_size"]
+                              * 1000 * settings["cv_cycles"])) + 1
         cv_delta = settings["cv_step_size"] / settings["cv_scan_rate"]
         segments.append(Segment("CV", DATA_TYPE_CV, 0, cv_points, cv_delta, trigger))
 
-    chrono_points = int(settings["chrono_time"] / settings["chrono_delta_time"] + 1)
+    chrono_points = int(round(settings["chrono_time"] / settings["chrono_delta_time"])) + 1
     chrono_delta = settings["chrono_delta_time"]
 
     if settings["prededoping_enabled"]:
-        # The pre-dedoping step conditions the film; its data is often just a
-        # baseline you don't want cluttering the folder. Discard = run it, keep nothing.
+        # Pre-dedoping has its OWN duration (prededoping_time) — it is NOT the
+        # doping/dedoping step time; spectra are just spaced at the same chrono delta.
+        # The step conditions the film; its data is often just a baseline you don't
+        # want cluttering the folder, so discard = run it, keep nothing.
+        pre_points = int(round(settings["prededoping_time"]
+                               / settings["chrono_delta_time"])) + 1
         segments.append(Segment("Pre-dedoping", DATA_TYPE_PREDEDOPING, 0,
-                                 chrono_points, chrono_delta, trigger,
+                                 pre_points, chrono_delta, trigger,
                                  save=not settings.get("prededoping_discard", False)))
 
     if settings["doping_enabled"]:
@@ -86,7 +102,7 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     If a potentiostat is given (Python-controlled mode), it is started the
     instant the spectrometer trigger is armed and stopped once collection ends —
     so the Gamry runs concurrently with spectrum acquisition. An ExternalPotentiostat
-    (or None) makes this a no-op, preserving the manual two-step behaviour exactly.
+    (or None) makes this a no-op, preserving the manual two-step behavior exactly.
 
     Returns (absorbance_df, path), or None if aborted (no file is written for a
     partial/aborted segment). `path` is None when segment.save is False — the
@@ -94,14 +110,16 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     """
     on_armed = None
     on_tick = None
+    on_first = None
     if potentiostat is not None:
         potentiostat.prepare(segment)   # slow setup, before the spectrometer is armed
         on_armed = potentiostat.fire    # fired from inside measure(), once armed
         on_tick = potentiostat.pump     # per-spectrum: cook the Gamry curve's data
+        on_first = potentiostat.note_first_spectrum   # closes the edge->spectrum gap
     try:
         spectra, timestamps = acquire_segment(
             spec, segment.num_points, segment.delta_time, segment.trigger,
-            abort_event, on_armed, on_tick,
+            abort_event, on_armed, on_tick, on_first_spectrum=on_first,
         )
     finally:
         if potentiostat is not None:

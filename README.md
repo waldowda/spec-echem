@@ -1,5 +1,7 @@
 # spec-echem
 
+**[User manual](docs/manual.md)** — the tabs and controls, plus the mathematics behind the fits, the mean relaxation time, its confidence interval, and the density of states (under development).
+
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17221314.svg)](https://doi.org/10.5281/zenodo.17221314)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
@@ -111,6 +113,34 @@ not report a model string — pair the serial number it prints with the label on
    automatically disabled and the app falls back to External mode. Vendor packages (`avaspec`,
    `EchemToolkitPy`) are not pip-installable — they ship with the Avantes SDK / Gamry Framework.
 
+4. **If `avaspec` will not import (fresh installs)**
+
+   Avantes' 9.14.0.0 `avaspec.py` loads its DLL as `ctypes.WinDLL("./avaspecx64.dll")`. That leading
+   `./` makes Windows resolve the name against the **current directory**, so `import avaspec` works
+   only when you happen to be sitting in the DLL's folder.
+
+   **Neither `os.add_dll_directory()` nor an absolute-path preload fixes that wrapper** — both were
+   tried on hardware (2026-08-28). A path containing a separator bypasses the DLL search order, and
+   the `"./..."` request is not matched against the already-loaded module. The fix is the vendored-file
+   edit in `examples/query_avantes_setup.md` §2: load the DLL by **bare name** after an
+   `os.add_dll_directory(...)`.
+
+   Once the wrapper loads by bare name, point `SPEC_ECHEM_AVASPEC_DLL_DIR` at the folder holding the
+   DLL. The app also preloads the DLL from that folder before importing, which is sufficient on its own
+   for a wrapper that already loads by bare name (Windows only; unset, it does nothing):
+
+   ```
+   set SPEC_ECHEM_AVASPEC_DLL_DIR=C:\AvaSpecX64-DLL_9.14.0.0
+   ```
+
+   That is the **folder**, not the file. Copy `avaspec.py` and `globals.py` into your environment's
+   `site-packages` (they are vendor files — do not commit them to the repo); the DLL stays where the
+   SDK installed it.
+
+   The launch banner in the app log reports the import failure and its reason, so "avaspec: no" can be
+   told apart from an unplugged spectrometer. Keep `avaspec.py` and the DLL a version-matched pair, and
+   match bitness: 64-bit Python needs `avaspecx64.dll`.
+
 ## Installation
 
 ### 1. Clone the Repository
@@ -165,7 +195,7 @@ spec-echem/
 ├── gamry/                   # .GSequence files with digital-output triggers
 ├── docs/                    # sop.md, data-format.md, inspect-run.md
 ├── examples/                # Bench/validation scripts (trigger timing, co-acquisition)
-├── tests/                   # 150 tests — no hardware required
+├── tests/                   # 173 tests — no hardware required
 └── data/                    # Sample data
 ```
 
@@ -215,6 +245,22 @@ When you start a run in the GUI, files are written to **`‹Save location›\‹
 
 > ⚠️ Don't browse *into* a folder you made yourself for the Save location, or you'll get a doubled path
 > like `…\20260704_test\20260704_test\`.
+
+### Logs — two of them, for two different questions
+
+**Inside each run folder:** `‹Data folder name›_log.log`, the record of that one run. It travels with the
+data, so a folder you hand to a collaborator explains how it was produced — including which
+instruments, by serial number, and which build of this code.
+
+**In `‹Save location›\logs\`:** `spec-echem.log`, the record of *the day*, opened when the program
+launches rather than when a run starts. This is the one to look at when something went wrong
+**before** you pressed Start — a spectrometer that wouldn't connect, a dark you're not sure you
+collected. Reach it from **Open Log Folder** on the Run tab.
+
+It rotates at midnight and nothing is ever deleted: `spec-echem.log` is today,
+`spec-echem.log.2026-07-26` is yesterday. Each launch writes a banner recording the build, the Python
+environment, and whether the instrument drivers loaded — so if you ever paste a log for help, it
+already answers "which environment was this?"
 
 ## Workflow
 

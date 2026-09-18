@@ -9,6 +9,7 @@ from spec_echem.settings import DEFAULT_SETTINGS
 from spec_echem.experiment import build_segments, n_doping_cycles, run_one_segment, Segment
 from spec_echem.data import (
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
+    EchemData,
 )
 from spec_echem.fakes import FakeSpectrometer
 
@@ -30,6 +31,34 @@ def test_doping_cycle_count_single():
     assert n_doping_cycles(settings(doping_potential_start=0.5,
                                     doping_potential_end=0.5,
                                     doping_potential_step=0.1)) == 1
+
+
+def test_the_ladder_never_passes_its_end():
+    """Found on the bench: start 0.05, end 0.2, step 0.1 rounded 1.5 to 2 and ran a
+    third step at +0.25 V -- past the end the user set."""
+    s = settings(doping_potential_start=0.05, doping_potential_end=0.2,
+                 doping_potential_step=0.1)
+    assert n_doping_cycles(s) == 2
+    top = 0.05 + (n_doping_cycles(s) - 1) * 0.1
+    assert top <= 0.2
+
+
+@pytest.mark.parametrize("start, end, step, expected", [
+    (0.2, 0.7, 0.1, 6),      # (0.7-0.2)/0.1 = 4.999999999999999 in binary
+    (0.2, 0.8, 0.1, 7),
+    (0.1, 0.2, 0.05, 3),
+    (0.0, 0.29, 0.1, 3),     # 0.0, 0.1, 0.2 -- 0.3 would pass 0.29
+    (0.7, 0.2, -0.1, 6),     # a descending ladder
+    (0.2, 0.25, 0.1, 1),
+])
+def test_the_ladder_keeps_an_exact_end_and_rounds_down_otherwise(start, end, step,
+                                                                 expected):
+    s = settings(doping_potential_start=start, doping_potential_end=end,
+                 doping_potential_step=step)
+    n = n_doping_cycles(s)
+    assert n == expected
+    last = start + (n - 1) * step
+    assert (last <= end + 1e-9) if step > 0 else (last >= end - 1e-9)
 
 
 def test_doping_cycle_count_zero_step():
@@ -88,7 +117,33 @@ def test_chrono_points_formula():
     s = settings(cv_enabled=False, prededoping_enabled=True, doping_enabled=False,
                  chrono_time=30.0, chrono_delta_time=0.1)
     pre = build_segments(s)[0]
-    assert pre.num_points == 301  # int(30/0.1 + 1)
+    assert pre.num_points == 301  # round(30/0.1) + 1
+
+
+def test_chrono_points_no_off_by_one():
+    # 1.2/0.1 = 11.9999… in binary float; truncation would give 12, not 13.
+    s = settings(cv_enabled=False, prededoping_enabled=False, doping_enabled=True,
+                 doping_potential_start=0.2, doping_potential_end=0.2,
+                 doping_potential_step=0.1, chrono_time=1.2, chrono_delta_time=0.1)
+    doping = build_segments(s)[0]
+    assert doping.num_points == 13
+
+
+def test_cv_points_no_off_by_one():
+    # path 1.4 V, 10 mV step: 1.4/10*1000 = 139.9999…; truncation gives 140, not 141.
+    s = settings(cv_enabled=True, prededoping_enabled=False, doping_enabled=False,
+                 cv_initial_v=0.0, cv_limit1_v=-0.2, cv_limit2_v=0.5, cv_final_v=0.0,
+                 cv_step_size=10.0, cv_scan_rate=100.0, cv_cycles=1)
+    cv = build_segments(s)[0]
+    assert cv.num_points == 141
+
+
+def test_prededoping_uses_its_own_duration():
+    # Pre-dedoping duration is prededoping_time, NOT the doping/dedoping chrono_time.
+    s = settings(cv_enabled=False, prededoping_enabled=True, doping_enabled=False,
+                 prededoping_time=10.0, chrono_time=30.0, chrono_delta_time=0.1)
+    pre = build_segments(s)[0]
+    assert pre.num_points == 101   # round(10/0.1) + 1, not 301
 
 
 # --- run_one_segment with the fake ---
@@ -115,6 +170,12 @@ class FakePotentiostat:
         self._data = data
         self.fired = False
         self.pumps = 0
+        self.first_spectrum_at = None
+
+    def note_first_spectrum(self, t_perf):
+        """run_one_segment hands the spectrum-0 mark to the potentiostat, which is
+        the only object holding the trigger-edge mark to compare it against."""
+        self.first_spectrum_at = t_perf
 
     def prepare(self, segment):
         self._segment = segment
@@ -133,12 +194,11 @@ class FakePotentiostat:
 
 
 def _chrono_acq(n=5):
-    dt = np.dtype([('time', 'f8'), ('vf', 'f8'), ('im', 'f8')])
-    arr = np.zeros(n, dtype=dt)
-    arr['time'] = np.arange(n) * 0.1
-    arr['vf'] = 0.2
-    arr['im'] = np.linspace(1e-6, 5e-6, n)
-    return arr
+    return EchemData(
+        time=np.arange(n) * 0.1,
+        potential=np.full(n, 0.2),
+        current=np.linspace(1e-6, 5e-6, n),
+    )
 
 
 def test_run_one_segment_writes_echem_next_to_spectra(tmp_path):

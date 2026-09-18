@@ -14,7 +14,7 @@ WL = np.linspace(380.0, 1100.0, 1265)   # matches the real calibrated window
 
 
 def _test_abs(seed=0):
-    """No-sample absorbance: σ=0.001 plateau, noisy edges (like Dean's blank)."""
+    """No-sample absorbance: σ=0.001 plateau, noisy edges (like a real blank)."""
     rng = np.random.default_rng(seed)
     sigma = np.full(WL.size, 0.001)
     sigma[WL < 420.0] = 0.02

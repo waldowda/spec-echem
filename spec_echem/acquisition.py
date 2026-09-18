@@ -2,11 +2,168 @@
 Hardware acquisition loop for Avantes spectrometer.
 No Qt imports. No vendor SDK imports — spec is injected.
 """
+import logging
 import time
+
+logger = logging.getLogger(__name__)
+
+
+# What one spectrum costs BEYOND integration x scan averages: the USB round trip
+# to fetch it, plus the per-spectrum work in the loop below (on_tick pumps the
+# potentiostat, which is itself an instrument call).
+#
+# MEASURED 2026-09-04 on the Metrohm rig (AvaSpec-ULS2048L, 2.6439 ms integration):
+# free-running measure() cost 8.5 / 23.1 / 36.2 / 62.9 / 142.7 ms at 1 / 5 / 10 /
+# 20 / 50 averages — i.e. a FLAT ~10 ms above integration x averages, not a
+# proportional one. In-run, a CV segment asking for 10 ms achieved 29.9 ms, so the
+# loop's own per-spectrum work adds roughly another 20 ms. 30 ms is that total,
+# rounded to one conservative number.
+#
+# It exists so the warning below is honest. Nothing paces on it and no timing
+# depends on it — the acquisition loop is unchanged.
+SPECTRUM_OVERHEAD_S = 0.030
+
+# What polling the potentiostat costs per spectrum, by potentiostat_mode.
+#
+# MEASURED for the Autolab 2026-09-09 (examples/bench_ei_sampling_report.txt):
+# Sampler.Sample() is 25.0 ms and each latch read is 5.0 ms -- the reads are NOT free,
+# because Ei's scalars are a latch and touching one is a round trip. pump() does a
+# sample plus five reads, so ~50 ms, which is HALF a 100 ms slot.
+#
+# OBSERVED in a real run 2026-09-16 (20260916_test1): 1.1 ms x 20 averages into a
+# 100 ms slot ran at a mean of 103.9-106.0 ms across all five chrono segments. The
+# arithmetic closes -- the logs put EDGE -> spectrum 0 at 56 ms, and 56 + 50 is ~106 --
+# and before this constant existed the advisory reported 52 ms against that slot and
+# called it comfortable.
+#
+# The Gamry path polls its own curve rather than a latch and has never been measured,
+# so it is left at zero rather than guessed at: a wrong number here would be worse than
+# a missing one, because it would be quoted to the user as though it were known.
+POTENTIOSTAT_POLL_S = {
+    "autolab": 0.050,
+    "python": 0.0,
+    "external": 0.0,
+}
+
+
+def potentiostat_poll_seconds(potentiostat_mode):
+    """Per-spectrum cost of polling this potentiostat, in seconds. 0 if unknown.
+
+    In Ei mode this is not a side job -- pump() IS the echem acquisition -- so it
+    belongs in any budget that claims to say whether a grid fits.
+    """
+    if not potentiostat_mode:
+        return 0.0
+    return POTENTIOSTAT_POLL_S.get(str(potentiostat_mode).strip().lower(), 0.0)
+
+
+def spectrum_cost_seconds(integration_ms, scan_averages, potentiostat_mode=None):
+    """What one loop iteration really costs: integration x averages, plus overhead,
+    plus whatever polling the potentiostat costs.
+
+    The number that has to fit inside a segment's delta_time. Pure arithmetic so the
+    GUI can call it from its spin boxes, before any hardware exists.
+
+    `potentiostat_mode` is optional and defaults to charging nothing, which is what
+    this function did before it existed -- but omitting it on a rig that polls a
+    potentiostat UNDERSTATES the cost by ~50 ms, which was enough to approve a grid
+    that could not hold. See POTENTIOSTAT_POLL_S.
+    """
+    return ((float(integration_ms) * int(scan_averages)) / 1000.0
+            + SPECTRUM_OVERHEAD_S
+            + potentiostat_poll_seconds(potentiostat_mode))
+
+
+def suggest_scan_averages(integration_ms, delta_time, potentiostat_mode=None):
+    """The largest scan-averages count that still fits inside delta_time.
+
+    Returns 0 when even a single average cannot fit — then the integration time
+    or the slot itself has to change, and no averaging choice rescues it.
+
+    Takes the potentiostat's polling cost out of the room available, for the same
+    reason spectrum_cost_seconds adds it: a suggestion that ignores half the budget
+    is a suggestion that does not fit.
+    """
+    room = (float(delta_time) - SPECTRUM_OVERHEAD_S
+            - potentiostat_poll_seconds(potentiostat_mode))
+    if float(integration_ms) <= 0 or room <= 0:
+        return 0
+    return max(0, int(room * 1000.0 // float(integration_ms)))
+
+
+def next_deadline(anchor, index, delta_time, measure_cost):
+    """Host time at which measurement `index + 1` must START to LAND on the grid.
+
+    Absolute, not relative: every deadline is computed from the one anchor, so a
+    slow measurement is absorbed rather than pushing everything after it back.
+    Subtracting `measure_cost` schedules the *completion* — a spectrum's recorded
+    timestamp is written when the scan lands, not when it was asked for.
+
+    Replaces a per-iteration "wait delta_time from the top of this pass", which
+    added each measurement's own duration to the period. MEASURED 2026-09-04:
+    that ran at 100.5-101.3 ms against a 100 ms target and put the optical series
+    303 ms behind a 30 s hold whose Autolab clock was exact (0.000-29.900 s), with
+    the error growing linearly — 54 ms a quarter in, 105 ms at half, 303 ms at the
+    end. Over a 10-minute segment it would be seconds.
+    """
+    return anchor + (index + 1) * delta_time - measure_cost
+
+
+def _warn_if_cadence_unachievable(spec, delta_time, num_points):
+    """Say so when one spectrum takes longer than the gap between spectra.
+
+    The loop below only paces DOWN to delta_time; when a measurement is slower it
+    simply runs slower, silently. The result is not just a slow run — the spectra
+    land further apart than requested, so the segment outlives the electrochemistry
+    and the later spectra record a cell that has already stopped. The file looks
+    completely normal.
+
+    Invisible on the original rig (0.088 ms x 200 averages + overhead = ~48 ms,
+    well inside a 100 ms delta_time). A detector with a ~1 ms integration floor
+    makes the same 200 averages take ~530 ms, and the arithmetic inverts.
+
+    Counts SPECTRUM_OVERHEAD_S, without which this stays silent through exactly the
+    case it exists to catch: 2026-09-04, a CV segment asked for 10 ms and got
+    29.9 ms, because integration x averages was only 2.6 ms and the rest was
+    overhead. Two thirds of that file recorded a cell that had already stopped.
+    """
+    try:
+        per_spectrum = float(spec.per_spectrum_seconds()) + SPECTRUM_OVERHEAD_S
+    except Exception:  # noqa: BLE001 — a diagnostic must never stop a run
+        return
+    if per_spectrum <= 0 or per_spectrum < delta_time:
+        return
+
+    advice = "Reduce scan averages or the integration time."
+    try:
+        integration_ms, averages = spec.integration_and_averages()
+        fits = suggest_scan_averages(integration_ms, delta_time)
+        if fits >= 1:
+            advice = (f"About {fits} scan averages would fit here "
+                      f"(currently {averages}).")
+        else:
+            advice = (f"Even 1 scan average does not fit at {integration_ms:.4g} ms "
+                      f"integration — lengthen the step instead (a coarser CV step "
+                      f"or a longer delta time).")
+    except Exception:  # noqa: BLE001 — advice is optional, the warning is not
+        pass
+
+    logger.warning(
+        "Spectra cannot keep the requested cadence: one spectrum takes %.0f ms "
+        "(integration x scan averages + ~%.0f ms overhead) but delta_time is "
+        "%.0f ms. They will be collected every ~%.0f ms instead, so this segment "
+        "takes ~%.0f s rather than ~%.0f s and its later spectra may fall after "
+        "the electrochemistry has finished. %s",
+        per_spectrum * 1000, SPECTRUM_OVERHEAD_S * 1000, delta_time * 1000,
+        per_spectrum * 1000, per_spectrum * num_points, delta_time * num_points,
+        advice)
+
+
 
 
 def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
-                    abort_event=None, on_armed=None, on_tick=None):
+                    abort_event=None, on_armed=None, on_tick=None,
+                    on_first_spectrum=None):
     """
     Collect a segment of spectra from the spectrometer.
 
@@ -16,6 +173,11 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
         delta_time: Target seconds between spectrum acquisitions
         trigger: If True, wait for hardware trigger on first measurement
         abort_event: threading.Event — if set, stops acquisition immediately
+        on_first_spectrum: optional callable, given time.perf_counter() at the
+            instant spectrum 0 LANDED. The potentiostat marks the trigger edge on
+            the same clock, so the difference answers whether the spectrometer
+            really waited for that edge or was already holding data. Nothing else
+            in the system relates the Avantes device clock to Python's.
         on_armed: optional callable passed into measure() for spectrum 0, so it
             fires from INSIDE measure() — right after AVS_Measure() has armed the
             device and before it polls. In Python-controlled mode this raises
@@ -34,39 +196,72 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
         (spectra, timestamps): spectra is list of 1D arrays, timestamps are
         Avantes SDK timestamps converted to seconds
     """
+    _warn_if_cadence_unachievable(spec, delta_time, num_echem_points)
+
     trigger_mode = 1 if trigger else 0
     spec.set_trigger_mode(trigger_mode)
 
     spectra = []
     timestamps = []
 
+    # The schedule is anchored on spectrum 0, once the trigger has actually fired
+    # (below) — NOT on the top of each pass. Anchoring per pass had two costs, both
+    # MEASURED on the Metrohm rig 2026-09-04 and both invisible in a file that looks
+    # normal:
+    #   * spectrum 1 arrived one measurement after spectrum 0 instead of one
+    #     delta_time (37-72 ms against a 100 ms target), because the pass began
+    #     BEFORE measure() blocked ~6 s waiting for the trigger, so its wait was
+    #     already satisfied;
+    #   * the period was delta_time PLUS each measurement's own duration, so the
+    #     optical series drifted +303 ms over a 30 s hold and kept going.
+    anchor = None
+    # What one measurement costs, so a scan is started early enough to LAND on the
+    # grid. Estimated before the first one, then measured from the real thing.
+    try:
+        measure_cost = float(spec.per_spectrum_seconds()) + SPECTRUM_OVERHEAD_S
+    except Exception:  # noqa: BLE001 — a spectrometer that cannot say still runs
+        measure_cost = 0.0
+
     for j in range(num_echem_points):
         if abort_event is not None and abort_event.is_set():
             break
 
-        pretime1 = time.time_ns() / 1e9
+        started = time.time_ns() / 1e9
         # Fire the trigger (on_armed) only for spectrum 0, from inside measure()
         # so the DIGOUT0 edge lands after AVS_Measure() has armed the device.
         result = spec.measure(abort_event, on_armed if j == 0 else None)
         if result is None:  # aborted while waiting for the trigger / data
             break
+        finished = time.time_ns() / 1e9
         timestamp_av, data = result
         pretime = timestamp_av / 1e5  # Avantes units to seconds
         spectra.append(data)
         timestamps.append(pretime)
 
+        if j == 0 and on_first_spectrum is not None:
+            on_first_spectrum(time.perf_counter())
         if j == 0:
             spec.set_trigger_mode(0)  # disable trigger after first measurement fires
+            # Anchor here: spectrum 0 has landed, so this instant is the trigger plus
+            # one measurement — the same relationship every later spectrum will have
+            # to its own slot. Anchoring before the trigger wait is what made
+            # spectrum 1 early.
+            anchor = finished
+        else:
+            # Refine from the real thing; it drifts with integration time, averaging
+            # and USB latency, and only the most recent value is relevant.
+            measure_cost = finished - started
 
         if on_tick is not None:
             on_tick()  # pump the Gamry curve so its data accumulates during the run
 
-        time.sleep(0.002)
-        check_time = time.time_ns() / 1e9
-        while (check_time - pretime1) <= (delta_time - 0.0012):
+        deadline = next_deadline(anchor, j, delta_time, measure_cost)
+        while True:
             if abort_event is not None and abort_event.is_set():
                 break
-            check_time = time.time_ns() / 1e9
-            time.sleep(0.5e-3)
+            now = time.time_ns() / 1e9
+            if now >= deadline:
+                break  # already late (see the cadence warning) — go straight on
+            time.sleep(min(0.5e-3, deadline - now))
 
     return spectra, timestamps
