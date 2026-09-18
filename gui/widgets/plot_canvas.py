@@ -175,9 +175,12 @@ class MplCanvas(FigureCanvasQTAgg):
 
         if show_full_scale:
             self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888")
-            self.ax.annotate("ADC full scale", xy=(times[0], full_scale), xytext=(2, -10),
+            # Mid-axis, just above its line: the upper-left corner holds the time
+            # labels, and the data only nears the ceiling at the right.
+            self.ax.annotate("ADC full scale", xy=(0.5, full_scale),
+                             xycoords=("axes fraction", "data"), xytext=(0, 2),
                              textcoords="offset points", fontsize=7, color="#888",
-                             clip_on=True)
+                             ha="center", va="bottom", clip_on=True)
 
         # The fill cap usually decides the working point (the detector stays linear
         # nearly to the clip), so show it — otherwise the recommendation looks arbitrary.
@@ -188,22 +191,25 @@ class MplCanvas(FigureCanvasQTAgg):
                              textcoords="offset points", fontsize=7, color="#ff7f0e",
                              clip_on=True)
 
-        if result.get("t_limit") is not None:
-            self.ax.axvline(result["t_limit"], ls="-", lw=1.0, color="#d62728", alpha=0.7)
-            self.ax.annotate(f"limit {result['t_limit']:.4g} ms",
-                             xy=(result["t_limit"], result["counts_limit"]),
-                             xytext=(4, 6), textcoords="offset points",
-                             fontsize=8, color="#d62728", clip_on=True)
+        # Both time labels live in the upper-left corner, stacked, on a white backing.
+        # Anchored at the data they overran: "limit" sat at its line near the right
+        # edge and ran off the canvas, and the ADC full-scale line struck through
+        # "recommended". The legend is lower-right, so the corner is free, and the
+        # backing keeps any reference line from crossing the text.
+        corner = dict(xycoords="axes fraction", fontsize=8, ha="left", va="top",
+                      zorder=7, bbox=dict(boxstyle="square,pad=0.15", fc="white",
+                                          ec="none", alpha=0.9))
         t_rec = result.get("t_recommended")
+        y = 0.97
         if t_rec is not None:
             self.ax.axvline(t_rec, ls="-", lw=1.4, color="#ff7f0e", alpha=0.9)
-            # Anchored in the axes corner, not at the (t_rec, counts[0]) data point:
-            # a recommendation near the left edge used to push right-aligned text off
-            # the canvas. Legend is lower-right, so the upper-left corner is free.
-            self.ax.annotate(f"recommended {t_rec:.4g} ms",
-                             xy=(0.03, 0.97), xycoords="axes fraction",
-                             fontsize=8, color="#ff7f0e", ha="left", va="top",
-                             clip_on=True)
+            self.ax.annotate(f"recommended {t_rec:.4g} ms", xy=(0.03, y),
+                             color="#ff7f0e", **corner)
+            y -= 0.075
+        if result.get("t_limit") is not None:
+            self.ax.axvline(result["t_limit"], ls="-", lw=1.0, color="#d62728", alpha=0.7)
+            self.ax.annotate(f"linear limit {result['t_limit']:.4g} ms", xy=(0.03, y),
+                             color="#d62728", **corner)
 
         if show_full_scale:
             self.ax.set_ylim(0, full_scale * 1.08)
