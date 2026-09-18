@@ -210,7 +210,8 @@ def main():
     # A saturated beam makes the counts column meaningless before it makes it flat,
     # so say that FIRST -- otherwise the knee reads as a detector limit when it is
     # really the lamp. Nothing below the peak column can be trusted while this holds.
-    if any(peak >= SATURATED for _, _, peak in rows):
+    saturated = [t for t, _, peak in rows if peak >= SATURATED]
+    if saturated and saturated[0] == rows[0][0]:
         print(flush=True)
         print("  PEAK IS PINNED AT FULL SCALE. The beam saturates the detector even",
               flush=True)
@@ -218,6 +219,14 @@ def main():
               flush=True)
         print("  Attenuate -- reference blank in the beam, or an ND filter -- and re-run.",
               flush=True)
+    elif saturated:
+        # Only the LONG exposures clip. The short rows -- the ones that decide the
+        # floor -- are valid, and saying otherwise sent the user to re-run for nothing.
+        rows = [r for r in rows if r[2] < SATURATED]
+        print(flush=True)
+        print(f"  Saturated from {saturated[0]:g} ms up; those rows are ignored below.",
+              flush=True)
+        print("  The rows under that are valid for judging the floor.", flush=True)
 
     floor = None
     for (t_a, c_a, _), (t_b, c_b, _) in zip(rows, rows[1:]):

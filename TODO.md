@@ -124,7 +124,7 @@ sub-floor requests are refused, not clamped.
       5 ms). Reproducible across four scans and on a revisit after every longer exposure,
       so not a first-scan artifact. `init()` therefore rounds the probe result UP before
       exposing it, which steps off the one exposure this detector gets wrong.
-- [ ] **Does the fast detector's boundary value misbehave too?** Its accepted minimum
+- [x] ~~Does the fast detector's boundary value misbehave too?~~ **No — MEASURED 2026-09-18 on the VRS2048CL-EVO**: at exactly 0.009033 ms mean counts sit 0.7% off the line through the 0.02–0.1 ms rows (1378.5 vs 1369), where the ULS2048L integrated double. The doubling is that detector's firmware; rounding up stays as a harmless precaution. Original note: Its accepted minimum
       (0.009033 ms) was verified genuine against `counts = 112 + 26051·t`, but that check
       started at 0.009 ms rather than at the bisect's last accepted value, which is the
       one that failed here. Same test, four scans at the exact boundary against the fitted
