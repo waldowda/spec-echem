@@ -13,7 +13,8 @@ from spec_echem.bench import (
     apply_bench_defaults, load_bench_defaults, user_bench_path,
 )
 from spec_echem.build_info import build_id
-from spec_echem.data import echem_txt_path, DATA_TYPE_CV, segment_potential
+from spec_echem.data import (echem_txt_path, DATA_TYPE_CV, DATA_TYPE_DOPING,
+                             DATA_TYPE_DEDOPING, segment_potential)
 from spec_echem.gamry_data import measured_potential
 from spec_echem.settings import DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import InstrumentTab
@@ -136,10 +137,40 @@ class MainWindow(QMainWindow):
             self._potential_cache[key] = v
         return self._potential_cache[key]
 
+    def doped_to(self, seg):
+        """The potential the film was doped to before this segment, or None.
+
+        For a doping step that is its own potential. For the dedoping step that
+        follows it, it is that doping step's -- matched by run number. Every
+        dedoping step is held at the same potential, so this is the only thing that
+        tells them apart. Pre-dedoping and CV return None.
+        """
+        if seg is None:
+            return None
+        if seg.data_type == DATA_TYPE_DOPING:
+            return self.segment_potential(seg)
+        if seg.data_type == DATA_TYPE_DEDOPING:
+            for other in self.segments_by_label.values():
+                if (other.data_type == DATA_TYPE_DOPING
+                        and other.run_number == seg.run_number):
+                    return self.segment_potential(other)
+        return None
+
     def segment_potential_text(self, seg):
-        """'+0.700 V' for a graph title, or '' when nothing can vouch for a value."""
+        """'+0.700 V' for a graph title, or '' when nothing can vouch for a value.
+
+        Dedoping reads '-0.500 V after +0.600 V'. Requested: the dedoping steps
+        were indistinguishable, all showing the one potential they share.
+        """
         v = self.segment_potential(seg)
-        return "" if v is None else f"{v:+.3f} V"
+        if v is None:
+            return ""
+        text = f"{v:+.3f} V"
+        if seg.data_type == DATA_TYPE_DEDOPING:
+            before = self.doped_to(seg)
+            if before is not None:
+                text += f" after {before:+.3f} V"
+        return text
 
     def apply_settings(self, settings):
         """Push a settings dict into every input tab's widgets."""
