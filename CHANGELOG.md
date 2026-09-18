@@ -11,6 +11,17 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+---
+
+## [0.3.0] — 2026-09-18
+
+Theme: **analysis in the GUI, a second potentiostat, and provenance.** Fitting and a
+kinetics ladder on a new Analysis tab, a density-of-states view (under development),
+Metrohm Autolab support validated on real films, detector floors read from the
+hardware, and every run recording what produced it. Gated on a full Python-mode run
+on the Gamry Reference 600 rig and a connect-plus-linearity check on its detector,
+both 2026-09-18.
+
 ### Added — analysis
 
 - **Analysis tab (Tab 5): fitting doping and dedoping transients.** Absorbance, current and
