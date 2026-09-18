@@ -825,3 +825,24 @@ def test_one_direction_alone_cannot_be_checked():
     ok, msg = dos_equilibrium_check(
         [{"direction": "oxidizing (forward)", "energy_ev": e, "dos": np.ones(50)}])
     assert ok and msg == ""
+
+
+def test_cv_probe_finds_the_band_that_grows_toward_the_vertex():
+    """A CV returns to its start, so end-minus-start sees nothing. The polaron is
+    found against the most-doped spectrum instead."""
+    import numpy as np
+    from spec_echem.analysis import cv_probe_wavelength
+    wl = np.linspace(400.0, 1100.0, 141)
+    t = np.linspace(0.0, 40.0, 81)
+    doping = np.sin(np.pi * t / 40.0)            # 0 -> 1 at the vertex -> 0
+    polaron = np.exp(-0.5 * ((wl - 800.0) / 50.0) ** 2)
+    pi = np.exp(-0.5 * ((wl - 520.0) / 40.0) ** 2)
+    a = 0.02 + np.outer(pi, 0.8 - 0.4 * doping) + np.outer(polaron, 0.3 * doping)
+    assert cv_probe_wavelength(a, wl) == pytest.approx(800.0, abs=10.0)
+
+
+def test_cv_probe_returns_none_when_nothing_changes():
+    import numpy as np
+    from spec_echem.analysis import cv_probe_wavelength
+    wl = np.linspace(400.0, 1100.0, 50)
+    assert cv_probe_wavelength(np.ones((50, 10)), wl) is None

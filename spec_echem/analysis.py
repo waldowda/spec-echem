@@ -244,6 +244,35 @@ def probe_wavelength(absorbance, wavelengths, doping=True):
     return grows if doping else bleaches
 
 
+def cv_probe_wavelength(absorbance, wavelengths,
+                        wl_min=ANALYSIS_WL_MIN, wl_max=ANALYSIS_WL_MAX):
+    """The polaron wavelength for a CV: the band that GROWS most by the time the
+    film is most doped.
+
+    A CV returns to where it started, so the end-minus-start difference that
+    probe_wavelength uses measures only drift. The comparison is instead against
+    the spectrum that differs MOST from the first, which is the doped vertex --
+    found from the spectra themselves, since the CV file carries no time column to
+    locate the vertex by potential. On the 20250710 reference run that is 66 s into
+    a 73 s sweep and gives 799 nm.
+    """
+    a = np.asarray(absorbance, dtype=float)
+    wl = np.asarray(wavelengths, dtype=float)
+    if a.ndim != 2 or a.shape[1] < 2:
+        return None
+    keep = np.ones(len(wl), dtype=bool)
+    if wl_min is not None:
+        keep &= wl >= wl_min
+    if wl_max is not None:
+        keep &= wl <= wl_max
+    change = np.nansum(np.abs(a[keep] - a[keep, :1]), axis=0)
+    if not np.any(change > 0):
+        return None
+    grows, _bleaches = auto_wavelengths(a, wl, late=int(np.nanargmax(change)),
+                                        wl_min=wl_min, wl_max=wl_max)
+    return grows
+
+
 # --- fitting -----------------------------------------------------------------
 
 class FitResult:
