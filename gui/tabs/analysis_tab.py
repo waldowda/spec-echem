@@ -252,10 +252,13 @@ class AnalysisTab(QWidget):
         toggles.addWidget(QLabel("Show:"))
         # Charge tau runs ~100x the others on a real ladder, which squashes absorbance
         # and current flat. Hiding a trace rescales the axis to what is left.
+        # Charge therefore starts UNticked (requested) -- it is still fitted, and
+        # still in the table and All fits...; only the ladder leaves it out until
+        # asked for.
         self.trace_checks = {}
         for trace in TRACES:
             cb = QCheckBox(trace)
-            cb.setChecked(True)
+            cb.setChecked(trace != "charge")
             cb.toggled.connect(self._draw_ladder)
             self.trace_checks[trace] = cb
             toggles.addWidget(cb)
