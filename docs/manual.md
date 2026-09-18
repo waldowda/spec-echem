@@ -127,7 +127,7 @@ Fitting, after a run.
 
 | Control | Purpose |
 |---|---|
-| **Segment** | Which step to fit. Shows its potential. CVs are not offered — a sweep has no single transient. |
+| **Segment** | Which step to fit. Shows its potential; a dedoping step also shows the potential it was doped to first, e.g. `Dedoping 4 (−0.500 V after +0.600 V)`, since every dedoping step shares one potential. CVs are not offered — a sweep has no single transient. |
 | **Model** | `exp`, `biexp`, or `stretched`. The equation appears beside it. |
 | **Fit window** | First and last point used, in seconds. The end shows each segment's own end time until you change it, and an untouched end always fits to the end of whichever segment is being fitted, so **Fit all segments** never cuts a longer one short. A value you type applies to every segment. |
 | **Wavelength** | The wavelength fitted, always as a number. **auto** follows the polaron band per segment; typing a value turns it off. |

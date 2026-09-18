@@ -1979,3 +1979,25 @@ def test_dos_controls_are_hidden_before_any_run_is_loaded(window):
     assert r.view_combo.currentData() == "spectra"
     assert r.dos_vmax.isHidden() and r.dos_energy_y.isHidden()
     assert not r.analysis_wl.isHidden()
+
+
+def test_a_dedoping_segment_names_the_potential_it_was_doped_to(window, tmp_path):
+    """Requested: every dedoping step is held at one potential, so 'Dedoping 4
+    (-0.500 V)' could not be told apart from 'Dedoping 2 (-0.500 V)'."""
+    from spec_echem.data import DATA_TYPE_DOPING, DATA_TYPE_DEDOPING
+    from spec_echem.experiment import Segment
+    window.run_folder = tmp_path / "run"
+    window.segments_by_label = {}
+    for n, volts in enumerate([0.2, 0.6]):
+        dope = Segment(f"Doping {n}", DATA_TYPE_DOPING, n, 10, 0.1, True)
+        dedope = Segment(f"Dedoping {n}", DATA_TYPE_DEDOPING, n, 10, 0.1, True)
+        window.segments_by_label[dope.label] = dope
+        window.segments_by_label[dedope.label] = dedope
+        window._potential_cache[(str(window.run_folder), DATA_TYPE_DOPING, n)] = volts
+        window._potential_cache[(str(window.run_folder), DATA_TYPE_DEDOPING, n)] = -0.5
+    texts = [window.segment_potential_text(window.segments_by_label[f"Dedoping {n}"])
+             for n in range(2)]
+    assert texts == ["-0.500 V after +0.200 V", "-0.500 V after +0.600 V"]
+    # Doping is unchanged -- it names its own potential.
+    assert window.segment_potential_text(window.segments_by_label["Doping 1"]) \
+        == "+0.600 V"
