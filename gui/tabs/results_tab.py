@@ -61,7 +61,9 @@ class ResultsTab(QWidget):
         # Qt ignores maxVisibleItems when a style uses a NATIVE popup (Windows does).
         # This forces the list-view popup, which honors it and scrolls beyond it.
         self.segment_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
-        self.segment_combo.currentTextChanged.connect(self.on_segment_changed)
+        # Index, not text: the visible text carries the potential, so it is not the
+        # key into win.results -- itemData is.
+        self.segment_combo.currentIndexChanged.connect(self.on_segment_changed)
         ctrl_form.addRow("Segment:", self.segment_combo)
 
         range_row = QHBoxLayout()
@@ -224,15 +226,22 @@ class ResultsTab(QWidget):
         """Repopulate the dropdown from the main window's results store, keeping the
         current selection if it still exists — so a mid-run completion doesn't yank
         the user back to the first segment while they're inspecting another."""
-        current = self.segment_combo.currentText()
+        current = self._current_label()
         self.segment_combo.blockSignals(True)
         self.segment_combo.clear()
-        labels = list(self.win.results.keys())
-        self.segment_combo.addItems(labels)
-        if current in labels:
-            self.segment_combo.setCurrentText(current)
+        # Shown with its potential, as on the Analysis tab -- requested: the bare
+        # "Dedoping 4" said nothing about which step it was.
+        for label in self.win.results:
+            self.segment_combo.addItem(self._segment_title(label), label)
+        i = self.segment_combo.findData(current) if current else -1
+        if i >= 0:
+            self.segment_combo.setCurrentIndex(i)
         self.segment_combo.blockSignals(False)
         self.on_segment_changed()
+
+    def _current_label(self):
+        """The segment's real label -- the key into win.results, not the text shown."""
+        return self.segment_combo.currentData()
 
     def _segment_title(self, label):
         """'Doping 4' -> 'Doping 4  (+0.600 V)'.
@@ -267,7 +276,7 @@ class ResultsTab(QWidget):
 
     def on_segment_changed(self, *_):
         view = self._sync_view_controls()
-        label = self.segment_combo.currentText()
+        label = self._current_label()
         if not label or label not in self.win.results:
             return
         absorb_df = self.win.results[label]
@@ -602,7 +611,7 @@ class ResultsTab(QWidget):
         """Save the absorbance and (when present) echem plots as two files, named
         from the chosen base with _absorbance / _echem suffixes so both segments'
         views are captured, not just the optical one."""
-        label = self.segment_combo.currentText() or "plot"
+        label = self._current_label() or "plot"
         start = str(self.win.run_folder / label) if self.win.run_folder else label
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Plots (absorbance + echem)", start + ".png",
