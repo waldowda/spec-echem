@@ -679,14 +679,7 @@ class AnalysisTab(QWidget):
 
         Pre-dedoping returns None: it is a single baseline, not a rung on the ladder.
         """
-        if seg.data_type == DATA_TYPE_DOPING:
-            return self.win.segment_potential(seg)
-        if seg.data_type == DATA_TYPE_DEDOPING:
-            for other in self.win.segments_by_label.values():
-                if (other.data_type == DATA_TYPE_DOPING
-                        and other.run_number == seg.run_number):
-                    return self.win.segment_potential(other)
-        return None
+        return self.win.doped_to(seg)
 
     def _needs_review_spread(self, series, flags):
         """A hint when needs-review points are orders of magnitude off the rest.
