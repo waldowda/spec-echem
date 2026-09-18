@@ -2106,3 +2106,21 @@ def test_with_nothing_fitted_the_columns_follow_the_dropdown(analysis_window):
     tab = analysis_window.analysis_tab
     tab.model_combo.setCurrentIndex(tab.model_combo.findData("biexp"))
     assert _table_headers(tab)[1:3] == ["tau1 (s)", "tau2 (s)"]
+
+
+
+def test_hovering_a_biexp_time_constant_shows_its_prefactor(analysis_window):
+    """Requested: the table has no room for the biexp prefactors, but the hover
+    does -- each tau with its own amplitude and share of the total."""
+    from spec_echem.analysis import MODELS
+    tab = analysis_window.analysis_tab
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("biexp"))
+    tab.on_fit_segment()
+    fit = tab._fits["Doping 0"]["current"]
+    values = dict(zip(MODELS["biexp"][1], fit.params))
+    tip1 = tab.table.item(1, 1).toolTip()
+    tip2 = tab.table.item(1, 2).toolTip()
+    assert f"B1 = {values['B1']:.4g}" in tip1 and "share of amplitude" in tip1
+    assert f"B2 = {values['B2']:.4g}" in tip2
+    share1 = abs(values["B1"]) / (abs(values["B1"]) + abs(values["B2"]))
+    assert f"{share1:.0%}" in tip1

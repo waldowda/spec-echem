@@ -53,6 +53,28 @@ TABLE_PARAMS = {
 MEAN_TAU_HEADER = "mean tau (s), 95% CI"
 
 
+# The amplitude that belongs to each time constant, shown on its hover. Requested:
+# the table has no room for the prefactors, but the tooltip does.
+PAIRED_AMPLITUDE = {"tau": "B", "tau1": "B1", "tau2": "B2"}
+
+
+def _param_tooltip(name, values, sds):
+    """'tau1 = 0.327 +/- 0.0041 s (1 SD)' plus its amplitude and, for a biexp, the
+    component's share of the total -- the |B| weighting <tau> itself uses."""
+    unit = "" if name == "beta" else " s"
+    lines = [f"{name} = {values[name]:.4g} +/- {sds[name]:.2g}{unit} (1 SD)"]
+    amp = PAIRED_AMPLITUDE.get(name)
+    if amp in values:
+        lines.append(f"{amp} = {values[amp]:.4g} +/- {sds.get(amp, float('nan')):.2g}"
+                     f"  (amplitude of this component)")
+        if "B1" in values and "B2" in values:
+            total = abs(values["B1"]) + abs(values["B2"])
+            if total > 0:
+                lines.append(f"share of amplitude |{amp}| / (|B1| + |B2|) = "
+                             f"{abs(values[amp]) / total:.0%}")
+    return "\n".join(lines)
+
+
 def _param_header(name):
     return name if name == "beta" else f"{name} (s)"
 
@@ -631,7 +653,7 @@ class AnalysisTab(QWidget):
                     v = values.get(name)
                     cells.append("" if v is None else f"{v:.4g}")
                     if name in sds:
-                        tips[i] = f"{name} = {v:.4g} +/- {sds[name]:.2g} (1 SD)"
+                        tips[i] = _param_tooltip(name, values, sds)
                 ci = fit.mean_tau_ci95
                 mean = f"{fit.mean_tau:.4g}"
                 if not fit.ok:
@@ -649,7 +671,10 @@ class AnalysisTab(QWidget):
             for col, text in enumerate(cells, start=1):
                 item = QTableWidgetItem(text)
                 if fit is not None and not fit.ok:
-                    item.setToolTip(f"NEEDS REVIEW: {fit.reason}")
+                    # The concern first, then the numbers: a flagged fit is exactly
+                    # the one whose prefactors you want to look at.
+                    item.setToolTip(f"NEEDS REVIEW: {fit.reason}"
+                                    + (f"\n\n{tips[col - 1]}" if tips[col - 1] else ""))
                 elif tips[col - 1]:
                     item.setToolTip(tips[col - 1])
                 self.table.setItem(row, col, item)
