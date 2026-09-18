@@ -28,6 +28,13 @@ from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
 
+# How far a measured rung potential may sit outside the potential-range boxes and
+# still count as inside. Measured potentials differ from the nominal step by a
+# fraction of a mV, and the boxes round to 1 mV; 10 mV absorbs both while staying
+# well under any rung spacing in use (50-100 mV).
+RANGE_TOLERANCE_V = 0.010
+
+
 def _ratio_ci95(ratio, numerator, denominator):
     """95% CI on a ratio of two INDEPENDENT fits: (s_r/r)^2 = (s_a/a)^2 + (s_c/c)^2.
 
@@ -727,7 +734,12 @@ class AnalysisTab(QWidget):
         excluded = []
         if self.range_check.isChecked():
             lo, hi = self.range_lo.value(), self.range_hi.value()
-            kept = [r for r in rows if lo <= r[0] <= hi]
+            # Rung potentials are MEASURED (+0.399627 V for a "+0.400" step) and the
+            # boxes hold 3 decimals, so exact comparison dropped the rung the user had
+            # just typed -- and seeding rounded +0.699498 to 0.699, silently dropping
+            # the top rung before anything was touched.
+            tol = RANGE_TOLERANCE_V
+            kept = [r for r in rows if lo - tol <= r[0] <= hi + tol]
             if len(kept) != len(rows):
                 excluded.append(f"{len(rows) - len(kept)} segment(s) outside "
                                 f"{lo:+.3f} to {hi:+.3f} V")

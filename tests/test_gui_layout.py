@@ -1832,3 +1832,68 @@ def test_the_range_still_applies_to_the_ratio_view(ladder_window):
     tab.range_check.setChecked(True)
     tab.range_lo.setValue(0.40)
     assert "outside +0.400 to +0.700 V" in _ladder_footnote(tab)
+
+
+# --- measured rung potentials are never round -------------------------------
+# The earlier ladder tests used exactly 0.10/0.30/... and so could not see this.
+# Measured on the 20250710 reference run: "+0.400" was +0.399627 V and "+0.700"
+# was +0.699498 V. The range boxes hold 3 decimals.
+
+@pytest.fixture
+def measured_ladder(ladder_window):
+    from spec_echem.data import DATA_TYPE_DOPING
+    w = ladder_window
+    for n, volts in enumerate([0.099742, 0.299612, 0.399627, 0.699498]):
+        w._potential_cache[(str(w.run_folder), DATA_TYPE_DOPING, n)] = volts
+    w.analysis_tab._range_filled = False
+    return w
+
+
+def test_seeding_the_range_keeps_every_measured_rung(measured_ladder):
+    """Seeding rounds +0.699498 to 0.699. Without a tolerance the top rung was
+    dropped the moment the box was ticked -- before the user touched anything."""
+    tab = measured_ladder.analysis_tab
+    tab.range_check.setChecked(True)
+    assert len(_plotted_x(tab)) == 4
+    assert not _ladder_footnote(tab)
+
+
+def test_typing_the_nominal_potential_includes_that_rung(measured_ladder):
+    """Reported from the bench: min set to 0.4 started the ladder at 0.5."""
+    tab = measured_ladder.analysis_tab
+    tab.range_check.setChecked(True)
+    tab.range_lo.setValue(0.400)
+    assert min(_plotted_x(tab)) == pytest.approx(0.399627)
+
+
+def test_the_tolerance_does_not_reach_the_next_rung(measured_ladder):
+    tab = measured_ladder.analysis_tab
+    tab.range_check.setChecked(True)
+    tab.range_lo.setValue(0.350)
+    assert min(_plotted_x(tab)) == pytest.approx(0.399627)
+
+
+def test_dos_max_reads_sweep_max_and_zero_is_a_real_bound(window):
+    """The special text only shows at the box minimum. At 0 it read '0.000 V' while
+    meaning 'sweep max', and 0 V could not be chosen as an upper bound."""
+    r = window.results_tab
+    assert r.dos_vmax.text() == "sweep max"
+    r.dos_vmax.setValue(0.0)
+    assert r.dos_vmax.text() != "sweep max"
+
+
+def test_the_wavelength_box_is_hidden_for_the_dos(window):
+    """A DOS comes from the current alone -- the wavelength does nothing there."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_CV
+    from spec_echem.experiment import Segment
+    r = window.results_tab
+    window.results = {"CV": pd.DataFrame(np.zeros((2, 2)), index=[500.0, 900.0],
+                                         columns=[0.0, 1.0])}
+    window.segments_by_label = {"CV": Segment("CV", DATA_TYPE_CV, 0, 2, 0.1, True)}
+    r.refresh_segments()
+    r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
+    assert r.analysis_wl.isHidden() and r.dos_vmax.isVisibleTo(r)
+    r.view_combo.setCurrentIndex(r.view_combo.findData("kinetics"))
+    assert not r.analysis_wl.isHidden() and r.dos_vmax.isHidden()
