@@ -33,6 +33,34 @@ def test_doping_cycle_count_single():
                                     doping_potential_step=0.1)) == 1
 
 
+def test_the_ladder_never_passes_its_end():
+    """Found on the bench: start 0.05, end 0.2, step 0.1 rounded 1.5 to 2 and ran a
+    third step at +0.25 V -- past the end the user set."""
+    s = settings(doping_potential_start=0.05, doping_potential_end=0.2,
+                 doping_potential_step=0.1)
+    assert n_doping_cycles(s) == 2
+    top = 0.05 + (n_doping_cycles(s) - 1) * 0.1
+    assert top <= 0.2
+
+
+@pytest.mark.parametrize("start, end, step, expected", [
+    (0.2, 0.7, 0.1, 6),      # (0.7-0.2)/0.1 = 4.999999999999999 in binary
+    (0.2, 0.8, 0.1, 7),
+    (0.1, 0.2, 0.05, 3),
+    (0.0, 0.29, 0.1, 3),     # 0.0, 0.1, 0.2 -- 0.3 would pass 0.29
+    (0.7, 0.2, -0.1, 6),     # a descending ladder
+    (0.2, 0.25, 0.1, 1),
+])
+def test_the_ladder_keeps_an_exact_end_and_rounds_down_otherwise(start, end, step,
+                                                                 expected):
+    s = settings(doping_potential_start=start, doping_potential_end=end,
+                 doping_potential_step=step)
+    n = n_doping_cycles(s)
+    assert n == expected
+    last = start + (n - 1) * step
+    assert (last <= end + 1e-9) if step > 0 else (last >= end - 1e-9)
+
+
 def test_doping_cycle_count_zero_step():
     assert n_doping_cycles(settings(doping_potential_step=0.0)) == 1
 

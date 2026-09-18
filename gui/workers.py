@@ -13,6 +13,7 @@ import threading
 
 from qtpy.QtCore import QObject, Signal
 
+from spec_echem.data import segment_potential_text
 from spec_echem.experiment import run_one_segment
 from spec_echem.potentiostat import ConfigurationError
 from spec_echem.logging_config import get_run_logger
@@ -85,6 +86,18 @@ class AcquisitionWorker(QObject):
                 # only then arms — so this states intent, not that arming has happened.
                 logger.info("Starting %s (%d/%d) — Gamry setup, then arm and wait for trigger",
                             seg.label, i + 1, total)
+                # The potential the driver is about to apply, from the SAME function
+                # it uses -- requested, since the log never said what each step was
+                # held at. External mode has no driver settings: the .GSequence sets
+                # the potentials there, so the log says that instead of guessing.
+                pot_settings = getattr(self.potentiostat, "settings", None)
+                if pot_settings:
+                    text = segment_potential_text(pot_settings, seg.data_type,
+                                                  seg.run_number)
+                    logger.info("%s potential: %s", seg.label, text or "not defined")
+                else:
+                    logger.info("%s potential: set by the Gamry sequence (external "
+                                "mode)", seg.label)
                 logger.debug("%s: %d points @ %.4gs, trigger=%s",
                              seg.label, seg.num_points, seg.delta_time, seg.trigger)
 
