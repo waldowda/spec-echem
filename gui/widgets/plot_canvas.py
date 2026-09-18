@@ -173,43 +173,29 @@ class MplCanvas(FigureCanvasQTAgg):
         # nowhere close, but SAY so rather than silently omitting a reference line.
         show_full_scale = data_top >= 0.5 * full_scale
 
+        # Every reference line is named in the LEGEND, not by free text on the axes.
+        # Free labels collided at one canvas size or another -- the limit ran off the
+        # right edge, the ADC line struck through "recommended", then the stacked
+        # corner labels covered "ADC full scale" on the Win11 rig's narrower canvas.
+        # The legend lays itself out, and the lower-right is empty: a ramp runs from
+        # lower-left to upper-right.
         if show_full_scale:
-            self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888")
-            # Mid-axis, just above its line: the upper-left corner holds the time
-            # labels, and the data only nears the ceiling at the right.
-            self.ax.annotate("ADC full scale", xy=(0.5, full_scale),
-                             xycoords=("axes fraction", "data"), xytext=(0, 2),
-                             textcoords="offset points", fontsize=7, color="#888",
-                             ha="center", va="bottom", clip_on=True)
+            self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888",
+                            label=f"ADC full scale ({full_scale:g})")
 
         # The fill cap usually decides the working point (the detector stays linear
-        # nearly to the clip), so show it — otherwise the recommendation looks arbitrary.
+        # nearly to the clip), so show it -- otherwise the recommendation looks arbitrary.
         if counts_rec is not None and result.get("bound_by") == "fill":
-            self.ax.axhline(counts_rec, ls=":", lw=1.0, color="#ff7f0e")
-            self.ax.annotate(f"max fill ({counts_rec / full_scale * 100:.0f}% FS)",
-                             xy=(times[0], counts_rec), xytext=(2, -10),
-                             textcoords="offset points", fontsize=7, color="#ff7f0e",
-                             clip_on=True)
+            self.ax.axhline(counts_rec, ls=":", lw=1.0, color="#ff7f0e",
+                            label=f"max fill ({counts_rec / full_scale * 100:.0f}% FS)")
 
-        # Both time labels live in the upper-left corner, stacked, on a white backing.
-        # Anchored at the data they overran: "limit" sat at its line near the right
-        # edge and ran off the canvas, and the ADC full-scale line struck through
-        # "recommended". The legend is lower-right, so the corner is free, and the
-        # backing keeps any reference line from crossing the text.
-        corner = dict(xycoords="axes fraction", fontsize=8, ha="left", va="top",
-                      zorder=7, bbox=dict(boxstyle="square,pad=0.15", fc="white",
-                                          ec="none", alpha=0.9))
-        t_rec = result.get("t_recommended")
-        y = 0.97
-        if t_rec is not None:
-            self.ax.axvline(t_rec, ls="-", lw=1.4, color="#ff7f0e", alpha=0.9)
-            self.ax.annotate(f"recommended {t_rec:.4g} ms", xy=(0.03, y),
-                             color="#ff7f0e", **corner)
-            y -= 0.075
         if result.get("t_limit") is not None:
-            self.ax.axvline(result["t_limit"], ls="-", lw=1.0, color="#d62728", alpha=0.7)
-            self.ax.annotate(f"linear limit {result['t_limit']:.4g} ms", xy=(0.03, y),
-                             color="#d62728", **corner)
+            self.ax.axvline(result["t_limit"], ls="-", lw=1.0, color="#d62728",
+                            alpha=0.7, label=f"linear limit {result['t_limit']:.4g} ms")
+        t_rec = result.get("t_recommended")
+        if t_rec is not None:
+            self.ax.axvline(t_rec, ls="-", lw=1.4, color="#ff7f0e", alpha=0.9,
+                            label=f"recommended {t_rec:.4g} ms")
 
         if show_full_scale:
             self.ax.set_ylim(0, full_scale * 1.08)
