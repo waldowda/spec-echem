@@ -16,9 +16,10 @@ from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, QComboBox,
     QDoubleSpinBox, QPushButton, QCheckBox, QTableWidget, QTableWidgetItem,
     QSplitter, QMessageBox, QHeaderView, QDialog, QApplication,
-    QFileDialog,
+    QFileDialog, QAbstractItemView,
 )
 from qtpy.QtCore import Qt
+from qtpy.QtGui import QColor, QPalette
 
 from spec_echem.analysis import (
     MODELS, MODEL_FORMULAS, fit_transient, probe_wavelength, tau_ratio,
@@ -33,6 +34,12 @@ from gui.widgets.plot_canvas import MplCanvas
 # fraction of a mV, and the boxes round to 1 mV; 10 mV absorbs both while staying
 # well under any rung spacing in use (50-100 mV).
 RANGE_TOLERANCE_V = 0.010
+
+
+# The selected (plotted) trace row. Strong enough to read at a glance, and used
+# for focused and unfocused alike -- Windows' default unfocused highlight is
+# nearly white.
+SELECTED_ROW_BG = "#2f6fb0"
 
 
 def _ratio_ci95(ratio, numerator, denominator):
@@ -224,7 +231,31 @@ class AnalysisTab(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         for row, trace in enumerate(TRACES):
             self.table.setItem(row, 0, QTableWidgetItem(trace))
-        top.addWidget(self.table)
+        # The table is also the trace SELECTOR, and nothing said so: on Windows the
+        # selected row fades to near-white as soon as focus leaves the table, so a
+        # user could not tell which row was plotted, or that the rows were
+        # clickable at all. Whole rows, one at a time, highlighted the same with or
+        # without focus, a hand cursor, and a line of text saying what clicking does.
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        palette = self.table.palette()
+        for group in (QPalette.Active, QPalette.Inactive):
+            palette.setColor(group, QPalette.Highlight, QColor(SELECTED_ROW_BG))
+            palette.setColor(group, QPalette.HighlightedText, QColor("white"))
+        self.table.setPalette(palette)
+        self.table.setStyleSheet(
+            f"QTableWidget::item:selected {{ background: {SELECTED_ROW_BG};"
+            f" color: white; }}")
+        self.table.viewport().setCursor(Qt.PointingHandCursor)
+        table_box = QWidget()
+        table_layout = QVBoxLayout(table_box)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.addWidget(self.table)
+        self.table_hint = QLabel("Click a row to plot that trace below.")
+        self.table_hint.setStyleSheet("color: #555;")
+        table_layout.addWidget(self.table_hint)
+        top.addWidget(table_box)
         top.setStretchFactor(0, 1)
         top.setStretchFactor(1, 1)
         layout.addWidget(top)
