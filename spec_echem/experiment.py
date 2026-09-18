@@ -7,6 +7,7 @@ is injected, so this is fully testable with FakeSpectrometer.
 """
 from dataclasses import dataclass
 
+import math
 import numpy as np
 
 from spec_echem.acquisition import acquire_segment
@@ -30,16 +31,24 @@ class Segment:
 
 def n_doping_cycles(settings):
     """
-    Number of doping/dedoping cycles, derived from the doping potential
-    start/end/step. The count is meaningful (it must match the Gamry sequence);
-    the potential values themselves are documentation-only in this phase.
+    Number of doping/dedoping cycles: every potential start, start+step, ... that
+    does NOT pass `end`.
+
+    Rounded DOWN, never to nearest. In Python and Autolab modes the driver applies
+    start + n*step, so the count decides the highest potential the film sees, and
+    the end is a limit the user set -- it must never be exceeded. Rounding to
+    nearest did exceed it: start 0.05, end 0.2, step 0.1 gave round(1.5) + 1 = 3
+    steps and held the film at +0.25 V (found on the bench, 2026-09-18).
+
+    The small tolerance only absorbs binary float error, so a ladder that lands
+    exactly on its end keeps that step: (0.7 - 0.2) / 0.1 is 4.999999999999999.
     """
     start = settings["doping_potential_start"]
     end = settings["doping_potential_end"]
     step = settings["doping_potential_step"]
     if step == 0:
         return 1
-    return max(1, int(round((end - start) / step)) + 1)
+    return max(1, int(math.floor((end - start) / step + 1e-9)) + 1)
 
 
 def build_segments(settings):

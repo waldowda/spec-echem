@@ -89,7 +89,10 @@ data folder is self-documenting.
   Part 2.
 - **CV** — vertices, scan rate, cycles.
 - **Doping ladder** — start, step, end. In Python mode these *drive* the run; in External
-  mode the sequence file holds the real values and these are documentation.
+  mode the sequence file holds the real values and these are documentation. The end is a
+  **limit, never exceeded**: the ladder runs start, start + step, … and stops at the last
+  potential at or below the end. Start 0.05, step 0.1, end 0.2 gives 0.05 and 0.15 —
+  two steps. Each step's potential is written to the run log as it starts.
 - **Dedoping** and **pre-dedoping** potentials.
 - **Data folder** — `YYYYMMDD_Description`.
 
