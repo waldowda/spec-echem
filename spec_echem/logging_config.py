@@ -1,7 +1,7 @@
 """
 File logging. Qt-free. Two logs, deliberately, because they answer different questions.
 
-**Run log** — {run_folder}/{name}.log, one per run, written INSIDE the data folder so it
+**Run log** — {run_folder}/{name}_log.log, one per run, written INSIDE the data folder so it
 travels with the data: hand a folder to a collaborator and the record of how it was
 produced goes along. Opened at run START by configure_run_logging(), closed at the end.
 
@@ -144,7 +144,7 @@ def app_log_path(data_root):
 
 def configure_run_logging(run_folder, name):
     """
-    Attach a fresh DEBUG FileHandler at {run_folder}/{name}.log and return
+    Attach a fresh DEBUG FileHandler at {run_folder}/{name}_log.log and return
     (logger, path). Any FileHandler from a previous run is removed/closed first.
     """
     logger = logging.getLogger(RUN_LOGGER_NAME)
@@ -157,7 +157,10 @@ def configure_run_logging(run_folder, name):
 
     run_folder = Path(run_folder)
     run_folder.mkdir(parents=True, exist_ok=True)
-    path = run_folder / f"{name}.log"
+    # "_log", matching "{name}_metadata.json": Windows hides extensions by
+    # default, and a bare "{name}.log" showed as just the folder's own name,
+    # which nobody would recognize as the run log.
+    path = run_folder / f"{name}_log.log"
 
     handler = logging.FileHandler(path, mode="a", encoding="utf-8")
     handler.setLevel(logging.DEBUG)
