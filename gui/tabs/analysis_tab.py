@@ -72,7 +72,7 @@ class AnalysisTab(QWidget):
         self._fits = {}          # label -> {trace: FitResult}
         self._fit_wl = {}        # label -> wavelength that fit was made at
         self._wavelength = None  # None = auto
-        self._range_filled = False   # the range boxes are seeded once, from the data
+        self._fill_range_boxes = False   # set when the range is ticked; see _on_range_toggled
         self._build()
 
     # --- layout ---------------------------------------------------------
@@ -123,22 +123,25 @@ class AnalysisTab(QWidget):
         # step is one data point. A 1 s click jumped ten points at a time, which is
         # far too coarse for trimming a capacitive spike.
         self.start_spin.setSingleStep(0.1)
-        self.start_spin.setSpecialValueText("start of segment")
         self.start_spin.setToolTip(
-            "First point the fit uses. 0 = the start of the segment. Raise it to\n"
-            "exclude the capacitive spike, then refit and watch the residual panel.")
+            "First point the fit uses, in seconds from the start of the segment.\n"
+            "Raise it to exclude the capacitive spike, then refit and watch the\n"
+            "residual panel.")
         self.stop_spin = QDoubleSpinBox()
         self.stop_spin.setRange(0.0, 100000.0)
         self.stop_spin.setDecimals(3)
         self.stop_spin.setSuffix(" s")
         self.stop_spin.setSingleStep(0.1)   # same reasoning as the start box
-        # 0 means "run to the end", so the stop never has to be re-typed for a
-        # longer segment. It used to be auto-filled with the first segment's
-        # length and then kept, which silently fitted only part of a longer one.
-        self.stop_spin.setSpecialValueText("end of segment")
+        # Shows the segment's own end time, as a number (requested: numbers, not
+        # "end of segment"). The trap to avoid is the one this box once fell into:
+        # auto-filled with the FIRST segment's length and then kept, it silently
+        # fitted only part of every longer segment. So an untouched box is refilled
+        # per segment and means "to the end" when fitting -- see _window().
         self.stop_spin.setValue(0.0)
+        self._stop_seeded = None
         self.stop_spin.setToolTip(
-            "Last point the fit uses. 0 = the end of the segment.")
+            "Last point the fit uses. Shows the segment's end until you change it;\n"
+            "a value you type applies to every segment fitted.")
         # Live: the grayed excluded region follows these before any refit, so the
         # effect of moving an edge is visible while choosing it.
         self.start_spin.valueChanged.connect(self._draw_fit)
@@ -432,6 +435,7 @@ class AnalysisTab(QWidget):
         label = self._current_label()
         if not label:
             return
+        self._seed_stop(label)
         self._show_fits(self._fits.get(label))
         self._draw_fit()
 
@@ -483,7 +487,27 @@ class AnalysisTab(QWidget):
         # the peak |I|; on a potential step that peaks at the FIRST sample, so it
         # resolved to 0 and excluded nothing -- a control whose only setting was the
         # default. Requested: "I don't see a point of the auto start check box."
-        return (self.start_spin.value() or None), (self.stop_spin.value() or None)
+        stop = self.stop_spin.value()
+        # Untouched = still the end time we filled in = "to the end", so Fit all
+        # segments runs each one to ITS end rather than to the displayed one's.
+        if self._stop_seeded is not None and round(stop, 3) == self._stop_seeded:
+            stop = None
+        return (self.start_spin.value() or None), (stop or None)
+
+    def _seed_stop(self, label):
+        """Put this segment's end time in the stop box, unless the user set one."""
+        df = self.win.results.get(label)
+        if df is None or df.empty:
+            return
+        current = round(self.stop_spin.value(), 3)
+        if self._stop_seeded is not None and current != self._stop_seeded \
+                and current != 0.0:
+            return                           # typed by the user: keep it
+        end = float(np.nanmax(np.asarray(df.columns.values, dtype=float)))
+        self.stop_spin.blockSignals(True)
+        self.stop_spin.setValue(end)
+        self.stop_spin.blockSignals(False)
+        self._stop_seeded = round(self.stop_spin.value(), 3)
 
     def on_show_all_fits(self):
         """Every fit made so far, in one reviewable table."""
@@ -684,38 +708,14 @@ class AnalysisTab(QWidget):
         return f"{len(flagged_vals)} point(s) need review, off scale — try log y"
 
     def _on_range_toggled(self, on):
-        """Enable the range boxes, and on first use fill them with the full span.
-
-        Filling them means the control starts as a no-op: ticking the box must not
-        silently remove anything, it only makes the ends adjustable. They are filled
-        once and then left alone, so a redraw after fitting another segment does not
-        undo a window the user has set.
-        """
+        """Enable the range boxes, filled with the plotted span so ticking removes
+        nothing. _draw_ladder keeps them on the span while the range is off, but
+        that needs a draw to have happened -- so the fill is also requested here,
+        or ticking before the first draw would apply "0.000 to 0.000"."""
         self.range_lo.setEnabled(on)
         self.range_hi.setEnabled(on)
-        if on and not self._range_filled:
-            span = self._ladder_potentials()
-            if span:
-                for box, value in ((self.range_lo, min(span)),
-                                   (self.range_hi, max(span))):
-                    box.blockSignals(True)
-                    box.setValue(value)
-                    box.blockSignals(False)
-                self._range_filled = True
+        self._fill_range_boxes = on
         self._draw_ladder()
-
-    def _ladder_potentials(self):
-        """Every potential the ladder can plot, fitted or not -- what the range
-        boxes are filled from."""
-        out = set()
-        for i in range(self.segment_combo.count()):
-            seg = self.win.segments_by_label.get(self.segment_combo.itemData(i))
-            if seg is None:
-                continue
-            x = self._ladder_potential(seg)
-            if x is not None:
-                out.add(x)
-        return out
 
     def _draw_ladder(self, *_):
         """tau (or the ratio) against the potential doped to, across whatever has been
@@ -739,6 +739,18 @@ class AnalysisTab(QWidget):
         if not rows:
             self.ladder_canvas.show_message("Fit a segment to build this plot.")
             return
+
+        # While the range is OFF its boxes show the span actually plotted -- numbers,
+        # not a "0.000 to 0.000" that meant nothing. Ticking it then starts from
+        # exactly what is on screen, so it never removes anything until an end is
+        # moved; once on, the boxes are the user's and are not touched again.
+        if not self.range_check.isChecked() or self._fill_range_boxes:
+            self._fill_range_boxes = False
+            span = [r[0] for r in rows]
+            for box, value in ((self.range_lo, min(span)), (self.range_hi, max(span))):
+                box.blockSignals(True)
+                box.setValue(value)
+                box.blockSignals(False)
 
         # Applied BEFORE the x axis is built, so a restricted ladder rescales instead
         # of leaving empty rungs at the ends.
