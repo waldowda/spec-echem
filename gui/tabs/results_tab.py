@@ -96,7 +96,9 @@ class ResultsTab(QWidget):
         # Under development: the method is sound but not yet validated on a
         # quasi-equilibrium CV (scan-rate series pending), and has no capacitive
         # baseline subtraction. The label says so wherever the plot can be seen.
-        self.view_combo.addItem("Density of states (CV only) — under development", "dos")
+        # Kept short: a QComboBox sizes to its longest item, and the long form set a
+        # minimum window width on the Win11 rig.
+        self.view_combo.addItem("Density of states (CV) — in dev.", "dos")
         self.view_combo.setToolTip(
             "Modulation is the one to watch while a run is going: absorbance at the\n"
             "end of each step, against potential. A film that stops modulating has\n"
@@ -113,7 +115,8 @@ class ResultsTab(QWidget):
             "the polaron. Set a value to follow another band, e.g. the pi-pi* bleach.")
         self.analysis_wl.valueChanged.connect(self.on_segment_changed)
         view_row.addWidget(self.view_combo)
-        view_row.addWidget(QLabel("at"))
+        self.at_label = QLabel("at")
+        view_row.addWidget(self.at_label)
         view_row.addWidget(self.analysis_wl)
         # "auto (polaron)" said nothing about WHICH wavelength it picked, so the
         # number only existed inside a plot legend the user might not be looking at.
@@ -143,8 +146,11 @@ class ResultsTab(QWidget):
         self.dos_vmax.setDecimals(3)
         self.dos_vmax.setSingleStep(0.05)
         self.dos_vmax.setSuffix(" V")
+        # The special text shows only at the box's MINIMUM, so "sweep max" has to
+        # live at -10 V. At 0 it read "0.000 V" while meaning the sweep maximum --
+        # and made 0 V itself impossible to choose as the upper bound.
         self.dos_vmax.setSpecialValueText("sweep max")
-        self.dos_vmax.setValue(0.0)
+        self.dos_vmax.setValue(-10.0)
         self.dos_energy_y = QCheckBox("energy on Y")
         self.dos_energy_y.setToolTip(
             "Energy vertical, DOS horizontal — the solid-state convention, for\n"
@@ -243,6 +249,12 @@ class ResultsTab(QWidget):
         view = self.view_combo.currentData() if hasattr(self, "view_combo") else "spectra"
         for widget in getattr(self, "dos_widgets", []):
             widget.setVisible(view == "dos")
+        # The wavelength does nothing to a DOS, which comes from the current alone.
+        # Showing it there implied otherwise, and cost width the DOS controls need.
+        for widget in (getattr(self, "at_label", None), getattr(self, "analysis_wl", None),
+                       getattr(self, "auto_wl_label", None)):
+            if widget is not None:
+                widget.setVisible(view != "dos")
         if view == "kinetics":
             self._plot_kinetics(label, absorb_df)
         elif view == "modulation":
@@ -453,7 +465,8 @@ class ResultsTab(QWidget):
                                        df[CURRENT_COL].to_numpy(float),
                                        rate, volume_cm3=volume,
                                        v_min=self.dos_vmin.value(),
-                                       v_max=self.dos_vmax.value() or None)
+                                       v_max=(None if self.dos_vmax.value() <= -9.999
+                                              else self.dos_vmax.value()))
         except Exception as exc:  # noqa: BLE001 — a bad file must not kill the tab
             self.canvas.show_message(f"Could not compute a DOS:\n{exc}")
             return
