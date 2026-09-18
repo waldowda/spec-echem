@@ -133,7 +133,7 @@ Fitting, after a run.
 | **Wavelength** | The wavelength fitted, always as a number. **auto** follows the polaron band per segment; typing a value turns it off. |
 | **Fit segment / Fit all segments** | Fits absorbance, current and charge. |
 | **All fits…** | Every fit in the run, one row per segment per trace. Carries **every fitted parameter with its SD** — the columns follow whichever model was used — plus y(0), ⟨τ⟩, its 95% CI, the point count and the residual split. **Copy as CSV** / **Save CSV…**. |
-| **Show / log y** | Which traces appear on the ladder, and whether its y-axis is logarithmic. |
+| **Show / log y** | Which traces appear on the ladder, and whether its y-axis is logarithmic. **charge** starts unticked: its ⟨τ⟩ typically runs ~100× the others and flattens them. It is still fitted and in the table. |
 | **hide flagged points** | Leave the ringed needs-review points off the ladder, so both axes scale to the fits you trust. Off by default. Does nothing in the ratio view, which rings nothing, so it is disabled there. |
 | **potential range** | Restrict the ladder to a span of potentials. Off by default; while off, the boxes show the span plotted, so ticking it removes nothing until you move an end. A rung counts as inside if its measured potential is within 10 mV of the range. |
 
