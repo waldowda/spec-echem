@@ -2190,3 +2190,29 @@ def test_the_floor_shows_the_same_number_in_the_box_and_the_log(window, monkeypa
     tab._apply_detector_floor(spec, "TEST")
     assert tab.lin_start_spin.value() == pytest.approx(0.00904)
     assert tab.lin_start_spin.text().startswith("0.00904")
+
+
+def test_linearity_labels_stay_inside_the_canvas(app):
+    """Reported from the Gamry rig (2026-09-18): with the limit near the right edge,
+    'limit 0.11...' ran off the canvas, and the ADC line struck through the
+    'recommended' label. Uses that run's own numbers."""
+    import numpy as np
+    from gui.widgets.plot_canvas import MplCanvas
+    canvas = MplCanvas()
+    canvas.fig.set_size_inches(5, 3.5)
+    times = np.linspace(0.00904, 0.1275, 17)
+    counts = 826.0 + 516839.0 * times
+    result = {"offset": 826.0, "slope": 516839.0, "t_limit": 0.1129,
+              "counts_limit": 58565.0, "t_recommended": 0.1062,
+              "counts_recommended": 55705.0, "bound_by": "fill"}
+    canvas.show_linearity(times, counts, result, full_scale=65535)
+    canvas.fig.canvas.draw()
+    r = canvas.fig.canvas.get_renderer()
+    fig_box = canvas.fig.get_window_extent(r)
+    labels = [t for t in canvas.ax.texts
+              if "limit" in t.get_text() or "recommended" in t.get_text()]
+    assert len(labels) == 2
+    for t in labels:
+        box = t.get_window_extent(r)
+        assert box.x0 >= fig_box.x0 and box.x1 <= fig_box.x1, t.get_text()
+        assert t.get_bbox_patch() is not None, "needs a backing so lines cannot cross it"
