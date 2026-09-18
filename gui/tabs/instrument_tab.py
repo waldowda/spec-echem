@@ -82,6 +82,9 @@ def _next_serial_path(folder, date, kind, ext=".txt"):
     return folder / f"{date}_{kind}_{n:03d}{ext}"
 
 
+# Decimals on every integration-time box; see integration_spin for why 5.
+INTEGRATION_DECIMALS = 5
+
 class InstrumentTab(QWidget):
     def __init__(self, main_window):
         super().__init__()
@@ -127,10 +130,11 @@ class InstrumentTab(QWidget):
         settings_group = QGroupBox("Spectrometer Settings")
         form = QFormLayout(settings_group)
         self.integration_spin = QDoubleSpinBox()
-        self.integration_spin.setRange(0.0001, 10000.0)
-        # 4 decimals: working integration times are ~0.02-0.11 ms, so 3 decimals
-        # would round the linearity recommendation to ~2 significant figures.
-        self.integration_spin.setDecimals(4)
+        self.integration_spin.setRange(0.00001, 10000.0)
+        # 5 decimals: working times are ~0.02-0.11 ms, and the fast detector's floor
+        # is 0.009033 ms. At 4 decimals the floor could only show as 0.0091 (0.0090
+        # is below it), disagreeing with the 0.00904 the log reports.
+        self.integration_spin.setDecimals(INTEGRATION_DECIMALS)
         self.integration_spin.setSuffix(" ms")
         self.integration_spin.setMaximumWidth(SPIN_W)
         self.averages_spin = QSpinBox()
@@ -264,13 +268,13 @@ class InstrumentTab(QWidget):
 
         lin_form = QHBoxLayout()
         self.lin_start_spin = QDoubleSpinBox()
-        self.lin_start_spin.setRange(0.0001, 10000.0)
-        self.lin_start_spin.setDecimals(4)
+        self.lin_start_spin.setRange(0.00001, 10000.0)
+        self.lin_start_spin.setDecimals(INTEGRATION_DECIMALS)
         self.lin_start_spin.setSuffix(" ms")
         self.lin_start_spin.setToolTip("Lowest integration time in the ramp — must be safely linear")
         self.lin_stop_spin = QDoubleSpinBox()
-        self.lin_stop_spin.setRange(0.0001, 10000.0)
-        self.lin_stop_spin.setDecimals(4)
+        self.lin_stop_spin.setRange(0.00001, 10000.0)
+        self.lin_stop_spin.setDecimals(INTEGRATION_DECIMALS)
         self.lin_stop_spin.setSuffix(" ms")
         self.lin_stop_spin.setValue(0.150)
         self.lin_stop_spin.setToolTip("Highest integration time — should reach saturation")
