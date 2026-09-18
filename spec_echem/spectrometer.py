@@ -5,24 +5,68 @@ Author: Dean Waldow
 Updated: 07-02-2025
 """
 
+import ctypes
+import logging
 import os
 import platform
+import struct
 import sys
 import time
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from spec_echem.settings import tidy_detector_floor
 import math
 from pathlib import Path
 import pickle
 import warnings
 import json
 from datetime import datetime
+
+# Avantes' avaspec.py loads its DLL as `ctypes.WinDLL("./avaspecx64.dll")` — an explicit
+# relative path. Because that string contains a separator, Windows resolves it against the
+# CURRENT DIRECTORY and never consults the DLL search path, so os.add_dll_directory() has
+# no effect on it (confirmed at the bench 2026-08-28, on avaspec.py line 42). Without help,
+# `import avaspec` only works when you happen to be sitting in the DLL's folder.
+#
+# Preloading the DLL ourselves by absolute path covers wrappers that load by BARE name:
+# their request then finds it already loaded. It does NOT rescue the "./avaspecx64.dll"
+# form above — Windows does not match that request against the loaded module, verified on
+# hardware 2026-08-28. That wrapper needs the vendored-file edit in
+# examples/query_avantes_setup.md §2 (bare-name load after os.add_dll_directory), after
+# which this variable is what the edit reads.
+#
+# Set SPEC_ECHEM_AVASPEC_DLL_DIR to the FOLDER holding the DLL. Unset — the bench rig,
+# which is launched from that folder — this is a no-op.
+_avaspec_dll_dir = os.environ.get("SPEC_ECHEM_AVASPEC_DLL_DIR")
+if _avaspec_dll_dir and hasattr(ctypes, "WinDLL"):
+    # Same 64/32-bit split the wrapper itself makes (avaspec.py lines 42/46).
+    _avaspec_dll = "avaspecx64.dll" if struct.calcsize("P") == 8 else "avaspec.dll"
+    _avaspec_dll_path = os.path.join(_avaspec_dll_dir, _avaspec_dll)
+    try:
+        ctypes.WinDLL(_avaspec_dll_path)
+    except OSError as exc:
+        # Not fatal: the import below may still succeed from the DLL's own folder.
+        warnings.warn(
+            f"Could not preload {_avaspec_dll_path!r} ({exc}); `import avaspec` will "
+            "only work from the folder that holds the DLL."
+        )
+
 try:
     from avaspec import *
     AVASPEC_AVAILABLE = True
-except ImportError:
+    AVASPEC_IMPORT_ERROR = None
+except ImportError as exc:
     AVASPEC_AVAILABLE = False
+    # Kept so the launch banner can say WHY, not just "no": a missing DLL and a
+    # missing avaspec.py look identical from the outside and are fixed differently.
+    AVASPEC_IMPORT_ERROR = str(exc)
+
+# A child of the `spec_echem` package logger, so these records reach the app log
+# (see logging_config). They used to be print() calls, which meant the only record
+# of a connection attempt was a shell nobody keeps.
+logger = logging.getLogger(__name__)
 
 
 # Calibrated usable pixel window (~380-1100 nm, 1265 pts) — the fixed slice this
@@ -55,6 +99,12 @@ class AvantesSpectrometer:
         self.wavelength = None
         self.serial_number = None
         self.measconfig = None
+        # Shortest exposure this detector accepts, in ms. Filled in by init(), because
+        # it is a property of the attached hardware and differs ~100x between parts.
+        # This is the TIDIED value -- the one it is safe to use; see init().
+        self.min_integration_ms = None
+        # The raw bisect result behind it, for the record.
+        self.min_integration_measured_ms = None
         # Wavelength crop (indices into the calibrated window); full by default.
         self._lo_i = 0
         self._hi_i = CAL_WINDOW_LEN - 1
@@ -67,23 +117,28 @@ class AvantesSpectrometer:
             tuple: (measconfig, serial_number) - Measurement configuration and device serial number
         """
         # Initialize AVS library
-        ret = AVS_Init(0)    
-        print(f"AVS_Init returned: {ret}")
-        
+        ret = AVS_Init(0)
+        logger.info("AVS_Init returned: %s", ret)
+
         # Get number of devices
         ret = AVS_GetNrOfDevices()
-        print(f"AVS_GetNrOfDevices returned: {ret}")
+        logger.info("AVS_GetNrOfDevices returned: %s", ret)
         if ret < 1:
-            raise RuntimeError("Invalid index (forget to plug in the spectrometer?)")
+            # Say what to do about it. The old "Invalid index" named an internal
+            # condition, which tells a student nothing — and this is the failure
+            # they actually hit (a cable, or other software holding the device).
+            raise RuntimeError(
+                "No Avantes spectrometer found. Check the USB cable, and close "
+                "AvaSoft or any other program using the spectrometer.")
 
         # Get device list and activate first device
         mylist = AVS_GetList(1)
         self.serial_number = str(mylist[0].SerialNumber.decode("utf-8"))
-        print(f"Found Serial number: {self.serial_number}")
-        
+        logger.info("Found serial number: %s", self.serial_number)
+
         # Activate device
         self.dev_handle = AVS_Activate(mylist[0])
-        print(f"AVS_Activate returned: {self.dev_handle}")
+        logger.info("AVS_Activate returned: %s", self.dev_handle)
 
         # Get device configuration
         devcon = AVS_GetParameter(self.dev_handle, 63484)
@@ -98,7 +153,21 @@ class AvantesSpectrometer:
         # Configure measurement settings
         self.measconfig = self._create_measurement_config()
         ret = AVS_PrepareMeasure(self.dev_handle, self.measconfig)
-        
+
+        # Ask the detector how short an exposure it will honor. Done here, once, so
+        # every caller can see it and nothing has to guess. MEASURED on a SensorType 10
+        # part: ~70 ms, against ~128 ms for the rest of init(), and bit-reproducible
+        # across runs -- cheaper than storing it and risking a stale value, which would
+        # fail silently in exactly the way this probe exists to prevent.
+        # MEASURED 2026-09-16 on a SensorType 10 part, and the reason the raw value is
+        # not the one we use: at EXACTLY the accepted minimum (1.04803466796875 ms) the
+        # detector accepts the request and then integrates ~2.1 ms -- roughly double.
+        # One step up, at 1.05 ms, counts are linear in exposure to within 1% all the
+        # way to 5 ms. So the bisect's boundary value is accepted but NOT honored, and
+        # rounding up off it is a safety property, not cosmetics.
+        self.min_integration_measured_ms = self.minimum_integration_time()
+        self.min_integration_ms = tidy_detector_floor(self.min_integration_measured_ms)
+
         return self.measconfig, self.serial_number
     
     def _create_measurement_config(self):
@@ -169,7 +238,8 @@ class AvantesSpectrometer:
         if hi < lo:
             raise ValueError(f"Empty wavelength window: {wl_min}-{wl_max} nm")
         self._lo_i, self._hi_i = lo, hi
-        print(f"Wavelength window: {cal_wl[lo]:.1f}-{cal_wl[hi]:.1f} nm ({hi - lo + 1} px)")
+        logger.info("Wavelength window: %.1f-%.1f nm (%d px)",
+                    cal_wl[lo], cal_wl[hi], hi - lo + 1)
 
     def measure_timing(self, measconfig=None):
         """
@@ -183,39 +253,59 @@ class AvantesSpectrometer:
         """
         if measconfig is None:
             measconfig = self.measconfig
-            
+
+        total_int_time = measconfig.m_IntegrationTime * measconfig.m_NrAverages
+
         nummeas = 1
         scans = 0
         stopscanning = False
-        
+
         while not stopscanning:
             t1 = time.time()
-            
+
             # Start measurement
             ret = AVS_Measure(self.dev_handle, 0, 1)
-            
-            # Poll for data ready
+            if ret < 0:
+                raise RuntimeError(
+                    f"AVS_Measure failed (code {ret}); no timing measurement taken.")
+
+            # Poll for data ready — but bounded. A scan that never completes (an
+            # integration time below the detector minimum, or the device armed for
+            # an external trigger that never fires) would otherwise spin here
+            # forever, and on_timing_test() runs this on the GUI thread. The bound
+            # scales with the requested exposure so a slow-but-valid measurement is
+            # never cut off; on a normal fast measurement it is never approached.
+            timeout_s = max(2.0, total_int_time / 1000.0 * 3.0 + 2.0)
+            deadline = time.time() + timeout_s
             dataready = False
             while not dataready:
                 dataready = AVS_PollScan(self.dev_handle)
+                if dataready:
+                    break
+                if time.time() > deadline:
+                    raise RuntimeError(
+                        f"No scan completed within {timeout_s:.1f} s at "
+                        f"{measconfig.m_IntegrationTime:g} ms x "
+                        f"{measconfig.m_NrAverages} averages. The integration time "
+                        "may be below this detector's minimum, or it is armed for "
+                        "an external trigger.")
                 time.sleep(0.001)
-            
+
             if dataready:
                 scans += 1
-                
+
             if scans >= nummeas:
                 stopscanning = True
-                
+
             # Get spectral data
             ret = AVS_GetScopeData(self.dev_handle)
             t2 = time.time()
             t_dif = t2 - t1
-            
+
             timestamp = ret[0]
             spectral_data = ret[1]
 
             # Calculate timing difference
-            total_int_time = measconfig.m_IntegrationTime * measconfig.m_NrAverages
             net_dif = (t_dif * 1000) - total_int_time
 
         return timestamp, self._crop(spectral_data), net_dif, t_dif
@@ -277,6 +367,120 @@ class AvantesSpectrometer:
         plt.grid(True, alpha=0.3)
         plt.show()
     
+    def per_spectrum_seconds(self, measconfig=None):
+        """How long ONE spectrum actually takes: integration x averages.
+
+        The number that has to fit inside a segment's delta_time. Exposed so the
+        acquisition loop can say when it does not — see acquire_segment().
+        """
+        if measconfig is None:
+            measconfig = self.measconfig
+        if measconfig is None:
+            return 0.0
+        return (measconfig.m_IntegrationTime * measconfig.m_NrAverages) / 1000.0
+
+    def integration_and_averages(self, measconfig=None):
+        """(integration_ms, scan_averages) as the device is currently configured.
+
+        For cadence advice — per_spectrum_seconds() gives the product, this gives
+        the two factors so a caller can say which one to change.
+        """
+        if measconfig is None:
+            measconfig = self.measconfig
+        if measconfig is None:
+            return 0.0, 0
+        return float(measconfig.m_IntegrationTime), int(measconfig.m_NrAverages)
+
+    # Names the detector's minimum may appear under. The SDK's DeviceConfigType
+    # carries m_Detector.m_MinIntegrationTime; this project's avaspec wrapper returns
+    # the struct with FLATTENED names (the working code reads
+    # devcon.m_Detector_m_NrPixels), so both spellings are tried.
+    _MIN_INTEGRATION_FIELDS = (
+        ("m_Detector_m_MinIntegrationTime",),
+        ("m_Detector", "m_MinIntegrationTime"),
+    )
+
+    def minimum_integration_time(self):
+        """Smallest integration time this detector accepts, in ms, or None.
+
+        Read from the device rather than assumed: detectors differ by a factor of
+        ~50, and a default or a linearity ramp below the minimum asks for exposures
+        the hardware cannot give. Returns None if the wrapper does not expose it, in
+        which case the caller keeps its own default — examples/probe_min_integration.py
+        finds it empirically.
+        """
+        if self.dev_handle is None:
+            return None
+        try:
+            devcon = AVS_GetParameter(self.dev_handle, 63484)
+        except Exception:  # noqa: BLE001 — a probe must not break Connect
+            return None
+        for path in self._MIN_INTEGRATION_FIELDS:
+            value = devcon
+            for name in path:
+                value = getattr(value, name, None)
+                if value is None:
+                    break
+            if value is not None:
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if value > 0:
+                    logger.info("Detector minimum integration time: %g ms", value)
+                    return value
+        logger.info("Detector minimum integration time not exposed; probing")
+        return self._probe_minimum_integration_time()
+
+    def _probe_minimum_integration_time(self, tolerance_ms=1e-4, ceiling_ms=10000.0):
+        """Smallest integration time AVS_PrepareMeasure accepts, by bisection.
+
+        The SDK on this wrapper does NOT expose a minimum -- a full DeviceConfigType
+        dump on a 2048 px detector shows only NrPixels, SensorType, gains, offsets and
+        calibration polynomials -- so the device is asked directly.
+
+        Acceptance was checked against the detector's own integral before this was
+        trusted: on that detector PrepareMeasure accepted 0.009033 ms, and counts
+        against exposure fit `counts = 112 + 26051 t` to within 1% from 0.009 ms to
+        0.1 ms. The short exposures are genuinely integrated, not clamped. (Host
+        timing cannot show this -- USB round trip plus a 2048-pixel readout is
+        ~1.5 ms, which swamps everything below 1 ms.)
+
+        Cheap enough for Connect: a couple of dozen PrepareMeasure calls, no
+        measurement, no lamp required.
+        """
+        measconfig = getattr(self, "measconfig", None)
+        if self.dev_handle is None or measconfig is None:
+            return None
+        original = measconfig.m_IntegrationTime
+        try:
+            def accepted(value):
+                measconfig.m_IntegrationTime = float(value)
+                return AVS_PrepareMeasure(self.dev_handle, measconfig) >= 0
+
+            lo, hi = 0.0, max(float(original), 1.0)
+            while not accepted(hi):
+                lo, hi = hi, hi * 2.0
+                if hi > ceiling_ms:
+                    return None
+            while hi - lo > tolerance_ms:
+                mid = (lo + hi) / 2.0
+                if accepted(mid):
+                    hi = mid
+                else:
+                    lo = mid
+            logger.info("Probed minimum integration time: %g ms", hi)
+            return float(hi)
+        except Exception:  # noqa: BLE001 — a probe must not break Connect
+            return None
+        finally:
+            # Leave the device configured as we found it, whatever happened.
+            try:
+                measconfig.m_IntegrationTime = original
+                AVS_PrepareMeasure(self.dev_handle, measconfig)
+            except Exception:  # noqa: BLE001
+                pass
+
     def set_integration_time(self, duration, measconfig=None):
         """
         Set integration time.
@@ -287,10 +491,23 @@ class AvantesSpectrometer:
         """
         if measconfig is None:
             measconfig = self.measconfig
-            
+
+        # Refuse an exposure the hardware will not accept, and SAY SO. Without this the
+        # rejected PrepareMeasure is ignored, the measurement never arrives, and the
+        # symptom is a poll loop timing out -- which names nothing and looks like a
+        # dead instrument rather than a number that is out of range.
+        floor = self.min_integration_ms
+        if floor is not None and duration < floor:
+            raise ValueError(
+                f"Integration time {duration:g} ms is below the shortest exposure this "
+                f"detector reliably honors ({floor:g} ms"
+                + (f", serial {self.serial_number}" if self.serial_number else "")
+                + "). Raise the integration time, or the linearity ramp's start, to at "
+                f"least {floor:g} ms.")
+
         measconfig.m_IntegrationTime = duration
         ret = AVS_PrepareMeasure(self.dev_handle, measconfig)
-        print(f"Integration time set to {duration} ms")
+        logger.info("Integration time set to %s ms", duration)
     
     def set_trigger_mode(self, mode, measconfig=None):
         """
@@ -306,7 +523,10 @@ class AvantesSpectrometer:
         measconfig.m_Trigger_m_Mode = mode
         ret = AVS_PrepareMeasure(self.dev_handle, measconfig)
         mode_str = "No trigger" if mode == 0 else "Edge trigger"
-        print(f"Trigger mode set to: {mode_str}")
+        # DEBUG, not INFO: called twice per segment from inside acquire_segment (armed,
+        # then disarmed after spectrum 0), so at INFO it would bury the status pane in
+        # noise. File-only keeps it available for debugging without costing anything.
+        logger.debug("Trigger mode set to: %s", mode_str)
     
     def set_source_type(self, mode, measconfig=None):
         """
@@ -322,7 +542,7 @@ class AvantesSpectrometer:
         measconfig.m_Trigger_m_SourceType = mode
         ret = AVS_PrepareMeasure(self.dev_handle, measconfig)
         mode_str = "Edge trigger" if mode == 0 else "Level trigger"
-        print(f"Source type set to: {mode_str}")
+        logger.info("Source type set to: %s", mode_str)
     
     def set_scan_averages(self, scans, measconfig=None):
         """
@@ -337,13 +557,13 @@ class AvantesSpectrometer:
             
         measconfig.m_NrAverages = scans
         ret = AVS_PrepareMeasure(self.dev_handle, measconfig)
-        print(f"Number of averages set to {scans}")
+        logger.info("Number of averages set to %s", scans)
     
     def close(self):
         """Close the connection to the spectrometer."""
         if self.dev_handle:
             # Add any cleanup code here
-            print("Spectrometer connection closed")
+            logger.info("Spectrometer connection closed")
     
     def __enter__(self):
         """Context manager entry."""

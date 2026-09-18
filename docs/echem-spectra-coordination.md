@@ -1,0 +1,408 @@
+# Coordinating echem with spectra — how it works, and where it breaks
+
+Written 2026-09-04, after reading the NOVA 2.1 manual (`docs/NOVA User manual.pdf`) against the
+timing measured on the UW rig on 2026-09-03/04.
+
+**The requirement (Dean, standing since the project began): the spectroscopy must start when the
+electrochemistry starts, within about 1–40 ms, and by hardware.** Everything below is measured
+against that number.
+
+Findings are marked MEASURED or INFERRED.
+
+---
+
+## 1. What actually has to be true
+
+Two separate things, often conflated:
+
+1. **A shared t=0.** Both instruments must agree on when the experiment began.
+2. **Accurate per-sample times relative to it.** Each spectrum must know its own offset from that
+   origin.
+
+Requirement 2 is already solid and was never the problem. Spectrum times come from
+`AVS_GetScopeData()[0]` — the *spectrometer's own device clock*, in 10 µs ticks — and
+`Corrected time (s)` is each timestamp minus spectrum 0's. Host scheduling cannot corrupt them.
+An even sampling grid is a convenience, not a requirement.
+
+**Requirement 1 is the whole problem**, and it is a property of how the edge relates to the
+waveform, not of Python's cadence.
+
+---
+
+## 2. How the two rigs differ — the structural reason
+
+**Gamry (PLU) — tight by construction.** `ToolkitPotentiostat._run_segment`:
+
+```python
+pstat.set_cell(True)
+pstat.set_digital_out(0x1, 0x1)   # edge -> the armed Avantes fires
+curve.run(True)                    # the waveform starts
+```
+
+Three consecutive Python calls. The edge and the start of the waveform are separated by **one
+Python statement** — sub-millisecond, and whatever jitter exists is common to both.
+
+**Autolab (UW) — loose by construction.** `AutolabPotentiostat.fire()`:
+
+```python
+_set_cell(self._inst, True)
+self._proc.Measure()               # returns in ~0.31 s; the PROCEDURE now runs
+...sleep to autolab_pulse_delay_s...
+pulse P1.A                         # edge -> the armed Avantes fires
+```
+
+The waveform does not start when `Measure()` returns. The procedure first runs its own preamble,
+and only then reaches the staircase:
+
+```
+[1] Autolab control      set CurrentRange = CR10_1mA
+[2] Set potential        conditioning potential (0.0 V in the stock template)
+[3] Set cell             ON
+[4] Wait                 5.0 s
+[5] Optimize current range   ~0.2-0.4 s, variable
+[6] CV staircase         <- the electrochemistry actually starts HERE
+```
+
+MEASURED — the staircase begins at `CalcTime[0]` ≈ **5.86–6.08 s** after `Measure()`. So Python is
+guessing, on a wall clock, at an instant that lives ~6 s inside the instrument's own program.
+**That gap is the entire problem.** It is not Python being slow; it is the edge and the waveform
+being separated by seconds of instrument-side preamble whose duration varies.
+
+---
+
+## 3. The error budget (MEASURED, 2026-09-03/04)
+
+| term | size | fixable from Python? |
+|---|---|---|
+| edge → spectrometer integrating | **~0.5 ms** | already excellent (the cable) |
+| spectrum → its own recorded time | device clock | already exact |
+| systematic lag, CV template | 0.800 s | yes — corrected per template |
+| systematic lag, CA template | 0.977 s | yes — corrected per template |
+| **run-to-run jitter in that lag** | **115–199 ms** | **no** |
+
+The bias is handled: `_wait_window()` reads the procedure's own `FHWait` live and adds a
+per-template measured setup lag. **The jitter is not, and cannot be.** Removing
+`FHPreCurrentRangingCV` (the colleague spectro CV, lag 0.602 s) left the spread at ~150 ms, so the scatter is
+in the host→instrument start path, not in ranging.
+
+**Current relative-timing uncertainty is roughly ±150 ms against a requirement of 1–40 ms — off by
+about 4×, and larger than one 100 ms spectrum interval.** Which spectrum lines up with which point
+on the CV is uncertain by 1–2 spectra, run to run.
+
+---
+
+## 4. What the NOVA manual provides (read 2026-09-04)
+
+### 4a. Counter → Pulse — the mechanism that fits the requirement
+
+**NOVA §9.4, p.577 and §9.4.2, p.580.** Counters attach to a *measurement command*; when a counter
+condition is met, an action fires. One action is **Pulse**: "a user-defined TTL pulse is generated
+at the DIO connector," with properties **DIO connector (P1/P2), Port (A/B/C), pulse value, end
+value, duration in µs**.
+
+The sentence that matters:
+
+> *"Since the counters are intrinsically linked to the measured data, the events triggered by the
+> counters are directly correlated to the data points."*
+
+INFERRED (from the manual, not yet tested here): a counter on the staircase firing at the first
+data point, action Pulse on P1.A, puts the edge **inside the instrument's own measurement loop** —
+the exact analogue of DIGOUT0 inside a `.GSequence`. Python leaves the timing path entirely, the
+6 s preamble stops mattering, and the ±150 ms jitter should collapse to sub-ms.
+
+**This also explains every failed search.** It is a property *of* a measurement command, not a
+command in the list — so `Commands.IdNames` can never show it, and the driver's
+`autolab_trigger_in_procedure` guard cannot detect it. That guard needs rethinking if this route is
+taken: the flag would have to be trusted, or the counter detected some other way.
+
+### 4b. Wait for DIO — the reverse arrangement
+
+**NOVA §7.2.4.2, p.228.** The `Wait` command (already `FHWait` in every template) has four modes,
+and mode 2 is **Wait for DIO**: block until a bit pattern appears on P1/P2, port A/B/C, with an
+optional timeout and per-pin masking (1/0/X).
+
+INFERRED: one external edge could release the Autolab *and* fire the Avantes simultaneously. Both
+instruments then start on the same electrical event, so whatever jitter exists in producing that
+edge is common-mode and cancels in the relative timing. Needs an edge source and wiring; probably
+unnecessary if 4a works, but it is the fallback and it does not depend on counters.
+
+---
+
+## 5. A separate problem the same investigation exposed
+
+**The cell is energized for ~6 s before anything is recorded, at a potential nobody chose.**
+
+MEASURED (Dean, watching the Autolab front panel against the Win11 screen): the current range shows
+mA, then switches to µA exactly when Python starts plotting. That is command [1] setting
+`CR10_1mA`, then `Optimize current range` at [5] auto-ranging just before the staircase.
+
+The template turns the cell on at [3], *before* the 5 s wait at [4]. Worse, `fire()` calls
+`_set_cell(True)` before `Measure()` even runs — so the cell is live from before the procedure
+starts, at whatever `Ei.Setpoint` was left from the previous segment, until [2] overwrites it.
+
+On a 10 kΩ dummy this is nothing. **On an OMIEC film it is 5–6 seconds of unrecorded polarization
+before every segment** — an uncontrolled conditioning step in the prehistory of every doping cycle,
+invisible in both the echem file and the spectra.
+
+Both knobs are writable: `FHSetSetpointPotential[0]` is the conditioning potential and `FHWait[0]`
+its duration (the driver already reads the latter live). **This should be fixed before any real
+sample**, independently of the trigger work.
+
+On ranging itself — no action needed. **NOVA §9.2, p.572:** automatic current ranging stays active
+during the measurement and changes range on overload/underload, requiring *five consecutive*
+detections before it switches. So a film spanning decades will range rather than clip. Each change
+is a small discontinuity in the trace; `Highest/Lowest current range` bound the hunting if a film's
+range is known.
+
+---
+
+## 6. The resolution ceiling changes the ranking
+
+**MEASURED constraint (Dean, 2026-09-04): spectra on this rig will not go faster than ~100–200 ms,
+and the useful science window is 100 ms to 10 s.** (The Gamry rig may reach ~25 ms if S/N allows.)
+
+That reverses the earlier reasoning. At a 100 ms ceiling:
+
+- Python-driven `Ei` sampling at ~20–30 ms per point is **5–10× faster than needed** — the firmware
+  recorder's millisecond capability cannot be used, because nothing optical matches it.
+- The procedure's ~0.6 s late start is **6 lost points** at the front of the useful window.
+- The ±150 ms trigger jitter is **1–1.5 spectra** of alignment uncertainty.
+
+So the procedure's advantage is worthless here and its costs are expensive.
+
+**Post-hoc correction, floated earlier, does not work and is withdrawn.** `CalcTime[0]` is on the
+Autolab's clock from procedure start; the pulse time is on the host clock. The unknown is precisely
+the offset between them, so differencing reproduces the ±150 ms rather than removing it. There is no
+event common to both records to anchor against — which is what a hardware edge *is*.
+
+---
+
+## 7. Proposed architecture (agreed in principle 2026-09-04; not yet built)
+
+**Python owns potential application, t=0 and the start of spectra. The procedure owns only the
+staircase waveform.**
+
+### CA — doping, dedoping, pre-dedoping: Python-driven via `Ei`
+
+```python
+ei.Setpoint = V
+ei.CellOnOff = On     # the sample's t=0
+spec.measure()        # spectrum 0, free-run — no edge needed
+```
+
+Three consecutive statements. **This makes the trigger problem disappear for these segments**: no
+DIO, no procedure preamble, no jitter, nothing lost at the front of the window. It restores the
+original notebook architecture, where `timeStamp[0]` *is* potential application and every later
+spectrum inherits a correct offset from the Avantes device clock.
+
+`pump()` already accumulates `(t, E, I)` per spectrum into `_live_samples` and `live_data()` already
+builds an `EchemData` from them — so making that the *recorded* trace rather than a live-plot
+convenience is a small change.
+
+### Why CV tolerates all of this and CA does not (Dean, 2026-09-06)
+
+**CV is run as ~3 cycles and the steady-state cycle — the second or third — is what gets analyzed.**
+Cycle 1 is discarded by practice. So the conditioning hold, the ranging, and whatever the film does
+during the first sweep are all in the part that was going to be thrown away regardless. The preamble
+is free.
+
+The jitter is cheap for the same structural reason: **in a CV, a spectrum can be located by its
+potential.** The echem trace says where the sweep was, so a timing offset is recoverable from the
+data after the fact.
+
+**Neither is true of a chronoamperometric step.** The potential is constant, so nothing in the trace
+re-anchors a spectrum, and the transient's shape *is* the measurement — the part that a late start
+destroys rather than merely shifts. Same jitter, completely different cost.
+
+That is the whole argument for splitting the two, and it is a scientific argument rather than a
+technical one.
+
+### CV: keep the procedure, but strip its preamble
+
+A staircase hand-rolled in Python is not worth attempting, and CV timing is the looser case (±150 ms
+across a 4–40 s sweep is ~1.5 spectra). But `[2] Set potential` and `[3] Set cell` should be
+**deleted from the `.nox`** so Python applies the potential and switches the cell on itself, exactly
+as for CA. The procedure then only sweeps.
+
+Consequence: the spectra cover the conditioning period *and* the sweep, with an exact t=0. The echem
+trace still begins at the staircase, so the first ~0.6–0.8 s has spectra but no current — acceptable
+for a CV, where nothing interesting happens at constant potential.
+
+### On the 5 s wait — a scientific choice, not cleanup
+
+`FHWait` exists to equilibrate the film at the initial potential. That may be wanted. What is wrong
+today is that it happens **by accident and unobserved**: the template holds for 5 s after its own
+`Set cell`, and `fire()` energizes even earlier, at whatever `Ei.Setpoint` was left from the previous
+segment. Three ways to fix it:
+
+1. **Drop it** (`FHWait[0]` → ~0). Sweep begins essentially at cell-on. No equilibration.
+2. **Keep it deliberately** and record it as metadata: held at X V for Y s. Honest, but the film's
+   history is still unobserved.
+3. **Make it a real segment** — a short Python-driven CA hold at the initial potential, with spectra,
+   followed by the CV. Fully observed, and it falls out of the CA design above for free.
+
+Option 3 is the one this architecture makes cheap, and it is the only one where the equilibration is
+data rather than a gap.
+
+### Three open questions before building
+
+1. **Cost of one `Ei` scalar read.** The ~10 ms figure is INFERRED from the in-run/free-run spectrum
+   difference, never isolated. Ten lines on the dummy settles it and sets Python's sampling floor.
+2. **Current ranging.** NOVA §9.2 governs ranging *for a measurement command*. With no measurement
+   command running, Python may have to manage `Ei.CurrentRange` itself — real work for a film
+   spanning decades, and clipping if wrong.
+3. **Will a staircase run with the cell already on and no `Set cell` in the procedure**, and does it
+   sweep from the applied potential or re-step to its own initial value? Not answerable from the
+   manual; one run settles it.
+
+Also unknown: whether `Ei.Current` (an instantaneous scalar) is noisier than the `FHLevel` recorder's
+sampled value at these currents. One comparison on the dummy.
+
+### What this does not solve
+
+Cutoffs are measurement-command properties, so a Python-driven hold has none. `Ei.CurrentOverload`
+is readable and `pump()` can check it, but that has to be written deliberately rather than assumed.
+
+---
+
+## 7b. The 5–6 s gap is a TEMPLATE artifact — Dean's own `.nox` files show it (2026-09-04)
+
+**Dean's concern, and it is correct: our runs lose 5–6 s of initial current and spectra that his
+NOVA runs do not.** But the cause is not the Autolab, the procedure model, or Python. It is which
+template `autolab_nox_cv` / `autolab_nox_ca` point at.
+
+MEASURED — read-only byte scan of `docs/dw_test.nox` and `docs/dw_test2.nox`, Dean's own bare-bones
+procedures, against the stock templates the driver currently uses:
+
+| | `dw_test*.nox` | `Standard Nova Procedures\*.nox` |
+|---|---|---|
+| `FHWait` | **ABSENT** | 5.0 s |
+| `FHPreCurrentRanging` | **ABSENT** | present, ~0.2–0.4 s |
+| `HOptionCounter` + `HOptionGetSetValuesPulse` | **present** | absent |
+| `FHSwitchCell` / `FHSetSetpointPotential` / `FHLevel` | present | present |
+
+So the entire preamble that costs us the front of the useful window is a property of the *stock*
+templates. Dean's were built without it. **This is a config line, not an architecture.**
+
+(Byte order in a `.nox` is not guaranteed to be execution order, so the sequence above should not be
+over-read. Presence and absence are solid.)
+
+### The counter trigger is already configured
+
+`HOptionCounter` with `HOptionGetSetValuesPulse` in both files is the NOVA §9.4.2 mechanism — the
+counter action that emits a TTL pulse at the DIO connector, intrinsically linked to the measured
+data. Dean set this up before the manual search found it.
+
+### Which makes the `Ei` rewrite CONTINGENT, not agreed
+
+§7 exists to escape two costs: the ~6 s late start and the ±150 ms Python jitter. A template like
+`dw_test` removes the first; the counter removes the second — **while keeping firmware-timed current
+sampling, which the `Ei` route gives up.**
+
+**The measurement that decides it:** on a `dw_test`-style template, how long from `Set cell` to the
+first recorded `CalcTime` point, with no wait and no pre-ranging in between? Nobody has measured it.
+
+- **If it is tens of ms** — the procedure route wins outright. Minimal gap, exact alignment,
+  firmware sampling, no rewrite. Do not build §7.
+- **If it is still hundreds of ms** — the host→instrument start latency dominates, and §7's argument
+  stands.
+
+### Before those files can be used
+
+They contain `ExecCommandAvantesStart`, `ExecCommandAvantesStop` and `ExecCommandSpectroTriggered`,
+so NOVA would claim the Avantes over USB and fight spec-echem for it (see
+`metrohm-rig-status.md`). Those must be deleted; the echem structure and the counter stay.
+
+NOVA §10.9.2, p.618: select the command(s) and press **Delete**, or use Edit → Delete. Following
+commands shift left to fill the gap. Deleting a Group command or a stack removes everything inside
+it — so if the spectroscopy commands sit in a group, check what else is in there first. Commands can
+also be dragged to reorder (§10.10), one at a time.
+
+Open question for the bench: whether the counter's Pulse action is attached to the `FHLevel`
+command that survives, or to one of the deleted spectroscopy commands. If the latter, the counter
+has to be re-created on `FHLevel` after the deletion.
+
+---
+
+## 7c. Which DIO pin — and why 0xFF is a trap (2026-09-04)
+
+MEASURED from the NOVA manual §16.3.1.3.1, p.927 — the PGSTAT302N has **DIO48** connectors: two
+25-pin female SUB-D, 24 addressable pins in three sections. **Section A is pins 1–8**, B is 17–24,
+C is 9–16, and pin 25 is digital ground. Each section is independently set to read or write. Write
+lines supply max 2.5 mA; pull-downs usually not needed.
+
+So "P1.A" is a **byte**, not a line.
+
+`_pulse_trigger()` has always written `port.Value = 0xFF` — all eight pins high at once. That is why
+the wired pin never had to be identified, and it has been harmless because nothing else is on the
+port.
+
+**It stops being harmless when the AvaLight-Mini2 shutter is wired.** That lamp is TTL-controlled
+and NOVA's own procedures use the Autolab DIO for lamp/shutter control
+(`metrohm-rig-status.md`). An 0xFF pulse would then move the shutter on **every segment, mid-run** —
+corrupting the optics in a way that reads as sample behavior rather than as a fault.
+
+### Now configurable, default unchanged
+
+`autolab_dio_mask` (settings + `bench.ini`) selects which pins the pulse drives. It **defaults to
+0xFF**, so nothing changes until the real pin is measured. `examples/autolab_common.pulse()` takes
+the same `mask` argument.
+
+### Finding the pin — `examples/probe_dio_pin.py`
+
+Cell-safe: the potentiostat is never energized and no procedure runs. It arms the Avantes, pulses
+one bit at a time, and reports which bit lands a scan — after first confirming 0xFF works, so a dead
+cable is distinguished from a wrong bit. A hit is re-tested three times before being believed.
+
+Then:
+
+```ini
+# config/bench.ini
+autolab_dio_mask = <the bit>
+```
+
+and the same value as the NOVA counter's **Pulse value**, with **End value 0**. Every other pin on
+the port is then free for the shutter.
+
+### The UW wiring, and the question it opens (2026-09-04)
+
+MEASURED (Dean, looking at the rig): **one cable leaves the Autolab DIO connector and splits — one
+leg to the Avantes, one to the AvaLight-Mini2.** Dean sets the shutter by hand; the UW group's own
+`.nox` drives it from the Autolab.
+
+But **one connector is not one port.** A DIO48 shell carries three independent 8-bit sections, so a
+splitter can take pins 1–8 to the Avantes and 17–24 to the lamp. Whether the trigger and the shutter
+share a *port* or merely a *shell* decides whether an all-pins pulse can disturb the optics — and
+nothing has tested it. `autolab_dio_port = 0` has been an assumption since the first trigger probe.
+
+Two ways to settle it, cheapest first:
+
+1. **Read the UW procedure.** Their `.nox` already drives the shutter, so it records the DIO
+   connector and port as command parameters. Byte-scan or `Commands.IdNames` — no instrument, no
+   NOVA. If their shutter is on P1 port B and our trigger is P1 port A, the question is closed and
+   the all-pins pulse is harmless.
+2. **Enumerate the ports** — now part of the read-only pass. `query_autolab_run.py` gained **Q9**,
+   and `probe_dio_pin.py` prints the same listing before it walks anything:
+   names, directions and current values for `DioPortsP1[]` and `DioPortsP2[]`. Reads only.
+
+MEASURED, and reassuring for now: the spectra are bright (peak 24127 counts on 09-04), so the lamp's
+**OFF-TTL-ON switch cannot be in TTL** — in TTL the shutter follows the line, which idles low
+(closed) and would go high for only the 2 ms of a pulse. **Predicted consequence: moving that switch
+to TTL with the present code would make the spectra go dark.** Worth knowing in advance rather than
+diagnosing as an optics failure.
+
+**Do this before wiring the AvaLight shutter into a TTL-controlled workflow, not after.** (If the shutter is already connected,
+expect it to click during the walk — which is itself the answer to which bit to avoid.)
+
+One more from §16.3.1.3, worth remembering if unexplained current noise ever appears on a real
+sample: *"There is a chance of introducing a ground loop when connecting external devices to the
+Autolab DIO… higher than expected noise levels during measurements."* The trigger cable stays
+connected permanently, so it is a standing candidate.
+
+---
+
+## 8. Where the counter-Pulse route still matters
+
+If CV timing ever needs to beat ±150 ms, §4a is the mechanism — and it remains the only route to a
+genuinely instrument-timed edge. It is not needed for CA under this architecture, which is the
+larger half of the problem.

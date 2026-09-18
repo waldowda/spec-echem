@@ -1,0 +1,103 @@
+
+========================================================================
+AUTOLAB — CHRONOAMPEROMETRY BENCH (parameter map + verification)
+========================================================================
+NOX           : C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Chrono amperometry.nox
+ENERGIZE_CELL : True
+indices       : setpoint_V=0 duration=1 interval=0
+
+*** The cell WILL be energized. 10 kOhm dummy resistor only. ***
+Connected OK — cell NOT switched on.
+
+========================================================================
+PHASE 0 — CA command list and parameter map
+========================================================================
+Loaded: Chrono amperometry.nox
+
+  Commands:
+    [0] Chrono amperometry                 ExtendedSequence
+    [1] Autolab control                    FHGetSetValues
+    [2] Set potential                      FHSetSetpointPotential
+    [3] Set cell                           FHSwitchCell
+    [4] Wait time (s)                      FHWait
+    [5] Record signals (>1 ms)             FHLevel
+    [6] i vs t                             PlotsIvst
+    [7] Set potential                      FHSetSetpointPotential
+    [8] Record signals (>1 ms)             FHLevel
+    [9] i vs t                             PlotsIvst
+    [10] Set potential                      FHSetSetpointPotential
+    [11] Record signals (>1 ms)             FHLevel
+    [12] i vs t                             PlotsIvst
+    [13] Set cell                           FHSwitchCell
+  Hold (recorder) command: FHLevel
+
+  FHLevel.CommandParameters:
+    [0] float      = 0.01
+    [1] float      = 5.0
+    [2] bool       = False
+
+  Setpoint command: FHSetSetpointPotential — this holds the potential, not the recorder
+
+  FHSetSetpointPotential.CommandParameters:
+    [0] float      = 0.0
+
+  Map (phase 0, rig 2026-09-03): potential = FHSetSetpointPotential[0],
+  duration = FHLevel[1], interval = FHLevel[0]. Re-run with ENERGIZE_CELL =
+  True to apply distinctive values and confirm them against the recording.
+
+
+  FHWait.CommandParameters:
+    [0] float      = 5.0
+  WAIT command present (FHWait) — this is the arm-margin window the
+  driver pulses the trigger in, exactly as the standard CV's FHWait is.
+  Its duration parameter reads 5.0.
+
+========================================================================
+PHASE 1 — apply distinctive values and check the recording
+========================================================================
+
+  applying (potential on the setpoint command, duration/interval on FHLevel):
+    set [0] hold V = 0.35  (read back 0.35) OK
+    set [1] duration s = 8.0  (read back 8.0) OK
+    set [0] interval s = 0.05  (read back 0.05) OK
+  Measure() returned in 0.26 s; IsMeasuring=True
+    t=  0.28s  E=8.544921875000555e-05  I=-4.669189453125e-09
+    t=  0.53s  E=8.544921875000555e-05  I=-4.669189453125e-09
+    t=  0.80s  E=8.544921875000555e-05  I=-4.669189453125e-09
+    t=  1.06s  E=8.544921875000555e-05  I=-4.669189453125e-09
+    t=  1.32s  E=8.544921875000555e-05  I=-4.669189453125e-09
+    t=  1.58s  E=8.544921875000555e-05  I=-4.669189453125e-09
+  Run finished in 25.88 s (IsMeasuring=False)
+
+  Recorded channels:
+    CalcTime                    160 pts   first=6.13012  last=14.0801
+    EI_0.CalcPotential          160 pts   first=0.349701  last=0.34964
+    EI_0.CalcCurrent            160 pts   first=3.52051e-05  last=3.53302e-05
+    Correctedtime               160 pts   first=0  last=7.95
+    Index                       160 pts   first=1  last=160
+  CSV written: C:\Users\Ginger Lab\spec-echem\examples\bench_autolab_ca_run1.csv  (160 rows x 5 cols)
+
+  Verdicts:
+    potential (V)          measured 0.3496 V, set 0.35 V -> CONFIRMED
+    duration (s)           measured 7.95 s, set 8 s -> CONFIRMED
+    interval (s)           measured 0.05 s, set 0.05 s -> CONFIRMED
+
+  A NOT CONFIRMED means that index is something else — do not adopt it.
+  Re-read phase 0's list and try the next candidate.
+
+========================================================================
+PHASE 2 — item 2 for CA: does run 2 reuse run 1's buffer?
+========================================================================
+  Measure() returned in 0.00 s; IsMeasuring=False
+  Run finished in 0.00 s (IsMeasuring=False)
+
+  run 1: 160 points, run 2: 160 points
+  >> CLEAN: .Signals is replaced per run; no reset needed.
+Cell switched OFF.
+Disconnected.
+
+========================================================================
+NEXT
+========================================================================
+Record the confirmed CA index map in docs/autolab-run-api.md — that plus the
+CV map is everything the driver needs for all four data types.

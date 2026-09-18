@@ -13,9 +13,11 @@ from pathlib import Path
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
     QPushButton, QLabel, QLineEdit, QPlainTextEdit, QCheckBox,
-    QDoubleSpinBox, QSpinBox, QFileDialog,
+    QDoubleSpinBox, QSpinBox, QFileDialog, QComboBox,
 )
 
+from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES,
+                                     is_high_current_range)
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import _next_serial_path
 
@@ -52,13 +54,26 @@ class ParametersTab(QWidget):
         self._widgets[key] = w
         return w
 
+    def _combo(self, key, choices):
+        """A dropdown that stores the VALUE, not the visible label.
+
+        `choices` is [(value, label)]; an empty value is offered first so the field
+        can mean "leave whatever the instrument has", which is what a blank
+        autolab_current_range means.
+        """
+        w = QComboBox()
+        for value, label in choices:
+            w.addItem(label, value)
+        self._widgets[key] = w
+        return w
+
     def _check(self, key, label):
         w = QCheckBox(label)
         self._widgets[key] = w
         return w
 
     def _hint(self, widget, text):
-        """Wrap a field with a grey example/format hint to its right."""
+        """Wrap a field with a gray example/format hint to its right."""
         box = QWidget()
         row = QHBoxLayout(box)
         row.setContentsMargins(0, 0, 0, 0)
@@ -96,6 +111,18 @@ class ParametersTab(QWidget):
         sform = QFormLayout(sample_group)
         sform.addRow("Sample name:", self._hint(self._line("sample_name"), "e.g. P3HT 95:05"))
         sform.addRow("Electrolyte:", self._hint(self._line("electrolyte"), "e.g. 0.1 M KPF6 / MeCN"))
+
+        # Film geometry — only used by the density of states, which needs a volume.
+        sform.addRow("Film thickness:",
+                     self._hint(self._dspin("film_thickness_nm", 0.0, 100000.0,
+                                            decimals=1, step=10.0, suffix=" nm"),
+                                "typical spin-coated OMIEC ≈ 150 nm"))
+        sform.addRow("Immersed film area:",
+                     self._hint(self._dspin("film_area_cm2", 0.0, 1000.0,
+                                            decimals=4, step=0.01, suffix=" cm²"),
+                                "coated area BELOW the electrolyte line, one side. "
+                                "Default 1.6 = 2 cm immersed × 0.8 cm wide. Check "
+                                "the depth each run. 0 = unknown → DOS shows dQ/dV"))
 
         # Notes — full width, taller
         sform.addRow(QLabel("Notes:"))
@@ -139,7 +166,19 @@ class ParametersTab(QWidget):
         self._widgets["data_folder"].textChanged.connect(self._update_full_path)
         self.data_root_edit.textChanged.connect(self._update_full_path)
 
-        sform.addRow(self._check("trigger", "Wait for Gamry trigger"))
+        # NOT Gamry-specific, despite the old label: this arms the spectrometer to
+        # wait for a hardware edge before spectrum 0, whichever potentiostat raises
+        # it (Gamry DIGOUT0 or Autolab P1.A). On 2026-09-04 it was read as "not my
+        # instrument" on the Autolab rig and left off, and spectrum 0 landed ~6 s
+        # before the waveform started — the run's only defect.
+        trigger_check = self._check("trigger", "Wait for hardware trigger")
+        trigger_check.setToolTip(
+            "The potentiostat raises the edge (Gamry DIGOUT0 or Autolab P1.A) and "
+            "the spectrometer waits for it, so optical t=0 matches electrochemical "
+            "t=0.\n\nLeave this ON for co-acquisition. With it off, spectrum 0 is "
+            "taken as soon as the segment starts \u2014 before the potentiostat "
+            "begins its waveform.")
+        sform.addRow(trigger_check)
         layout.addWidget(sample_group)
 
         # --- Cyclic voltammetry ---
@@ -165,12 +204,16 @@ class ParametersTab(QWidget):
             "The pre-dedoping step still runs exactly as usual (the film is conditioned) "
             "but no files are written for it — no spectra .txt, no echem .txt, no .dta.\n"
             "Leave unchecked to save it as before.")
-        # Discard only means anything if the step runs at all. Grey it out otherwise —
+        # Discard only means anything if the step runs at all. Gray it out otherwise —
         # its checked state is kept, so re-enabling pre-dedoping restores the choice.
         discard.setEnabled(include_pre.isChecked())
         include_pre.toggled.connect(discard.setEnabled)
         pre_form.addRow(discard)
-        pre_form.addRow("Potential (vs Vref):",
+        # Named, not bare "Potential": every other potential field on this tab says
+        # what it drives, and this one did not. On 2026-09-11 that cost two film runs
+        # — -0.5 V meant for dedoping went in here, so the films got one hard
+        # reduction up front and then dedoped at 0.0 V for the whole ladder.
+        pre_form.addRow("Pre-dedoping potential (vs Vref):",
                         self._dspin("prededoping_potential", -10.0, 10.0, 3, 0.05, " V"))
         pre_form.addRow("Duration:", self._dspin("prededoping_time", 0.1, 100000.0, 1, 1.0, " s"))
         layout.addWidget(pre_group)
@@ -190,6 +233,35 @@ class ParametersTab(QWidget):
         dope_form.addRow("Step duration:", self._dspin("chrono_time", 0.1, 100000.0, 1, 1.0, " s"))
         dope_form.addRow("Time between spectra:",
                          self._dspin("chrono_delta_time", 0.001, 100.0, 3, 0.01, " s"))
+        # Per SAMPLE, not per rig, which is why it belongs here rather than only in
+        # bench.ini: one film draws µA and the next draws mA. It applies to the
+        # chrono steps only — a CV runs the .nox, which sets and auto-ranges its own.
+        # Pick for the PEAK: in Ei mode nothing autoranges, so a range too small
+        # clips the transient, and one too large buys a coarse quantum and a larger
+        # zero offset. MEASURED across six ranges 2026-09-16: the offset runs
+        # ~0.01-0.02% of full scale down to CR12_10uA, so ~1.1 µA on CR09_10mA
+        # against ~0.11 µA on CR10_1mA. It is NOT a stable constant -- the same
+        # range read +1.605 µA on 2026-09-11 and -1.084 µA five days later -- so it
+        # is recorded per run rather than corrected for.
+        # Mark, never forbid. The right range depends on the system being measured,
+        # so the choice stays the scientist's -- but a range above 10 mA is far past
+        # anything an OMIEC film draws, and an oversized one removes the protection an
+        # overload would otherwise give the sample.
+        range_combo = self._combo(
+            "autolab_current_range",
+            [("", "leave the instrument's own")]
+            + [(v, l + ("   [!] high current" if is_high_current_range(v) else ""))
+               for v, l in AUTOLAB_CURRENT_RANGES])
+        range_combo.setToolTip(
+            "Fixed current range for doping/dedoping/pre-dedoping (Ei mode only).\n"
+            "Nothing autoranges there, so choose for the PEAK current, not the\n"
+            "settled one - a step draws far more at t=0 than it settles to.\n"
+            "The right range depends on the system you are running, not the rig.\n"
+            "Ranges marked [!] are above 10 mA full scale - far more than an\n"
+            "OMIEC film draws, and an oversized range removes the overload\n"
+            "protection that would otherwise stop a fault damaging it.\n"
+            "CV is unaffected: it runs the procedure, which ranges itself.")
+        dope_form.addRow("Current range (Ei mode):", range_combo)
         layout.addWidget(dope_group)
 
         layout.addStretch()
@@ -207,6 +279,9 @@ class ParametersTab(QWidget):
                 w.setValue(value)
             elif isinstance(w, QPlainTextEdit):
                 w.setPlainText(str(value))
+            elif isinstance(w, QComboBox):
+                i = w.findData(str(value or ""))
+                w.setCurrentIndex(i if i >= 0 else 0)
             elif isinstance(w, QLineEdit):
                 w.setText(str(value))
 
@@ -225,6 +300,8 @@ class ParametersTab(QWidget):
                 settings[key] = w.value()
             elif isinstance(w, QPlainTextEdit):
                 settings[key] = w.toPlainText()
+            elif isinstance(w, QComboBox):
+                settings[key] = w.currentData()
             elif isinstance(w, QLineEdit):
                 settings[key] = w.text()
 
@@ -280,7 +357,9 @@ class ParametersTab(QWidget):
         path, _ = QFileDialog.getOpenFileName(self, "Load Settings", start, "JSON files (*.json)")
         if not path:
             return
-        settings = load_settings(path)
+        # bench_base(), not the bare default: a file that predates a bench key must
+        # not silently revert this rig's value for it.
+        settings = load_settings(path, base=self.win.bench_base())
         self.win.apply_settings(settings)
 
     def on_save(self):

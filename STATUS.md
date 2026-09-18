@@ -4,14 +4,245 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-07-14_
+_Last updated: 2026-09-15_
+
+---
+
+## The detector's floor is read from the hardware (2026-09-16, `gui-dev`) — newest
+
+**454 tests.** Both detectors in this project are now MEASURED, and every exposure the
+software chooses follows the one that is actually attached.
+
+| detector | SensorType | floor | below it |
+|---|---|---|---|
+| the fast part | 22 | 0.009033 ms | accepts, and genuinely integrates |
+| `AvaSpec-ULS2048L` | 10 | **1.048 ms** | **rejects, code -11** |
+
+**A ~100x spread, and the code defaults were on the wrong side of it.** `lin_start_ms`
+0.022 and `lin_stop_ms` 0.15 both sit below the ULS2048L's floor, where the SDK refuses
+the request outright instead of clamping — so the linearity check could not run there at
+all, and a fresh checkout raised *inside Connect*. That last part was found by a test:
+`test_connect_failure_message_is_still_shown_somewhere` assumes no hardware in CI, and on
+an instrument box it took the success path into `on_apply()` and threw.
+
+- **Clamp, never overwrite.** Connect raises a value below the floor and leaves one above
+  it alone. An integration time chosen from a linearity check to land ~85% fill is a
+  scientific choice; the floor is a hardware constraint. On this rig nothing moves —
+  2.6439 / 1.1 / 5.0 are all already above 1.048.
+- **Probed every Connect, ~70 ms MEASURED** against ~128 ms for the rest of `init()`, and
+  bit-reproducible. Stored per serial in `[detector.<serial>]` so it is tied to the
+  detector rather than the machine, but the stored value is only a fallback — a stale
+  floor fails silently in exactly the way the probe prevents.
+- **Rounded UP to three significant figures**: 1.04803466796875 → **1.05 ms**. The bisect
+  resolves to 1e-4 ms, so the raw figure quoted fifteen digits of a number known to four.
+  Rounding up keeps it legal; the raw value is still logged and stored.
+- **A sub-floor exposure now says so**, naming the request, the floor and the serial,
+  instead of a poll loop timing out and looking like a dead instrument.
+
+**Two bugs found on the way, neither of them about integration time:**
+
+- **"Save as defaults" deleted every comment in `config/bench.ini`.** It rewrote the file
+  through `configparser`, which parses to a dict and re-emits. On this rig those comments
+  carry the measured reasoning behind the current range, the DIO pin and the wait
+  parameter — one click would have erased the record of the work. The file is now edited
+  as text, in place.
+- **The probe script measured on a different ADC scale than the application** (no
+  `AVS_UseHighResAdc`) and reported only the mean across 2048 pixels, which cannot tell a
+  clipped band from dark current. It now reports peak too — and that immediately showed
+  the real story below.
+
+**The accepted minimum turned out not to be the usable minimum**, which is the finding
+of the day and the reason the rounding matters. With the beam attenuated (it saturates at
+every exposure otherwise — the lamp is too bright to work near the floor, as
+`metrohm-rig-status.md` already suspected), counts are linear from 1.05 ms to within 1%:
+`counts = 683 + 1361·t`. But at **exactly 1.048 ms**, the value the bisect returns as the
+smallest `AVS_PrepareMeasure` accepts, the detector returns 3555 counts where the line
+says 2111 — **~2.1 ms of integration, about double what was asked**. Four consecutive
+scans agree, and revisiting it after every longer exposure gives the same answer, so it is
+not a first-scan artifact. **Confirmed at two light levels differing ~17x**: the equivalent
+exposure is 2.11 ms and 2.085 ms against a 1.048 ms request — exactly double both times,
+so it is firmware timing, not optics.
+
+So the probe's own boundary value is accepted but not honored, and rounding UP off it is a
+safety property rather than a display choice. `init()` now tidies before exposing the
+floor, so nothing downstream can select that exposure. Open: whether the fast detector's
+boundary value misbehaves the same way — its minimum was verified from 0.009 ms, not from
+the boundary itself.
+
+---
+
+## Analysis matured, DOS built, manual written (2026-09-15, `gui-dev`)
+
+**430 tests.** A long session driven almost entirely by running the GUI against real
+runs and fixing what that exposed.
+
+**A principle got established and then enforced:** *the software raises concerns; the
+scientist decides.* No result is withheld because a check objected. It is in CLAUDE.md
+above the analysis section, because it was got wrong twice — first by drawing a rejected
+curve while hiding every parameter, then by plotting NaN on the ladder where a rejected
+fit belonged.
+
+- **`needs_review` vs `did_not_converge`.** Only the latter shows nothing, because only
+  it *has* nothing. A rejected-but-converged fit keeps its curve, every parameter in an
+  amber legend, `? value` in the table and a ringed point on the ladder.
+- **95% CI on ⟨τ⟩** by the delta method on the full covariance, validated against Monte
+  Carlo, with the honest caveat that it is a WITHIN-MODEL number — and a **residual
+  split** (noise vs model-miss) as the companion that actually ranks models.
+- **⟨τ⟩ can never be negative.** Signed amplitude weighting let a "mean" leave the range
+  of its own components; `|B|` fixes it, and mixed signs are now flagged as competing
+  processes rather than silently averaged.
+- **All fits… dialog** — every segment and trace in one table, which is the only way to
+  review across potentials.
+- **Density of states v1** — Tab 4 → Optical view → *Density of states (CV only)*, film
+  geometry on Tab 2. Scan rate MEASURED from the data (`CV.txt` has no time column, but
+  the spectra file does), signed sweep rate, last complete cycle, directions separate
+  and labeled oxidizing/reducing.
+- **[`docs/manual.md`](docs/manual.md)** — the tabs, and the mathematics behind every
+  number the GUI reports.
+
+**Two real bugs found by running it, not by tests:**
+
+- **Loading a second run ran the 32-bit build out of memory.** The reader pulled all
+  eight columns to rebuild a matrix needing three, and the new run was built alongside
+  the old. Peak went 246 → 476 MiB on the second load; now it stays at 246.
+- **A loaded run was labeled with the Parameters tab's potentials** — a segment held at
+  +0.700 V titled "+0.400 V". Labels now come from the measured `WE(1).Potential`.
+
+**Minimum integration time — probed, not assumed.** The SDK exposes no minimum; the
+device is asked by bisecting `AVS_PrepareMeasure`. On a 2048 px detector that gives
+0.009033 ms, verified genuine against `counts = 112 + 26051·t` (within 1% from 0.009 to
+0.1 ms). **Next: probe the `AvaSpec-ULS2048L` and wire the default and `lin_start_ms` to
+follow it** — the current 0.022/0.15 ramp is entirely below that detector's ~1.05 ms
+floor.
+
+**Housekeeping:** personal and institution names removed from all code; hardware is
+referred to by model number.
+
+---
+
+## In-GUI analysis, validated on real data (2026-09-14, `gui-dev`)
+
+**Tab 5 "Analysis" exists and works on real runs.** Fitting after a run: exp / biexp /
+stretched applied to absorbance, current and charge, with the data and the fitted curve
+drawn together above a residual strip, and mean relaxation time plotted against
+potential across the ladder. The maths is in `spec_echem/analysis.py` (no Qt, no
+hardware); `gui/tabs/analysis_tab.py` is the view. **380 tests.**
+
+Validated against `tests/20250710` (the reference run) (six doping rungs
+0.2→0.7 V, outside this repo). **36/36 fits converge.** Over that ladder the optical τ
+FALLS 1.52 → 0.36 s while the current τ RISES 1.46 → 2.03 s, crossing near 0.45 V, and
+β climbs 0.77 → 1.00 — the kinetics become single-exponential once driven hard. the user
+notes bipolaron formation likely contributes to the optical trend at high doping, so the
+800 nm τ is not purely polaron growth.
+
+**Real data broke things synthetic data could not**, which is the headline for anyone
+reading this later:
+
+- `auto_wavelengths` picked **381 nm** — the dark floor, 416 counts, SNR 1.8 — over the
+  real polaron at 780 nm (SNR 682), on every segment of `20260709_P3HT_01`. Now gated on
+  significance against per-pixel noise, plus `ANALYSIS_WL_MIN = 410` (no usable data
+  below ~410 nm on these rigs).
+- **The polaron is not always the band that grows.** True on doping; on dedoping it
+  decays while π–π* recovers. Both tabs now share `analysis.probe_wavelength`.
+- **A loaded run was labeled with the Parameters tab's potentials.** A segment held at
+  +0.700 V was titled "+0.400 V". Labels now come from the measured `WE(1).Potential`,
+  falling back to the run's own metadata, and never from the live form.
+- **τ is bounded** — τ > 0, 0 < β ≤ 1, and τ < 10× the fitted window. The charge integral
+  returned τ = 5.5×10¹¹ s from a 60 s segment and flattened the ladder to a flat line.
+- **`python -m gui` would not start on SpecEchem32** — `Figure.set_layout_engine` is
+  matplotlib 3.6+. Fixed with a fallback; see `plot_canvas._set_layout`.
+
+**Next:** the user is testing on macOS (analysis only); Win11/`SpecEchem32` tomorrow, which is
+the only place the matplotlib fallbacks get exercised. Planned but not built: density of
+states from the CV — design settled in
+[`docs/analysis-design.md`](docs/analysis-design.md), blocked on recording film volume.
+
+---
+
+## First film data (2026-09-11, `gui-dev`)
+
+Full write-up: [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md). Four the test film runs
+(the electrolyte, pseudo Ag/AgCl) plus a dummy check. **The first spectroelectrochemistry
+on a real sample through this code, and nothing had to change to run one.**
+
+- **Timing held on films, unchanged from the resistor**: cell ON → trigger edge
+  19–30 ms, `EDGE → spectrum 0` 29–42 ms, cadence 100.0 ms, every run `done`, zero
+  non-finite absorbance anywhere.
+- **Dedoping at 0 V was leaving the film doped** (MEASURED: −0.5 V roughly 2.5×'d the
+  dedoping transient) — but that was not what killed the first film. A +0.8 V excursion
+  was: film A never recovered, while a fresh film on the corrected settings modulates
+  0.174 in absorbance. **Do not take the test film past +0.7 V.**
+- **ACT ON THIS: the current range was 30× too coarse all day.** Largest transient
+  anywhere was 625 µA, so `CR10_1mA` was right for every run; `CR09_10mA` carries a
+  measured **+1.6 µA zero offset**, which is 10–100% of the settled currents. Peaks are
+  fine; settled currents in all four film runs are compromised.
+- **Every CV flagged an overload** (never a chrono segment) yet no recorded sweep clips.
+  Probably capacitive spikes between recorded staircase points on a sensitive
+  auto-selected range — but two analyzes were inconclusive and it is not settled.
+- Six GUI/driver defects fixed, all found by running a real experiment: an unnamed
+  potential field that cost two runs' dedoping, a dropdown that hid the end of a ladder,
+  mode-inappropriate overload advice, connect buttons with no click feedback, a
+  bench-file-only current range, and graph titles that named the segment but not the
+  potential.
+
+---
+
+## Autolab: `Ei` mode meets the timing requirement (2026-09-09, `gui-dev`) — new
+
+Full write-up: [`docs/bench-2026-09-09.md`](docs/bench-2026-09-09.md). Dummy-resistor
+session at UW; no sample in the cell.
+
+**The standing requirement is met.** The spectroscopy must start when the electrochemistry
+starts, within about 1–40 ms, by hardware. For chrono segments, cell-on to trigger edge is
+now **19–30 ms** (was 1134 ms) and cell-on to the first recorded sample **85–125 ms** (was
+930 ms). `EDGE -> spectrum 0` is +30–34 ms across every segment, which is the Avantes's own
+exposure — proof it is genuinely gated on the pulse rather than free-running.
+
+- **`autolab_ca_mode = ei`** drives doping/dedoping/pre-dedoping from Python: configure
+  while the cell is OPEN, then cell ON → edge → sample. No `.nox` is loaded. CV keeps the
+  procedure. `procedure` restores the old path.
+- **The `.nox` route floors at ~0.93 s** and nothing configurable moves it: it is the
+  procedure walking three commands before its recorder, at ~0.23 s each (MEASURED).
+- **`Ei.Current` is not a live property** — it holds whatever `Ei.Sampler.Sample()` last
+  loaded. This had never been called, so the overload check could never fire *in either
+  mode*, and an `Ei` run recorded one identical row forever while looking normal.
+- **Three silent defects fixed**: `load_settings` reverted bench defaults it wasn't asked
+  about; the stock CA template drove the cell to ±0.5 V after every segment while recording
+  nothing; the trigger edge was landing ~0.21 s after the recorder's first sample.
+- Trigger pin identified (`autolab_dio_mask = 1`), parameter keys measured against the
+  instrument's own `IdNames`, abort validated on hardware.
+
+**Not yet done:** `Ei` mode has only ever seen a 10 kΩ resistor. A resistor has no
+transient, so the thing it was built for — capturing the start of a doping current — is
+still unobserved.
+
+---
+
+## Metrohm-Autolab rig bring-up (2026-08-28, `gui-dev`) — new
+
+A fresh Win11 box with an Avantes **AvaSpec-ULS2048L** + a Metrohm **Autolab PGSTAT10** (not a Gamry).
+Full write-up: [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md).
+
+- **All four bench-check steps pass.** Spectrometer imports and measures; Autolab connects under
+  **64-bit** Python (no 32/64-bit split on an Autolab rig); and the Autolab digital-out → Avantes
+  hardware-trigger line **fires from Python**, polarity correct (new `examples/query_avantes_trigger.py`).
+- **The Autolab SDK 2.1 exposes `Ei`, `LoadProcedure`, `Sampler`, and full DIO** (`Dio.DioPortsP1[0]`
+  is the trigger line) — so a Python-drives-everything Autolab backend in `potentiostat.py` is the
+  recommended direction, not the NOVA-runs-echem "External mode". NOVA's own spectro-EC procedures
+  already pulse that same P1.A line; NOVA and spec-echem can't both own the Avantes over USB.
+- **Two GUI fixes** (`8f606ca`): `measure_timing()` had an unbounded poll on the GUI thread (froze the
+  app when the integration time was below the detector's ~1.05 ms floor); canvas notes could overflow
+  a small plot area. **Wavelength spin boxes** now clamp to the connected spectrometer's calibrated
+  span (options A+C).
+- **Open:** `CAL_START_PX/CAL_STOP_PX` in `spectrometer.py` is a hardcoded pixel slice (410–1124 nm on
+  this ULS2048L) — a user on this rig needs >1100 nm. Make it bench-configurable, default unchanged.
 
 ---
 
 ## 🎉 RELEASED: v0.2.0 on `main`, tagged (2026-07-14) — START HERE
 
 **v0.2.0 is merged to `main` (`--no-ff`) and tagged `v0.2.0`.** `gui-dev` stays the dev branch and is
-currently level with `main`. 150 tests.
+now **well ahead of `main`** with the post-tag work below. **173 tests** (150 at the tag).
 
 **The 0.2.0 theme is instrument setup.** 0.1.0 could run an experiment; 0.2.0 helps you set the
 instrument up correctly first, and remembers how your rig is configured:
@@ -19,7 +250,7 @@ instrument up correctly first, and remembers how your rig is configured:
 - **Linearity check** — hardware-validated. Key finding: the detector stays linear to ~1% right up to
   the hard clip, so a deviation-only criterion gives no headroom (lands at 94% of full scale). The
   recommendation takes the tighter of *5% below the linearity limit* or a **max-fill fraction**
-  (default **85% fill / 2% tol**, both confirmed by Dean). `Find saturation` bisects.
+  (default **85% fill / 2% tol**, both confirmed by the user). `Find saturation` bisects.
 - **Wavelength window** (opt-in) — crops the noisy lamp edges out of every file.
 - **Test (sample)** — read the beam without overwriting dark/ref. Closes a real hole: the reference is
   taken with a blank FTO insert, and after swapping in the sample a plain "Collect New" would have
@@ -44,14 +275,55 @@ instrument up correctly first, and remembers how your rig is configured:
   data folder can name the code that produced it. `build_info.py` is now the single source of the
   version (setup.py reads it by regex). Confirmed on the Win11 box.
 
-### Still open (neither blocking)
+### Cross-model review + hardening (2026-07-15 → 07-27, `gui-dev`, not yet merged to `main`)
+
+A **Fable** (different-model) review of `gui/` and the concurrency core returned 10 findings; all 10
+held up against the code and all are fixed. The headline: after a spectrometer arm-failure, `finish()`
+still released the Gamry thread, so **the instrument ran the full CV blind on the sample with zero
+spectra recorded**. Also: a silent hang on Gamry setup failure, potentiostat errors logged where no
+handler could see them, Stop disabling Abort, the pre-dedoping *Duration* field being collected but
+ignored, an `int(x+1)` off-by-one, and mid-run settings mutation.
+
+**All four bench items are now validated on the Win11 rig (2026-07-27) — the review is closed.**
+Unplugging the Avantes before Start produced `AVS_Measure failed (code -3)` and the Gamry correctly
+did **not** run the waveform; unplugging the Gamry made `prepare()` raise instead of hanging.
+
+Hardening that came out of the same sessions:
+
+- **App log** — logging now starts at **launch**, not at Start: `‹data root›\logs\spec-echem.log`,
+  rotated nightly, nothing deleted. Everything before a run (connecting, dark/ref, a *failed*
+  connect) used to go nowhere but the shell. Each launch banner records the build, the Python
+  env/bitness, and driver availability. The per-run log is unchanged and still travels with the data.
+- **Instrument provenance** — the run log and `_metadata.json` now name the spectrometer and
+  potentiostat that produced the data, not just the code and settings.
+- **The spectrometer no longer prints to the shell** — ten notebook-era `print()` calls became log
+  records. Confirmed silent through a full run on the instrument box.
+- **First `gui/` tests** (`tests/test_gui_layout.py`) — prompted by a real regression where a longer
+  error message dragged the window past its half-column layout, because a `QLabel` in a Qt layout
+  demands its full text width rather than clipping.
+
+### Next: v0.3.0 — one bench run gates the merge
+
+`gui-dev` is well ahead of `main` and the work is coherent enough to release as **v0.3.0**
+(theme: *provenance and diagnosability*). Before merging, one **normal** Python-mode run has to pass
+on the rig — not a failure case. The lost-potentiostat handling can now stop a run and has only
+executed against fakes, so the gate is that a healthy run still finishes `done`, and that the
+per-segment cadence numbers are unchanged from the 2026-07-27 baseline. Full checklist and the
+baseline table are in [`TODO.md`](TODO.md).
+
+### Still open (none blocking)
 
 - **The trigger cable's *build*** — connector, pinout, shielding — is undocumented; only its endpoints
-  are. It exists in Dean's head and in the one cable on the bench. See `TODO.md`.
-- **`gui/` has zero test coverage** while the core has 150 tests. *Every* bug in the 0.2.0 cycle lived
-  in GUI wiring — stale absorbance after a re-slice, labels outliving their data, load-before-connect,
-  a discarded segment still reaching the Results tab — and the core suite passed through all of them.
-  Deliberate trade (Qt would have to install in the 32-bit env too), but this is where the bugs are.
+  are. It exists in the user's head and in the one cable on the bench. See `TODO.md`.
+- ~~A mid-run Gamry USB pull~~ — **fixed 2026-07-27.** The poll loop *did* detect the lost instrument
+  but discarded why it exited, so an abnormal exit looked exactly like a finished step: a full
+  spectra file was written beside a truncated echem file (31 MB vs 2 KB on the bench), the segment
+  was marked done, and the error surfaced one segment later naming the wrong one. Now warns with the
+  segment, elapsed time and points captured, and stops the run at that segment — after writing its
+  partial data, since it's real.
+- **`gui/` is still barely tested** — 4 of 173 tests touch it. *Every* bug in the 0.2.0 cycle lived in
+  GUI wiring and the core suite passed through all of them. The layout tests establish the pattern
+  (headless via `QT_QPA_PLATFORM=offscreen`, `importorskip("qtpy")` so no-Qt envs still run).
 
 ---
 
@@ -68,7 +340,7 @@ clip, and "5% below the limit of linearity" lands at **94% of full scale**, with
 drift. Tightening the tolerance cannot fix this (the real deviation there was 0.95%). The recommendation
 therefore takes the **tighter of two constraints**: 5% below the linearity limit, *or* peak counts at or
 below a **max-fill** fraction of full scale. Defaults **85% fill / 2% tolerance**, both confirmed good by
-Dean on hardware. `Find saturation` bisects to the true threshold (plain doubling could only report a
+the user on hardware. `Find saturation` bisects to the true threshold (plain doubling could only report a
 power-of-two multiple — it said 0.176 ms when saturation was really ~0.111 ms).
 
 Saturation is strongly source-dependent (halogen+ND saturates ~0.11 ms; the AvaLight will differ), so
@@ -106,7 +378,7 @@ exposing other `measconfig` fields.
 
 ## (prior) Milestone — first real-sample Python-mode run, validated end to end (2026-07-09)
 
-Dean ran a full **Python-mode** sequence (CV + pre-dedope + 3 doping/dedoping cycles) on a real —
+the user ran a full **Python-mode** sequence (CV + pre-dedope + 3 doping/dedoping cycles) on a real —
 if aged, non-degassed — **P3HT/P3MEEMT** film (`20260709_P3HT_01`). Signal was weaker than a fresh
 sample would give, but the **software plumbing is now proven on real data**:
 
@@ -123,7 +395,7 @@ sample would give, but the **software plumbing is now proven on real data**:
   polarities, sensible film CV; `steps(0)` held +0.301 V with a proper charging-transient decay;
   every `.dta` CURVE-TABLE count == `.dta` rows == echem `.txt` rows. Chrono echem = 300 pts vs
   spectra 301 — **expected** (independent clocks; instruments share only the trigger).
-- **Correct spectroelectrochemistry observed (the real validation).** On the 0.7 V doping step Dean
+- **Correct spectroelectrochemistry observed (the real validation).** On the 0.7 V doping step the user
   saw the neutral **π→π\* band bleach and polaron absorption grow**, cleanly reversing on dedoping —
   the textbook p-doping signature, correlated with the potential step. So the coupled system captured
   genuine SEC behavior, not just well-formed files. Weak/late doping (little happened below ~0.7 V,

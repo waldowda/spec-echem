@@ -1,0 +1,61 @@
+
+========================================================================
+probe_zero_offset -- offset vs current range, 10 kOhm dummy at 0.000 V
+========================================================================
+Connected OK — cell NOT switched on.
+Cell switched OFF.
+
+========================================================================
+What the SDK exposes under calibration (read only, runs nothing)
+========================================================================
+On a Gamry the potentiostat and cables are calibrated routinely. If these
+offsets are a calibration artifact, subtracting them treats a symptom.
+
+  Nothing matching calib/offset/gain/zero/trim/adjust/diagnos on
+  Instrument, Ei or AutolabConnection.
+
+  Absence here is NOT evidence the instrument cannot be calibrated -- NOVA
+  may own that, and the SDK expose only measurement. It does mean spec-echem
+  cannot trigger or verify a calibration itself.
+
+========================================================================
+Zero offset by range
+========================================================================
+  True current is 0 at a 0.000 V setpoint, so whatever is read IS the
+  offset. 'as %% FS' is the number that says whether it scales.
+
+  range        full scale   CELL OFF  mean +- sd       CELL ON   mean +- sd      
+  CR09_10mA          0.01    -1.084e-06 +- 2.18e-08    -1.068e-06 +- 2.16e-08  
+  CR10_1mA          0.001    -1.125e-07 +- 4.43e-09    -1.167e-07 +- 3.09e-09  
+  CR11_100uA       0.0001     1.548e-08 +- 3.44e-09      1.29e-08 +- 1.64e-09  
+  CR12_10uA         1e-05      1.53e-09 +- 3.57e-09    -7.825e-10 +- 1.7e-09   
+  CR13_1uA          1e-06     2.075e-10 +- 3.45e-09    -2.209e-09 +- 1.65e-09  
+  CR14_100nA        1e-07     2.776e-10 +- 3.53e-09    -2.244e-09 +- 1.66e-09  
+
+========================================================================
+Does the offset scale with the range?
+========================================================================
+  range             off (A)      off %FS       on (A)       on %FS
+  CR09_10mA      -1.084e-06     -0.0108%   -1.068e-06     -0.0107%
+  CR10_1mA       -1.125e-07     -0.0113%   -1.167e-07     -0.0117%
+  CR11_100uA      1.548e-08      0.0155%     1.29e-08      0.0129%
+  CR12_10uA        1.53e-09      0.0153%   -7.825e-10     -0.0078%
+  CR13_1uA        2.075e-10      0.0208%   -2.209e-09     -0.2209%
+  CR14_100nA      2.776e-10      0.2776%   -2.244e-09     -2.2444%
+
+  A constant %FS column means the offset is proportional to the range,
+  and can be predicted for a range nobody has measured. A column that
+  drifts means it cannot, and each range needs measuring on its own.
+
+========================================================================
+Cell control at zero
+========================================================================
+  range            held E (V)   flags on/off
+  CR09_10mA          0.000127         0 / 0   
+  CR10_1mA           0.000125         0 / 0   
+  CR11_100uA         0.000126         0 / 0   
+  CR12_10uA          0.000121         0 / 0   
+  CR13_1uA           0.000126         0 / 0   
+  CR14_100nA         0.000108         0 / 0   
+Cell switched OFF.
+Disconnected.

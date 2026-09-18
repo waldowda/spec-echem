@@ -1,0 +1,215 @@
+
+========================================================================
+AUTOLAB — STANDARD CV BENCH
+========================================================================
+NOX           : C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\Standard Nova Procedures\Cyclic voltammetry.nox
+ENERGIZE_CELL : True
+
+*** The cell WILL be energized. 10 kOhm dummy resistor only. ***
+Connected OK — cell NOT switched on.
+
+========================================================================
+PHASE 0 — command list and live parameter values
+========================================================================
+Loaded: Cyclic voltammetry.nox
+
+  Commands:
+    [0] Cyclic voltammetry                 ExtendedSequence
+    [1] Autolab control                    FHGetSetValues
+    [2] Set potential                      FHSetSetpointPotential
+    [3] Set cell                           FHSwitchCell
+    [4] Wait time (s)                      FHWait
+    [5] Optimize current range             FHPreCurrentRangingCV
+    [6] CV staircase                       FHCyclicVoltammetry2
+    [7] i vs E                             PlotsIvsE
+    [8] Set cell                           FHSwitchCell
+  CV staircase command: FHCyclicVoltammetry2
+
+  FHCyclicVoltammetry2.CommandParameters:
+    [0] float      = 0.0
+    [1] float      = 1.0
+    [2] float      = -1.0
+    [3] float      = 0.00244
+    [4] int        = 2
+    [5] float      = 0.0
+    [6] float      = 0.09999999999999999
+
+  Expected (autolab-run-api.md §1): [0] start [1] upper [2] lower
+  [3] step [4] crossings(Int) [5] stop [6] scan rate (V/s).
+  If the types/values above disagree, STOP — the map has moved.
+
+========================================================================
+PHASE 1 — one cycle (reference run + CSV)
+========================================================================
+
+  applying CV settings (crossings=2):
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper vertex V = 1.0  (read back 1.0) OK
+    set [2] lower vertex V = -1.0  (read back -1.0) OK
+    set [3] step V = 0.00244  (read back 0.00244) OK
+    set [4] crossings = 2  (read back 2) OK
+    set [6] scan rate V/s = 0.1  (read back 0.1) OK
+  Measure() returned in 0.30 s; IsMeasuring=True
+    t=  0.31s  E=-3.0517578124972244e-06  I=-5.92041015625e-09
+    t=  0.58s  E=-3.0517578124972244e-06  I=-5.92041015625e-09
+    t=  0.84s  E=-3.0517578124972244e-06  I=-5.92041015625e-09
+    t=  1.10s  E=-3.0517578124972244e-06  I=-5.92041015625e-09
+    t=  1.36s  E=-3.0517578124972244e-06  I=-5.92041015625e-09
+    t=  1.63s  E=-3.0517578124972244e-06  I=-5.92041015625e-09
+  Run finished in 47.74 s (IsMeasuring=False)
+
+  Recorded channels:
+    SetpointApplied            1640 pts   first=0.00244141  last=0
+    CalcTime                   1640 pts   first=6.01196  last=46.0265
+    EI_0.CalcCurrent           1640 pts   first=2.60132e-07  last=2.44141e-10
+    ScanNumber                 1640 pts   first=1  last=1
+    EI_0.CalcPotential         1640 pts   first=0.00252991  last=0.00015564
+    Index                      1640 pts   first=1  last=1640
+    QPlus                    0 pts
+    QMin                     0 pts
+  >> run 1 (one cycle): 1640 points, ScanNumber 1..1, CalcTime 6.012..46.027 s
+  CSV written: C:\Users\Ginger Lab\spec-echem\examples\bench_autolab_cv_run1.csv  (1640 rows x 6 cols)
+
+========================================================================
+PHASE 2 — item 2: does a second run reuse the first run's buffer?
+========================================================================
+  Running AGAIN with no reconnect and no reload, then comparing counts.
+  Measure() returned in 0.00 s; IsMeasuring=False
+  Run finished in 0.00 s (IsMeasuring=False)
+
+  Recorded channels:
+    SetpointApplied            1640 pts   first=0.00244141  last=0
+    CalcTime                   1640 pts   first=6.01196  last=46.0265
+    EI_0.CalcCurrent           1640 pts   first=2.60132e-07  last=2.44141e-10
+    ScanNumber                 1640 pts   first=1  last=1
+    EI_0.CalcPotential         1640 pts   first=0.00252991  last=0.00015564
+    Index                      1640 pts   first=1  last=1640
+    QPlus                    0 pts
+    QMin                     0 pts
+  >> run 2 (same procedure object): 1640 points, ScanNumber 1..1, CalcTime 6.012..46.027 s
+
+  >> INERT: a second Measure() on the SAME procedure object did not
+     execute (returned instantly, IsMeasuring never True). The points
+     above are run 1's, still in .Signals. Not 'clean' — the object
+     simply cannot re-measure. The driver reloads per segment (below).
+     (Matches the CA bench, 2026-09-03.)
+  CSV written: C:\Users\Ginger Lab\spec-echem\examples\bench_autolab_cv_run2.csv  (1640 rows x 6 cols)
+
+  Now the same question after an explicit reload:
+Loaded: Cyclic voltammetry.nox
+
+  applying CV settings (crossings=2):
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper vertex V = 1.0  (read back 1.0) OK
+    set [2] lower vertex V = -1.0  (read back -1.0) OK
+    set [3] step V = 0.00244  (read back 0.00244) OK
+    set [4] crossings = 2  (read back 2) OK
+    set [6] scan rate V/s = 0.1  (read back 0.1) OK
+  Measure() returned in 0.14 s; IsMeasuring=True
+  Run finished in 47.50 s (IsMeasuring=False)
+
+  Recorded channels:
+    SetpointApplied            1640 pts   first=0.00244141  last=0
+    CalcTime                   1640 pts   first=5.95899  last=45.9735
+    EI_0.CalcCurrent           1640 pts   first=2.6239e-07  last=1.28174e-09
+    ScanNumber                 1640 pts   first=1  last=1
+    EI_0.CalcPotential         1640 pts   first=0.0025238  last=0.00017395
+    Index                      1640 pts   first=1  last=1640
+    QPlus                    0 pts
+    QMin                     0 pts
+  >> run 3 (after reload): 1640 points, ScanNumber 1..1, CalcTime 5.959..45.974 s
+  >> reload gives 1640 points (same as run 1 — reload is a clean reset)
+
+========================================================================
+PHASE 3 — item 1: is [4] really the crossing count?
+========================================================================
+Loaded: Cyclic voltammetry.nox
+
+  applying CV settings (crossings=4):
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper vertex V = 1.0  (read back 1.0) OK
+    set [2] lower vertex V = -1.0  (read back -1.0) OK
+    set [3] step V = 0.00244  (read back 0.00244) OK
+    set [4] crossings = 4  (read back 4) OK
+    set [6] scan rate V/s = 0.1  (read back 0.1) OK
+  Measure() returned in 0.14 s; IsMeasuring=True
+  Run finished in 87.84 s (IsMeasuring=False)
+
+  Recorded channels:
+    SetpointApplied            3280 pts   first=0.00244141  last=0
+    CalcTime                   3280 pts   first=5.92699  last=85.9805
+    EI_0.CalcCurrent           3280 pts   first=2.62817e-07  last=-7.1106e-09
+    ScanNumber                 3280 pts   first=1  last=2
+    EI_0.CalcPotential         3280 pts   first=0.00251465  last=0.000164795
+    Index                      3280 pts   first=1  last=3280
+    QPlus                    0 pts
+    QMin                     0 pts
+  >> crossings=4: 3280 points, ScanNumber 1..2, CalcTime 5.927..85.980 s
+
+  points doubled: True   ScanNumber reached 2: True
+  >> CONFIRMED: [4] is the crossing count; 2 per cycle. The driver
+     sets it to 2 * settings['cv_cycles'].
+  CSV written: C:\Users\Ginger Lab\spec-echem\examples\bench_autolab_cv_2cycle.csv  (3280 rows x 6 cols)
+
+========================================================================
+PHASE 4 — item 3: what does Abort() leave behind?
+========================================================================
+Loaded: Cyclic voltammetry.nox
+
+  applying CV settings (crossings=2):
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper vertex V = 1.0  (read back 1.0) OK
+    set [2] lower vertex V = -1.0  (read back -1.0) OK
+    set [3] step V = 0.00244  (read back 0.00244) OK
+    set [4] crossings = 2  (read back 2) OK
+    set [6] scan rate V/s = 0.1  (read back 0.1) OK
+  aborting after 5.0 s (IsMeasuring=True)
+  after Abort(): IsMeasuring=False (took 1.25 s to settle)
+
+  Recorded channels:
+    SetpointApplied          0 pts
+    CalcTime                 0 pts
+    EI_0.CalcCurrent         0 pts
+    ScanNumber               0 pts
+    EI_0.CalcPotential       0 pts
+    Index                    0 pts
+    QPlus                    0 pts
+    QMin                     0 pts
+  >> aborted run: 0 points
+
+  >> partial trace present: False (0 points vs 1640 for a full run)
+     spec-echem DISCARDS an aborted segment, so this only matters for
+     making sure a partial is never mistaken for a complete run.
+
+  Is the instrument ready for another run straight away?
+Loaded: Cyclic voltammetry.nox
+
+  applying CV settings (crossings=2):
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper vertex V = 1.0  (read back 1.0) OK
+    set [2] lower vertex V = -1.0  (read back -1.0) OK
+    set [3] step V = 0.00244  (read back 0.00244) OK
+    set [4] crossings = 2  (read back 2) OK
+    set [6] scan rate V/s = 0.1  (read back 0.1) OK
+  Measure() returned in 0.13 s; IsMeasuring=True
+  Run finished in 47.48 s (IsMeasuring=False)
+
+  Recorded channels:
+    SetpointApplied            1640 pts   first=0.00244141  last=0
+    CalcTime                   1640 pts   first=5.80195  last=45.8165
+    EI_0.CalcCurrent           1640 pts   first=2.55432e-07  last=1.71814e-08
+    ScanNumber                 1640 pts   first=1  last=1
+    EI_0.CalcPotential         1640 pts   first=0.00253906  last=0.000143433
+    Index                      1640 pts   first=1  last=1640
+    QPlus                    0 pts
+    QMin                     0 pts
+  >> run after abort: 1640 points, ScanNumber 1..1, CalcTime 5.802..45.816 s
+  >> recovered: True — 1640 points (matches a normal run)
+Cell switched OFF.
+Disconnected.
+
+========================================================================
+NEXT
+========================================================================
+Commit the CSVs and the transcript, then update docs/autolab-run-api.md §4
+with the answers to items 1, 2 and 3.

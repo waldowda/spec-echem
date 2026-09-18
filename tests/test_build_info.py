@@ -37,7 +37,7 @@ def test_build_id_never_raises_and_starts_with_the_version():
 
 
 def test_the_run_folder_records_which_code_wrote_it(tmp_path):
-    """The whole point: settings alone don't identify the code, and behaviour has changed
+    """The whole point: settings alone don't identify the code, and behavior has changed
     across versions (the wavelength crop). A data folder must say what produced it."""
     path = write_run_metadata(DEFAULT_SETTINGS.copy(), tmp_path, "20260714_Test")
     meta = json.loads(path.read_text(encoding="utf-8"))

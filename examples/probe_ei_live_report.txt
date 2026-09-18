@@ -1,0 +1,56 @@
+
+========================================================================
+HOW DO YOU READ A LIVE CURRENT OUT OF THIS AUTOLAB?
+========================================================================
+ENERGIZE_CELL : True
+*** The cell WILL be switched on at (0.1, 0.2) V. ***
+*** 10 kOhm dummy only — never a sample. ***
+Connected OK — cell NOT switched on.
+
+========================================================================
+0 — what the sampler surface looks like (no cell)
+========================================================================
+  Instrument.Ei.Sampler: Sampler
+     GetSignals: ['Time', 'WE(1).Potential', 'WE(1).Current', 'WE(1).Power', 'WE(1).Resistance', 'WE(1).Charge']
+  Instrument.CreateSampler(): not available
+
+  Instrument.GetSignals: ['External(1).External 1', 'External(1).External 2', 'WE(1).Potential', 'WE(1).Current', 'WE(1).Power', 'WE(1).Resistance', 'WE(1).Charge']
+
+========================================================================
+1 — held at +0.100 V   (expect 10.0 uA across 10 kOhm)
+========================================================================
+    Ei.Current (bare)                  E=+0.000244 V  I=+5.3101e-09 A  (  99.9% off)  stale/wrong
+    Sampler.Sample() then Ei.Current   E=+0.099884 V  I=+9.9304e-06 A  (   0.7% off)  LIVE
+    CreateSampler().GetSignal()        raised / unavailable
+    Instrument.GetSignal()             E=+0.099884 V  I=+9.9304e-06 A  (   0.7% off)  LIVE
+
+========================================================================
+1 — held at +0.200 V   (expect 20.0 uA across 10 kOhm)
+========================================================================
+    Ei.Current (bare)                  E=+0.099884 V  I=+9.9304e-06 A  (  50.3% off)  stale/wrong
+    Sampler.Sample() then Ei.Current   E=+0.199860 V  I=+2.0035e-05 A  (   0.2% off)  LIVE
+    CreateSampler().GetSignal()        raised / unavailable
+    Instrument.GetSignal()             E=+0.199860 V  I=+2.0035e-05 A  (   0.2% off)  LIVE
+Cell switched OFF.
+
+========================================================================
+VERDICT
+========================================================================
+  Ei.Current (bare)                  moves, but the magnitude is wrong (range or scaling?)
+  Sampler.Sample() then Ei.Current   LIVE — correct at both potentials, and it MOVED
+  CreateSampler().GetSignal()        incomplete
+  Instrument.GetSignal()             LIVE — correct at both potentials, and it MOVED
+
+  Use: Sampler.Sample() then Ei.Current
+  Wire that into AutolabPotentiostat.pump() and Ei mode works.
+
+========================================================================
+SIDE QUESTION — do the overload flags update?
+========================================================================
+  pump() calls Ei.CurrentOverload every spectrum in BOTH modes to catch a
+  meaningless segment. If Ei's properties are latched, that check may never
+  have been able to fire — worth knowing independently of Ei mode.
+    Ei.CurrentOverload   = False
+    Ei.PotentialOverload = False
+Cell switched OFF.
+Disconnected.

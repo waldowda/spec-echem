@@ -1,0 +1,865 @@
+"""
+Tests for spec_echem.analysis — the maths behind the Results and Analysis tabs.
+
+Everything here runs against synthetic data where the answer is known, because the
+failure mode that matters is a fit that is quietly wrong: curve_fit does not raise on
+bad data, it returns a number with a huge covariance.
+"""
+import numpy as np
+import pytest
+
+from spec_echem.analysis import (
+    FitResult,
+    auto_wavelengths, cv_sweeps, density_of_states, dos_equilibrium_check,
+    fit_exponential_tail,
+    fit_gaussian_dos, fit_transient,
+    mean_relaxation_time,
+    tau_ratio, model_exp, model_biexp, model_stretched,
+)
+
+
+# --- auto-wavelength: the signed difference ---------------------------------
+
+def _film(n_wl=200, n_t=10):
+    """A film whose pi-pi* BLEACHES more than its polaron band GROWS — the case where
+    |dA| picks the wrong one."""
+    wl = np.linspace(400.0, 1100.0, n_wl)
+    pi = np.exp(-0.5 * ((wl - 550.0) / 40.0) ** 2)      # bleaches
+    pol = np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2)     # grows
+    a = np.zeros((n_wl, n_t))
+    for j, f in enumerate(np.linspace(0.0, 1.0, n_t)):
+        a[:, j] = 1.0 - 0.8 * f * pi + 0.3 * f * pol    # bleach is the LARGER change
+    return a, wl
+
+
+def test_the_polaron_and_pi_bands_are_told_apart_by_sign():
+    """|dA| would return the bleach for both. The signed difference must not."""
+    a, wl = _film()
+    lam_pol, lam_pi = auto_wavelengths(a, wl)
+
+    assert 850 < lam_pol < 950, f"polaron should be the GROWTH near 900 nm, got {lam_pol}"
+    assert 500 < lam_pi < 600, f"pi-pi* should be the BLEACH near 550 nm, got {lam_pi}"
+
+
+def test_the_magnitude_would_have_picked_the_wrong_band():
+    """Pins WHY the signed form is used: on this film the bleach is larger, so argmax
+    of |dA| lands on pi-pi* while the caller believes it is watching the polaron."""
+    a, wl = _film()
+    delta = a[:, -1] - a[:, 0]
+    naive = float(wl[int(np.argmax(np.abs(delta)))])
+    lam_pol, _ = auto_wavelengths(a, wl)
+
+    assert 500 < naive < 600           # |dA| gives the pi band...
+    assert abs(naive - lam_pol) > 200  # ...which is not the polaron
+
+
+def test_a_single_spectrum_cannot_give_a_difference():
+    a, wl = _film(n_t=1)
+    assert auto_wavelengths(a, wl) == (None, None)
+
+
+def test_a_shape_mismatch_is_refused_rather_than_broadcast():
+    a, wl = _film()
+    with pytest.raises(ValueError, match="n_wavelengths"):
+        auto_wavelengths(a, wl[:-5])
+
+
+# --- fitting: recover a known answer ----------------------------------------
+
+def test_a_single_exponential_recovers_its_time_constant():
+    t = np.linspace(0.0, 20.0, 400)
+    y = model_exp(t, 0.5, 2.0, 3.5)
+    fit = fit_transient(t, y, "exp")
+
+    assert fit.ok
+    assert fit.tau == pytest.approx(3.5, rel=1e-3)
+    assert fit.mean_tau == pytest.approx(3.5, rel=1e-3)
+
+
+def test_a_biexponential_reports_the_slow_component_as_tau():
+    t = np.linspace(0.0, 40.0, 800)
+    y = model_biexp(t, 0.1, 1.0, 0.4, 0.8, 9.0)
+    fit = fit_transient(t, y, "biexp")
+
+    assert fit.ok
+    assert fit.tau == pytest.approx(9.0, rel=0.05)      # the SLOW one
+    # <tau> is amplitude-weighted, so it sits between the two components
+    assert 0.4 < fit.mean_tau < 9.0
+
+
+def test_a_stretched_exponential_recovers_tau_and_beta():
+    t = np.linspace(0.0, 30.0, 600)
+    y = model_stretched(t, 0.2, 1.5, 4.0, 0.6)
+    fit = fit_transient(t, y, "stretched")
+
+    assert fit.ok
+    assert fit.tau == pytest.approx(4.0, rel=0.05)
+    assert fit.beta == pytest.approx(0.6, rel=0.05)
+
+
+def test_the_window_excludes_the_capacitive_spike():
+    """The whole reason the window exists: fitting through the spike gives the wrong
+    time constant for the part that matters."""
+    t = np.linspace(0.0, 30.0, 601)
+    y = 3.0e-5 * np.exp(-t / 4.0) + 6.0e-4 * np.exp(-t / 0.05)
+
+    through = fit_transient(t, y, "exp")
+    windowed = fit_transient(t, y, "exp", t_start=1.0)
+
+    assert windowed.ok
+    assert windowed.tau == pytest.approx(4.0, rel=0.05)
+    # fitting through the spike does not recover the ionic time constant
+    assert not through.ok or abs(through.tau - 4.0) > 0.4
+
+
+# --- the failures that must not look like numbers ---------------------------
+
+def test_pure_noise_is_marked_for_review_but_its_numbers_stay_visible():
+    """Requested: "even when a fit 'fails', the result should still be viewable... since
+    you didn't share the results the scientist doesn't have information to make
+    informed decisions."
+
+    So `ok` says the fit failed a check, NOT that it has no numbers. A fit that
+    converged keeps tau, beta and <tau>; what changes is that the reason travels with
+    them.
+    """
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 10.0, 200)
+    fit = fit_transient(t, rng.normal(size=200), "exp")
+
+    assert not fit.ok
+    assert fit.reason
+    assert fit.tau is not None, "the number must remain readable"
+    assert fit.mean_tau is not None
+    assert any("NEEDS REVIEW" in line for line in fit.describe())
+    assert fit.needs_review and not fit.did_not_converge
+
+def test_too_few_points_for_the_model_is_refused():
+    t = np.linspace(0.0, 1.0, 4)
+    fit = fit_transient(t, np.ones(4), "biexp")     # 5 parameters, 4 points
+    assert not fit.ok and "points" in fit.reason
+
+
+def test_an_unknown_model_is_a_programming_error_not_a_failed_fit():
+    with pytest.raises(ValueError, match="model must be"):
+        fit_transient([0, 1], [1, 0], "quadratic")
+
+
+# --- mean relaxation time: the ratio depends on this ------------------------
+
+def test_the_stretched_mean_time_is_not_the_raw_tau():
+    """For beta < 1 the mean relaxation time exceeds tau, so a ratio built from raw
+    tau is wrong in a way that looks entirely plausible."""
+    raw = mean_relaxation_time("stretched", (0.0, 1.0, 4.0, 0.5))
+    assert raw == pytest.approx(4.0 / 0.5 * 1.0, rel=0.3)   # (tau/beta)*Gamma(1/beta)
+    assert raw > 4.0 * 1.5                                   # materially larger than tau
+
+
+def test_beta_of_one_reduces_a_stretched_fit_to_a_simple_exponential():
+    assert mean_relaxation_time("stretched", (0, 1, 4.0, 1.0)) == pytest.approx(4.0)
+
+
+def test_the_biexponential_mean_is_amplitude_weighted():
+    # equal amplitudes -> the arithmetic mean of the two time constants
+    assert mean_relaxation_time("biexp", (0, 1.0, 2.0, 1.0, 8.0)) == pytest.approx(5.0)
+    # a dominant fast component pulls it down
+    assert mean_relaxation_time("biexp", (0, 9.0, 2.0, 1.0, 8.0)) == pytest.approx(2.6)
+
+
+# --- the ratio --------------------------------------------------------------
+
+def test_a_failed_fit_gives_no_ratio_so_the_plot_can_show_a_gap():
+    """None rather than NaN: a failed fit is information, and silently dropping the
+    point would hide which potential could not be fitted."""
+    t = np.linspace(0.0, 20.0, 400)
+    good = fit_transient(t, model_exp(t, 0.0, 1.0, 3.0), "exp")
+    bad = fit_transient(t, np.random.default_rng(1).normal(size=400), "exp")
+
+    assert tau_ratio(good, good) == pytest.approx(1.0)
+    assert tau_ratio(good, bad) is None
+    assert tau_ratio(bad, good) is None
+    assert tau_ratio(good, None) is None
+
+
+def test_the_ratio_uses_mean_times_so_models_stay_comparable():
+    t = np.linspace(0.0, 30.0, 600)
+    slow = fit_transient(t, model_exp(t, 0.0, 1.0, 8.0), "exp")
+    fast = fit_transient(t, model_exp(t, 0.0, 1.0, 2.0), "exp")
+    assert tau_ratio(slow, fast) == pytest.approx(4.0, rel=0.02)
+
+
+# --- the fitted curve, for plotting over the data ---------------------------
+# A tau on its own cannot be judged; the GUI draws the model over the points, so
+# the curve has to land on the data it was fitted to.
+
+def test_the_fitted_curve_lands_on_its_data():
+    t = np.linspace(0.0, 10.0, 200)
+    y = 0.5 + 2.0 * np.exp(-t / 1.7)
+    fit = fit_transient(t, y, "exp")
+    assert np.nanmax(np.abs(fit.curve(t) - y)) < 1e-9
+
+
+def test_the_curve_is_nan_outside_the_fitted_window():
+    """The fit makes no claim before its window. Extrapolating a decay back through
+    the capacitive spike would draw a confident line through data it never saw."""
+    t = np.linspace(0.0, 10.0, 200)
+    y = 0.5 + 2.0 * np.exp(-t / 1.7)
+    fit = fit_transient(t, y, "exp", t_start=2.0, t_stop=8.0)
+    curve = fit.curve(t)
+    assert np.isnan(curve[t < 2.0]).all()
+    assert np.isnan(curve[t > 8.0]).all()
+    assert np.isfinite(curve[(t >= 2.0) & (t <= 8.0)]).all()
+
+
+def test_a_failed_fit_has_no_curve_to_draw():
+    fit = FitResult("exp", reason="nope")
+    assert fit.curve(np.linspace(0, 1, 10)) is None
+
+
+def test_the_curve_is_offset_correctly_for_a_late_window():
+    """The fit is done against elapsed time from the window start, so plotting it
+    needs t0 — without it the curve would sit on the data shifted sideways."""
+    t = np.linspace(0.0, 20.0, 400)
+    y = 1.0 + 3.0 * np.exp(-t / 2.5)
+    fit = fit_transient(t, y, "exp", t_start=10.0)
+    late = t >= 10.0
+    assert np.nanmax(np.abs(fit.curve(t)[late] - y[late])) < 1e-8
+
+
+# --- band selection has to survive real noise -------------------------------
+# MEASURED on 20260709_P3HT_01: the blue edge of that spectrometer sits on the dark
+# floor (416 counts at 381 nm), and its absorbance swings +0.143 by noise alone --
+# larger than the real polaron band's +0.093. Raw argmax picked the junk every time.
+
+def test_a_noisy_dead_pixel_does_not_beat_a_real_band():
+    rng = np.random.default_rng(0)
+    wl = np.linspace(380.0, 1100.0, 200)
+    t = np.linspace(0.0, 20.0, 120)
+    frac = 1.0 - np.exp(-t / 4.0)
+    polaron = np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2)
+    a = 0.02 + np.outer(polaron, 0.10 * frac)
+    a += rng.normal(0.0, 0.0005, a.shape)                  # real bands: clean
+    dead = wl < 410.0                                      # the blue edge: not
+    a[dead] += rng.normal(0.0, 0.08, (dead.sum(), len(t)))
+
+    grows, _bleaches = auto_wavelengths(a, wl)
+    assert 740 < grows < 880, f"picked {grows:.0f} nm, expected the polaron band"
+
+
+def test_clean_data_is_unaffected_by_the_noise_gate():
+    """When every pixel is significant this must still be plain argmax of dA, or
+    the gate would change answers on data that never had a problem."""
+    wl = np.linspace(400.0, 1100.0, 120)
+    t = np.linspace(0.0, 20.0, 120)
+    frac = 1.0 - np.exp(-t / 4.0)
+    pi = np.exp(-0.5 * ((wl - 550.0) / 40.0) ** 2)
+    polaron = np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2)
+    a = 0.02 + np.outer(pi, 0.85 - 0.55 * frac) + np.outer(polaron, 0.50 * frac)
+    grows, bleaches = auto_wavelengths(a, wl)
+    assert 850 < grows < 950
+    assert 500 < bleaches < 600
+
+
+def test_pixels_below_the_optical_window_never_win():
+    """Requested: "there should be no data below 410 nm or so." Below that the lamp and
+    optics deliver nothing, so whatever the pixel reports is not a measurement."""
+    wl = np.linspace(380.0, 1100.0, 200)
+    t = np.linspace(0.0, 20.0, 60)
+    frac = 1.0 - np.exp(-t / 4.0)
+    a = 0.02 + np.outer(np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2), 0.10 * frac)
+    a[wl < 410.0] += np.outer(np.ones((wl < 410.0).sum()), 5.0 * frac)  # huge and fake
+    grows, _ = auto_wavelengths(a, wl)
+    assert grows > 410.0, f"picked {grows:.0f} nm, inside the dead region"
+
+
+def test_an_excluded_pixel_cannot_win_the_opposite_end():
+    """Excluded pixels must go to -inf for the max and +inf for the min. Zeroing
+    them lets a rejected pixel win argmin whenever every real delta is positive."""
+    wl = np.linspace(380.0, 1100.0, 200)
+    t = np.linspace(0.0, 20.0, 60)
+    frac = 1.0 - np.exp(-t / 4.0)
+    # every in-window pixel GROWS, so 0.0 would be the smallest value present
+    a = 0.02 + np.outer(np.linspace(0.05, 0.30, len(wl)), frac)
+    _grows, bleaches = auto_wavelengths(a, wl)
+    assert bleaches > 410.0, f"argmin fell into the masked region at {bleaches:.0f} nm"
+
+
+# --- the optimizer must not talk to the shell --------------------------------
+
+def test_fitting_awkward_data_emits_no_runtime_warnings():
+    """the first launch under SpecEchem32 printed three numpy RuntimeWarnings from the model
+    functions. They come from curve_fit's trial steps -- tau -> 0, tau < 0 under a
+    fractional beta, a tiny tau1 -- not from the answer, which is validated anyway.
+    Reaching the shell they read as a malfunction, and the project keeps the shell
+    silent.
+
+    Warnings are RECORDED, not raised: simplefilter("error") would turn them into
+    exceptions inside curve_fit, where fit_transient's own except-Exception swallows
+    them, and the test would pass whether or not the fix was present.
+    """
+    import warnings
+
+    t = np.linspace(0.0, 30.0, 300)
+    awkward = {
+        "step-like": 0.5 * (t > 1),
+        "two-scale": 1e-4 * np.exp(-t / 0.02) + 1e-6 * np.exp(-t / 12),
+        "flat noise": np.random.default_rng(0).normal(0.0, 1e-3, 300),
+        "still rising": 0.02 * (t / 30.0) ** 3,
+    }
+    leaked = []
+    for name, y in awkward.items():
+        for model in ("exp", "biexp", "stretched"):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                fit_transient(t, y, model)
+            leaked += [f"{name}/{model}: {w.message}" for w in caught
+                       if issubclass(w.category, RuntimeWarning)]
+    assert not leaked, "numpy warnings reached the caller:\n" + "\n".join(leaked)
+
+
+# --- physical bounds ---------------------------------------------------------
+# Requested: "tau > 0 and beta needs to be 0 < beta <(=) 1.0."
+
+def test_beta_cannot_exceed_one():
+    """Above 1 it is a COMPRESSED exponential -- a different physical claim that
+    this model does not offer. Compressed data must clamp, not be reported."""
+    t = np.linspace(0.0, 20.0, 300)
+    y = 0.5 + 2.0 * np.exp(-((t / 3.0) ** 1.8))      # genuinely compressed
+    fit = fit_transient(t, y, "stretched")
+    assert fit.ok
+    assert fit.beta <= 1.0 + 1e-9, f"beta came back {fit.beta}"
+
+
+def test_a_genuine_stretch_is_still_recovered():
+    """The clamp must not flatten real stretched behavior into beta = 1."""
+    t = np.linspace(0.0, 20.0, 300)
+    y = 0.5 + 2.0 * np.exp(-((t / 3.0) ** 0.6))
+    fit = fit_transient(t, y, "stretched")
+    assert fit.ok
+    assert fit.beta == pytest.approx(0.6, abs=0.02)
+    assert fit.tau == pytest.approx(3.0, abs=0.05)
+
+
+def test_every_time_constant_is_positive():
+    """A negative tau is not a slow decay, it is a growing exponential. The bounds
+    keep the optimizer out of that region instead of rejecting it afterwards."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 30.0, 300)
+    awkward = [rng.normal(0.0, 1e-3, 300),            # noise
+               0.02 * (t / 30.0) ** 3,                # still rising
+               0.5 * (t > 1)]                         # step
+    for y in awkward:
+        for model in ("exp", "biexp", "stretched"):
+            fit = fit_transient(t, y, model)
+            if fit.ok:
+                assert fit.tau > 0
+                if model == "biexp":
+                    assert fit.params[2] > 0 and fit.params[4] > 0
+
+
+def test_a_tau_far_longer_than_the_window_is_rejected():
+    """The SD check cannot catch this: a nearly straight line is a very WELL-determined
+    exponential with an enormous tau and a tiny uncertainty. MEASURED on
+    the 20250710 reference run -- the charge integral returned 5.5e11 s from a 60 s
+    segment and flattened every real point on the ladder to zero."""
+    t = np.linspace(0.0, 60.0, 600)
+    y = 1.0 + 0.001 * t                       # a straight line over the window
+    fit = fit_transient(t, y, "exp")
+    assert not fit.ok
+    assert "window" in fit.reason, fit.reason
+
+
+def test_a_tau_comparable_to_the_window_is_kept():
+    """The bound must not reject a slow but genuinely observed decay."""
+    t = np.linspace(0.0, 60.0, 600)
+    y = 1.0 + 2.0 * np.exp(-t / 25.0)         # visibly curved, tau < span
+    fit = fit_transient(t, y, "exp")
+    assert fit.ok, fit.reason
+    assert fit.tau == pytest.approx(25.0, rel=0.02)
+
+
+# --- uncertainty on <tau> ----------------------------------------------------
+# Requested: "adding SD's are better yet 95% CI to the plot points would be good."
+
+def test_mean_tau_uncertainty_matches_tau_for_a_single_exponential():
+    """<tau> IS tau for an exp, so its uncertainty must be tau_sd exactly -- the
+    delta method has to reduce to the trivial case."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 400)
+    fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0) + rng.normal(0, 0.01, 400), "exp")
+    assert fit.mean_tau_sd == pytest.approx(fit.tau_sd, rel=1e-6)
+
+
+def test_mean_tau_uncertainty_agrees_with_monte_carlo():
+    """The delta method is only right if the covariance propagation is. Refitting
+    noisy realisations and taking the spread of <tau> is the independent check."""
+    rng = np.random.default_rng(7)
+    t = np.linspace(0.0, 20.0, 400)
+    base = 1 + 2 * np.exp(-((t / 3.0) ** 0.6))
+    fit = fit_transient(t, base + rng.normal(0, 0.02, 400), "stretched")
+    spread = [g.mean_tau for g in
+              (fit_transient(t, base + rng.normal(0, 0.02, 400), "stretched")
+               for _ in range(120)) if g.ok]
+    assert len(spread) > 100
+    assert fit.mean_tau_sd == pytest.approx(float(np.std(spread, ddof=1)), rel=0.35)
+
+
+def test_the_stretched_mean_tau_is_less_certain_than_its_raw_tau():
+    """<tau> = (tau/beta)*Gamma(1/beta) depends on BOTH fitted parameters, so quoting
+    tau_sd as its uncertainty would understate it."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 400)
+    fit = fit_transient(t, 1 + 2 * np.exp(-((t / 3.0) ** 0.6))
+                        + rng.normal(0, 0.01, 400), "stretched")
+    assert fit.mean_tau_sd > fit.tau_sd
+
+
+def test_the_95_percent_interval_is_wider_than_one_sigma():
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 400)
+    fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0) + rng.normal(0, 0.01, 400), "exp")
+    assert fit.mean_tau_ci95 == pytest.approx(1.96 * fit.mean_tau_sd, rel=0.02)
+
+
+# --- a rejected fit keeps its curve ------------------------------------------
+
+def test_a_rejected_fit_still_has_a_curve_to_draw():
+    """Requested: "it is still useful to know what the failed fit looks like... so perhaps
+    we can understand why and setup a method to get a better fit." A fit that
+    CONVERGED but failed a physical check keeps its parameters."""
+    t = np.linspace(0.0, 60.0, 600)
+    fit = fit_transient(t, 1.0 + 0.001 * t, "exp")       # tau >> window
+    assert not fit.ok
+    curve = fit.curve(t)
+    assert curve is not None and np.isfinite(curve).any()
+
+
+def test_a_fit_that_never_converged_has_no_curve():
+    """The distinction that matters: no parameters means nothing to draw."""
+    fit = fit_transient(np.linspace(0, 1, 3), np.zeros(3), "biexp")   # too few points
+    assert not fit.ok
+    assert fit.curve(np.linspace(0, 1, 3)) is None
+
+
+def test_the_summary_lists_both_biexp_components():
+    """Requested: "for biexp and strexp, I think it is important to include prefactor 1,
+    tau1, prefactor 2, tau2, and mean tau." The legend showed only the SLOWER tau, so
+    the fast component -- the reason for choosing biexp at all -- was invisible."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 400)
+    y = 1 + 1.5 * np.exp(-t / 0.8) + 1.0 * np.exp(-t / 6.0) + rng.normal(0, 0.01, 400)
+    lines = "\n".join(fit_transient(t, y, "biexp").describe())
+    for name in ("B1", "tau1", "B2", "tau2", "mean tau"):
+        assert name in lines, f"{name} missing from:\n{lines}"
+    assert "95% CI" in lines and "1 SD" in lines, "both intervals must be labeled"
+
+
+def test_the_summary_lists_tau_and_beta_for_a_stretched_fit():
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 400)
+    y = 1 + 2 * np.exp(-((t / 3.0) ** 0.6)) + rng.normal(0, 0.01, 400)
+    lines = "\n".join(fit_transient(t, y, "stretched").describe())
+    for name in ("tau =", "beta =", "mean tau"):
+        assert name in lines, f"{name} missing from:\n{lines}"
+
+
+def test_the_baseline_is_in_the_summary():
+    """A was left out at first, which made the negative prefactors unreadable: with
+    no plateau on screen, a B < 0 looks like an error rather than a rising component.
+    Requested: "the sum need to equal Y at time 0 of the fit" -- and that identity needs A.
+    """
+    t = np.linspace(0.0, 20.0, 200)
+    fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0), "exp")
+    lines = fit.describe()
+    assert any(line.startswith("A =") for line in lines)
+    assert any("y(0)" in line for line in lines)
+    assert fit.params[0] == pytest.approx(1.0, abs=0.01)
+
+
+def test_the_biexp_mean_stays_between_its_two_components():
+    """A mean relaxation time outside [min(tau), max(tau)] is not one.
+
+    MEASURED on the 20250710 reference run: above +0.5 V the fit puts a small RISING
+    component against a large falling one, and signed amplitude weights partly
+    cancel -- <tau> came out 0.117 s from tau1 = 0.553 s and tau2 = 4.11 s, and went
+    NEGATIVE once the denominator crossed zero. Weighting by |B| fixes it.
+    """
+    for b1, tau1, b2, tau2 in [(-0.2996, 0.553, +0.03278, 4.11),   # the real case
+                               (-0.2762, 0.633, +0.003492, 23.4),
+                               (1.0, 0.5, 1.0, 5.0),               # same sign
+                               (-1.0, 0.5, -1.0, 5.0)]:
+        mean = mean_relaxation_time("biexp", (0.0, b1, tau1, b2, tau2))
+        assert min(tau1, tau2) <= mean <= max(tau1, tau2), (b1, tau1, b2, tau2, mean)
+        assert mean > 0
+
+
+def test_equal_amplitudes_average_the_two_times():
+    """The sanity case the |B| change must not break."""
+    assert mean_relaxation_time("biexp", (0.0, 2.0, 1.0, 2.0, 3.0)) == pytest.approx(2.0)
+
+
+def test_the_amplitudes_and_baseline_reconstruct_y_at_the_window_start():
+    """Requested: "the sum need to equal Y at time 0 of the fit... at least roughly."
+    A + sum(B) = y(0) is an identity of the model, and the one number that ties the
+    fitted amplitudes back to the data."""
+    t = np.linspace(0.0, 20.0, 400)
+    for model, y in [("exp", 1.0 + 2.0 * np.exp(-t / 3.0)),
+                     ("biexp", 1.0 + 1.5 * np.exp(-t / 0.8) + 0.5 * np.exp(-t / 6.0)),
+                     ("stretched", 1.0 + 2.0 * np.exp(-((t / 3.0) ** 0.7)))]:
+        fit = fit_transient(t, y, model)
+        assert fit.ok, fit.reason
+        assert fit.y_at_start == pytest.approx(y[0], rel=0.02)
+
+
+def test_a_negative_prefactor_means_a_rising_component():
+    """Absorbance GROWS on doping, so the exponentials climb to the plateau A from
+    below and B is negative. That is a direction, not an error -- which is why A and
+    y(0) are on the legend, so the sign is readable."""
+    t = np.linspace(0.0, 20.0, 400)
+    y = 0.11 - 0.10 * np.exp(-t / 2.0)          # rises to a plateau
+    fit = fit_transient(t, y, "exp")
+    assert fit.ok
+    assert fit.params[0] == pytest.approx(0.11, abs=0.005)    # A is the plateau
+    assert fit.params[1] < 0                                   # B is the rise
+    assert fit.y_at_start == pytest.approx(y[0], abs=0.005)
+
+
+def test_opposite_sign_prefactors_are_flagged_not_silently_averaged():
+    """Requested: "generally the two prefactors need to be the same sign (except say if
+    there is a bipolaron stealing abs from the polaron then there are competing
+    processes)."
+
+    So this is not automatically an error, and the fit must not decide. On
+    the 20250710 reference run the flag fires at exactly +0.6 and +0.7 V -- the two
+    highest doping levels, where a bipolaron would be expected to compete.
+    """
+    t = np.linspace(0.0, 20.0, 400)
+    competing = 0.05 - 0.10 * np.exp(-t / 0.6) + 0.03 * np.exp(-t / 5.0)
+    fit = fit_transient(t, competing, "biexp")
+    assert fit.ok, fit.reason
+    assert fit.mixed_amplitude_signs
+    assert any("SIGN" in line for line in fit.describe())
+
+
+def test_same_sign_prefactors_are_not_flagged():
+    t = np.linspace(0.0, 20.0, 400)
+    y = 1.0 + 1.5 * np.exp(-t / 0.8) + 0.5 * np.exp(-t / 6.0)
+    fit = fit_transient(t, y, "biexp")
+    assert fit.ok and not fit.mixed_amplitude_signs
+    assert not any("SIGN" in line for line in fit.describe())
+
+
+def test_a_single_component_fit_can_never_have_mixed_signs():
+    """One prefactor cannot disagree with itself; the flag is for sums of parts."""
+    t = np.linspace(0.0, 20.0, 200)
+    for model in ("exp", "stretched"):
+        fit = fit_transient(t, 1 + 2 * np.exp(-t / 3.0), model)
+        assert not fit.mixed_amplitude_signs
+
+
+# --- is it the right model? ---------------------------------------------------
+# The parameter uncertainties cannot answer that: they describe the fit WITHIN the
+# model. Requested: "leave option 1 documented as within the assumed model. Actually the
+# noise / systematic split legend could be helpful."
+
+def test_a_correct_model_leaves_only_noise():
+    """Fit the right model to clean data plus white noise and the residual should be
+    essentially all scatter, with no smooth curve left over."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 600)
+    y = 1.0 + 2.0 * np.exp(-t / 3.0) + rng.normal(0, 0.002, 600)
+    noise, systematic, _frac = fit_transient(t, y, "exp").residual_split(t, y)
+    assert noise == pytest.approx(0.002, rel=0.2), "should recover the noise level"
+    assert systematic < noise, f"systematic {systematic:.2g} vs noise {noise:.2g}"
+
+
+def test_a_wrong_model_leaves_a_systematic_residual():
+    """A single exponential over a genuinely two-component decay cannot follow it,
+    and the leftover is a smooth curve, not scatter."""
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 20.0, 600)
+    y = (1.0 + 1.5 * np.exp(-t / 0.4) + 1.0 * np.exp(-t / 8.0)
+         + rng.normal(0, 0.002, 600))
+    noise, systematic, _frac = fit_transient(t, y, "exp").residual_split(t, y)
+    assert systematic > 3 * noise, f"systematic {systematic:.2g} vs noise {noise:.2g}"
+
+    # and the right model brings it back down
+    n2, s2, _ = fit_transient(t, y, "biexp").residual_split(t, y)
+    assert s2 < systematic / 3, "biexp must account for what exp could not"
+
+
+def test_the_split_needs_a_curve():
+    t = np.linspace(0.0, 1.0, 3)
+    assert fit_transient(t, np.zeros(3), "biexp").residual_split(t, np.zeros(3)) is None
+
+
+# --- density of states from a CV ---------------------------------------------
+
+def _triangle_cv(cycles=3, points=400, lo=-0.5, hi=0.7):
+    """A clean triangular sweep with purely capacitive current, i = C·dV/dt."""
+    t = np.linspace(0.0, 2.0 * cycles, points * cycles)
+    ramp = np.abs(((t + 0.5) % 2.0) - 1.0)
+    v = lo + (hi - lo) * ramp
+    return t, v, 1.0e-4 * np.gradient(v, t)
+
+
+def test_a_cv_splits_into_one_sweep_per_direction():
+    _t, v, _i = _triangle_cv(cycles=3)
+    sweeps = cv_sweeps(v)
+    assert len(sweeps) >= 6, f"3 cycles should give at least 6 sweeps, got {len(sweeps)}"
+    for s in sweeps:
+        seg = v[s]
+        rising = np.diff(seg) > 0
+        assert rising.all() or (~rising).all(), "each sweep must be monotonic"
+
+
+def test_the_dos_is_positive_in_both_sweep_directions():
+    """dQ/dV = i/(dV/dt), and on the reverse sweep BOTH are negative, so the quotient
+    is positive. Dividing by the scan rate's MAGNITUDE put the reverse sweep below
+    zero -- a density of states is positive whichever way the sweep runs."""
+    _t, v, i = _triangle_cv()
+    curves = density_of_states(v, i, scan_rate_v_per_s=1.2, volume_cm3=1.5e-5)
+    # named for the CHEMISTRY, not just the sweep sense: rising potential removes
+    # electrons (oxidizing), falling puts them back (reducing)
+    assert {c["direction"] for c in curves} == {"oxidizing (forward)",
+                                                "reducing (reverse)"}
+    for c in curves:
+        interior = c["dos"][5:-5]        # the vertex itself is a turnaround
+        assert np.median(interior) > 0, f"{c['direction']} came out negative"
+
+
+def test_without_a_volume_it_reports_dQdV_rather_than_inventing_one():
+    _t, v, i = _triangle_cv()
+    curves = density_of_states(v, i, 1.2, volume_cm3=None)
+    assert "dQ/dV" in curves[0]["units"] and "C/V" in curves[0]["units"]
+    with_volume = density_of_states(v, i, 1.2, volume_cm3=1.5e-5)
+    assert "eV^-1 cm^-3" in with_volume[0]["units"]
+    # and the only difference is the constant e·V
+    ratio = with_volume[0]["dos"][10] / curves[0]["dos"][10]
+    assert ratio == pytest.approx(1.0 / (1.602176634e-19 * 1.5e-5), rel=1e-6)
+
+
+def test_the_last_cycle_is_used_by_default():
+    """The film is not the same on cycle 1 as on cycle 3."""
+    _t, v, i = _triangle_cv(cycles=3)
+    assert len(density_of_states(v, i, 1.2)) == 2
+    assert len(density_of_states(v, i, 1.2, last_cycle_only=False)) > 2
+
+
+def test_a_zero_or_negative_scan_rate_is_refused():
+    _t, v, i = _triangle_cv()
+    for bad in (0.0, -1.0, None):
+        with pytest.raises(ValueError, match="scan rate"):
+            density_of_states(v, i, bad)
+
+
+def test_both_sweep_directions_cover_the_same_potential_range():
+    """A CV usually starts and ends partway along a sweep -- at 0 V rather than at a
+    vertex -- so the first and last entries from cv_sweeps are PARTIAL. Taking the
+    last two gave one full sweep and one truncated tail, and the reverse curve
+    covered a shorter range than the forward one on the same plot."""
+    # Start AND end partway along a sweep, as a real CV does: the first and last
+    # entries from cv_sweeps are then partial. Ending on a vertex would leave both
+    # final sweeps complete and the bug invisible, which is how the first version of
+    # this test passed with and without the fix.
+    t = np.linspace(0.0, 6.75, 1350)
+    v = np.interp(t % 2.0, [0.0, 0.5, 1.5, 2.0], [0.0, 0.7, -0.5, 0.0])
+    i = 1.0e-4 * np.gradient(v, t)
+    curves = density_of_states(v, i, scan_rate_v_per_s=1.2, volume_cm3=1.5e-5)
+    assert len(curves) == 2
+    spans = [abs(c["energy_ev"][-1] - c["energy_ev"][0]) for c in curves]
+    assert spans[0] == pytest.approx(spans[1], rel=0.05), spans
+
+
+# --- Gaussian width of a DOS --------------------------------------------------
+# The literature reports sigma, typically 55-95 meV for a HOMO distribution.
+
+def test_the_gaussian_width_is_recovered_exactly():
+    """x_scale="jac" is REQUIRED, not a nicety. Bounds switch curve_fit from LM to
+    TRF, whose default scaling assumes parameters of comparable magnitude -- and
+    these span twenty orders (amplitude ~1e20 against sigma ~0.075). Without it the
+    fit returns ~103-116 meV whatever the truth, i.e. the same answer regardless of
+    the data."""
+    e = np.linspace(-5.6, -4.6, 300)
+    for truth_ev in (0.055, 0.075, 0.095):
+        g = 2e20 + 8e20 * np.exp(-((e + 5.15) ** 2) / (2 * truth_ev ** 2))
+        fit = fit_gaussian_dos(e, g)
+        assert fit["ok"], fit["reason"]
+        assert fit["sigma_mev"] == pytest.approx(truth_ev * 1000, rel=0.01)
+        assert fit["center_ev"] == pytest.approx(-5.15, abs=0.005)
+        assert not fit["needs_review"], fit["concern"]
+
+
+def test_a_pedestal_is_fitted_rather_than_widening_the_peak():
+    """An unsubtracted capacitive baseline sits under the whole curve. Fitting a
+    constant absorbs it; assuming zero would inflate sigma."""
+    e = np.linspace(-5.6, -4.6, 300)
+    g = 5e20 + 8e20 * np.exp(-((e + 5.15) ** 2) / (2 * 0.075 ** 2))
+    fit = fit_gaussian_dos(e, g)
+    assert fit["sigma_mev"] == pytest.approx(75.0, rel=0.01)
+    assert fit["offset"] == pytest.approx(5e20, rel=0.01)
+
+
+def test_a_feature_wider_than_its_window_is_reported_as_unresolved():
+    """sigma is bounded by the window width, so sigma -> span means "nothing resolved
+    here", not "a very broad peak". A fit sitting ON its bound is not a measurement.
+    MEASURED: a real reverse sweep over 1.198 V returned exactly 1198 meV."""
+    e = np.linspace(-5.15, -5.05, 200)          # 100 meV window
+    g = 2e20 + 8e20 * np.exp(-((e + 5.10) ** 2) / (2 * 0.5 ** 2))   # 500 meV feature
+    fit = fit_gaussian_dos(e, g)
+    assert fit["ok"] and fit["needs_review"]
+    assert "no resolved peak" in fit["concern"], fit["concern"]
+
+
+def test_a_shape_with_no_peak_at_all_is_still_flagged():
+    """A monotonic ramp has no Gaussian in it. The width that comes back is whatever
+    least-squares settled on, and it is flagged as implausible rather than reported
+    as a measurement."""
+    e = np.linspace(-5.6, -4.6, 300)
+    fit = fit_gaussian_dos(e, 2e20 + 1e19 * e)
+    assert fit["ok"] and fit["needs_review"]
+
+
+def test_an_implausibly_wide_distribution_is_flagged():
+    e = np.linspace(-6.0, -4.0, 400)
+    g = 2e20 + 8e20 * np.exp(-((e + 5.0) ** 2) / (2 * 0.40 ** 2))
+    fit = fit_gaussian_dos(e, g)
+    assert fit["ok"] and fit["needs_review"]
+    assert "55" in fit["concern"] and "95" in fit["concern"]
+
+
+def test_the_dos_window_trims_both_directions_to_the_same_range():
+    """Outside the doping range the current is double-layer charging, not the
+    distribution being measured. MEASURED on one CV running -0.5 to +0.7 V: 42% of
+    every curve sat below 0 V. Trimming both directions to one window also makes the
+    hysteresis between them mean something."""
+    t = np.linspace(0.0, 6.75, 1350)
+    v = np.interp(t % 2.0, [0.0, 0.5, 1.5, 2.0], [0.0, 0.7, -0.5, 0.0])
+    i = 1.0e-4 * np.gradient(v, t)
+
+    full = density_of_states(v, i, 1.2, volume_cm3=1.5e-5)
+    assert min(float(np.min(-c["energy_ev"])) for c in full) < -0.4
+
+    trimmed = density_of_states(v, i, 1.2, volume_cm3=1.5e-5, v_min=0.0)
+    assert len(trimmed) == 2
+    for c in trimmed:
+        potential = -c["energy_ev"]
+        assert potential.min() >= -1e-9, "nothing below the window"
+    lo = [float(np.min(-c["energy_ev"])) for c in trimmed]
+    hi = [float(np.max(-c["energy_ev"])) for c in trimmed]
+    assert lo[0] == pytest.approx(lo[1], abs=0.02), "both directions, same window"
+    assert hi[0] == pytest.approx(hi[1], abs=0.02)
+
+
+def test_the_exponential_tail_energy_is_recovered():
+    """What a RISING EDGE supports. A Gaussian needs a peak; fitted to a monotonic
+    edge it rails against the window and reports a width describing nothing."""
+    e = np.linspace(-5.6, -5.0, 200)
+    for truth_ev in (0.040, 0.060, 0.090):
+        fit = fit_exponential_tail(e, 1e18 * np.exp(e / truth_ev))
+        assert fit["ok"], fit["reason"]
+        assert abs(fit["e0_mev"]) == pytest.approx(truth_ev * 1000, rel=0.01)
+        assert fit["r_squared"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_a_curved_tail_reports_a_poor_r_squared():
+    """R^2 is the honest guard: a tail that is not straight in log g gets a number
+    anyway, and only R^2 says it means nothing. MEASURED on a real CV: 0.66 and 0.36,
+    so neither a Gaussian nor a single exponential describes that window."""
+    e = np.linspace(-5.6, -5.0, 200)
+    g = 1e18 * np.exp(-((e + 5.3) ** 2) / (2 * 0.08 ** 2))      # a peak, not a tail
+    fit = fit_exponential_tail(e, g)
+    assert fit["ok"] and fit["r_squared"] < 0.9
+
+
+def test_a_negative_dos_is_excluded_from_the_gaussian_fit():
+    """A negative density of states is unphysical, and it happens for a real reason:
+    just past a sweep vertex the current has not reversed yet, so dividing by the
+    now-negative sweep rate flips the sign. MEASURED on one CV, the reverse sweep runs
+    negative above +0.57 V -- 13% of the window -- and including those points dragged
+    the Gaussian onto its bound and hid a peak plainly present at +0.28 V."""
+    e = np.linspace(-0.6, 0.0, 200)
+    g = 1e21 * np.exp(-((e + 0.28) ** 2) / (2 * 0.09 ** 2))
+    contaminated = g.copy()
+    contaminated[:25] = -np.linspace(1e21, 1e20, 25)      # post-vertex artifact
+
+    clean = fit_gaussian_dos(e, g)
+    fixed = fit_gaussian_dos(e, contaminated)
+    assert clean["ok"] and fixed["ok"]
+    # the fit must not be dragged by points that cannot be a density of states
+    assert fixed["sigma_mev"] == pytest.approx(clean["sigma_mev"], rel=0.05)
+    assert fixed["center_ev"] == pytest.approx(clean["center_ev"], abs=0.01)
+
+
+def test_too_few_physical_points_is_reported_as_such():
+    e = np.linspace(-0.6, 0.0, 20)
+    fit = fit_gaussian_dos(e, -np.ones(20))
+    assert not fit["ok"]
+    assert "g > 0" in fit["reason"]
+
+
+def test_directions_that_disagree_are_called_out_as_non_equilibrium():
+    """The two sweep directions are each other's control: g = i/(v*e*V) assumes the
+    film keeps up with the sweep, so if it does they measure the SAME distribution.
+    MEASURED on one film at 100 mV/s: the anodic current is still rising at +0.70 V
+    while the cathodic peaks at +0.25 V -- 419 mV apart, where a reversible process
+    gives ~59 mV. Near mirror-image curves are not a DOS with hysteresis."""
+    e = np.linspace(-0.7, 0.0, 200)
+    far = [{"direction": "oxidizing (forward)", "energy_ev": e,
+            "dos": 1e21 * np.exp(-((e + 0.65) ** 2) / (2 * 0.1 ** 2))},
+           {"direction": "reducing (reverse)", "energy_ev": e,
+            "dos": 1e21 * np.exp(-((e + 0.20) ** 2) / (2 * 0.1 ** 2))}]
+    ok, msg = dos_equilibrium_check(far)
+    assert not ok and "not keeping up" in msg
+
+    close = [dict(far[0]),
+             {"direction": "reducing (reverse)", "energy_ev": e,
+              "dos": 1e21 * np.exp(-((e + 0.60) ** 2) / (2 * 0.1 ** 2))}]
+    assert dos_equilibrium_check(close)[0], "50 mV apart is ordinary hysteresis"
+
+
+def test_one_direction_alone_cannot_be_checked():
+    """No control, so no verdict -- and silence is the honest answer, not a pass
+    dressed up as evidence."""
+    e = np.linspace(-0.7, 0.0, 50)
+    ok, msg = dos_equilibrium_check(
+        [{"direction": "oxidizing (forward)", "energy_ev": e, "dos": np.ones(50)}])
+    assert ok and msg == ""
+
+
+def test_cv_probe_finds_the_band_that_grows_toward_the_vertex():
+    """A CV returns to its start, so end-minus-start sees nothing. The polaron is
+    found against the most-doped spectrum instead."""
+    import numpy as np
+    from spec_echem.analysis import cv_probe_wavelength
+    wl = np.linspace(400.0, 1100.0, 141)
+    t = np.linspace(0.0, 40.0, 81)
+    doping = np.sin(np.pi * t / 40.0)            # 0 -> 1 at the vertex -> 0
+    polaron = np.exp(-0.5 * ((wl - 800.0) / 50.0) ** 2)
+    pi = np.exp(-0.5 * ((wl - 520.0) / 40.0) ** 2)
+    a = 0.02 + np.outer(pi, 0.8 - 0.4 * doping) + np.outer(polaron, 0.3 * doping)
+    assert cv_probe_wavelength(a, wl) == pytest.approx(800.0, abs=10.0)
+
+
+def test_cv_probe_returns_none_when_nothing_changes():
+    import numpy as np
+    from spec_echem.analysis import cv_probe_wavelength
+    wl = np.linspace(400.0, 1100.0, 50)
+    assert cv_probe_wavelength(np.ones((50, 10)), wl) is None
+
+
+def test_a_stretched_curve_before_its_window_raises_no_warning():
+    """Reported from the Win11 rig: "invalid value encountered in power". Drawing
+    the fit over a whole segment evaluates it at t before the window, and a
+    negative number to a fractional power is NaN."""
+    import warnings
+    import numpy as np
+    from spec_echem.analysis import fit_transient
+    t = np.linspace(0.0, 20.0, 201)
+    y = 0.1 + 0.3 * np.exp(-(t / 4.0) ** 0.7)
+    fit = fit_transient(t, y, "stretched", 2.0, None)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        curve = fit.curve(t)
+    assert not [w for w in caught if "power" in str(w.message)]
+    assert np.all(np.isnan(curve[t < 2.0])), "no claim before the window"

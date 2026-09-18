@@ -13,7 +13,9 @@ import threading
 
 from qtpy.QtCore import QObject, Signal
 
+from spec_echem.data import segment_potential_text
 from spec_echem.experiment import run_one_segment
+from spec_echem.potentiostat import ConfigurationError
 from spec_echem.logging_config import get_run_logger
 
 
@@ -80,8 +82,22 @@ class AcquisitionWorker(QObject):
                     break
 
                 self.segment_started.emit(seg.label, i + 1, total)
-                logger.info("Armed for %s (%d/%d) — waiting for Gamry trigger",
+                # Logged BEFORE run_one_segment, which does the Gamry setup first and
+                # only then arms — so this states intent, not that arming has happened.
+                logger.info("Starting %s (%d/%d) — Gamry setup, then arm and wait for trigger",
                             seg.label, i + 1, total)
+                # The potential the driver is about to apply, from the SAME function
+                # it uses -- requested, since the log never said what each step was
+                # held at. External mode has no driver settings: the .GSequence sets
+                # the potentials there, so the log says that instead of guessing.
+                pot_settings = getattr(self.potentiostat, "settings", None)
+                if pot_settings:
+                    text = segment_potential_text(pot_settings, seg.data_type,
+                                                  seg.run_number)
+                    logger.info("%s potential: %s", seg.label, text or "not defined")
+                else:
+                    logger.info("%s potential: set by the Gamry sequence (external "
+                                "mode)", seg.label)
                 logger.debug("%s: %d points @ %.4gs, trigger=%s",
                              seg.label, seg.num_points, seg.delta_time, seg.trigger)
 
@@ -98,6 +114,27 @@ class AcquisitionWorker(QObject):
                 self.segment_done.emit(seg.label, absorb_df)
                 logger.info("%s complete → %s", seg.label,
                             path.name if path is not None else "discarded (not saved)")
+
+                # Stop HERE if the potentiostat vanished during this segment, rather
+                # than letting the next segment fail at setup and report the wrong
+                # one. The segment is written first — the spectra are complete and the
+                # partial echem is real data — and this is a controlled break rather
+                # than an exception, so it can't mask a genuine failure the way raising
+                # from run_one_segment's finally would.
+                if self.potentiostat is not None and self.potentiostat.device_lost():
+                    logger.error(
+                        "Stopping the run: the potentiostat was lost during '%s'. That "
+                        "segment's files are written (spectra complete, echem "
+                        "truncated); no further segments will run without it.",
+                        seg.label)
+                    reason = "error"
+                    break
+        except ConfigurationError as exc:
+            # A setup mistake, not a defect: the message names what to change, so it
+            # reads as one line in the status pane instead of a stack trace nobody
+            # can act on. Cleanup below is identical either way.
+            logger.error("Cannot start: %s", exc)
+            reason = "error"
         except Exception:  # noqa: BLE001 — surface any failure to the log + UI
             logger.exception("Acquisition error")
             reason = "error"

@@ -5,18 +5,22 @@ Sequence progress, status log, run-state banner, and Start/Stop/Abort.
 Threaded acquisition (workers.py) is wired in the next increment — for now the
 buttons drive the banner so the two-step coordination UX can be reviewed.
 """
-from qtpy.QtCore import Qt, QThread, QTimer
+from qtpy.QtCore import Qt, QThread, QTimer, QUrl
+from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QListWidget,
     QPlainTextEdit, QPushButton, QMessageBox, QSplitter, QCheckBox,
 )
 
+import copy
 from pathlib import Path
 
 from spec_echem.experiment import build_segments
+from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
 from spec_echem.data import write_run_metadata, DATA_TYPE_CV
-from spec_echem.logging_config import configure_run_logging, close_run_logging
-from spec_echem.potentiostat import ExternalPotentiostat, ToolkitPotentiostat
+from spec_echem.logging_config import (configure_run_logging, close_run_logging,
+                                       get_run_logger, app_log_path)
+from spec_echem.potentiostat import make_potentiostat
 from gui.widgets.plot_canvas import MplCanvas
 from gui.workers import AcquisitionWorker
 
@@ -97,12 +101,30 @@ class RunTab(QWidget):
         layout.addWidget(cockpit, stretch=3)
 
         # --- status log ---
+        # This pane shows THIS run only (it is cleared at Start). The full history —
+        # including everything before a run, like connecting the instruments — is in
+        # the app log on disk, which is what the button is for: a log nobody can find
+        # is a log nobody uses.
         log_group = QGroupBox("Status Log")
         log_layout = QVBoxLayout(log_group)
         self.status_log = QPlainTextEdit()
         self.status_log.setReadOnly(True)
         log_layout.addWidget(self.status_log)
+        log_btn_row = QHBoxLayout()
+        log_btn_row.addStretch()
+        self.open_log_btn = QPushButton("Open Log Folder")
+        self.open_log_btn.setToolTip(
+            "Open the folder holding spec-echem.log — the full history of this and "
+            "previous sessions, including instrument connections made before a run.")
+        self.open_log_btn.clicked.connect(self.on_open_log_folder)
+        log_btn_row.addWidget(self.open_log_btn)
+        log_layout.addLayout(log_btn_row)
         layout.addWidget(log_group, stretch=1)
+
+    def on_open_log_folder(self):
+        folder = app_log_path(self.win.settings["data_root"]).parent
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def log(self, message):
         self.status_log.appendPlainText(message)
@@ -120,7 +142,24 @@ class RunTab(QWidget):
     # --- run control ---
 
     def on_start(self):
-        settings = self.win.collect_settings()
+        # Snapshot the settings for THIS run. collect_settings() returns the live
+        # canonical dict, and the potentiostat reads potentials/paths from it per
+        # segment — so without a copy a mid-run "Save Settings" (Parameters tab isn't
+        # locked) would change the potentials applied to the remaining segments and
+        # desync the run from its own metadata. Freeze it at Start.
+        settings = copy.deepcopy(self.win.collect_settings())
+        # This run supersedes any run loaded from disk, so labels go back to
+        # describing what is actually being applied.
+        self.win.loaded_run_settings = None
+        self.win._potential_cache.clear()
+
+        # "python_mode" means Python drives the potentiostat AND fires the trigger —
+        # true for the Gamry (toolkitpy) AND the Autolab. "external" is the only mode
+        # where a human starts the sequence.
+        mode = settings.get("potentiostat_mode", "external")
+        python_mode = mode in ("python", "autolab")
+        pstat_name = {"python": "the Gamry",
+                      "autolab": "the Autolab"}.get(mode, "the potentiostat")
 
         # Normalize the folder name so stray whitespace can't pollute paths/filenames
         settings["data_folder"] = settings["data_folder"].strip()
@@ -164,15 +203,75 @@ class RunTab(QWidget):
         # full history is always preserved in each run's own .log file on disk.
         self.status_log.clear()
 
+        # Cadence heads-up. Advisory ONLY — it never stops a run and never changes a
+        # setting. A segment whose spectra cannot keep up still writes a file that
+        # looks completely normal, so this has to arrive before the run, not after.
+        # Fully guarded: this sits in the Start path of a working rig, and a note
+        # that can raise would be worse than no note at all.
+        try:
+            cost = spectrum_cost_seconds(settings.get("integration_time_ms", 0.0),
+                                         settings.get("scan_averages", 1),
+                                         settings.get("potentiostat_mode"))
+            slow = [seg for seg in segments if cost > seg.delta_time > 0]
+            if slow:
+                tightest = min(slow, key=lambda seg: seg.delta_time)
+                fits = suggest_scan_averages(settings.get("integration_time_ms", 0.0),
+                                             tightest.delta_time,
+                                             settings.get("potentiostat_mode"))
+                self.log(
+                    f"WARNING: one spectrum takes ~{cost * 1000:.0f} ms, but "
+                    f"{len(slow)} of {len(segments)} step(s) ask for one every "
+                    f"{tightest.delta_time * 1000:.0f} ms or less "
+                    f"(tightest: {tightest.label}). Those steps will run long and "
+                    f"their later spectra may fall after the electrochemistry has "
+                    f"finished.")
+                self.log(
+                    f"         Suggestion: about {fits} scan averages would fit."
+                    if fits >= 1 else
+                    "         Suggestion: even 1 scan average does not fit — use a "
+                    "coarser CV step or a longer delta time.")
+                self.log("         Running anyway — this is advice, not a limit.")
+        except Exception:  # noqa: BLE001 — an advisory must never block Start
+            pass
+
+        # Which hardware produced this folder. Connect happens long before Start, when
+        # no run log exists yet, so the identities are stashed at Connect and recorded
+        # here instead — the first moment there is somewhere durable to put them.
+        instruments = {
+            "spectrometer": self.win.spec_identity or "unknown (not connected via Connect)",
+            "potentiostat": self.win.pstat_identity if python_mode
+                else "external — the potentiostat runs its own sequence (not queried)",
+        }
+        if instruments["potentiostat"] is None:
+            instruments["potentiostat"] = "unknown (Connect Potentiostat not used)"
+        # What the detector could actually DO, not just what was asked of it. Detectors
+        # differ ~100x in the shortest exposure they honor, so an integration time is
+        # only interpretable next to the floor it was chosen above. Both numbers: the
+        # tidied one the software used, and the raw bisect behind it.
+        if self.win.spec_min_integration_ms is not None:
+            instruments["spectrometer_min_integration_ms"] =                 self.win.spec_min_integration_ms
+        if getattr(self.win, "spec_min_integration_measured_ms", None) is not None:
+            instruments["spectrometer_min_integration_measured_ms"] =                 self.win.spec_min_integration_measured_ms
+
         # Write the self-documenting run metadata and open the per-run log file
-        write_run_metadata(settings, settings["data_root"], settings["data_folder"])
+        write_run_metadata(settings, settings["data_root"], settings["data_folder"],
+                           instruments=instruments)
         _, log_path = configure_run_logging(run_folder, settings["data_folder"])
         self.log(f"Logging to {log_path.name}")
+        get_run_logger().info("Spectrometer: %s", instruments["spectrometer"])
+        get_run_logger().info("Potentiostat: %s", instruments["potentiostat"])
 
         # Expose the run folder + segment map so the Results tab can find each
         # segment's echem file (written next to the spectra in Python mode).
         self.win.run_folder = run_folder
         self.win.segments_by_label = {seg.label: seg for seg in segments}
+
+        # Clear results from any previous run / loaded folder so the Results tab shows
+        # ONLY this run. Segment labels repeat between runs, so a longer prior run
+        # would otherwise leave stale extra segments (e.g. "Doping 6") mixed in.
+        self.win.results = {}
+        self.win.results_tab.refresh_segments()
+        self.win.analysis_tab.refresh_segments()
 
         # Build the progress list
         self.sequence_list.clear()
@@ -183,8 +282,7 @@ class RunTab(QWidget):
 
         # Pick the potentiostat: Python-controlled drives the Gamry itself;
         # external means the human starts the .GSequence (the proven default).
-        python_mode = settings.get("potentiostat_mode", "external") == "python"
-        potentiostat = ToolkitPotentiostat(settings) if python_mode else ExternalPotentiostat()
+        potentiostat = make_potentiostat(settings)
 
         # Spin up the worker on its own thread
         self._thread = QThread()
@@ -199,6 +297,12 @@ class RunTab(QWidget):
         self._worker.status.connect(self.log)
         self._worker.finished.connect(self.on_finished)
         self._worker.finished.connect(self._thread.quit)
+        # Safe teardown: let the thread's own event loop delete the worker and itself
+        # once it has fully stopped, then drop our Python refs — never delete a QObject
+        # from the wrong thread, and never reuse/replace a still-running QThread.
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
+        self._thread.finished.connect(self._on_thread_finished)
         self._thread.start()
 
         # Live echem feedback (Python mode): poll the potentiostat's growing
@@ -215,12 +319,12 @@ class RunTab(QWidget):
             self.live_canvas.show_message("Live echem plot off (timing comparison).")
         else:
             self.live_canvas.show_message(
-                "External mode — Gamry Framework shows the live echem data.")
+                "External mode — the potentiostat's own software shows the live echem data.")
 
         if python_mode:
-            self.set_banner("▶ Running — Python is driving the Gamry", "#dfd")
+            self.set_banner(f"▶ Running — Python is driving {pstat_name}", "#dfd")
         else:
-            self.set_banner("⏳ Armed — now START the Gamry sequence", "#ffd")
+            self.set_banner("⏳ Armed — now START the sequence on the potentiostat", "#ffd")
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.abort_btn.setEnabled(True)
@@ -233,7 +337,8 @@ class RunTab(QWidget):
         self.set_banner("Stopping after current segment…", "#eef")
         self.log("Stop requested — will finish current segment.")
         self.stop_btn.setEnabled(False)
-        self.abort_btn.setEnabled(False)
+        # Leave ABORT enabled: Stop only takes effect BETWEEN segments, so if the
+        # current segment is blocked waiting for a trigger, Abort is the only escape.
 
     def on_abort(self):
         reply = QMessageBox.question(
@@ -263,25 +368,22 @@ class RunTab(QWidget):
             self.live_canvas.show_message(f"{label} — waiting for data…")
 
     def _update_live_echem(self):
-        """Timer slot (GUI thread): draw the potentiostat's growing acq_data
+        """Timer slot (GUI thread): draw the potentiostat's growing EchemData
         snapshot. Python mode only; no-op until a segment is producing data."""
         worker, seg = self._worker, self._current_segment
         if worker is None or seg is None:
             return
         pot = worker.potentiostat
         data = pot.live_data() if pot is not None else None
-        if data is None or len(data) == 0:
+        if data is None or len(data.current) == 0:
             return
-        fields = data.dtype.names or ()
-        if "im" not in fields:
-            return
-        current = data["im"]
-        if seg.data_type == DATA_TYPE_CV and "vf" in fields:
+        current = data.current
+        if seg.data_type == DATA_TYPE_CV:
             self.live_canvas.update_live_line(
-                data["vf"], current, "Potential (V)", "Current (A)",
+                data.potential, current, "Potential (V)", "Current (A)",
                 title=f"{seg.label} — live")
-        elif "time" in fields:
-            t = data["time"]
+        else:
+            t = data.time
             t0 = t[0] if len(t) else 0.0
             self.live_canvas.update_live_line(
                 t - t0, current, "Time (s)", "Current (A)",
@@ -310,6 +412,7 @@ class RunTab(QWidget):
             return
         self.win.results[label] = absorb_df
         self.win.results_tab.refresh_segments()
+        self.win.analysis_tab.refresh_segments()
 
     def on_finished(self, reason):
         self._update_live_echem()   # draw the last segment's final curve
@@ -326,7 +429,17 @@ class RunTab(QWidget):
         self._reset_controls()
         self.win.instrument_tab._set_actions_enabled(True)
         self.win.instrument_tab.lock_for_run(False)          # unlock Connect/Simulated
-        self._worker = None
+        # Note: worker/thread refs are cleared in _on_thread_finished (after the
+        # thread's event loop has actually stopped), not here — on_finished runs on
+        # worker.finished, which is BEFORE the thread has finished.
+
+    def _on_thread_finished(self):
+        # Runs on QThread.finished, once the worker thread's event loop has stopped
+        # and deleteLater has been scheduled. Guard against a fast restart having
+        # already installed a new thread: only clear if this is still the active one.
+        if self.sender() is self._thread:
+            self._worker = None
+            self._thread = None
 
     def _reset_controls(self):
         self.start_btn.setEnabled(True)

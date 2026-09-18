@@ -14,7 +14,7 @@ No Qt. No hardware. No heavy imports — this is called at run start and on GUI 
 import subprocess
 from pathlib import Path
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _cached_build_id = None

@@ -5,6 +5,7 @@ No Qt imports. No vendor SDK imports.
 import json
 import re
 from datetime import datetime
+from typing import NamedTuple
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -18,6 +19,53 @@ DATA_TYPE_CV = 1
 DATA_TYPE_DOPING = 2
 DATA_TYPE_DEDOPING = 3
 DATA_TYPE_PREDEDOPING = 4
+
+
+def segment_potential(settings, data_type, run_number):
+    """The potential a chrono segment is held at, or None for a CV (which sweeps).
+
+    ONE definition, because the doping ladder's arithmetic was already written out
+    in both potentiostat backends and the Results tab wanted a third copy for its
+    graph titles. A label that disagrees with what was applied is worse than no
+    label, so they all come from here.
+    """
+    # .get, not [] : a run loaded from disk whose metadata is missing has no ladder
+    # to read, and None ("no label") is the honest answer. Returning a potential
+    # computed from whatever happens to be in the Parameters tab would name a value
+    # that was never applied -- which is exactly the mislabel this function exists
+    # to prevent.
+    if data_type == DATA_TYPE_PREDEDOPING:
+        return settings.get("prededoping_potential")
+    if data_type == DATA_TYPE_DOPING:
+        start = settings.get("doping_potential_start")
+        step = settings.get("doping_potential_step")
+        if start is None or step is None:
+            return None
+        return start + run_number * step
+    if data_type == DATA_TYPE_DEDOPING:
+        return settings.get("dedoping_potential")
+    return None
+
+
+def segment_potential_text(settings, data_type, run_number):
+    """A short potential for a graph title: '+0.600 V', or a CV's swept range."""
+    if data_type == DATA_TYPE_CV:
+        return (f"{settings['cv_limit1_v']:+.3f} to {settings['cv_limit2_v']:+.3f} V"
+                if "cv_limit1_v" in settings else "")
+    v = segment_potential(settings, data_type, run_number)
+    return "" if v is None else f"{v:+.3f} V"
+
+
+
+
+def resolve_data_root(data_root):
+    """Expand `~` in a data root, so the default is not one machine's account name.
+
+    `Path("~/specechem_data")` does NOT expand on its own — it would create a literal
+    directory called "~" beside wherever the app was launched. Every write path goes
+    through here so that cannot happen.
+    """
+    return Path(data_root).expanduser()
 
 
 def compute_absorbance(spectra, dark, ref, wavelengths, timestamps):
@@ -80,7 +128,12 @@ def read_spectra_absorbance(path):
     corrected-time columns — so show_absorbance can plot a past run unchanged.
     No recomputation: the saved absorbance is used as-is.
     """
-    df = pd.read_csv(path, sep='\t')
+    # Only the three columns this needs, of the eight in the file. MEASURED: on the
+    # 32-bit SpecEchem32 env a 760265-row file allocated 40.6 MiB reading all seven
+    # numeric columns and raised MemoryError on a second run; three columns is ~17.
+    # The dark/reference/raw columns are not used to rebuild the absorbance matrix.
+    df = pd.read_csv(path, sep='\t',
+                     usecols=['Wavelength (nm)', 'Absorbance', 'Corrected time (s)'])
     n = df['Wavelength (nm)'].nunique()          # wavelengths per time block
     if n == 0:
         raise ValueError(f"{Path(path).name}: no wavelength data")
@@ -136,7 +189,7 @@ def discover_run_segments(run_folder):
 def write_spectra_file(absorb7, spectra, dark, ref, wavelengths, timestamps,
                        data_type, run_number, data_root, added_path):
     """
-    Write spectra data to a tab-separated file in the UW 8-column format.
+    Write spectra data to a tab-separated file in the 8-column format.
 
     Column 6 is 'Spectrum number' for doping (DATA_TYPE_DOPING=2), 'Index' for all others.
     Dark and ref columns are populated only for time_point 0; NaN elsewhere.
@@ -197,7 +250,7 @@ def write_spectra_file(absorb7, spectra, dark, ref, wavelengths, timestamps,
         else:
             output_df_all = pd.concat([output_df_all, output_df], axis=0, ignore_index=True)
 
-    path = Path(data_root) / added_path / _filename_for(data_type, run_number)
+    path = resolve_data_root(data_root) / added_path / _filename_for(data_type, run_number)
     path.parent.mkdir(parents=True, exist_ok=True)
     output_df_all.to_csv(path, header=True, index=False, sep='\t')
 
@@ -229,22 +282,30 @@ def _echem_dta_path(data_type, run_number, data_root, added_path):
         DATA_TYPE_DEDOPING:    f'dedoping({run_number}).dta',
         DATA_TYPE_PREDEDOPING: f'prededoping({run_number}).dta',
     }[data_type]
-    return Path(data_root) / added_path / 'dta' / name
+    return resolve_data_root(data_root) / added_path / 'dta' / name
 
 
-def _acq_field(acq_data, name):
-    """Pull a named field from the toolkit's numpy structured array (defensive)."""
-    names = acq_data.dtype.names or ()
-    if name not in names:
-        raise ValueError(f"acq_data missing field '{name}'; got {list(names)}")
-    return np.asarray(acq_data[name])
+class EchemData(NamedTuple):
+    """One segment's electrochemistry, in vendor-neutral terms.
 
+    Every potentiostat driver returns THIS from last_data()/live_data(), whatever
+    its SDK hands back. The writer below used to read the toolkitpy field names
+    (`vf`, `im`, `time`) straight out of a Gamry structured array, which meant a
+    non-Gamry driver had to fabricate Gamry field names to be writable. Naming the
+    three quantities once, here, is what lets a second driver exist.
 
-def write_echem_file(acq_data, data_type, run_number, data_root, added_path):
+    Arrays are parallel and equal length; `time` is the device clock in seconds
+    (the writer rebases it), potential in volts, current in amperes.
     """
-    Write the clean analysis .txt for one Python-mode segment straight from the
-    toolkit's acq_data() structured array — no gamry_parser, matching the exact
-    column contract the reader (gamry_data.py) enforces.
+    time: np.ndarray
+    potential: np.ndarray
+    current: np.ndarray
+
+
+def write_echem_file(echem, data_type, run_number, data_root, added_path):
+    """
+    Write the clean analysis .txt for one Python-mode segment from an EchemData,
+    matching the exact column contract the reader (gamry_data.py) enforces.
 
       CV                       -> CV.txt            [potential, current] (cycles concatenated)
       doping/dedoping/prededope -> steps/dedoping/prededoping(N).txt
@@ -254,7 +315,7 @@ def write_echem_file(acq_data, data_type, run_number, data_root, added_path):
     sample) — no vestigial +100 offset (downstream keys off Corrected time by name).
 
     Args:
-        acq_data: numpy structured array from curve.acq_data() (fields vf, im, time)
+        echem: EchemData — parallel time/potential/current arrays
         data_type: int, one of DATA_TYPE_* constants
         run_number: int, cycle counter for the filename
         data_root: str or Path, base data directory
@@ -263,13 +324,13 @@ def write_echem_file(acq_data, data_type, run_number, data_root, added_path):
     Returns:
         Path: path to the file written
     """
-    potential = _acq_field(acq_data, 'vf')
-    current = _acq_field(acq_data, 'im')
+    potential = np.asarray(echem.potential)
+    current = np.asarray(echem.current)
 
     if data_type == DATA_TYPE_CV:
         df = pd.DataFrame({POTENTIAL_COL: potential, CURRENT_COL: current})[CV_COLUMNS]
     else:
-        t = _acq_field(acq_data, 'time')
+        t = np.asarray(echem.time)
         rel = t - t[0] if len(t) else t
         df = pd.DataFrame({
             'Time (s)':           rel,
@@ -279,14 +340,14 @@ def write_echem_file(acq_data, data_type, run_number, data_root, added_path):
             'Index':              range(len(current)),
         })[CHRONO_COLUMNS]
 
-    path = Path(data_root) / added_path / _echem_filename_for(data_type, run_number)
+    path = resolve_data_root(data_root) / added_path / _echem_filename_for(data_type, run_number)
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, header=True, index=False, sep='\t')
 
     return path
 
 
-def write_run_metadata(settings, data_root, added_path):
+def write_run_metadata(settings, data_root, added_path, instruments=None):
     """
     Write a metadata JSON file to the run folder at experiment start.
     Captures sample info, notes, and all settings used — making the data
@@ -298,15 +359,18 @@ def write_run_metadata(settings, data_root, added_path):
         settings: dict from load_settings() or DEFAULT_SETTINGS
         data_root: str or Path, base data directory
         added_path: str, subfolder name (format: YYYYMMDD_Description)
+        instruments: optional dict of instrument identities (spectrometer /
+            potentiostat serials) as reported at Connect. Omitted when unknown —
+            the settings say how the run was configured, not what it ran on.
 
     Returns:
         Path: path to the metadata file written
     """
-    folder = Path(data_root) / added_path
+    folder = resolve_data_root(data_root) / added_path
     folder.mkdir(parents=True, exist_ok=True)
 
     metadata = {
-        # Which code wrote this folder. Settings alone don't say — and behaviour has
+        # Which code wrote this folder. Settings alone don't say — and behavior has
         # changed across versions (the wavelength crop, for one).
         "spec_echem_version": build_id(),
         "run_started": datetime.now().isoformat(timespec="seconds"),
@@ -316,6 +380,8 @@ def write_run_metadata(settings, data_root, added_path):
         "notes": settings.get("notes", ""),
         "settings": settings,
     }
+    if instruments:
+        metadata["instruments"] = instruments
 
     path = folder / f"{added_path}_metadata.json"
     with open(path, "w", encoding="utf-8") as f:
