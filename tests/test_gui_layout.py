@@ -1084,14 +1084,17 @@ def test_the_ladder_separates_doping_from_dedoping(window, tmp_path):
     assert tab.ladder_canvas.ax.get_xlabel() == "Potential doped to (V)"
 
 
-def test_hiding_a_trace_removes_it_from_the_ladder(window, tmp_path):
-    """Charge tau runs ~100x the others and squashes the rest flat."""
+def test_charge_is_off_the_ladder_by_default_but_still_fitted(window, tmp_path):
+    """Charge tau runs ~100x the others and squashes the rest flat, so it starts
+    unticked (requested). It is still fitted -- only the ladder leaves it out."""
     tab = _doping_dedoping_pair(window, tmp_path)
     tab.on_fit_all()
-    assert any("charge" in n for n in _series_names(tab.ladder_canvas.ax))
-    tab.trace_checks["charge"].setChecked(False)
+    assert not tab.trace_checks["charge"].isChecked()
     assert not any("charge" in n for n in _series_names(tab.ladder_canvas.ax))
     assert any("absorbance" in n for n in _series_names(tab.ladder_canvas.ax))
+    assert all("charge" in fits for fits in tab._fits.values())
+    tab.trace_checks["charge"].setChecked(True)
+    assert any("charge" in n for n in _series_names(tab.ladder_canvas.ax))
 
 
 def test_the_modulation_view_is_doping_only(window, tmp_path):
