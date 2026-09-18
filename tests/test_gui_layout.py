@@ -1113,55 +1113,63 @@ def test_the_modulation_view_is_doping_only(window, tmp_path):
 # --- "auto (polaron)" has to say which wavelength it picked ------------------
 
 def test_tab5_shows_the_wavelength_auto_resolved_to(analysis_window):
-    """Requested: "for what you call auto(polaron) there is no indication what WL you
-    chose." The plot title carried it, but vanished on the current/charge traces."""
+    """Requested: the number speaks for itself. With auto on, the BOX holds the
+    resolved wavelength -- not a placeholder beside a separate readout."""
     tab = analysis_window.analysis_tab
     tab.on_fit_segment()
-    assert "nm" in tab.auto_wl_label.text(), tab.auto_wl_label.text()
+    assert tab.wl_auto.isChecked()
+    assert 850 < tab.wavelength_spin.value() < 950     # the growing polaron band
     tab.wavelength_spin.setValue(650.0)
+    assert not tab.wl_auto.isChecked(), "a typed value is a choice -- auto goes off"
     tab.on_fit_segment()
-    assert tab.auto_wl_label.text() == "", "the box already shows a typed value"
+    assert tab.wavelength_spin.value() == pytest.approx(650.0)
 
 
 def test_tab4_shows_the_wavelength_auto_resolved_to(window, tmp_path):
-    tab = _doping_dedoping_pair(window, tmp_path)
-    r = window.results_tab
-    r.refresh_segments()
-    r.on_segment_changed()
-    assert "nm" in r.auto_wl_label.text(), r.auto_wl_label.text()
-
-
-def test_the_readout_clears_when_a_wavelength_is_typed(window, tmp_path):
-    """It used to keep showing the last automatic pick beside a box saying something
-    else -- 783.5 nm displayed while the box read 550 nm."""
     _doping_dedoping_pair(window, tmp_path)
     r = window.results_tab
     r.refresh_segments()
     r.on_segment_changed()
-    assert "nm" in r.auto_wl_label.text()
-    r.analysis_wl.setValue(550.0)
+    assert r.wl_auto.isChecked()
+    assert r.analysis_wl.value() > 0, "the box must show the resolved number"
+
+
+def test_typing_a_wavelength_turns_auto_off_and_sticks(window, tmp_path):
+    """Once typed, the box must keep the user's value -- not be overwritten by the
+    next automatic resolution."""
+    _doping_dedoping_pair(window, tmp_path)
+    r = window.results_tab
+    r.refresh_segments()
     r.on_segment_changed()
-    assert r.auto_wl_label.text() == ""
+    r.analysis_wl.setValue(550.0)
+    assert not r.wl_auto.isChecked()
+    r.on_segment_changed()
+    assert r.analysis_wl.value() == pytest.approx(550.0)
+    r.wl_auto.setChecked(True)
+    assert r.analysis_wl.value() != pytest.approx(550.0), "auto resolves again"
 
 
-def test_a_cv_gets_no_automatic_polaron(window, tmp_path):
-    """A CV returns to where it started, so A(end) - A(start) is ~0 and the signed
-    difference has no polaron to find. It was handing back whatever drifted most --
-    521.9 nm, the pi-pi* side, on the 20250710 reference run."""
+def test_a_cv_gets_an_automatic_polaron_from_its_most_doped_point(window, tmp_path):
+    """Reported from the bench: the CV kinetics view drew nothing until a wavelength
+    was typed. End-minus-start sees only drift on a CV, so the comparison is against
+    the most-doped spectrum instead."""
     import numpy as np
     import pandas as pd
     from spec_echem.data import DATA_TYPE_CV
     from spec_echem.experiment import Segment
 
-    wl = np.linspace(400.0, 1100.0, 60)
-    t = np.linspace(0.0, 20.0, 80)
-    df = pd.DataFrame(np.tile(np.linspace(0.3, 0.1, 60)[:, None], (1, 80)),
-                      index=wl, columns=t)
+    wl = np.linspace(400.0, 1100.0, 141)
+    t = np.linspace(0.0, 40.0, 81)
+    doping = np.sin(np.pi * t / 40.0)
+    polaron = np.exp(-0.5 * ((wl - 800.0) / 50.0) ** 2)
+    pi = np.exp(-0.5 * ((wl - 520.0) / 40.0) ** 2)
+    a = 0.02 + np.outer(pi, 0.8 - 0.4 * doping) + np.outer(polaron, 0.3 * doping)
+    df = pd.DataFrame(a, index=wl, columns=t)
     window.results = {"CV": df}
-    window.segments_by_label = {"CV": Segment("CV", DATA_TYPE_CV, 0, 80, 0.1, True)}
+    window.segments_by_label = {"CV": Segment("CV", DATA_TYPE_CV, 0, 81, 0.1, True)}
     r = window.results_tab
-    assert r._chosen_wavelength(df, "CV") is None
-    assert r.auto_wl_label.text() == ""
+    assert r._chosen_wavelength(df, "CV") == pytest.approx(800.0, abs=10.0)
+    assert r.analysis_wl.value() == pytest.approx(800.0, abs=10.0)
 
 
 # --- loading a big run must not look like a hang ----------------------------
@@ -1255,13 +1263,14 @@ def test_clicking_a_wavelength_carries_it_to_the_analysis_tab(window, tmp_path):
     from types import SimpleNamespace
     _doping_dedoping_pair(window, tmp_path)
     r, a = window.results_tab, window.analysis_tab
-    assert a.wavelength_spin.value() == 0.0            # automatic to begin with
+    assert a.wl_auto.isChecked()                       # automatic to begin with
 
     r.view_combo.setCurrentIndex(0)                    # spectra view
     r._on_spectra_click(SimpleNamespace(inaxes=r.canvas.ax, xdata=735.6, ydata=0.1))
 
     assert r.analysis_wl.value() == pytest.approx(735.6)
     assert a.wavelength_spin.value() == pytest.approx(735.6)
+    assert not a.wl_auto.isChecked(), "the clicked band must be the one fitted"
 
 
 def test_typing_a_wavelength_in_tab4_does_not_move_tab5(window, tmp_path):
@@ -1270,7 +1279,7 @@ def test_typing_a_wavelength_in_tab4_does_not_move_tab5(window, tmp_path):
     _doping_dedoping_pair(window, tmp_path)
     r, a = window.results_tab, window.analysis_tab
     r.analysis_wl.setValue(612.0)
-    assert a.wavelength_spin.value() == 0.0
+    assert a.wl_auto.isChecked()
 
 
 def test_there_is_no_auto_start_checkbox(analysis_window):
@@ -1873,13 +1882,15 @@ def test_the_tolerance_does_not_reach_the_next_rung(measured_ladder):
     assert min(_plotted_x(tab)) == pytest.approx(0.399627)
 
 
-def test_dos_max_reads_sweep_max_and_zero_is_a_real_bound(window):
-    """The special text only shows at the box minimum. At 0 it read '0.000 V' while
-    meaning 'sweep max', and 0 V could not be chosen as an upper bound."""
+def test_dos_max_is_filled_from_the_sweep_and_a_typed_value_is_kept(window):
+    """Requested: the number, not "sweep max". Rounded UP so the vertex survives
+    the box's 1 mV resolution; refilled for a new CV unless the user typed one."""
+    import numpy as np
     r = window.results_tab
-    assert r.dos_vmax.text() == "sweep max"
-    r.dos_vmax.setValue(0.0)
-    assert r.dos_vmax.text() != "sweep max"
+    assert r._seed_dos_vmax(np.array([-0.5, 0.699498])) == pytest.approx(0.700)
+    assert r._seed_dos_vmax(np.array([-0.5, 0.8012])) == pytest.approx(0.802)
+    r.dos_vmax.setValue(0.0)                           # 0 V is a real choice now
+    assert r._seed_dos_vmax(np.array([-0.5, 0.9])) == pytest.approx(0.0)
 
 
 def test_the_wavelength_box_is_hidden_for_the_dos(window):
@@ -1897,3 +1908,29 @@ def test_the_wavelength_box_is_hidden_for_the_dos(window):
     assert r.analysis_wl.isHidden() and r.dos_vmax.isVisibleTo(r)
     r.view_combo.setCurrentIndex(r.view_combo.findData("kinetics"))
     assert not r.analysis_wl.isHidden() and r.dos_vmax.isHidden()
+
+
+def test_the_footnote_rewraps_when_the_canvas_narrows(canvas):
+    """Reported from the Win11 rig: wrapped at draw time, the footnote ran off both
+    edges once the window was narrowed afterwards."""
+    from matplotlib.backend_bases import ResizeEvent
+    canvas.fig.set_size_inches(12, 4)
+    canvas.plot_multi_xy([([0.0, 1.0], [1.0, 2.0], "a")], "x", "y",
+                         footnote=LONG_FOOTNOTE, footnote_warn=True)
+    wide = len(_footnote_texts(canvas.fig)[0].get_text().splitlines())
+    canvas.fig.set_size_inches(5, 4)
+    canvas.callbacks.process("resize_event", ResizeEvent("resize_event", canvas))
+    narrow = len(_footnote_texts(canvas.fig)[0].get_text().splitlines())
+    assert narrow > wide
+    canvas.fig.canvas.draw()
+    r = canvas.fig.canvas.get_renderer()
+    box = _footnote_texts(canvas.fig)[0].get_window_extent(r)
+    assert box.x0 >= 0 and box.x1 <= canvas.fig.get_window_extent(r).x1
+
+
+def test_the_footnote_uses_a_weight_every_platform_has(canvas):
+    """'semibold' does not exist in DejaVu Sans, and logged a findfont warning at
+    every launch on Windows."""
+    canvas.plot_multi_xy([([0.0, 1.0], [1.0, 2.0], "a")], "x", "y",
+                         footnote="x", footnote_warn=True)
+    assert _footnote_texts(canvas.fig)[0].get_fontweight() in ("bold", 700)

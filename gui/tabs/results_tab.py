@@ -19,7 +19,7 @@ from qtpy.QtWidgets import (
     QProgressDialog, QApplication, QCheckBox,
 )
 
-from spec_echem.analysis import (probe_wavelength, density_of_states,
+from spec_echem.analysis import (cv_probe_wavelength, probe_wavelength, density_of_states,
                                  scan_rate_from_sweep, fit_gaussian_dos,
                                  fit_exponential_tail, dos_equilibrium_check)
 from spec_echem.data import (
@@ -104,26 +104,31 @@ class ResultsTab(QWidget):
             "end of each step, against potential. A film that stops modulating has\n"
             "stopped being worth the rest of the ladder.")
         self.view_combo.currentIndexChanged.connect(self.on_segment_changed)
+        # The box always shows the wavelength in use, as a number. "auto" is a
+        # separate checkbox because it is a STATE, not a value: it resolves per
+        # segment (the polaron grows on doping and decays on dedoping), so the
+        # number changes as you step through a run while auto stays on.
         self.analysis_wl = QDoubleSpinBox()
         self.analysis_wl.setRange(0.0, 5000.0)
         self.analysis_wl.setDecimals(1)
         self.analysis_wl.setSuffix(" nm")
-        self.analysis_wl.setSpecialValueText("auto (polaron)")
         self.analysis_wl.setValue(0.0)
         self.analysis_wl.setToolTip(
-            "0 = the band whose absorbance GROWS most across the segment, which is\n"
-            "the polaron. Set a value to follow another band, e.g. the pi-pi* bleach.")
-        self.analysis_wl.valueChanged.connect(self.on_segment_changed)
+            "The wavelength followed. Type a value, or click the spectrum, to follow\n"
+            "a band of your choosing -- that turns auto off.")
+        self.analysis_wl.valueChanged.connect(self._on_wl_edited)
+        self.wl_auto = QCheckBox("auto")
+        self.wl_auto.setChecked(True)
+        self.wl_auto.setToolTip(
+            "Follow the polaron band for each segment: the band that GROWS on\n"
+            "doping, the one that DECAYS on dedoping, and on a CV the one that grows\n"
+            "most by the most-doped point of the sweep.")
+        self.wl_auto.toggled.connect(self.on_segment_changed)
         view_row.addWidget(self.view_combo)
         self.at_label = QLabel("at")
         view_row.addWidget(self.at_label)
         view_row.addWidget(self.analysis_wl)
-        # "auto (polaron)" said nothing about WHICH wavelength it picked, so the
-        # number only existed inside a plot legend the user might not be looking at.
-        self.auto_wl_label = QLabel("")
-        self.auto_wl_label.setStyleSheet("color: #555;")
-        self.auto_wl_label.setToolTip("The wavelength automatic selection resolved to.")
-        view_row.addWidget(self.auto_wl_label)
+        view_row.addWidget(self.wl_auto)
 
         # DOS-only controls. Outside the doping range the current is double-layer
         # charging, not the distribution being measured -- on one CV, 42% of every
@@ -146,11 +151,11 @@ class ResultsTab(QWidget):
         self.dos_vmax.setDecimals(3)
         self.dos_vmax.setSingleStep(0.05)
         self.dos_vmax.setSuffix(" V")
-        # The special text shows only at the box's MINIMUM, so "sweep max" has to
-        # live at -10 V. At 0 it read "0.000 V" while meaning the sweep maximum --
-        # and made 0 V itself impossible to choose as the upper bound.
-        self.dos_vmax.setSpecialValueText("sweep max")
-        self.dos_vmax.setValue(-10.0)
+        # Filled with the CV's own maximum when it is plotted -- the number, not a
+        # placeholder: "sweep max" said nothing a reader could check. Refilled for
+        # each new CV unless the user has changed it (see _seed_dos_vmax).
+        self.dos_vmax.setValue(0.7)
+        self._dos_vmax_seeded = None
         self.dos_energy_y = QCheckBox("energy on Y")
         self.dos_energy_y.setToolTip(
             "Energy vertical, DOS horizontal — the solid-state convention, for\n"
@@ -252,7 +257,7 @@ class ResultsTab(QWidget):
         # The wavelength does nothing to a DOS, which comes from the current alone.
         # Showing it there implied otherwise, and cost width the DOS controls need.
         for widget in (getattr(self, "at_label", None), getattr(self, "analysis_wl", None),
-                       getattr(self, "auto_wl_label", None)):
+                       getattr(self, "wl_auto", None)):
             if widget is not None:
                 widget.setVisible(view != "dos")
         if view == "kinetics":
@@ -303,37 +308,35 @@ class ResultsTab(QWidget):
         said "auto (polaron)".
         """
         wl = np.asarray(absorb_df.index.values, dtype=float)
-        requested = self.analysis_wl.value()
-        if requested > 0:
-            # Blank the readout here too, or it keeps showing the last automatic pick
-            # beside a box that now says something else.
-            self._show_resolved_wavelength(None)
+        if not self.wl_auto.isChecked():
+            requested = self.analysis_wl.value()
             return float(wl[int(np.abs(wl - requested).argmin())])
 
         seg = self.win.segments_by_label.get(label)
         if seg is not None and seg.data_type == DATA_TYPE_CV:
-            # A CV returns to where it started, so A(end) - A(start) is ~0 and the
-            # signed difference has no polaron to find -- it was handing back whatever
-            # drifted most, 521.9 nm on the 20250710 reference run. Pick a band by hand
-            # to watch one during a sweep.
-            self._show_resolved_wavelength(None)
-            return None
-
-        doping = seg is None or seg.data_type == DATA_TYPE_DOPING
-        resolved = probe_wavelength(absorb_df.values, wl, doping=doping)
-        self._show_resolved_wavelength(resolved)
+            # A CV returns to where it started, so end-minus-start sees only drift.
+            # Compared against the most-doped spectrum instead: 799 nm on the
+            # 20250710 reference run. This used to return nothing, leaving the
+            # kinetics view blank until a wavelength was typed.
+            resolved = cv_probe_wavelength(absorb_df.values, wl)
+        else:
+            doping = seg is None or seg.data_type == DATA_TYPE_DOPING
+            resolved = probe_wavelength(absorb_df.values, wl, doping=doping)
+        # Shown in the box itself, set in the one place that resolves it so the
+        # number cannot disagree with what was plotted. Signals blocked: this is
+        # the program writing, not the user choosing, so auto must stay on.
+        if resolved is not None:
+            self.analysis_wl.blockSignals(True)
+            self.analysis_wl.setValue(float(resolved))
+            self.analysis_wl.blockSignals(False)
         return resolved
 
-    def _show_resolved_wavelength(self, value):
-        """Put the automatically chosen wavelength beside the control.
-
-        Set here, in the one place that resolves it, so the readout cannot disagree
-        with what was plotted. Blank when the user typed a value -- the box shows it.
-        """
-        if value is None or self.analysis_wl.value() > 0:
-            self.auto_wl_label.setText("")
-        else:
-            self.auto_wl_label.setText(f"= {value:.1f} nm")
+    def _on_wl_edited(self, *_):
+        """The user typed a wavelength: that is a choice, so auto goes off."""
+        self.wl_auto.blockSignals(True)
+        self.wl_auto.setChecked(False)
+        self.wl_auto.blockSignals(False)
+        self.on_segment_changed()
 
     def _plot_kinetics(self, label, absorb_df):
         """Absorbance vs time at one wavelength, for this segment — did the step reach
@@ -465,8 +468,8 @@ class ResultsTab(QWidget):
                                        df[CURRENT_COL].to_numpy(float),
                                        rate, volume_cm3=volume,
                                        v_min=self.dos_vmin.value(),
-                                       v_max=(None if self.dos_vmax.value() <= -9.999
-                                              else self.dos_vmax.value()))
+                                       v_max=self._seed_dos_vmax(
+                                           df[POTENTIAL_COL].to_numpy(float)))
         except Exception as exc:  # noqa: BLE001 — a bad file must not kill the tab
             self.canvas.show_message(f"Could not compute a DOS:\n{exc}")
             return
@@ -551,7 +554,9 @@ class ResultsTab(QWidget):
             footnote += "\n" + provenance_warning
         self.canvas.plot_multi_xy(
             plotted,
-            "E = -eV  (eV)    more negative = more oxidizing",
+            # Two lines: with energy on Y this becomes the VERTICAL label, and on
+            # one line it was taller than the axes and clipped at both ends.
+            "E = −eV  (eV)\nmore negative = more oxidizing",
             units, logy=True, swap_axes=self.dos_energy_y.isChecked(),
             footnote=footnote, footnote_warn=bool(provenance_warning),
             title="Density of states  [under development]")
@@ -702,6 +707,23 @@ class ResultsTab(QWidget):
         if notes:
             msg += "\n\nNote:\n" + "\n".join(notes)
         QMessageBox.information(self, "Run loaded", msg)
+
+    def _seed_dos_vmax(self, potential):
+        """The DOS upper bound, filled from the sweep unless the user set it.
+
+        Rounded UP to the box's 1 mV: +0.699498 V shown as 0.699 would cut the
+        vertex off the curve. A value still equal to the last one filled in is taken
+        as untouched and refilled for the new CV; anything else was typed, and kept.
+        """
+        import math
+        current = round(self.dos_vmax.value(), 3)
+        if self._dos_vmax_seeded is None or current == self._dos_vmax_seeded:
+            top = math.ceil(float(np.nanmax(potential)) * 1000.0) / 1000.0
+            self.dos_vmax.blockSignals(True)
+            self.dos_vmax.setValue(top)
+            self.dos_vmax.blockSignals(False)
+            self._dos_vmax_seeded = round(self.dos_vmax.value(), 3)
+        return self.dos_vmax.value()
 
     def _release_loaded_run(self):
         """Drop every reference to the loaded run, so its memory can be reclaimed.

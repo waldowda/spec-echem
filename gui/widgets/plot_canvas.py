@@ -26,8 +26,13 @@ class MplCanvas(FigureCanvasQTAgg):
         self._xlabel = xlabel
         self._ylabel = ylabel
         self._live_line = None   # persistent Line2D for the incremental live trace
+        # (artist, raw text, warn) for the footnote, so a resize can rewrap it. The
+        # wrap depends on the canvas width, and one computed at draw time ran off
+        # both edges once the window was narrowed.
+        self._footnote = None
         self.ax = self.fig.add_subplot(111)
         self._decorate()
+        self.mpl_connect("resize_event", self._on_resize)
 
     def _set_layout(self, mode):
         """Select tight or constrained layout across matplotlib versions.
@@ -403,21 +408,38 @@ class MplCanvas(FigureCanvasQTAgg):
         overprints the x-axis label.
         """
         size = 8 if warn else 7
+        # "bold", not "semibold": Windows' default DejaVu has no semibold face, and
+        # matplotlib logged a findfont warning at every launch on the Win11 rig.
+        artist = self.fig.text(0.5, 0.0, "", ha="center", va="center",
+                               fontsize=size, color="#8a0016" if warn else "#555",
+                               fontweight="bold" if warn else "normal")
+        self._footnote = (artist, str(footnote), size)
+        self._layout_footnote()
+
+    def _layout_footnote(self):
+        """Wrap the footnote to the CURRENT width and reserve its band."""
+        artist, footnote, size = self._footnote
         width_in, height_in = self.fig.get_size_inches()
         # ~0.55 em per character for the default sans face; 0.96 leaves a margin.
         cols = max(30, int(width_in * 0.96 * 72 / (0.55 * size)))
         lines = []
-        for para in str(footnote).splitlines():
+        for para in footnote.splitlines():
             lines.extend(textwrap.wrap(para, cols) or [""])
         band = min(0.45, (len(lines) * size * 1.6 / 72) / height_in + 0.015)
+        artist.set_text("\n".join(lines))
+        artist.set_position((0.5, band / 2.0))
         self._set_layout("none")
         try:
             self.fig.tight_layout(rect=(0.0, band, 1.0, 1.0))
         except Exception:  # noqa: BLE001 — cosmetic, and version-dependent
             logger.debug("tight_layout(rect=) unsupported by this matplotlib")
-        self.fig.text(0.5, band / 2.0, "\n".join(lines), ha="center", va="center",
-                      fontsize=size, color="#8a0016" if warn else "#555",
-                      fontweight="semibold" if warn else "normal")
+
+    def _on_resize(self, _event):
+        # Only if the footnote still belongs to the figure on screen: any later plot
+        # clears the figure, which removes the artist but not this reference.
+        if self._footnote is not None and self._footnote[0] in self.fig.texts:
+            self._layout_footnote()
+            self.draw_idle()
 
     def show_message(self, text):
         """Clear the canvas and show a centered note (e.g. 'no echem data yet').

@@ -114,9 +114,12 @@ shows for the selected segment:
 | **Modulation (across the ladder)** | Absorbance at the **end** of each doping step, against potential. One point per rung, building during a run. This is the view to watch live: a film that stops modulating has stopped being worth the rest of the ladder. |
 | **Density of states (CV) — in dev.** | See Part 2. Requires a CV segment. |
 
-The **wavelength** box reads `auto (polaron)` by default, with the chosen value shown
-beside it. Type a number to override. Clicking the spectrum sets it, and carries it to the
-Analysis tab.
+The **wavelength** box always shows the wavelength in use, as a number. With **auto**
+ticked (the default) it follows the polaron band for each segment, so the number changes
+as you step through a run. On a CV it is the band that grows most by the most-doped point
+of the sweep. Typing a number or clicking the spectrum turns auto off; a click also
+carries the wavelength to the Analysis tab. The wavelength box is hidden in the density
+of states view, which is computed from the current alone.
 
 ## 5. Analysis
 
@@ -127,7 +130,7 @@ Fitting, after a run.
 | **Segment** | Which step to fit. Shows its potential. CVs are not offered — a sweep has no single transient. |
 | **Model** | `exp`, `biexp`, or `stretched`. The equation appears beside it. |
 | **Fit window** | First and last point used. `0` at either end means the segment's own start/end. |
-| **Wavelength** | `auto (polaron)` or typed. The resolved value is shown. |
+| **Wavelength** | The wavelength fitted, always as a number. **auto** follows the polaron band per segment; typing a value turns it off. |
 | **Fit segment / Fit all segments** | Fits absorbance, current and charge. |
 | **All fits…** | Every fit in the run, one row per segment per trace. Carries **every fitted parameter with its SD** — the columns follow whichever model was used — plus y(0), ⟨τ⟩, its 95% CI, the point count and the residual split. **Copy as CSV** / **Save CSV…**. |
 | **Show / log y** | Which traces appear on the ladder, and whether its y-axis is logarithmic. |
@@ -153,7 +156,7 @@ Computed at acquisition and stored; the analysis never recomputes it.
 
 ## Choosing the wavelength
 
-`auto (polaron)` uses the **signed** change in absorbance across the segment:
+**auto** uses the **signed** change in absorbance across the segment:
 
 ```
 ΔA = A(end) − A(start)
@@ -166,8 +169,13 @@ return π–π* while you believed you were watching the polaron.
 
 **Which one is the polaron depends on the segment.** On doping the polaron grows and π–π*
 bleaches; on **dedoping the polaron decays** while π–π* recovers. The program maps by
-segment type. A CV gets no automatic pick at all: it returns to where it started, so
-ΔA ≈ 0 and there is no growth to find.
+segment type.
+
+**A CV is compared against its most-doped point, not its end.** A CV returns to where it
+started, so A(end) − A(start) measures only drift. Instead the comparison is against the
+spectrum that differs most from the first — the doped vertex, found from the spectra
+themselves because the CV file has no time column to locate it by potential. On one real
+run that spectrum came 66 s into a 73 s sweep, and the growing band was 799 nm.
 
 Two guards, both learned from real data:
 
@@ -378,7 +386,7 @@ range* controls do exactly that: whatever bounds you set, oxidizing and reducing
 same ones, so the hysteresis between them means something. A window that clips one
 direction and not the other manufactures a difference that is not in the film.
 
-The default is **−0.5 V → sweep max**, which on a typical −0.5 to +0.7 V CV is the whole
+The default is **−0.5 V to the sweep's own maximum** (filled in as a number, rounded up to the next mV, and refilled for each new CV unless you have changed it), which on a typical −0.5 to +0.7 V CV is the whole
 sweep. The tempting alternative — starting at 0 V, below which a p-doping film is
 nominally neutral — turns out to be the asymmetric case in disguise. On one real CV it
 removed nothing from the oxidizing curve (its density at the 0 V edge is 0.3% of peak)

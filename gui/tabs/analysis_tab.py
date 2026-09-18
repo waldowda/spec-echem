@@ -153,20 +153,22 @@ class AnalysisTab(QWidget):
         self.wavelength_spin.setRange(0.0, 5000.0)
         self.wavelength_spin.setDecimals(1)
         self.wavelength_spin.setSuffix(" nm")
-        self.wavelength_spin.setSpecialValueText("auto (polaron)")
         self.wavelength_spin.setValue(0.0)
         self.wavelength_spin.setToolTip(
-            "0 = automatic: the wavelength whose absorbance GROWS most across the\n"
-            "segment, which is the polaron band. Set a value to probe elsewhere,\n"
-            "e.g. the pi-pi* bleach.")
-        self.wavelength_spin.valueChanged.connect(self._on_wavelength_changed)
+            "The wavelength fitted. Type a value to probe elsewhere, e.g. the\n"
+            "pi-pi* bleach -- that turns auto off.")
+        self.wavelength_spin.valueChanged.connect(self._on_wavelength_typed)
+        # A state, not a value: auto resolves per segment, so the number in the box
+        # changes as you step through a run while auto stays on.
+        self.wl_auto = QCheckBox("auto")
+        self.wl_auto.setChecked(True)
+        self.wl_auto.setToolTip(
+            "Follow the polaron band for each segment: the band that GROWS on\n"
+            "doping, the one that DECAYS on dedoping.")
+        self.wl_auto.toggled.connect(self._on_wavelength_changed)
         wl_row = QHBoxLayout()
         wl_row.addWidget(self.wavelength_spin)
-        # The plot title carries this, but it disappears the moment you select the
-        # current or charge trace -- and the control itself never said.
-        self.auto_wl_label = QLabel("")
-        self.auto_wl_label.setStyleSheet("color: #555;")
-        wl_row.addWidget(self.auto_wl_label)
+        wl_row.addWidget(self.wl_auto)
         wl_row.addStretch()
         form.addRow("Wavelength:", wl_row)
 
@@ -368,9 +370,8 @@ class AnalysisTab(QWidget):
         if df is None or df.empty:
             return None, None
         wl = np.asarray(df.index.values, dtype=float)
-        requested = self.wavelength_spin.value()
-        if requested > 0:
-            row = int(np.abs(wl - requested).argmin())
+        if not self.wl_auto.isChecked():
+            row = int(np.abs(wl - self.wavelength_spin.value()).argmin())
         else:
             probe = self._probe_wavelength(label, df.values, wl)
             if probe is None:
@@ -379,8 +380,11 @@ class AnalysisTab(QWidget):
         # Recorded whichever branch ran, and as the PIXEL actually used rather than
         # the value asked for: the ladder has to be able to say what it compared.
         self._wavelength = float(wl[row])
-        self.auto_wl_label.setText(
-            "" if requested > 0 else f"= {self._wavelength:.1f} nm")
+        if self.wl_auto.isChecked():
+            # The program writing the resolved value, not the user choosing one.
+            self.wavelength_spin.blockSignals(True)
+            self.wavelength_spin.setValue(self._wavelength)
+            self.wavelength_spin.blockSignals(False)
         return np.asarray(df.columns.values, dtype=float), df.values[row, :]
 
     def _probe_wavelength(self, label, absorbance, wl):
@@ -548,6 +552,13 @@ class AnalysisTab(QWidget):
                                     f"(1 SD)")
                 self.table.setItem(row, col, item)
 
+    def _on_wavelength_typed(self, *_):
+        """A typed (or Tab-4-clicked) wavelength is a choice, so auto goes off."""
+        self.wl_auto.blockSignals(True)
+        self.wl_auto.setChecked(False)
+        self.wl_auto.blockSignals(False)
+        self._on_wavelength_changed()
+
     def _on_wavelength_changed(self, *_):
         """A fit belongs to the wavelength it was made at, so moving the probe
         discards the absorbance fits rather than leaving a stale tau on screen
@@ -606,7 +617,7 @@ class AnalysisTab(QWidget):
             # `caution` is only for the case with no legend to carry it.
 
         title = f"{self._segment_display(label)} - {trace}"
-        if trace == "absorbance" and self.wavelength_spin.value() > 0:
+        if trace == "absorbance" and not self.wl_auto.isChecked():
             title += f" @ {self.wavelength_spin.value():.1f} nm"
         elif trace == "absorbance" and self._wavelength is not None:
             title += f" @ {self._wavelength:.1f} nm (auto)"
