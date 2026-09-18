@@ -2001,3 +2001,26 @@ def test_a_dedoping_segment_names_the_potential_it_was_doped_to(window, tmp_path
     # Doping is unchanged -- it names its own potential.
     assert window.segment_potential_text(window.segments_by_label["Doping 1"]) \
         == "+0.600 V"
+
+
+def test_the_results_tab_lists_segments_with_their_potentials(window, tmp_path):
+    """Requested: Tab 4's list showed bare 'Dedoping 4' while Tab 5 showed the
+    potential. The visible text changes; the key into win.results does not."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING, DATA_TYPE_DEDOPING
+    from spec_echem.experiment import Segment
+    window.run_folder = tmp_path / "run"
+    df = pd.DataFrame(np.zeros((2, 2)), index=[500.0, 900.0], columns=[0.0, 1.0])
+    window.results = {"Doping 1": df, "Dedoping 1": df}
+    window.segments_by_label = {
+        "Doping 1": Segment("Doping 1", DATA_TYPE_DOPING, 1, 2, 0.1, True),
+        "Dedoping 1": Segment("Dedoping 1", DATA_TYPE_DEDOPING, 1, 2, 0.1, True)}
+    window._potential_cache[(str(window.run_folder), DATA_TYPE_DOPING, 1)] = 0.6
+    window._potential_cache[(str(window.run_folder), DATA_TYPE_DEDOPING, 1)] = -0.5
+    r = window.results_tab
+    r.refresh_segments()
+    shown = [r.segment_combo.itemText(i) for i in range(r.segment_combo.count())]
+    assert "Dedoping 1  (-0.500 V after +0.600 V)" in shown
+    r.segment_combo.setCurrentIndex(r.segment_combo.findData("Dedoping 1"))
+    assert r._current_label() == "Dedoping 1"

@@ -46,7 +46,15 @@ def model_biexp(t, a, b1, tau1, b2, tau2):
 
 
 def model_stretched(t, a, b, tau, beta):
-    """A + B·exp(−(t/τ)^β)"""
+    """A + B·exp(−(t/τ)^β)
+
+    Only defined for t >= 0: a negative number to a fractional power is NaN, and
+    numpy says so with an "invalid value encountered in power" warning. Negative
+    t arises when a curve is evaluated over a whole segment whose fit window starts
+    later; FitResult.curve() masks those points to NaN anyway, so they are clipped
+    to 0 here rather than computed and then thrown away.
+    """
+    t = np.maximum(np.asarray(t, dtype=float), 0.0)
     return a + b * np.exp(-((t / tau) ** beta))
 
 

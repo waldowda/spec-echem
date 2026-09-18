@@ -846,3 +846,20 @@ def test_cv_probe_returns_none_when_nothing_changes():
     from spec_echem.analysis import cv_probe_wavelength
     wl = np.linspace(400.0, 1100.0, 50)
     assert cv_probe_wavelength(np.ones((50, 10)), wl) is None
+
+
+def test_a_stretched_curve_before_its_window_raises_no_warning():
+    """Reported from the Win11 rig: "invalid value encountered in power". Drawing
+    the fit over a whole segment evaluates it at t before the window, and a
+    negative number to a fractional power is NaN."""
+    import warnings
+    import numpy as np
+    from spec_echem.analysis import fit_transient
+    t = np.linspace(0.0, 20.0, 201)
+    y = 0.1 + 0.3 * np.exp(-(t / 4.0) ** 0.7)
+    fit = fit_transient(t, y, "stretched", 2.0, None)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        curve = fit.curve(t)
+    assert not [w for w in caught if "power" in str(w.message)]
+    assert np.all(np.isnan(curve[t < 2.0])), "no claim before the window"
