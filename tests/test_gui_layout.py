@@ -2213,7 +2213,7 @@ def test_linearity_labels_stay_inside_the_canvas(app, size):
     names = [t.get_text() for t in legend.get_texts()]
     assert names[0] == "data, fit", "data and fit share the first line"
     for want in ("ADC full scale", "max fill", "linear limit 0.1129 ms",
-                 "recommended 0.1066 ms"):
+                 "suggested 0.1066 ms"):
         assert any(want in n for n in names), (want, names)
     assert len(names) == 5
     assert not [t for t in canvas.ax.texts if t.get_text()], "no free text to collide"

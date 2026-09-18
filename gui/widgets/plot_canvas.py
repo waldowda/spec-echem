@@ -33,12 +33,13 @@ class _HandlerPairWithComma:
         data_h, fit_h = orig_handle
         w, h = handlebox.width, handlebox.height
         y = h / 2.0
+        # Spaced for the Win11 canvas, where at 0.30 the comma sat under the dot.
         dot = Line2D([w * 0.12], [y], linestyle="none", marker=data_h.get_marker(),
                      markersize=data_h.get_markersize(),
                      color=data_h.get_markerfacecolor())
-        comma = Text(w * 0.30, y * 0.35, ",", fontsize=fontsize, color="black",
+        comma = Text(w * 0.44, y * 0.35, ",", fontsize=fontsize * 1.2, color="black",
                      ha="center", va="baseline")
-        dash = Line2D([w * 0.45, w * 1.0], [y, y], linestyle=fit_h.get_linestyle(),
+        dash = Line2D([w * 0.62, w * 1.0], [y, y], linestyle=fit_h.get_linestyle(),
                       linewidth=fit_h.get_linewidth(), color=fit_h.get_color())
         for artist in (dot, comma, dash):
             handlebox.add_artist(artist)
@@ -220,7 +221,7 @@ class MplCanvas(FigureCanvasQTAgg):
         t_rec = result.get("t_recommended")
         if t_rec is not None:
             self.ax.axvline(t_rec, ls="-", lw=1.4, color="#ff7f0e", alpha=0.9,
-                            label=f"recommended {t_rec:.4g} ms")
+                            label=f"suggested {t_rec:.4g} ms")
 
         if show_full_scale:
             self.ax.set_ylim(0, full_scale * 1.08)
@@ -245,7 +246,7 @@ class MplCanvas(FigureCanvasQTAgg):
             # label, and narrower means less of the ramp behind it.
             labels = ["data, fit"] + list(by_label.keys())
         self.ax.legend(handles, labels, fontsize=7, loc="lower right",
-                       handlelength=4.0,
+                       handlelength=3.0,
                        handler_map={tuple: _HandlerPairWithComma()})
         self._decorate(title)
         self.draw_idle()
