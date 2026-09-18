@@ -41,6 +41,21 @@ RANGE_TOLERANCE_V = 0.010
 # nearly white.
 SELECTED_ROW_BG = "#2f6fb0"
 
+# The parameters the fit table shows for each model: the time constants and shape,
+# which are what distinguish the models. Amplitudes and the offset stay in the plot
+# legend and in All fits..., where there is room for them. There used to be one
+# fixed "beta" column, which read "-" for every model but stretched.
+TABLE_PARAMS = {
+    "exp": ("tau",),
+    "biexp": ("tau1", "tau2"),
+    "stretched": ("tau", "beta"),
+}
+MEAN_TAU_HEADER = "mean tau (s), 95% CI"
+
+
+def _param_header(name):
+    return name if name == "beta" else f"{name} (s)"
+
 
 def _ratio_ci95(ratio, numerator, denominator):
     """95% CI on a ratio of two INDEPENDENT fits: (s_r/r)^2 = (s_a/a)^2 + (s_c/c)^2.
@@ -207,7 +222,7 @@ class AnalysisTab(QWidget):
         top = QSplitter(Qt.Horizontal)
         top.addWidget(controls)
 
-        self.table = QTableWidget(len(TRACES), 3)
+        self.table = QTableWidget(len(TRACES), 1)
         # <tau> with its 95% interval is what the ladder PLOTS, so the number here
         # and the point there are the same thing. It read "SD (s)" once, which was a
         # 1-sigma SD on the RAW tau -- a different statistic on a different quantity
@@ -217,18 +232,9 @@ class AnalysisTab(QWidget):
         # prefactor with their SDs, and four columns of this width truncated to
         # "au (s" and "17....". Raw tau is also ambiguous for a biexp, where it means
         # only the slower of two. It survives on this cell's tooltip.
-        self.table.setHorizontalHeaderLabels(
-            ["trace", "beta", "mean tau (s), 95% CI"])
         self.table.verticalHeader().setVisible(False)
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Stretch)
-        # The trace names are fixed strings; stretching them equally with the number
-        # columns truncated "absorbance" to "absorba..." once the table shared the
-        # row with the controls.
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        # Sized to contents rather than stretched: the value carries its interval
-        # too ("2.603 +/- 0.074") and an even split truncated it to "2.603 +/-...".
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self._table_model = None
+        self._set_table_columns(self.model_combo.currentData())
         for row, trace in enumerate(TRACES):
             self.table.setItem(row, 0, QTableWidgetItem(trace))
         # The table is also the trace SELECTOR, and nothing said so: on Windows the
@@ -369,6 +375,9 @@ class AnalysisTab(QWidget):
         """Show the chosen model's equation next to the dropdown."""
         self.model_formula.setText(
             MODEL_FORMULAS.get(self.model_combo.currentData(), ""))
+        # Before the table exists (first call from _build) there is nothing to sync.
+        if hasattr(self, "table") and not self._fits.get(self._current_label()):
+            self._set_table_columns(self.model_combo.currentData())
 
     def _segment_display(self, label):
         """'Doping 5  (+0.700 V)'. The ladder plots against potential, so the segment
@@ -579,35 +588,70 @@ class AnalysisTab(QWidget):
 
     # --- display ---    # --- display ---------------------------------------------------------
 
+    def _set_table_columns(self, model):
+        """Columns for this model: trace, its parameters, then <tau> with its CI."""
+        if model == self._table_model:
+            return
+        self._table_model = model
+        params = TABLE_PARAMS.get(model, ())
+        self.table.setColumnCount(len(params) + 2)
+        self.table.setHorizontalHeaderLabels(
+            ["trace"] + [_param_header(p) for p in params] + [MEAN_TAU_HEADER])
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Stretch)
+        # The trace names are fixed strings; stretching them equally with the number
+        # columns truncated "absorbance" to "absorba..." once the table shared the
+        # row with the controls.
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        # Sized to contents rather than stretched: the value carries its interval
+        # too ("2.603 +/- 0.074") and an even split truncated it to "2.603 +/-...".
+        header.setSectionResizeMode(len(params) + 1, QHeaderView.ResizeToContents)
+
     def _show_fits(self, fits):
+        # Columns follow the model the fits were MADE with, which can differ from the
+        # dropdown until you refit -- otherwise the headers would name parameters the
+        # numbers underneath do not have. With no fits, the dropdown decides.
+        made = [f.model for f in (fits or {}).values() if f is not None]
+        self._set_table_columns(made[0] if made else self.model_combo.currentData())
+        params = TABLE_PARAMS.get(self._table_model, ())
         for row, trace in enumerate(TRACES):
             fit = (fits or {}).get(trace)
+            tips = [""] * (len(params) + 1)
             if fit is None:
-                cells = ["", ""]
+                cells = [""] * (len(params) + 1)
             elif fit.did_not_converge:
-                cells = ["", "no fit"]          # nothing to show, not a judgement
-            elif not fit.ok:
-                # FLAGGED, not hidden. The fit converged, so it has numbers worth
-                # seeing -- Requested: "since you didn't share the results the scientist
-                # doesn't have information to make informed decisions." The "!" and
-                # the tooltip carry the concern; the reason is on the plot in full.
-                ci = fit.mean_tau_ci95
-                cells = [f"{fit.beta:.3g}" if fit.beta is not None else "-",
-                         f"? {fit.mean_tau:.4g}"
-                         + (f" +/- {ci:.2g}" if ci is not None else "")]
+                # nothing to show, not a judgement
+                cells = [""] * len(params) + ["no fit"]
             else:
+                names = MODELS[fit.model][1]
+                values = dict(zip(names, fit.params))
+                sds = dict(zip(names, fit.sd)) if fit.sd is not None else {}
+                cells = []
+                for i, name in enumerate(params):
+                    v = values.get(name)
+                    cells.append("" if v is None else f"{v:.4g}")
+                    if name in sds:
+                        tips[i] = f"{name} = {v:.4g} +/- {sds[name]:.2g} (1 SD)"
                 ci = fit.mean_tau_ci95
-                mean = fit.mean_tau
-                cells = [f"{fit.beta:.3g}" if fit.beta is not None else "-",
-                         f"{mean:.4g} +/- {ci:.2g}" if ci is not None
-                         else f"{mean:.4g} (CI unavailable)"]
+                mean = f"{fit.mean_tau:.4g}"
+                if not fit.ok:
+                    # FLAGGED, not hidden. The fit converged, so it has numbers worth
+                    # seeing -- Requested: "since you didn't share the results the
+                    # scientist doesn't have information to make informed decisions."
+                    # The "?" and the tooltip carry the concern.
+                    cells.append(f"? {mean}" + (f" +/- {ci:.2g}" if ci is not None
+                                                 else ""))
+                else:
+                    cells.append(f"{mean} +/- {ci:.2g}" if ci is not None
+                                 else f"{mean} (CI unavailable)")
+                    tips[-1] = (f"mean relaxation time, 95% CI. Raw tau = "
+                                f"{fit.tau:.4g} +/- {fit.tau_sd:.2g} s (1 SD)")
             for col, text in enumerate(cells, start=1):
                 item = QTableWidgetItem(text)
                 if fit is not None and not fit.ok:
                     item.setToolTip(f"NEEDS REVIEW: {fit.reason}")
-                elif fit is not None and fit.ok and col == 2:
-                    item.setToolTip(f"raw tau = {fit.tau:.4g} +/- {fit.tau_sd:.2g} s "
-                                    f"(1 SD)")
+                elif tips[col - 1]:
+                    item.setToolTip(tips[col - 1])
                 self.table.setItem(row, col, item)
 
     def _on_wavelength_typed(self, *_):

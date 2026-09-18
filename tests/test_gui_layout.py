@@ -2062,3 +2062,47 @@ def test_the_cv_is_labeled_with_the_range_it_actually_swept(window, tmp_path):
     assert window.segment_potential_text(seg) == "-0.499 to +0.699 V"
     # ...and the step potentials are unaffected by the CV sharing the cache.
     assert window.segment_potential(seg) is None
+
+
+def _table_headers(tab):
+    return [tab.table.horizontalHeaderItem(c).text()
+            for c in range(tab.table.columnCount())]
+
+
+@pytest.mark.parametrize("model, middle", [
+    ("exp", ["tau (s)"]),
+    ("biexp", ["tau1 (s)", "tau2 (s)"]),
+    ("stretched", ["tau (s)", "beta"]),
+])
+def test_the_fit_table_columns_follow_the_model(analysis_window, model, middle):
+    """Reported from the Win11 rig: the table always had a 'beta' column, which
+    read '-' for every model but stretched."""
+    tab = analysis_window.analysis_tab
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData(model))
+    tab.on_fit_segment()
+    headers = _table_headers(tab)
+    assert headers == ["trace"] + middle + ["mean tau (s), 95% CI"]
+    fit = tab._fits["Doping 0"]["absorbance"]
+    names = dict(zip(__import__("spec_echem.analysis", fromlist=["MODELS"])
+                     .MODELS[model][1], fit.params))
+    for col, header in enumerate(middle, start=1):
+        name = header.replace(" (s)", "")
+        assert tab.table.item(0, col).text() == f"{names[name]:.4g}"
+        assert "1 SD" in tab.table.item(0, col).toolTip()
+
+
+def test_switching_model_before_refitting_keeps_the_columns_true(analysis_window):
+    """The headers must name what the numbers ARE. Fits made with exp keep exp's
+    columns until refitted, even with stretched selected in the dropdown."""
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()                                   # exp
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("stretched"))
+    assert "beta" not in _table_headers(tab)
+    tab.on_fit_segment()
+    assert "beta" in _table_headers(tab)
+
+
+def test_with_nothing_fitted_the_columns_follow_the_dropdown(analysis_window):
+    tab = analysis_window.analysis_tab
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("biexp"))
+    assert _table_headers(tab)[1:3] == ["tau1 (s)", "tau2 (s)"]
