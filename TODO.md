@@ -213,6 +213,15 @@ Tab 5 works and is validated on real data (see STATUS.md). What is left:
 
 ## Release gate for v0.3.0 — one bench run before merging `gui-dev` → `main` (the user, 2026-07-27)
 
+**PASSED 2026-09-18** on the Gamry Reference 600 rig, build `0.2.0+215.gc0ddfad`: 8 segments,
+`Run finished: done`, no false potentiostat-lost stop. Every cadence mean is exactly
+**100.0 ms**, not the July 101–102 — expected, because spectra moved onto an absolute
+grid on 2026-09-04 (`cd69030`), after this baseline was taken. The grid removes the drift
+(July's 301 spectra spanned ~30.5 s against 30.0 s of electrochemistry) at the cost of
+wider per-interval jitter (3.3–8.9 ms sd; min as low as 23.6 ms is a catch-up after a late
+spectrum). The table below is the pre-grid baseline — kept for the record, no longer the
+comparison. The same run exposed the ladder overshoot fixed in `0828fd3`.
+
 Almost everything since the v0.2.0 tag is additive (logging, provenance, docs). **One thing is not:**
 the lost-potentiostat handling can now *stop a run*, and it has only ever executed against fakes. A
 false positive would abort a good experiment mid-sample — worse than the bug it fixes. So the gate is
