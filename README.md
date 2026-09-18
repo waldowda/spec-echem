@@ -248,7 +248,7 @@ When you start a run in the GUI, files are written to **`‹Save location›\‹
 
 ### Logs — two of them, for two different questions
 
-**Inside each run folder:** `‹Data folder name›.log`, the record of that one run. It travels with the
+**Inside each run folder:** `‹Data folder name›_log.log`, the record of that one run. It travels with the
 data, so a folder you hand to a collaborator explains how it was produced — including which
 instruments, by serial number, and which build of this code.
 

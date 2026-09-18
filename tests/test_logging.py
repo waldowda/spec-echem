@@ -33,7 +33,8 @@ def test_log_file_created_with_content(tmp_path):
     logger.debug("debug detail")
     close_run_logging()
 
-    assert path == folder / "20250715_Test.log"
+    # "_log" so it reads as the log with Windows hiding extensions
+    assert path == folder / "20250715_Test_log.log"
     assert path.exists()
     text = path.read_text()
     assert "info message" in text

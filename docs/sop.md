@@ -392,7 +392,7 @@ the Gamry step files and the spectra files to live together.
 | `spectra(0).txt`, `spectra(1).txt`, … | Doping cycles |
 | `dedopingspectra(0).txt`, `dedopingspectra(1).txt`, … | Dedoping cycles |
 | `[data folder]_metadata.json` | Build id, instruments, sample, notes, and every setting used |
-| `[data folder].log` | Full run log (build id on the first line) |
+| `[data folder]_log.log` | Full run log (build id on the first line) |
 
 One more log lives **outside** the run folder, in `‹Save location›\logs\spec-echem.log` — see
 §4.4. Use it when something went wrong *before* you pressed Start.
