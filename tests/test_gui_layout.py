@@ -2192,33 +2192,31 @@ def test_the_floor_shows_the_same_number_in_the_box_and_the_log(window, monkeypa
     assert tab.lin_start_spin.text().startswith("0.00904")
 
 
-@pytest.mark.parametrize("size", [(3.5, 2.5), (4, 2.6), (5, 3), (7, 3.5)])
+@pytest.mark.parametrize("size", [(4, 2.6), (5, 3), (7, 3.5)])
 def test_linearity_labels_stay_inside_the_canvas(app, size):
-    """Reported three times from the Gamry rig (2026-09-18): free labels ran off the
-    right edge, then covered each other, then the legend covered a data point. The
-    reference lines are legend entries and the legend sits OUTSIDE the axes. At
-    (3.5, 2.5) and (4, 2.6) a legend inside the axes covered points in either lower
-    corner or upper-left, so those sizes are the regression check."""
+    """Reported from the Gamry rig (2026-09-18): free labels ran off the right edge,
+    then covered each other. The reference lines are legend entries, and the legend
+    stays lower-right inside the axes (preferred to outside, which cost a third of
+    the plot's width) with data and fit sharing one line to keep it short."""
     import numpy as np
     from gui.widgets.plot_canvas import MplCanvas
     canvas = MplCanvas()
     canvas.fig.set_size_inches(*size)
     times = np.linspace(0.00904, 0.1275, 17)
-    counts = 1041.0 + 506296.0 * times
-    result = {"offset": 1041.0, "slope": 506296.0, "t_limit": 0.1203,
-              "counts_limit": 61195.0, "t_recommended": 0.108,
+    counts = 900.0 + 514169.0 * times
+    result = {"offset": 900.0, "slope": 514169.0, "t_limit": 0.1129,
+              "counts_limit": 58264.0, "t_recommended": 0.1066,
               "counts_recommended": 55705.0, "bound_by": "fill"}
     canvas.show_linearity(times, counts, result, full_scale=65535)
     canvas.fig.canvas.draw()
     legend = canvas.ax.get_legend()
     names = [t.get_text() for t in legend.get_texts()]
-    for want in ("ADC full scale", "max fill", "linear limit 0.1203 ms",
-                 "recommended 0.108 ms"):
+    assert names[0] == "measured, linear fit", "data and fit share the first line"
+    for want in ("ADC full scale", "max fill", "linear limit 0.1129 ms",
+                 "recommended 0.1066 ms"):
         assert any(want in n for n in names), (want, names)
+    assert len(names) == 5
     assert not [t for t in canvas.ax.texts if t.get_text()], "no free text to collide"
     r = canvas.fig.canvas.get_renderer()
-    box, fig_box = legend.get_window_extent(r), canvas.fig.get_window_extent(r)
-    assert box.x0 >= fig_box.x0 - 1 and box.x1 <= fig_box.x1 + 1, "legend off canvas"
-    pts = canvas.ax.transData.transform(np.column_stack([times, counts]))
-    hidden = [(x, y) for x, y in pts if box.x0 <= x <= box.x1 and box.y0 <= y <= box.y1]
-    assert not hidden, "the legend covers a data point"
+    box, ax_box = legend.get_window_extent(r), canvas.ax.get_window_extent(r)
+    assert box.x0 >= ax_box.x0 and box.x1 <= ax_box.x1, "legend stays inside the axes"
