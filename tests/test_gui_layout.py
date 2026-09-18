@@ -2120,7 +2120,56 @@ def test_hovering_a_biexp_time_constant_shows_its_prefactor(analysis_window):
     values = dict(zip(MODELS["biexp"][1], fit.params))
     tip1 = tab.table.item(1, 1).toolTip()
     tip2 = tab.table.item(1, 2).toolTip()
-    assert f"B1 = {values['B1']:.4g}" in tip1 and "share of amplitude" in tip1
-    assert f"B2 = {values['B2']:.4g}" in tip2
+    assert f"amplitude B1 = {values['B1']:.4g}" in tip1
+    assert "share of amplitude" in tip1
+    assert f"amplitude B2 = {values['B2']:.4g}" in tip2
     share1 = abs(values["B1"]) / (abs(values["B1"]) + abs(values["B2"]))
     assert f"{share1:.0%}" in tip1
+
+
+
+def test_each_row_tooltip_carries_that_rows_own_numbers(window, tmp_path):
+    """Reported from the Win11 rig: hovering the charge row showed the current's
+    tau. The items were right; Qt's default tooltip was stale. This pins the item
+    side; the per-cell rectangle in eventFilter handles the display side."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING, write_echem_file, EchemData
+    from spec_echem.experiment import Segment
+    wl = np.linspace(400.0, 1100.0, 120)
+    t = np.linspace(0.0, 60.0, 600)
+    a = 0.02 + np.outer(np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2),
+                        0.5 * (1 - np.exp(-t / 3.0)))
+    window.results = {"Doping 0": pd.DataFrame(a, index=wl, columns=t)}
+    window.segments_by_label = {
+        "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 600, 0.1, True)}
+    current = 3e-4 * np.exp(-t / 0.5) + 1e-5 * np.exp(-t / 15.0)
+    write_echem_file(EchemData(time=t, potential=np.full(600, 0.3), current=current),
+                     DATA_TYPE_DOPING, 0, tmp_path, "run")
+    window.run_folder = tmp_path / "run"
+    tab = window.analysis_tab
+    tab.refresh_segments()
+    tab.on_fit_segment()
+    for row, trace in enumerate(("absorbance", "current", "charge")):
+        fit = tab._fits["Doping 0"][trace]
+        assert f"tau = {fit.tau:.4g}" in tab.table.item(row, 1).toolTip(), trace
+    # current and charge differ here, so a row mix-up could not pass
+    assert tab.table.item(1, 1).toolTip() != tab.table.item(2, 1).toolTip()
+
+
+def test_the_table_tooltip_is_tied_to_its_cell(analysis_window, monkeypatch):
+    """The display side: the tooltip is shown with the cell's rectangle, so Qt
+    hides it as soon as the pointer leaves that cell."""
+    from qtpy.QtCore import QEvent, QPoint
+    from qtpy.QtGui import QHelpEvent
+    from qtpy.QtWidgets import QToolTip
+    tab = analysis_window.analysis_tab
+    tab.on_fit_segment()
+    shown = []
+    monkeypatch.setattr(QToolTip, "showText",
+                        lambda pos, text, w=None, rect=None, *a: shown.append((text, rect)))
+    rect = tab.table.visualRect(tab.table.model().index(2, 1))
+    ev = QHelpEvent(QEvent.ToolTip, rect.center(), QPoint(0, 0))
+    tab.eventFilter(tab.table.viewport(), ev)
+    assert shown and shown[0][0] == tab.table.item(2, 1).toolTip()
+    assert shown[0][1] == rect

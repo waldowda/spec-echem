@@ -16,9 +16,9 @@ from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, QComboBox,
     QDoubleSpinBox, QPushButton, QCheckBox, QTableWidget, QTableWidgetItem,
     QSplitter, QMessageBox, QHeaderView, QDialog, QApplication,
-    QFileDialog, QAbstractItemView,
+    QFileDialog, QAbstractItemView, QToolTip,
 )
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QEvent
 from qtpy.QtGui import QColor, QPalette
 
 from spec_echem.analysis import (
@@ -61,12 +61,17 @@ PAIRED_AMPLITUDE = {"tau": "B", "tau1": "B1", "tau2": "B2"}
 def _param_tooltip(name, values, sds):
     """'tau1 = 0.327 +/- 0.0041 s (1 SD)' plus its amplitude and, for a biexp, the
     component's share of the total -- the |B| weighting <tau> itself uses."""
-    unit = "" if name == "beta" else " s"
-    lines = [f"{name} = {values[name]:.4g} +/- {sds[name]:.2g}{unit} (1 SD)"]
+    # Named in words as well as symbols: "B = ..." on its own was read as beta.
+    if name == "beta":
+        lines = [f"stretch exponent beta = {values[name]:.4g} +/- {sds[name]:.2g} "
+                 f"(1 SD)"]
+    else:
+        lines = [f"time constant {name} = {values[name]:.4g} +/- {sds[name]:.2g} s "
+                 f"(1 SD)"]
     amp = PAIRED_AMPLITUDE.get(name)
     if amp in values:
-        lines.append(f"{amp} = {values[amp]:.4g} +/- {sds.get(amp, float('nan')):.2g}"
-                     f"  (amplitude of this component)")
+        lines.append(f"amplitude {amp} = {values[amp]:.4g} "
+                     f"+/- {sds.get(amp, float('nan')):.2g}")
         if "B1" in values and "B2" in values:
             total = abs(values["B1"]) + abs(values["B2"])
             if total > 0:
@@ -276,6 +281,11 @@ class AnalysisTab(QWidget):
             f"QTableWidget::item:selected {{ background: {SELECTED_ROW_BG};"
             f" color: white; }}")
         self.table.viewport().setCursor(Qt.PointingHandCursor)
+        # Tooltips are shown here rather than by Qt's default: that one does not
+        # hide when the pointer moves to another cell, so one row's numbers stayed
+        # on screen over the next -- seen on the Win11 rig as the current's tau on
+        # the charge row. Passing the cell's rectangle makes Qt drop it on leaving.
+        self.table.viewport().installEventFilter(self)
         table_box = QWidget()
         table_layout = QVBoxLayout(table_box)
         table_layout.setContentsMargins(0, 0, 0, 0)
@@ -609,6 +619,22 @@ class AnalysisTab(QWidget):
         AllFitsDialog(rows, self).exec_()
 
     # --- display ---    # --- display ---------------------------------------------------------
+
+    def eventFilter(self, obj, event):
+        """Per-cell tooltips on the fit table -- see where this is installed."""
+        if (event.type() == QEvent.ToolTip and hasattr(self, "table")
+                and obj is self.table.viewport()):
+            index = self.table.indexAt(event.pos())
+            item = self.table.item(index.row(), index.column()) if index.isValid() \
+                else None
+            text = item.toolTip() if item is not None else ""
+            if text:
+                QToolTip.showText(event.globalPos(), text, obj,
+                                  self.table.visualRect(index))
+            else:
+                QToolTip.hideText()
+            return True
+        return super().eventFilter(obj, event)
 
     def _set_table_columns(self, model):
         """Columns for this model: trace, its parameters, then <tau> with its CI."""
