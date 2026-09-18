@@ -112,7 +112,7 @@ shows for the selected segment:
 | **Spectra (all times)** | Every spectrum in the segment, colored by elapsed time. Click the plot to set the analysis wavelength — a red line marks it. |
 | **Kinetics (one wavelength)** | Absorbance against time at one wavelength. |
 | **Modulation (across the ladder)** | Absorbance at the **end** of each doping step, against potential. One point per rung, building during a run. This is the view to watch live: a film that stops modulating has stopped being worth the rest of the ladder. |
-| **Density of states (CV only)** | See Part 2. Requires a CV segment. |
+| **Density of states (CV only) — under development** | See Part 2. Requires a CV segment. |
 
 The **wavelength** box reads `auto (polaron)` by default, with the chosen value shown
 beside it. Type a number to override. Clicking the spectrum sets it, and carries it to the
@@ -319,7 +319,13 @@ A ladder with rungs removed is a different figure from one without, and the foot
 what lets a reader tell. If a rung below threshold fits badly, that is itself a result
 about where the film starts switching — worth noting before you hide it.
 
-## Density of states
+## Density of states — under development
+
+> **Status: under development.** The calculation is implemented and its arithmetic has
+> been checked against the raw CV, but it has **not yet been validated on data known to
+> be at quasi-equilibrium** — the scan-rate series that would establish that has not
+> been run — and it does **not subtract the capacitive baseline**. Treat σ and E₀ as
+> exploratory. The limitations are listed at the end of this section.
 
 For a sweep slow enough to be quasi-equilibrium, the current *is* the differential charge:
 

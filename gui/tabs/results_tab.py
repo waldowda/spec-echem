@@ -93,7 +93,10 @@ class ResultsTab(QWidget):
         self.view_combo.addItem("Modulation (across the ladder)", "modulation")
         # Requested: another option here rather than a new tab -- a DOS is another view of
         # the CV that is already selected, so it needs no new navigation.
-        self.view_combo.addItem("Density of states (CV only)", "dos")
+        # Under development: the method is sound but not yet validated on a
+        # quasi-equilibrium CV (scan-rate series pending), and has no capacitive
+        # baseline subtraction. The label says so wherever the plot can be seen.
+        self.view_combo.addItem("Density of states (CV only) — under development", "dos")
         self.view_combo.setToolTip(
             "Modulation is the one to watch while a run is going: absorbance at the\n"
             "end of each step, against potential. A film that stops modulating has\n"
@@ -538,7 +541,7 @@ class ResultsTab(QWidget):
             "E = -eV  (eV)    more negative = more oxidizing",
             units, logy=True, swap_axes=self.dos_energy_y.isChecked(),
             footnote=footnote, footnote_warn=bool(provenance_warning),
-            title="Density of states")
+            title="Density of states  [under development]")
 
     def _plot_echem(self, label):
         """Show the segment's electrochemistry (I-vs-E for CV, I-vs-t for chrono).
