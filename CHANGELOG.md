@@ -42,6 +42,16 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 - **User manual**, `docs/manual.md`: the tabs, plus the mathematics behind the fitting
   models, ⟨τ⟩, error propagation and the density of states.
 
+### Fixed — run safety
+
+- **The doping ladder could pass its end potential.** The step count was rounded to the
+  nearest integer, so start 0.05 V, step 0.1 V, end 0.2 V ran three steps and held the film
+  at **+0.25 V**, 50 mV past the limit the user set (found on the bench, 2026-09-18). The
+  count now rounds down, so no step exceeds the end; a ladder that lands exactly on its end
+  still includes it.
+- **The run log now records each step's potential** as it starts, from the same function
+  the driver applies it with. In external mode it says the sequence sets it.
+
 ### Fixed — analysis
 
 - Loading a second run on the 32-bit build no longer runs out of memory: peak memory
