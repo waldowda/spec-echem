@@ -2211,7 +2211,7 @@ def test_linearity_labels_stay_inside_the_canvas(app, size):
     canvas.fig.canvas.draw()
     legend = canvas.ax.get_legend()
     names = [t.get_text() for t in legend.get_texts()]
-    assert names[0] == "measured, linear fit", "data and fit share the first line"
+    assert names[0] == "data, fit", "data and fit share the first line"
     for want in ("ADC full scale", "max fill", "linear limit 0.1129 ms",
                  "recommended 0.1066 ms"):
         assert any(want in n for n in names), (want, names)

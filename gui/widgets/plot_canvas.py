@@ -216,7 +216,9 @@ class MplCanvas(FigureCanvasQTAgg):
         pair = [by_label.pop(k) for k in ("measured", "linear fit") if k in by_label]
         if len(pair) == 2:
             handles = [tuple(pair)] + list(by_label.values())
-            labels = ["measured, linear fit"] + list(by_label.keys())
+            # Short on purpose (requested): the legend is as wide as its longest
+            # label, and narrower means less of the ramp behind it.
+            labels = ["data, fit"] + list(by_label.keys())
         self.ax.legend(handles, labels, fontsize=7, loc="lower right",
                        handler_map={tuple: HandlerTuple(ndivide=None)})
         self._decorate(title)
