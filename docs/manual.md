@@ -112,7 +112,7 @@ shows for the selected segment:
 | **Spectra (all times)** | Every spectrum in the segment, colored by elapsed time. Click the plot to set the analysis wavelength — a red line marks it. |
 | **Kinetics (one wavelength)** | Absorbance against time at one wavelength. |
 | **Modulation (across the ladder)** | Absorbance at the **end** of each doping step, against potential. One point per rung, building during a run. This is the view to watch live: a film that stops modulating has stopped being worth the rest of the ladder. |
-| **Density of states (CV only) — under development** | See Part 2. Requires a CV segment. |
+| **Density of states (CV) — in dev.** | See Part 2. Requires a CV segment. |
 
 The **wavelength** box reads `auto (polaron)` by default, with the chosen value shown
 beside it. Type a number to override. Clicking the spectrum sets it, and carries it to the
