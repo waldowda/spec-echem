@@ -18,6 +18,33 @@ from spec_echem.gamry_data import POTENTIAL_COL, CURRENT_COL
 logger = logging.getLogger(__name__)
 
 
+
+class _HandlerPairWithComma:
+    """Legend handle for the data/fit pair: "● , - -".
+
+    Requested: the dot and the dash sat against each other and read as one symbol.
+    matplotlib's HandlerTuple can only space them, so this draws the marker, a
+    comma, then a short dashed segment, echoing the label "data, fit".
+    """
+
+    def legend_artist(self, legend, orig_handle, fontsize, handlebox):
+        from matplotlib.lines import Line2D
+        from matplotlib.text import Text
+        data_h, fit_h = orig_handle
+        w, h = handlebox.width, handlebox.height
+        y = h / 2.0
+        # Spaced for the Win11 canvas, where at 0.30 the comma sat under the dot.
+        dot = Line2D([w * 0.12], [y], linestyle="none", marker=data_h.get_marker(),
+                     markersize=data_h.get_markersize(),
+                     color=data_h.get_markerfacecolor())
+        comma = Text(w * 0.44, y * 0.35, ",", fontsize=fontsize * 1.2, color="black",
+                     ha="center", va="baseline")
+        dash = Line2D([w * 0.62, w * 1.0], [y, y], linestyle=fit_h.get_linestyle(),
+                      linewidth=fit_h.get_linewidth(), color=fit_h.get_color())
+        for artist in (dot, comma, dash):
+            handlebox.add_artist(artist)
+        return dash
+
 class MplCanvas(FigureCanvasQTAgg):
     def __init__(self, parent=None, xlabel="Wavelength (nm)", ylabel="Intensity (counts)"):
         self.fig = Figure(figsize=(5, 3), tight_layout=True)
@@ -173,37 +200,28 @@ class MplCanvas(FigureCanvasQTAgg):
         # nowhere close, but SAY so rather than silently omitting a reference line.
         show_full_scale = data_top >= 0.5 * full_scale
 
+        # Every reference line is named in the LEGEND, not by free text on the axes.
+        # Free labels collided at one canvas size or another -- the limit ran off the
+        # right edge, the ADC line struck through "recommended", then the stacked
+        # corner labels covered "ADC full scale" on the Win11 rig's narrower canvas.
+        # The legend lays itself out, lower-right.
         if show_full_scale:
-            self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888")
-            self.ax.annotate("ADC full scale", xy=(times[0], full_scale), xytext=(2, -10),
-                             textcoords="offset points", fontsize=7, color="#888",
-                             clip_on=True)
+            self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888",
+                            label=f"ADC full scale ({full_scale:g})")
 
         # The fill cap usually decides the working point (the detector stays linear
-        # nearly to the clip), so show it — otherwise the recommendation looks arbitrary.
+        # nearly to the clip), so show it -- otherwise the recommendation looks arbitrary.
         if counts_rec is not None and result.get("bound_by") == "fill":
-            self.ax.axhline(counts_rec, ls=":", lw=1.0, color="#ff7f0e")
-            self.ax.annotate(f"max fill ({counts_rec / full_scale * 100:.0f}% FS)",
-                             xy=(times[0], counts_rec), xytext=(2, -10),
-                             textcoords="offset points", fontsize=7, color="#ff7f0e",
-                             clip_on=True)
+            self.ax.axhline(counts_rec, ls=":", lw=1.0, color="#ff7f0e",
+                            label=f"max fill ({counts_rec / full_scale * 100:.0f}% FS)")
 
         if result.get("t_limit") is not None:
-            self.ax.axvline(result["t_limit"], ls="-", lw=1.0, color="#d62728", alpha=0.7)
-            self.ax.annotate(f"limit {result['t_limit']:.4g} ms",
-                             xy=(result["t_limit"], result["counts_limit"]),
-                             xytext=(4, 6), textcoords="offset points",
-                             fontsize=8, color="#d62728", clip_on=True)
+            self.ax.axvline(result["t_limit"], ls="-", lw=1.0, color="#d62728",
+                            alpha=0.7, label=f"linear limit {result['t_limit']:.4g} ms")
         t_rec = result.get("t_recommended")
         if t_rec is not None:
-            self.ax.axvline(t_rec, ls="-", lw=1.4, color="#ff7f0e", alpha=0.9)
-            # Anchored in the axes corner, not at the (t_rec, counts[0]) data point:
-            # a recommendation near the left edge used to push right-aligned text off
-            # the canvas. Legend is lower-right, so the upper-left corner is free.
-            self.ax.annotate(f"recommended {t_rec:.4g} ms",
-                             xy=(0.03, 0.97), xycoords="axes fraction",
-                             fontsize=8, color="#ff7f0e", ha="left", va="top",
-                             clip_on=True)
+            self.ax.axvline(t_rec, ls="-", lw=1.4, color="#ff7f0e", alpha=0.9,
+                            label=f"suggested {t_rec:.4g} ms")
 
         if show_full_scale:
             self.ax.set_ylim(0, full_scale * 1.08)
@@ -215,7 +233,21 @@ class MplCanvas(FigureCanvasQTAgg):
                 xy=(0.03, 0.03), xycoords="axes fraction",
                 fontsize=7, color="#888", ha="left", va="bottom", clip_on=True)
         # Lower right: upper-left collides with the ADC full-scale label.
-        self.ax.legend(fontsize=7, loc="lower right")
+        # Lower-right, inside the axes -- the user preferred it to a legend outside,
+        # which cost the plot a third of its width. To keep it short, the data and
+        # its fit share ONE line (both symbols, one label); each reference line then
+        # gets its own. One row fewer is what keeps it off the ramp.
+        handles, labels = self.ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        pair = [by_label.pop(k) for k in ("measured", "linear fit") if k in by_label]
+        if len(pair) == 2:
+            handles = [tuple(pair)] + list(by_label.values())
+            # Short on purpose (requested): the legend is as wide as its longest
+            # label, and narrower means less of the ramp behind it.
+            labels = ["data, fit"] + list(by_label.keys())
+        self.ax.legend(handles, labels, fontsize=7, loc="lower right",
+                       handlelength=3.0,
+                       handler_map={tuple: _HandlerPairWithComma()})
         self._decorate(title)
         self.draw_idle()
 
