@@ -177,7 +177,7 @@ class MplCanvas(FigureCanvasQTAgg):
         # Free labels collided at one canvas size or another -- the limit ran off the
         # right edge, the ADC line struck through "recommended", then the stacked
         # corner labels covered "ADC full scale" on the Win11 rig's narrower canvas.
-        # The legend lays itself out, outside the axes.
+        # The legend lays itself out, lower-right.
         if show_full_scale:
             self.ax.axhline(full_scale, ls=":", lw=1.0, color="#888",
                             label=f"ADC full scale ({full_scale:g})")
@@ -206,12 +206,19 @@ class MplCanvas(FigureCanvasQTAgg):
                 xy=(0.03, 0.03), xycoords="axes fraction",
                 fontsize=7, color="#888", ha="left", va="bottom", clip_on=True)
         # Lower right: upper-left collides with the ADC full-scale label.
-        # OUTSIDE the axes, to the right. Six entries make a tall legend, and inside
-        # the axes it covered data at some canvas size wherever it went: lower-right
-        # hid a point on the Win11 rig, and upper-left does the same on a small
-        # canvas. Tight layout (matplotlib >= 3.0) makes room for it.
-        self.ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.02, 1.0),
-                       borderaxespad=0.0)
+        # Lower-right, inside the axes -- the user preferred it to a legend outside,
+        # which cost the plot a third of its width. To keep it short, the data and
+        # its fit share ONE line (both symbols, one label); each reference line then
+        # gets its own. One row fewer is what keeps it off the ramp.
+        from matplotlib.legend_handler import HandlerTuple
+        handles, labels = self.ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        pair = [by_label.pop(k) for k in ("measured", "linear fit") if k in by_label]
+        if len(pair) == 2:
+            handles = [tuple(pair)] + list(by_label.values())
+            labels = ["measured, linear fit"] + list(by_label.keys())
+        self.ax.legend(handles, labels, fontsize=7, loc="lower right",
+                       handler_map={tuple: HandlerTuple(ndivide=None)})
         self._decorate(title)
         self.draw_idle()
 
