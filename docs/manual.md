@@ -412,7 +412,9 @@ sweep. If it lags, the current at a given potential reflects how fast charge is 
 not how many states are there, and the number the formula returns is a transient.
 
 **The two directions are each other's control.** At equilibrium they measure the same
-distribution and their peaks coincide; a reversible couple separates by about 59 mV. The
+distribution and their peaks coincide: an ideal film shows ~0 mV between them. (The
+familiar ~59 mV is for a *dissolved* species, where diffusion separates the peaks; a
+film on the electrode has no diffusion to the surface.) The
 tab computes the separation and, past **150 mV**, prints a red warning under the plot.
 On one real run the separation is **419 mV**, so every σ and E₀ on that figure is
 describing a transient rather than a density of states.
