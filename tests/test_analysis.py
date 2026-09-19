@@ -802,8 +802,8 @@ def test_directions_that_disagree_are_called_out_as_non_equilibrium():
     """The two sweep directions are each other's control: g = i/(v*e*V) assumes the
     film keeps up with the sweep, so if it does they measure the SAME distribution.
     MEASURED on one film at 100 mV/s: the anodic current is still rising at +0.70 V
-    while the cathodic peaks at +0.25 V -- 419 mV apart, where a reversible process
-    gives ~59 mV. Near mirror-image curves are not a DOS with hysteresis."""
+    while the cathodic peaks at +0.25 V -- 419 mV apart, where a film at equilibrium
+    gives ~0 mV (59 mV is the dissolved-species value). Near mirror-image curves are not a DOS with hysteresis."""
     e = np.linspace(-0.7, 0.0, 200)
     far = [{"direction": "oxidizing (forward)", "energy_ev": e,
             "dos": 1e21 * np.exp(-((e + 0.65) ** 2) / (2 * 0.1 ** 2))},
