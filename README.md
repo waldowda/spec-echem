@@ -6,25 +6,27 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
-A Python package **and PyQt5 GUI** for synchronized spectroelectrochemistry experiments using Avantes spectrometers and Gamry potentiostats. The Avantes acquisition waits for a hardware trigger from the Gamry (DIGOUT0 wired to the Avantes trigger input) so the optical and electrochemical measurements share a common start. The Gamry can be driven two ways:
+A Python package **and PyQt5 GUI** for synchronized spectroelectrochemistry experiments using Avantes spectrometers with Gamry or Metrohm Autolab potentiostats. The spectrometer waits for a hardware trigger from the potentiostat (a digital output wired to the Avantes trigger input) so the optical and electrochemical measurements share a common start. The potentiostat can be driven three ways:
 
 - **External mode** — you start a `.GSequence` in Gamry Framework; the app collects triggered spectra (Phase 1, the proven default).
 - **Python mode** — the app drives the Gamry directly via `EchemToolkitPy` and fires the trigger itself.
+- **Autolab mode** — the app drives a Metrohm Autolab through its own SDK, running NOVA procedures with the parameters written from your settings.
 
 Launch the GUI with `python -m gui`. The original Jupyter-notebook workflow also remains in `notebooks/`.
 
 ## ⚠️ Pre-Release Notice
 
-This software is currently in **pre-release** (v0.2.0). The API and functionality are subject to change. Use in production environments at your own risk. See [`CHANGELOG.md`](CHANGELOG.md) for what changed.
+This software is currently in **pre-release** (v0.3.1). The API and functionality are subject to change. Use in production environments at your own risk. See [`CHANGELOG.md`](CHANGELOG.md) for what changed.
 
 ## Overview
 
 `spec-echem` provides tools for performing synchronized spectroscopic and electrochemical measurements, enabling real-time optical monitoring during electrochemical experiments. The package coordinates:
 
 - **Avantes spectrometer** control for UV-Vis spectroscopy (~380-1100 nm)
-- **Gamry potentiostat** triggering for synchronized data acquisition
+- **Gamry or Metrohm Autolab potentiostat** triggering for synchronized data acquisition
 - Hardware triggering via Avantes trigger input for precise temporal correlation
 - Automated data collection and storage
+- Fitting and kinetics analysis of the collected run, inside the application
 
 ## Features
 
@@ -44,6 +46,21 @@ This software is currently in **pre-release** (v0.2.0). The API and functionalit
   dark or reference
 - ⚙️ **Bench defaults** — a hand-editable INI for the settings that describe your rig, separate from
   per-experiment settings (see [`config/README.md`](config/README.md))
+- 📐 **Detector floor read from the hardware** — the shortest integration time the attached detector
+  will honour is measured at connect, not assumed; the two detectors used here differ ~100×
+
+**Analysis and provenance (v0.3.0):**
+
+- 📉 **Analysis tab** — fit doping and dedoping transients (exponential, bi-exponential, stretched)
+  over absorbance, current or charge, with a residual panel and an adjustable fit window
+- ⏱️ **Kinetics ladder** — mean relaxation time with a 95% confidence interval, plotted against the
+  potential each step was doped to; export every fit and parameter as CSV
+- 📊 **Density of states** from the CV — *under development*; not yet validated against a
+  scan-rate series
+- 🧾 **Provenance** — every run records the build identity, the instrument serial numbers and the
+  detector's measured floor, so a data folder says what collected it
+- 📋 **Two logs** — an application log that opens at launch and is kept, and a per-run log that
+  travels inside the data folder
 
 ## System Requirements
 
@@ -54,7 +71,9 @@ This software is currently in **pre-release** (v0.2.0). The API and functionalit
 | | Model | Details |
 |---|---|---|
 | Spectrometer | **Avantes AvaSpec-VRS2048CL-EVO** | 2048 pixels; optical configuration 300–1100 nm, 50 µm slit |
+| Spectrometer | **Avantes AvaSpec-ULS2048L** | 2048 pixels; a much slower detector — minimum integration time 1.05 ms against 0.009 ms |
 | Potentiostat | **Gamry Reference 600** | DIGOUT0 wired to the Avantes hardware trigger input |
+| Potentiostat | **Metrohm Autolab PGSTAT302N** | DIO P1.A wired to the Avantes trigger input; driven from Python through the Autolab SDK |
 | Light source | Halogen + neutral-density filter | An Avantes AvaLight source is also in use; integration times differ substantially between the two |
 
 **Should also work with** — but has not been exercised:
@@ -343,13 +362,23 @@ Pacific Lutheran University
 - [x] Move code to a unified Python package with a PyQt5 GUI
 - [x] Automated calibration routine — spectrometer linearity check / integration-time recommendation
 
+### Done in v0.3.0 / v0.3.1
+- [x] Fitting and kinetics analysis inside the application, with CSV export of every fit
+- [x] Metrohm Autolab support — validated on real films; the Ocean Optics spectrometer side of
+      multi-vendor support is still open
+- [x] Detector minimum integration time measured from the hardware rather than assumed
+- [x] Provenance in every run: build identity, instrument identities, detector floor
+- [x] Application log that opens at launch, alongside the per-run log
+
 ### Planned
+- [ ] 64-bit Gamry toolkit support, so one environment serves the spectrometer and the potentiostat
+- [ ] Figure export (SVG/PDF) from the plots
+- [ ] Data export to common formats (HDF5, Igor Text) — CSV of the fit results is done
 - [ ] Document the trigger cable build (connector, pinout, shielding) so it can be rebuilt
 - [ ] Eliminate global variables dependency
-- [ ] Data export to common formats (CSV, HDF5)
 - [ ] Automated tests for the GUI layer
-- [ ] Multi-vendor hardware support (Metrohm potentiostat, Ocean Optics spectrometer) — the driver
-      seams exist; the open question is trigger semantics
+- [ ] Ocean Optics spectrometer support — the driver seams exist; the open question is trigger
+      semantics, since its read call blocks rather than arming and returning
 
 ## Support
 
