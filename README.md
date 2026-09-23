@@ -2,7 +2,7 @@
 
 **[User manual](docs/manual.md)** — the tabs and controls, plus the mathematics behind the fits, the mean relaxation time, its confidence interval, and the density of states (under development).
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17221314.svg)](https://doi.org/10.5281/zenodo.17221314)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17221313.svg)](https://doi.org/10.5281/zenodo.17221313)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
@@ -310,13 +310,13 @@ Contributions are welcome! This is a pre-release version and we appreciate:
 If you use this software in your research, please cite:
 
 ```bibtex
-@software{waldow2025specechem,
+@software{waldow2026specechem,
   author       = {Waldow, Dean},
   title        = {spec-echem: Synchronized Spectroelectrochemistry with Avantes and Gamry},
-  year         = {2025},
+  year         = {2026},
   publisher    = {GitHub},
-  version      = {0.2.0},
-  doi          = {10.5281/zenodo.17221314},
+  version      = {0.3.1},
+  doi          = {10.5281/zenodo.17221313},
   url          = {https://github.com/waldowda/spec-echem}
 }
 ```

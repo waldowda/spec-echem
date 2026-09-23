@@ -984,7 +984,8 @@ def dos_equilibrium_check(curves):
     They are therefore each other's control, and this is the only check available from
     one CV. MEASURED on one film at 100 mV/s: the anodic current is still rising at
     +0.70 V while the cathodic peaks at +0.25 V, a separation above 450 mV where a
-    reversible one-electron process gives ~59 mV. The two "DOS" curves came out near
+    film at equilibrium gives ~0 mV (the ~59 mV of a reversible couple is for a
+    DISSOLVED, diffusing species). The two "DOS" curves came out near
     mirror images — which is not a density of states with hysteresis, it is a film
     that cannot follow the sweep.
 
