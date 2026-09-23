@@ -15,7 +15,7 @@ Launch the GUI with `python -m gui`. The original Jupyter-notebook workflow also
 
 ## ⚠️ Pre-Release Notice
 
-This software is currently in **pre-release** (v0.2.0). The API and functionality are subject to change. Use in production environments at your own risk. See [`CHANGELOG.md`](CHANGELOG.md) for what changed.
+This software is currently in **pre-release** (v0.3.1). The API and functionality are subject to change. Use in production environments at your own risk. See [`CHANGELOG.md`](CHANGELOG.md) for what changed.
 
 ## Overview
 
