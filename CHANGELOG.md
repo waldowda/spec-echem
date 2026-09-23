@@ -158,9 +158,12 @@ both 2026-09-18.
   reports pixel count and calibrated span, since a serial number alone doesn't tell you which
   2048-pixel Avantes answered.
 
-  **Chronoamperometry is not yet supported** — the CA parameter index map is still unknown, so
-  doping/dedoping/pre-dedoping raise `NotImplementedError` naming
-  `docs/autolab-driver-finishing.md`. CV works. Existing External and Python (Gamry) behavior is
+  **Chronoamperometry works, by either of two routes**, selected with `autolab_ca_mode`.
+  `procedure` (the default) runs the `.nox` template for every segment, with the parameter
+  indices MEASURED on the rig 2026-09-03 and the names independently confirmed 2026-09-09;
+  `ei` drives the hold from Python and leaves CV on the procedure, and exists because the
+  `.nox` spends ~0.93 s reaching its recorder (MEASURED) with nothing configurable to shorten
+  it. The four films of 2026-09-11 ran on `ei`. Existing External and Python (Gamry) behavior is
   unchanged: External remains the default, and a saved `autolab` mode falls back to External on a
   machine without the SDK rather than selecting a mode it cannot honor.
 
