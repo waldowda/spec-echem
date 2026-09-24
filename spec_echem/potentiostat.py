@@ -740,6 +740,7 @@ class AutolabPotentiostat(Potentiostat):
         self._segment = None
         self._last_data = None
         self._live_samples = []     # (t, E, I) scalars accumulated by pump()
+        self._bad_samples = 0       # refresh failed, or the pair straddled one
         self._t0 = None
         self._overloaded = False
         self._device_lost = False
@@ -813,6 +814,7 @@ class AutolabPotentiostat(Potentiostat):
         self._dio_step_present = None   # re-checked per procedure
         self._last_data = None
         self._live_samples = []
+        self._bad_samples = 0
         self._t0 = None
         self._overloaded = False
         self._device_lost = False
@@ -936,6 +938,33 @@ class AutolabPotentiostat(Potentiostat):
         self._aborted = True
         self._stop_procedure()
 
+    def _read_ei_pair(self, inst):
+        """One MATCHED (potential, current) from the latch, or None.
+
+        `Ei.Potential` and `Ei.Current` are two separate reads of a single latch. In
+        procedure mode the running .nox refreshes that latch on its own schedule, so a
+        refresh landing between the two reads pairs sample N's potential with sample
+        N+1's current — a point that describes no instant. That is the wedge in
+        20260916_test1's live CV: the potential is read first, so it is the older half,
+        and on a negative-going sweep the point lands to the RIGHT of the trace.
+
+        Reading the potential again afterwards is what detects it. An unchanged value
+        means nothing moved underneath the pair. One re-read costs a single extra
+        property access per spectrum, which is why the check is here rather than in a
+        diagnostic mode: `pump()` already spends ~50 ms of a 100 ms slot.
+
+        Ei mode holds ONE potential for the whole segment, so `before == after` there
+        whether or not anything refreshed — this cannot cost Ei mode a sample except
+        during a genuine step transition.
+        """
+        for _ in range(2):   # one re-take; two refreshes across three reads is absurd
+            before = float(inst.Ei.Potential)
+            current = float(inst.Ei.Current)
+            after = float(inst.Ei.Potential)
+            if before == after:
+                return after, current
+        return None
+
     def pump(self):
         """Once per spectrum. Two jobs, and the first one matters most.
 
@@ -955,7 +984,7 @@ class AutolabPotentiostat(Potentiostat):
             # FIRST, always. Everything below reads the latch that this refreshes —
             # including the overload flags, which means that check has never actually
             # been able to fire in EITHER mode. See sample_ei().
-            sample_ei(inst)
+            refreshed = sample_ei(inst)
             pot_over = bool(inst.Ei.PotentialOverload)
             cur_over = bool(inst.Ei.CurrentOverload)
             if pot_over or cur_over:
@@ -1003,9 +1032,24 @@ class AutolabPotentiostat(Potentiostat):
                 # perf_counter against the cell-on mark. In Ei mode these samples ARE
                 # the segment's echem data, not a diagnostic sideline, so they get the
                 # monotonic clock rather than wall time.
-                self._live_samples.append(
-                    (time.perf_counter() - origin,
-                     float(inst.Ei.Potential), float(inst.Ei.Current)))
+                pair = self._read_ei_pair(inst) if refreshed else None
+                if pair is None:
+                    # Either the refresh failed (the latch still holds the PREVIOUS
+                    # sample) or the pair straddled one. Appending anyway is what put
+                    # the wedge in the live CV, and in Ei mode it would reach
+                    # steps(N).txt, so drop the sample and say so once.
+                    self._bad_samples += 1
+                    if self._bad_samples == 1:
+                        get_run_logger().warning(
+                            "%s: dropped a live sample — %s. The plotted trace loses a "
+                            "point; the recorded data does not straddle.",
+                            getattr(self._segment, "label", "?"),
+                            "the Ei refresh failed" if not refreshed
+                            else "potential and current came from different instants")
+                else:
+                    potential, current = pair
+                    self._live_samples.append(
+                        (time.perf_counter() - origin, potential, current))
         except Exception:  # noqa: BLE001 — a live sample must never sink a segment
             pass
 
@@ -1534,6 +1578,8 @@ class AutolabPotentiostat(Potentiostat):
             # the edge; ~0 or negative means it was already holding a scan and the
             # alignment is luck, not hardware.
             parts.append(f"EDGE -> spectrum 0 {(spec0 - edge) * 1000:+.1f} ms")
+        if self._bad_samples:
+            parts.append(f"{self._bad_samples} live sample(s) dropped")
         if self._ei_mode:
             if self._live_samples:
                 parts.append(f"first Ei sample +{self._live_samples[0][0]:.3f} s")
