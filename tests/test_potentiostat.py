@@ -246,7 +246,7 @@ from spec_echem.data import (                                  # noqa: E402
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_PREDEDOPING, EchemData,
 )
 from spec_echem.fakes import (                                 # noqa: E402
-    FakeAutolab, CV_COMMAND_ID, CA_RECORDER_ID, CA_SETPOINT_ID,
+    FakeAutolab, CV_COMMAND_ID, CA_RECORDER_ID, CA_SETPOINT_ID, _FakeEi,
 )
 
 
@@ -1169,7 +1169,12 @@ def test_overload_is_checked_against_a_fresh_sample(ei_autolab):
 
 
 def test_a_sampler_that_refuses_does_not_sink_the_segment(ei_autolab):
-    """A stale reading is bad; a lost segment is worse. Best-effort by design."""
+    """A stale reading is bad; a lost segment is worse. Best-effort by design.
+
+    The sample itself is DROPPED rather than recorded: a failed refresh leaves the
+    previous sample in the latch, and in Ei mode _live_samples is what reaches
+    steps(N).txt, so appending it would write the same reading twice under a fresh
+    timestamp and call it data."""
     p, inst = ei_autolab()
     p.prepare(_doping_segment())
     p.fire()
@@ -1179,7 +1184,117 @@ def test_a_sampler_that_refuses_does_not_sink_the_segment(ei_autolab):
     inst.Ei.Sampler.Sample = boom
 
     p.pump()                                            # must not raise
-    assert len(p._live_samples) == 1
+    assert p._live_samples == []
+    assert p._bad_samples == 1
+
+
+# --- the straddle ------------------------------------------------------------
+# Potential and Current are two reads of ONE latch. In procedure mode the .nox
+# refreshes it on its own schedule, so a refresh between the two reads pairs one
+# sample's potential with the next one's current. Reported from 20260916_test1 as a
+# wedge in the live CV: the trace runs along the line, jumps off it, and comes back.
+# DISPLAY-only there (CV.txt comes from .Signals), but in Ei mode this path IS the
+# saved data.
+
+class _StraddlingEi(_FakeEi):
+    """An Ei whose latch refreshes DURING the read, between potential and current.
+
+    `straddles` is how many reads of Current refresh first; the driver's re-read of
+    Potential is what then disagrees with its first read.
+    """
+
+    def __init__(self, straddles=1, step_v=0.005, step_i=1.0e-06):
+        self._pot = 0.0
+        self._cur = 0.0
+        self.straddles = straddles
+        self.step_v = step_v       # the sweep MOVES: a refresh that changed nothing
+        self.step_i = step_i       # would be undetectable, and also harmless
+        super().__init__()
+
+    @property
+    def Potential(self):
+        return self._pot
+
+    @Potential.setter
+    def Potential(self, value):
+        self._pot = value
+
+    @property
+    def Current(self):
+        if self.straddles > 0:
+            self.straddles -= 1
+            # The procedure's recorder, landing mid-read: it advances the sweep and
+            # reloads BOTH halves of the latch, so the current returned here belongs
+            # to a later instant than the potential already read.
+            self.true_potential -= self.step_v
+            self.true_current += self.step_i
+            self._latch()
+        return self._cur
+
+    @Current.setter
+    def Current(self, value):
+        self._cur = value
+
+
+def _straddling(inst, straddles=1, potential=-0.300, current=1.0e-05):
+    """Swap in a straddling latch already holding one good sample."""
+    ei = _StraddlingEi(straddles=straddles)
+    ei.Sampler = type(inst.Ei.Sampler)(ei)
+    ei.true_potential, ei.true_current = potential, current
+    ei._latch()
+    inst.Ei = ei
+    return ei
+
+
+def test_a_straddled_pair_is_re_taken_rather_than_recorded(autolab):
+    """The fix. One refresh lands between the two reads; the re-take is clean, so a
+    sample is still recorded — and it is a MATCHED pair, not sample N's potential
+    against sample N+1's current."""
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    p.fire()
+    _straddling(inst, straddles=1)          # latched at -0.300 V / 1.0e-05 A
+
+    p.pump()
+
+    assert p._bad_samples == 0
+    _, potential, current = p._live_samples[-1]
+    # Both halves from AFTER the refresh — the pair the re-take found, not
+    # -0.300 V against the current belonging to -0.305 V.
+    assert (potential, current) == pytest.approx((-0.305, 1.1e-05))
+
+
+def test_a_pair_that_straddles_every_read_is_dropped(autolab, caplog):
+    """If even the re-take straddles, there is no matched pair to be had. Recording
+    one anyway is what drew the wedge, so the sample is dropped and said once."""
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+    p.fire()
+    _straddling(inst, straddles=99)
+
+    with caplog.at_level(logging.WARNING):
+        p.pump()
+        p.pump()
+
+    assert p._live_samples == []
+    assert p._bad_samples == 2
+    assert sum("dropped a live sample" in r.message for r in caplog.records) == 1
+
+
+def test_a_held_potential_never_reports_a_straddle(ei_autolab):
+    """Ei mode holds ONE potential for the whole segment, so the two potential reads
+    agree whether or not anything refreshed underneath. The guard must not cost Ei
+    mode the samples that ARE its data."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+    for i in range(5):
+        inst.Ei.true_potential = 0.300                     # held, as Ei mode does
+        inst.Ei.true_current = 1.0e-05 + i * 2e-7
+        p.pump()
+
+    assert p._bad_samples == 0
+    assert len(p._live_samples) == 5
 
 
 def test_the_current_range_is_set_and_logged_in_ei_mode(autolab, monkeypatch, caplog):
