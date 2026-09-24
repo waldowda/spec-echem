@@ -865,6 +865,23 @@ recorded data."*)
       mode the recorder's own arrays are the authoritative source and are what the saved
       file uses; sampling the latch alongside it is what creates the race.
 
+      ⚠️ **Probably a dead end, and the .nox keeps running the CV either way** — this is
+      only about where the on-screen trace gets its points, never about driving the CV
+      from Python. **Evidence against:** `Abort()` five seconds into a run leaves
+      `.Signals` **completely empty, 0 points** (2026-09-03, `bench_autolab_cv.py` phase
+      4, recorded in `docs/autolab-run-api.md` §3). Arrays filling incrementally should
+      have left ~5 s of data behind. So `.Signals` looks like it materialises at
+      completion, which would make it useless as a live feed and is why `pump()` samples
+      the latch in the first place. **Not conclusive:** an abort that deliberately
+      discards the buffer is indistinguishable from a buffer that never filled.
+
+      **To settle it at the bench, one line:** inside the `watch` hook of
+      `autolab_common.run()` — which already runs mid-measurement — print
+      `len(proc.Commands["FHCyclicVoltammetry2"].Signals["EI_0.CalcPotential"].Value)`
+      (or the equivalent count) on each poll. A count that climbs during the run means a
+      live feed is possible; a count stuck at 0 until the end closes this option for
+      good. No dedicated experiment and no sample needed — piggyback on any CV run.
+
 **A dead end worth not repeating.** `20260916_test1` has 8-34 consecutive identical
 (E, I) row pairs per chrono segment (up to 11% of rows in `steps(0)`), which looks like
 evidence for a stale-sample path and is not: those segments held a fixed potential across
