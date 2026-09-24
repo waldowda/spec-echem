@@ -85,7 +85,7 @@ spec-echem/
 │   ├── sop.md                       # Standard operating procedure (GUI-first)
 │   └── inspect-run.md
 ├── examples/                        # Bench/validation scripts + identify_hardware.py
-├── tests/                           # Unit tests (165) — no hardware required
+├── tests/                           # Unit tests (529) — no hardware required
 ├── data/                            # Sample data directory
 ├── CHANGELOG.md                     # What changed between versions
 ├── STATUS.md                        # Human-readable project status + next steps
@@ -387,7 +387,7 @@ ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm
 
 ### Modularization — DONE
 `get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
-`data.py`; hardware is faked (`fakes.py`) so all 165 tests run with no instruments attached.
+`data.py`; hardware is faked (`fakes.py`) so all 529 tests run with no instruments attached.
 
 ### Settings: two layers, don't confuse them
 - **Experiment settings** (`settings.py`, `DEFAULT_SETTINGS`) — *this run*: sample, folder, CV
@@ -443,11 +443,15 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` is barely tested.** 165 tests total, of which exactly 4 touch `gui/`
-  (`tests/test_gui_layout.py`, headless via `QT_QPA_PLATFORM=offscreen`). Every bug in the 0.2.0
-  cycle lived in GUI wiring and the core suite passed through all of them, so this is where new
-  coverage pays. Qt-dependent tests must `pytest.importorskip("qtpy")` — the suite has to keep
-  running in environments with no Qt.
+- **`gui/` coverage — no longer the gap it was.** 529 tests total (527 pass, 2 skip);
+  `tests/test_gui_layout.py` alone holds 136 and `tests/test_dark_save.py` another 4, both
+  headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
+  until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
+  was built still stands: every bug in the 0.2.0 cycle lived in GUI wiring and the core suite
+  passed through all of them. Qt-dependent tests must `pytest.importorskip("qtpy")` — the suite
+  has to keep running in environments with no Qt.
+- **The live echem plot is untested and is where the 2026-09-24 wedge lived.**
+  See `docs/live-cv-findings-2026-09-24.md`.
 - **The trigger cable's build** (connector, pinout, shielding) is undocumented — only its endpoints.
 
 ---

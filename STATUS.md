@@ -4,7 +4,29 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-09-15_
+_Last updated: 2026-09-24_
+
+---
+
+## The live-CV wedge is diagnosed, and it was not what we thought (2026-09-24, `gui-dev`) — newest
+
+**529 tests.** A bench afternoon on the Autolab rig with a 10 kOhm dummy settled the
+display glitch reported on 2026-09-16, and disproved the fix that had been written for it.
+
+- **The wedge is a LAG.** Seven mid-sweep points displaced by ~31 mV each — about three
+  staircase steps — with the potential running ~0.31 s behind the current. A straddle is
+  worth at most one step, and because the stale potential is *stable*, the `_read_ei_pair`
+  guard cannot see it. It logged zero dropped samples through nine glitches, twice.
+- **A second, separate bug:** the plot draws a point at the origin because `pump()` samples
+  before the latch has ever been loaded — four samples of exactly `(0, 0)`.
+- **`.Signals` fills during a run** (0 → 1040 points), reversing the standing assumption.
+  Drawing the live trace from the recorder is now the recommended fix rather than a
+  suspected dead end.
+- **Recorded data was never affected** — `CV.txt` had zero points off the line out of 480.
+
+**Next:** both fixes are specified in `TODO.md` and neither is implemented. They are
+code-only; the rig is needed just to confirm them. Full account, including the traps worth
+not re-learning, in [`docs/live-cv-findings-2026-09-24.md`](docs/live-cv-findings-2026-09-24.md).
 
 ---
 

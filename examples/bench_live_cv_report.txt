@@ -1,0 +1,94 @@
+
+========================================================================
+bench_live_cv — straddle rate, and whether .Signals fills as it goes
+========================================================================
+ENERGIZE_CELL = True
+poll 0 ms, matching the driver's once-per-spectrum sampling
+Connected OK — cell NOT switched on.
+Loaded: Cyclic voltammetry.nox
+
+========================================================================
+PHASE 0 — what is there (nothing is energized)
+========================================================================
+
+  CV staircase, as loaded.CommandParameters:
+    [0] float      = 0.0
+    [1] float      = 1.0
+    [2] float      = -1.0
+    [3] float      = 0.00244
+    [4] int        = 2
+    [5] float      = 0.0
+    [6] float      = 0.09999999999999999
+
+  .Signals before any run: 0 points
+  (0 or None is expected — nothing has measured yet.)
+
+========================================================================
+PHASE 1 — one CV, watched
+========================================================================
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper V = 0.8  (read back 0.8) OK
+    set [2] lower V = -0.5  (read back -0.5) OK
+    set [5] stop V = 0.0  (read back 0.0) OK
+    set [4] stop crossings = 8  (read back 8) OK
+    set [3] step V = 0.01  (read back 0.01) OK
+    set [6] scan rate V/s = 0.1  (read back 0.1) OK
+  Measure() returned in 0.30 s; IsMeasuring=True
+    straddle at t=10.69s: E +0.0001 -> +0.0002 V (+0.1 mV) with I=3.195e-05 A
+  Run finished in 119.00 s (IsMeasuring=False)
+
+========================================================================
+A0 — WAS THE LATCH EVEN LIVE?
+========================================================================
+  E  first +0.0000 V   last -0.3170 V   min -0.5026   max +0.8047
+  I  first 9.468e-06 A   min -1.877e-05   max 1.132e-04
+  distinct E values: 293 of 2886 samples
+  E changed from the previous poll on 531 of 2885 polls
+  read gap (E read -> E read), the straddle window: median 0.06 ms   min 0.02   max 59.72
+
+  >> The latch tracked the sweep, so a refresh could land between
+     the two reads. Section A's rate is interpretable.
+
+========================================================================
+A — STRADDLE RATE
+========================================================================
+  1 straddled of 2886 pairs sampled (0.0%)
+  biggest potential move across one pair: 0.1 mV
+  Sample()/read failures: 0
+
+  >> Straddles seen, but the biggest is 0.070 mV against a
+     10 mV step — that is latch noise, not a wedge. It
+     would be invisible on the plot. This does NOT confirm the
+     mechanism behind the reported glitch.
+
+========================================================================
+B — DOES .Signals FILL DURING THE RUN?
+========================================================================
+  every signal AFTER the run, by name:
+    SetpointApplied              1040 points
+    CalcTime                     1040 points
+    EI_0.CalcCurrent             1040 points
+    ScanNumber                   1040 points
+    EI_0.CalcPotential           1040 points
+    Index                        1040 points
+    QPlus                        0 points
+    QMin                         0 points
+
+  first 1.20s: 0    last 118.43s: 1040
+  min 0, max 1040, distinct values 106
+  after the run finished: 1040
+
+  >> IT CLIMBS. The recorder's array is readable as it fills, so the
+     live plot COULD be drawn from it instead of the latch — one
+     source of truth, no race by construction. Worth designing.
+
+========================================================================
+NEXT
+========================================================================
+Commit this transcript. Then, in TODO.md under the live-CV section:
+  - record the straddle rate beside the guard;
+  - answer or close the '.Signals as a live source' bullet with section B.
+Also worth doing while the rig is open: watch a live CV in the GUI and see
+whether the wedge is gone. That is the actual acceptance test for the guard.
+Cell switched OFF.
+Disconnected.
