@@ -243,6 +243,18 @@ except ImportError:
 # Standard-CV command IdNames (autolab-run-api.md §1; re-confirmed on the rig
 # 2026-09-03, bench_autolab_cv.py phase 0).
 AUTOLAB_CV_COMMAND = "FHCyclicVoltammetry2"
+
+# Diagnostic only, and OFF unless this is set to 1 in the environment.
+# The Run tab's live echem plot is drawn from live_data() — the pump() latch stream —
+# while the saved echem file comes from the recorder. So when the live plot shows a
+# point the recorded data does not (TODO.md, "Live CV plot shows points the recorded
+# data does not"), the offending points exist only in memory and vanish with the run.
+# MEASURED 2026-09-24: 20260924_test1 put nine glitches on screen, logged zero dropped
+# samples, and left a CV.txt with zero points off the line out of 480 on a 10 kOhm
+# dummy — no evidence of the glitch survived anywhere. This writes that stream out so
+# it can be analysed after the fact. It adds a file NEXT TO the data and changes no
+# existing format; docs/data-format.md is untouched.
+LIVE_DUMP_ENV = "SPECECHEM_LIVE_DUMP"
 AUTOLAB_WAIT_COMMAND = "FHWait"
 
 # CV staircase CommandParameters, by index. Parameters have no name property on
@@ -914,6 +926,7 @@ class AutolabPotentiostat(Potentiostat):
         except ValueError as exc:
             get_run_logger().warning("Autolab: %s", exc)
             self._last_data = None
+        self._dump_live_samples()
         self._report_timing()
         self._report_segment_health()
 
@@ -931,6 +944,7 @@ class AutolabPotentiostat(Potentiostat):
                 "Autolab (Ei mode): no live samples were collected for this segment; "
                 "no echem data written. pump() is what samples, so this means the "
                 "acquisition loop never ran.")
+        self._dump_live_samples()
         self._report_timing()
         self._report_segment_health()
 
@@ -1596,6 +1610,35 @@ class AutolabPotentiostat(Potentiostat):
         get_run_logger().info(
             "%s timing, from cell ON: %s.",
             getattr(self._segment, "label", "?"), " | ".join(parts))
+
+    def _dump_live_samples(self):
+        """Write the live (t, E, I) stream beside the data, when asked to.
+
+        Never on by default: see LIVE_DUMP_ENV. A failure here must not cost the run
+        its data, so everything is swallowed — this is evidence-gathering, not output.
+        """
+        if os.environ.get(LIVE_DUMP_ENV, "").strip().lower() not in ("1", "true", "yes"):
+            return
+        if not self._live_samples:
+            return
+        label = str(getattr(self._segment, "label", "segment"))
+        safe_label = "".join(c if (c.isalnum() or c in "-_") else "_" for c in label)
+        try:
+            folder = os.path.join(str(self.settings["data_root"]),
+                                  str(self.settings["data_folder"]))
+            os.makedirs(folder, exist_ok=True)
+            path = os.path.join(folder, f"{safe_label}_live_samples.csv")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("t_s,potential_V,current_A\n")
+                for t, e, i in self._live_samples:
+                    fh.write(f"{t:.6f},{e:.9g},{i:.9g}\n")
+            get_run_logger().info(
+                "%s: wrote %d live sample(s) to %s (%s is set). This is the stream the "
+                "live plot draws, not the recorded data.",
+                label, len(self._live_samples), os.path.basename(path), LIVE_DUMP_ENV)
+        except Exception as exc:  # noqa: BLE001 — a diagnostic must never sink a run
+            get_run_logger().warning(
+                "%s: could not write the live-sample dump: %s", label, exc)
 
     def _report_segment_health(self):
         """Say so when a segment finished but should not be trusted. The Gamry

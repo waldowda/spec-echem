@@ -11,6 +11,34 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Added
+
+- **`SPECECHEM_LIVE_DUMP=1` writes the live echem stream beside the data.**
+  `{folder}/{label}_live_samples.csv` holds the `(t, potential, current)` samples the Run
+  tab's live plot actually draws — which are otherwise never persisted and are lost when
+  the run ends, so a glitch seen on screen leaves no evidence behind. Off by default, and
+  it changes no existing output format.
+
+### Fixed
+
+- **`examples/bench_live_cv.py` addressed the CV staircase parameters in the wrong order.**
+  `FHCyclicVoltammetry2` puts **step at `[3]` and stop at `[5]`**, swapped relative to the
+  order the NOVA manual prints them, so the script wrote `step = 0.0`. A zero-step
+  staircase records 0 points and stops early **while otherwise looking like a clean
+  successful run**. Two bench runs were invalid before this was caught. The driver was
+  never affected — its `CV_IDX_*` constants were already correct and it verifies them
+  against `IdNames`.
+
+### Investigated
+
+- **The live-CV wedge is a LAG, not a straddle** — see
+  [`docs/live-cv-findings-2026-09-24.md`](docs/live-cv-findings-2026-09-24.md). Measured on
+  a 10 kOhm dummy: seven mid-sweep points displaced by ~31 mV each (about three staircase
+  steps), the potential running ~0.31 s behind the current. The `_read_ei_pair` guard is
+  structurally blind to it and logged zero drops through nine glitches. `.Signals` was also
+  shown to fill *during* a run (0 → 1040 points), which makes the recorder a viable live
+  source and is now the recommended fix. Neither fix is implemented yet.
+
 ---
 
 ## [0.3.1] — 2026-09-18
