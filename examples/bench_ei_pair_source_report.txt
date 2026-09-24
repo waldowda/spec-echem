@@ -1,0 +1,67 @@
+
+========================================================================
+bench_ei_pair_source - how stale is the potential in a live (E, I) pair?
+========================================================================
+ENERGIZE_CELL = True   poll 100 ms (pump's cadence)
+window -0.50 to +0.70 V, 10 mV steps, 100 mV/s, 4 crossings
+Connected OK — cell NOT switched on.
+Loaded: Cyclic voltammetry.nox
+    set [0] start V = 0.0  (read back 0.0) OK
+    set [1] upper V = 0.7  (read back 0.7) OK
+    set [2] lower V = -0.5  (read back -0.5) OK
+    set [5] stop V = 0.0  (read back 0.0) OK
+    set [4] stop crossings = 4  (read back 4) OK
+    set [3] step V = 0.01  (read back 0.01) OK
+    set [6] scan rate V/s = 0.1  (read back 0.1) OK
+  Measure() returned in 0.30 s; IsMeasuring=True
+  Run finished in 57.07 s (IsMeasuring=False)
+
+  373 samples written to bench_ei_pair_source_samples.csv
+
+========================================================================
+0 - THE STARTUP POINTS (before the staircase runs)
+========================================================================
+  7 samples before t=1.30s, 366 during the sweep
+  E over those: -0.0001 to +0.0001 V
+  I over those: 9.4724e-06 to 3.0164e-05 A
+  >> The latch holds a pre-sweep value while the plot has already
+     started. This is the point near the origin, and it is a
+     DIFFERENT bug from a mid-sweep wedge: the cure is not plotting
+     until the staircase is actually running.
+
+========================================================================
+1 - IS Ei.Potential QUANTIZED TO THE STAIRCASE?
+========================================================================
+  distance from the nearest 10 mV multiple:
+    median 1.5759 mV   p95 3.7476 mV   max 4.9255 mV
+  distinct E values during the sweep: 173 of 366 samples
+
+  >> NOT quantized - it is a measured potential with its own noise, so
+     bit-identical consecutive reads are themselves informative.
+
+========================================================================
+2 - HOW STALE IS THE POTENTIAL IN EACH PAIR?
+========================================================================
+  fit over the sweep: R = 9889.4 ohm, b = 2.990e-05 A
+  one 10 mV step of staleness = 1.011 uA of displacement
+  |staleness| in steps: median 0.063   p95 0.246   max 1.731
+  pairs displaced by >= 0.5 step: 3 of 366 (0.8%)
+
+    t=  6.79s  E=+0.0001 V  I=+2.8162e-05 A  stale by  -17.31 mV =  -1.73 steps
+    t=  6.94s  E=+0.0001 V  I=+2.8162e-05 A  stale by  -17.26 mV =  -1.73 steps
+    t=  7.10s  E=+0.0001 V  I=+2.8162e-05 A  stale by  -17.26 mV =  -1.73 steps
+
+  of those, 0 sit within a quarter-step of a WHOLE number of
+  steps — the signature of a potential that is an exact number of
+  staircase levels behind its current.
+  >> These are the wedges. The displacement is horizontal and its size
+     is the staleness, so the live plot is pairing a potential from
+     one instant with a current from another.
+
+========================================================================
+3 - DID THE GUARD SEE ANYTHING?
+========================================================================
+  pairs where the potential moved between the two reads: 1
+  (this is what _read_ei_pair drops; the GUI run logged 0 drops)
+Cell switched OFF.
+Disconnected.

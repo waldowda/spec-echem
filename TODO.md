@@ -853,34 +853,83 @@ unaffected; `steps(N).txt` cannot straddle. Worth fixing for the plot's sake, no
 instrument time to chase further. (the user, 2026-09-16: *"I think it is minor given the
 recorded data."*)
 
-- [ ] **Close the straddle window.** Re-read the potential after the current and
-      discard (or re-take) the sample when it moved — a pair that straddled a refresh is
-      not a measurement of anything. Cheap, and it guards `Ei` mode too, where the
-      "nothing else refreshes" assumption is untested.
-- [ ] **Still use `sample_ei`'s return value.** Not the cause here, but `pump()`
-      discarding it means a genuinely failed refresh is appended as a duplicate point
-      with a fresh timestamp. Harmless on a CV; in `Ei` mode `_live_samples` IS the
-      segment's saved echem data, so that one would reach `steps(N).txt`.
-- [ ] **Consider not building the live CV trace from the latch at all.** In procedure
-      mode the recorder's own arrays are the authoritative source and are what the saved
-      file uses; sampling the latch alongside it is what creates the race.
+### MEASURED AT THE BENCH, 2026-09-24 — the straddle is NOT the cause
 
-      ⚠️ **Probably a dead end, and the .nox keeps running the CV either way** — this is
-      only about where the on-screen trace gets its points, never about driving the CV
-      from Python. **Evidence against:** `Abort()` five seconds into a run leaves
-      `.Signals` **completely empty, 0 points** (2026-09-03, `bench_autolab_cv.py` phase
-      4, recorded in `docs/autolab-run-api.md` §3). Arrays filling incrementally should
-      have left ~5 s of data behind. So `.Signals` looks like it materialises at
-      completion, which would make it useless as a live feed and is why `pump()` samples
-      the latch in the first place. **Not conclusive:** an abort that deliberately
-      discards the buffer is indistinguishable from a buffer that never filled.
+Everything above this line is the 2026-09-16 reasoning. It is kept because it is a good
+account of how the wedge was narrowed down, but **its conclusion is wrong** and the
+guard built from it does not fix the glitch. Four runs on a 10 kOhm dummy, 100 mV/s,
+10 mV steps:
 
-      **To settle it at the bench, one line:** inside the `watch` hook of
-      `autolab_common.run()` — which already runs mid-measurement — print
-      `len(proc.Commands["FHCyclicVoltammetry2"].Signals["EI_0.CalcPotential"].Value)`
-      (or the equivalent count) on each poll. A count that climbs during the run means a
-      live feed is possible; a count stuck at 0 until the end closes this option for
-      good. No dedicated experiment and no sample needed — piggyback on any CV run.
+- **`20260924_test1` (GUI, -0.5 to +0.7 V).** Nine glitches on screen, **zero** dropped
+  samples in the log — so `_read_ei_pair` never fired on any of them. `CV.txt` had
+  **zero** points off the line out of 480 (fit R = 9870.8 ohm, worst residual 3.9e-7 A).
+- **`bench_ei_pair_source.py` (bare CV, no spectrometer).** Straddles essentially absent:
+  mid-sweep staleness median 0.063 steps, p95 0.246. The wedge does NOT reproduce without
+  the GUI's acquisition loop sharing the thread.
+- **`20260924_test2` (GUI, live stream dumped).** 241 live samples. Seven mid-sweep points
+  displaced by **+30.55, +31.20, +31.35, +32.12, +32.42, +32.13 and -30.68 mV** — every one
+  about **three staircase steps**, with the sign following the sweep direction.
+
+**The mechanism is a LAG, not a straddle.** At 100 mV/s, 31 mV is 0.31 s of sweep: the
+potential is roughly three polls behind the current, persistently. A straddle is one
+refresh between two reads and is worth at most ONE step. Because the stale potential is
+*stable*, `before == after` passes every time — the guard is structurally blind to it.
+
+**`Ei.Potential` is not quantized** (median 1.58 mV from the nearest 10 mV multiple), so
+it is a measured value with its own noise, and bit-identical consecutive reads really do
+mean the latch did not refresh. MEASURED: it does not refresh on 43.5% of 100 ms polls.
+
+**A second, separate bug: the point at the origin.** `20260924_test2` samples 0-3 read
+`E = 0.0000 V, I = 0.0000e+00 A` — EXACTLY zero, four times, from t = 1.114 s. `pump()`
+starts sampling before the latch has ever been loaded, and the plot draws the origin.
+The recorder's own `CalcTime[0]` (1.250 s there) marks when the staircase actually starts.
+
+**Trap for anyone writing a bench script here.** `FHCyclicVoltammetry2`'s parameters put
+**step at [3] and stop at [5]** — swapped relative to the order the NOVA manual prints
+them in (`docs/autolab-run-api.md` §1). `bench_live_cv.py` had the manual's order and so
+wrote `step = 0.0`. A zero-step staircase **records 0 points, stops early, and otherwise
+looks like a clean successful run** — the same failure shape as the Gamry's GC'd signal
+object. The as-loaded defaults are the tell: [3] is 0.00244 (a step), [5] is 0.0.
+
+- [x] **Close the straddle window.** DONE (`_read_ei_pair`), and **it does not fix the
+      wedge** — see above. Keep it: it costs one property read and it does guard `Ei`
+      mode, where the "nothing else refreshes" assumption is still untested. But it is
+      not the fix, and the TODO it came from stays open below.
+- [x] **Still use `sample_ei`'s return value.** DONE. Correct on its own merits — a failed
+      refresh must not be appended as a duplicate point under a fresh timestamp — and, in
+      `Ei` mode, that sample would reach `steps(N).txt`. Not the cause of the wedge.
+- [x] **Consider not building the live CV trace from the latch at all.** ANSWERED, and the
+      answer reverses the standing assumption: **`.Signals` DOES fill during the run.**
+      MEASURED 2026-09-24 (`bench_live_cv.py`, 4 cycles): 0 points at 1.2 s climbing to
+      1040 at 118 s, 106 distinct intermediate counts, 1040 after completion.
+
+      The 2026-09-03 evidence ("`Abort()` leaves .Signals completely empty") was the
+      ambiguity it was flagged as: an abort that discards its buffer looks identical to a
+      buffer that never filled. It never filled *because it was aborted*.
+
+      **So this is now the recommended fix, not a dead end.** In procedure mode the
+      recorder is the authoritative source, is already what `CV.txt` uses, and is
+      provably clean on a dummy — drawing the live trace from it removes the lag by
+      construction. In `Ei` mode the latch stays (it IS the data there), and a lag cannot
+      make a wedge because the potential is held constant per segment.
+
+- [ ] **Draw the live CV trace from `.Signals` in procedure mode.** The fix for the wedge.
+      `run_tab.py:377` calls `pot.live_data()`; in procedure mode that should read the
+      recorder's arrays rather than `_live_samples`. Keep `pump()` sampling regardless —
+      the overload flags are only readable while the run is going.
+- [ ] **Do not plot a sample before the latch has content.** The fix for the origin point.
+      An exactly-zero (E, I) pair is trivially detectable, and the first recorded
+      `CalcTime` says when the staircase really began.
+- [ ] **Cadence stall, seen 2026-09-24.** `20260924_test2` logged spectra cadence
+      `max 1139.0 ms, jitter(sd) 67.5 ms` against `20260924_test1`'s `max 140.5, sd 6.2`.
+      A 1.1 s stall in the acquisition loop, on the same rig, minutes apart. NOT the cause
+      of the wedges (the gaps at all seven glitch points were a normal 102-141 ms), but
+      unexplained and new.
+
+**How to re-examine any of this without the rig.** `SPECECHEM_LIVE_DUMP=1` in the
+environment makes the Autolab driver write `{folder}/{label}_live_samples.csv` — the
+stream the live plot actually draws, which is otherwise never persisted and dies with the
+run. Off by default; adds a file beside the data and changes no existing format.
 
 **A dead end worth not repeating.** `20260916_test1` has 8-34 consecutive identical
 (E, I) row pairs per chrono segment (up to 11% of rows in `steps(0)`), which looks like
