@@ -2,6 +2,43 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Next up — sequencing, 2026-09-24
+
+What to do after the live-CV fixes are confirmed at the rig
+([`docs/live-cv-verify-2026-09-25.md`](docs/live-cv-verify-2026-09-25.md)).
+
+- [ ] **HDF5 — but the first step is a conversation, not code.** The two questions for Raj
+      are in the HDF5 section below, and the first one is a genuine fork: **is the H5 an
+      analysis convenience or the archival record?** His layout keeps absorbance and
+      current only — no raw counts, dark or reference, which our 8-column format carries.
+      Matching him exactly makes the H5 lossy and leaves the ascii as the archive; making
+      it a superset means it is no longer his format and his reader needs changes. That
+      answer drives the schema, the metadata question and whether the Results tab can
+      round-trip. **Building before it lands risks a third format nobody reads** — the
+      same trap the Igor item warns about. The rest is small: his writer is 101 lines, and
+      `compute_absorbance()` already returns data/index/columns in his shape.
+
+- [ ] **If Raj is slow, do figure export instead.** `NavigationToolbar2QT`, ~5 lines per
+      canvas, brings pan/zoom/save for free; prefer SVG or PDF. Unblocked, self-contained,
+      and useful whatever the H5 answer turns out to be.
+
+- [ ] **A cross-model (Fable) review — soon rather than someday.** The 2026-07-15 one found
+      10 verified issues in `gui/` + concurrency, headline being the Gamry running a
+      waveform blind on the sample after a spectrometer failure; all were bench-validated.
+      Since then the analysis tab, the Autolab backend, the DOS view and now the live-plot
+      path have all landed, and `gui/` still has the weakest coverage relative to its bug
+      history.
+      - **When:** after the rig confirms the live-CV fixes, so the review is not reading
+        code that is about to change.
+      - **Scope:** `gui/` plus the Autolab driver, NOT the whole repo. The July review
+        worked because it was focused, and the v0.3.0 merge was skipped for being too
+        large to review.
+      - **Why a different model:** it does not share this session's assumptions. The
+        straddle diagnosis is the case in point — wrong, reviewed by its own author, and
+        only killed by the bench.
+      - `/code-review ultra` is the deep multi-agent cloud review; it is user-triggered
+        and billed. `/code-review high` on a branch diff is the cheaper local first pass.
+
 ## Sanitising the repository history — the user, 2026-09-15, future
 
 Requested: *"I wonder about sanitizing the repo at some point in the future and resetting the
