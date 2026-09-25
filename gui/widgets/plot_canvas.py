@@ -15,6 +15,9 @@ from matplotlib.colors import Normalize
 
 from spec_echem.gamry_data import POTENTIAL_COL, CURRENT_COL
 
+# Smallest live-plot y-span, as a fraction of the largest |y| (see _widen_flat_y).
+LIVE_MIN_Y_SPAN_FRAC = 0.10
+
 logger = logging.getLogger(__name__)
 
 
@@ -168,7 +171,28 @@ class MplCanvas(FigureCanvasQTAgg):
         self._live_line.set_data(x, y)
         self.ax.relim()
         self.ax.autoscale_view()
+        self._widen_flat_y(y)
         self.draw_idle()
+
+    def _widen_flat_y(self, y, min_frac=LIVE_MIN_Y_SPAN_FRAC):
+        """Keep a steady trace looking steady.
+
+        A chrono hold on a resistor is flat to a few nA, and autoscale zooms straight
+        into that noise; matplotlib then labels the axis with an offset such as
+        "1e-9+3.027e-5" (seen 2026-09-25 on a 30 uA hold), which is unreadable. The
+        y-span is held to at least `min_frac` of the largest |y|, centred on the data.
+        Only the view changes — the data and the saved file are untouched, and a trace
+        that really moves by more than that is scaled exactly as before.
+        """
+        y = np.asarray(y, float)
+        y = y[np.isfinite(y)]
+        if y.size == 0:
+            return
+        lo, hi = float(y.min()), float(y.max())
+        need = min_frac * max(abs(lo), abs(hi))
+        if need > 0 and hi - lo < need:
+            mid = 0.5 * (lo + hi)
+            self.ax.set_ylim(mid - need / 2, mid + need / 2)
 
     def show_linearity(self, times, counts, result, full_scale=65535, title=None):
         """

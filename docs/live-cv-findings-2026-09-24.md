@@ -160,3 +160,42 @@ clips during `steps(0)`.
 The live trace draws from the same `.Signals` arrays as `CV.txt`, so the bad cycle-3 data
 is real measured data being plotted faithfully, not a display artifact. Use this run for
 the plotting result only. Do not take resistances or offsets from it.
+
+### Second run, `20260925_test2`: clips reseated, chrono on `CR11_100uA`
+
+This one is clean, and it is the run to quote for the numbers.
+
+**The echem is clean:**
+- **CV:** the three cycles fit R = 9899.5 / 9899.1 / 9899.0 ohm, with offsets of +7 to
+  +9 nA and residual sd of 17 nA. The instrument's front panel showed the CV
+  auto-ranging down to 10 uA near 0 V, with no overload and no visible steps in the
+  data. On this dummy that is fine.
+- **Chrono holds:** 20.1935 uA at +0.1998 V and 30.2734 uA at +0.2996 V, both 9.89–9.90
+  kOhm, with sd 1.5–2.7 nA.
+- **The 0 V holds:** these read +10 to +12 nA on `CR11_100uA`, where `CR09_10mA` read
+  1.3–1.6 uA. That zero offset scales with the range, which supports dropping the
+  range for films.
+- **The warning the 0 V holds raise is a false alarm:** "the measured current never
+  exceeded 1.0e-07 A … cell probably open". A resistor at 0 V draws nothing, so on a
+  dummy that warning is expected.
+
+**The recorder read failed once, and the failure was a race.** The log shows `could
+not read the recorder for the live plot (Collection was modified; enumeration
+operation may not execute …)`. The recorder appended a point while the plot's read
+was walking its list. The plot's next 400 ms tick reads fine, so all that was lost was
+one frame, and the user saw nothing. The old warning said the trace "will stay blank
+for this segment". That was wrong, because the code never stopped retrying. Now one
+failure is logged at DEBUG, and a WARNING is raised only after
+`LIVE_READ_WARN_AFTER` = 5 consecutive failures (about 2 s with no new frame).
+
+**The unreadable axis label on the chrono plots.** The label read
+"1e-9+3.027e-5". Autoscale zoomed into nA noise on a flat 30 uA hold, and matplotlib
+labelled that with an offset. The live plot now holds its y-span to at least 10% of
+the largest |y| (`LIVE_MIN_Y_SPAN_FRAC`). Only the view changes; the data on the line
+and in the file do not.
+
+### Later runs the same day
+
+- **`20260925_` (an accidental start) and `20260925_test4` (on `CR11_100uA`):** the
+  y-span fix and the GUI start/lock fixes were confirmed on the rig. The session summary
+  and the open spectra-gap item are in [`bench-2026-09-25.md`](bench-2026-09-25.md).

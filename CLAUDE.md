@@ -450,8 +450,10 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   was built still stands: every bug in the 0.2.0 cycle lived in GUI wiring and the core suite
   passed through all of them. Qt-dependent tests must `pytest.importorskip("qtpy")` — the suite
   has to keep running in environments with no Qt.
-- **The live echem plot is untested and is where the 2026-09-24 wedge lived.**
-  See `docs/live-cv-findings-2026-09-24.md`.
+- **The live-CV wedge fix is confirmed on the rig (2026-09-25).** Read
+  [`docs/bench-2026-09-25.md`](docs/bench-2026-09-25.md) first. OPEN there: spectra gaps
+  of 260-463 ms in the first ~2 s of every chrono segment, probably the GUI redrawing the
+  previous segment during the hand-off.
 - **The trigger cable's build** (connector, pinout, shielding) is undocumented — only its endpoints.
 
 ---

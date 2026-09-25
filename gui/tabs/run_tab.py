@@ -17,7 +17,8 @@ from pathlib import Path
 
 from spec_echem.experiment import build_segments
 from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
-from spec_echem.data import write_run_metadata, DATA_TYPE_CV
+from spec_echem.data import (write_run_metadata, segment_potential_text,
+                             DATA_TYPE_CV, DATA_TYPE_DOPING)
 from spec_echem.logging_config import (configure_run_logging, close_run_logging,
                                        get_run_logger, app_log_path)
 from spec_echem.potentiostat import make_potentiostat
@@ -32,6 +33,7 @@ class RunTab(QWidget):
         self._thread = None
         self._worker = None
         self._row_for_label = {}
+        self._item_text = {}        # label -> "Doping 0   +0.200 V", as listed
         self._live_timer = None
         self._current_segment = None
         self._build()
@@ -72,11 +74,11 @@ class RunTab(QWidget):
         # --- cockpit: sequence progress (left) + plots (right) ---
         cockpit = QSplitter(Qt.Horizontal)
 
-        seq_group = QGroupBox("Sequence Progress")
-        seq_layout = QVBoxLayout(seq_group)
+        self.seq_group = QGroupBox("Sequence Progress")
+        seq_layout = QVBoxLayout(self.seq_group)
         self.sequence_list = QListWidget()
         seq_layout.addWidget(self.sequence_list)
-        cockpit.addWidget(seq_group)
+        cockpit.addWidget(self.seq_group)
 
         # Right side, stacked: the live echem trace (updates DURING a Python-mode
         # segment — so there's visible feedback mid-run) above the last completed
@@ -139,6 +141,84 @@ class RunTab(QWidget):
             f"background: {color}; padding: 10px; font-weight: bold; border: 1px solid #ccd;"
         )
 
+    # --- the planned sequence ---
+
+    def is_running(self):
+        return self._worker is not None
+
+    def showEvent(self, event):
+        """Show what Start WILL run, rebuilt from the current settings whenever this
+        tab comes forward. The list used to be filled only at Start, so between runs
+        it showed the LAST run's segments (or nothing) — and on 2026-09-25 a list
+        read as "the plan" was in fact a run already in progress."""
+        super().showEvent(event)
+        if not self.is_running():
+            self.refresh_plan()
+
+    def refresh_plan(self):
+        try:
+            settings = self.win.collect_settings()
+            segments = build_segments(settings)
+        except Exception:  # noqa: BLE001 — an unfinished form must not break the tab
+            settings, segments = self.win.settings, []
+        self.seq_group.setTitle("Sequence — planned (not started)")
+        self._fill_sequence(segments, settings)
+
+    def _fill_sequence(self, segments, settings):
+        self.sequence_list.clear()
+        self._row_for_label = {}
+        self._item_text = {}
+        for i, seg in enumerate(segments):
+            potential = segment_potential_text(settings, seg.data_type, seg.run_number)
+            text = f"{seg.label}   {potential}" if potential else seg.label
+            if not seg.save:
+                text += "   (discard)"
+            self._item_text[seg.label] = text
+            self._row_for_label[seg.label] = i
+            self.sequence_list.addItem("○  " + text)
+
+    def _confirm_start(self, settings, segments, run_folder):
+        """Say what is about to run and let the user back out.
+
+        Every value here comes from the frozen settings the run will use, so what is
+        confirmed is exactly what runs. A blank sample name or a folder that is only
+        the date prefix is called out, not refused — the user decides.
+        """
+        lines = [f"Folder:  {run_folder}"]
+        sample = str(settings.get("sample_name", "")).strip()
+        lines.append(f"Sample:  {sample or '(blank)'}")
+        mode = settings.get("potentiostat_mode", "external")
+        lines.append(f"Potentiostat:  {mode}")
+        lines.append(f"Segments:  {len(segments)}")
+        if any(seg.data_type == DATA_TYPE_CV for seg in segments):
+            lines.append(f"    CV:  {settings.get('cv_limit1_v', 0.0):+.3f} to "
+                         f"{settings.get('cv_limit2_v', 0.0):+.3f} V, "
+                         f"{settings.get('cv_cycles')} cycle(s)")
+        doping = [seg for seg in segments if seg.data_type == DATA_TYPE_DOPING]
+        if doping:
+            first = segment_potential_text(settings, DATA_TYPE_DOPING,
+                                           doping[0].run_number)
+            last = segment_potential_text(settings, DATA_TYPE_DOPING,
+                                          doping[-1].run_number)
+            lines.append(f"    Doping:  {len(doping)} step(s), {first} to {last}; "
+                         f"dedoping at {settings.get('dedoping_potential', 0.0):+.3f} V")
+        if mode == "autolab":
+            lines.append("    Current range (chrono):  "
+                         f"{settings.get('autolab_current_range') or 'instrument default'}")
+
+        concerns = []
+        if not sample:
+            concerns.append("The sample name is blank.")
+        if settings["data_folder"].endswith("_"):
+            concerns.append("The folder name is only the date prefix.")
+        text = "\n".join(lines)
+        if concerns:
+            text += "\n\n" + "\n".join(concerns)
+        reply = QMessageBox.question(
+            self, "Start this run?", text,
+            QMessageBox.Ok | QMessageBox.Cancel, QMessageBox.Cancel)
+        return reply == QMessageBox.Ok
+
     # --- run control ---
 
     def on_start(self):
@@ -198,6 +278,10 @@ class RunTab(QWidget):
             if reply != QMessageBox.Ok:
                 self.log("Start cancelled — folder already exists (rename it to keep the old data).")
                 return
+
+        if not self._confirm_start(settings, segments, run_folder):
+            self.log("Start cancelled at the confirmation.")
+            return
 
         # Fresh status log per run (mirrors the sequence-progress reset below); the
         # full history is always preserved in each run's own .log file on disk.
@@ -273,12 +357,9 @@ class RunTab(QWidget):
         self.win.results_tab.refresh_segments()
         self.win.analysis_tab.refresh_segments()
 
-        # Build the progress list
-        self.sequence_list.clear()
-        self._row_for_label = {}
-        for i, seg in enumerate(segments):
-            self.sequence_list.addItem("○  " + seg.label)
-            self._row_for_label[seg.label] = i
+        # Build the progress list, from the same frozen settings the run uses
+        self.seq_group.setTitle("Sequence Progress")
+        self._fill_sequence(segments, settings)
 
         # Pick the potentiostat: Python-controlled drives the Gamry itself;
         # external means the human starts the .GSequence (the proven default).
@@ -330,6 +411,7 @@ class RunTab(QWidget):
         self.abort_btn.setEnabled(True)
         self.win.instrument_tab._set_actions_enabled(False)  # avoid concurrent spec access
         self.win.instrument_tab.lock_for_run(True)           # lock Connect/Simulated too
+        self.win.parameters_tab.lock_for_run(True)           # the run's settings are frozen
 
     def on_stop(self):
         if self._worker is not None:
@@ -360,7 +442,8 @@ class RunTab(QWidget):
     def on_segment_started(self, label, index, total):
         row = self._row_for_label.get(label)
         if row is not None:
-            self.sequence_list.item(row).setText("●  " + label)
+            self.sequence_list.item(row).setText(
+                "●  " + self._item_text.get(label, label))
         self.set_banner(f"Collecting: {label}  ({index}/{total})", "#eef")
         # Tell the live-echem timer which segment (CV → I-vs-E, chrono → I-vs-t).
         self._current_segment = self.win.segments_by_label.get(label)
@@ -400,8 +483,9 @@ class RunTab(QWidget):
 
         row = self._row_for_label.get(label)
         if row is not None:
+            text = self._item_text.get(label, label)
             self.sequence_list.item(row).setText(
-                ("✓  " + label + "  (data discarded)") if discarded else ("✓  " + label))
+                ("✓  " + text + "  (data discarded)") if discarded else ("✓  " + text))
 
         # A discarded segment is shown live here as it happens — you still want to watch
         # it run — but it never enters win.results, which is the "data you have" view
@@ -429,6 +513,7 @@ class RunTab(QWidget):
         self._reset_controls()
         self.win.instrument_tab._set_actions_enabled(True)
         self.win.instrument_tab.lock_for_run(False)          # unlock Connect/Simulated
+        self.win.parameters_tab.lock_for_run(False)
         # Note: worker/thread refs are cleared in _on_thread_finished (after the
         # thread's event loop has actually stopped), not here — on_finished runs on
         # worker.finished, which is BEFORE the thread has finished.

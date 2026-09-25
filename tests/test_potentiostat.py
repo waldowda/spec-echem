@@ -492,6 +492,63 @@ def test_a_recorder_with_nothing_in_it_yet_draws_nothing(autolab):
     assert p.live_data() is None
 
 
+def _capture_run_log():
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logging.getLogger("spec_echem.run").addHandler(handler)
+    return records, handler
+
+
+def test_one_failed_recorder_read_skips_a_frame_and_says_nothing(autolab, monkeypatch):
+    """MEASURED 2026-09-25 (20260925_test2): the SDK raised "Collection was modified;
+    enumeration operation may not execute" — the recorder appended mid-read. The next
+    tick reads fine, so this must not be reported as the live trace stopping."""
+    p, inst = autolab(duration=0.4, points=40)
+    p.prepare(_cv_segment())
+    p.fire()
+    time.sleep(0.2)
+    p._proc.IsMeasuring                     # the poll that fills the fake's arrays
+
+    real = potentiostat.echem_from_signals
+    calls = {"n": 0}
+
+    def flaky(cmd, align=False):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("Collection was modified")
+        return real(cmd, align=align)
+
+    monkeypatch.setattr(potentiostat, "echem_from_signals", flaky)
+    records, handler = _capture_run_log()
+    try:
+        assert p.live_data() is None        # this frame is skipped...
+        assert p.live_data() is not None    # ...and the next one draws
+    finally:
+        logging.getLogger("spec_echem.run").removeHandler(handler)
+    assert not [r for r in records if r.levelno >= logging.WARNING]
+    assert p._live_read_errors == 0
+
+
+def test_a_recorder_that_keeps_failing_is_reported_once(autolab, monkeypatch):
+    p, inst = autolab()
+    p.prepare(_cv_segment())
+
+    def broken(cmd, align=False):
+        raise RuntimeError("Collection was modified")
+
+    monkeypatch.setattr(potentiostat, "echem_from_signals", broken)
+    records, handler = _capture_run_log()
+    try:
+        for _ in range(3 * potentiostat.LIVE_READ_WARN_AFTER):
+            assert p.live_data() is None
+    finally:
+        logging.getLogger("spec_echem.run").removeHandler(handler)
+    warnings = [r for r in records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert "stopped updating" in warnings[0].getMessage()
+
+
 def test_live_data_accumulates_the_scalar_samples_in_ei_mode(ei_autolab):
     """Ei mode has no procedure and therefore no recorder: the scalars pump()
     collects ARE the segment's data, saved as well as plotted."""
