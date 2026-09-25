@@ -122,6 +122,7 @@ class AnalysisTab(QWidget):
         self._fit_wl = {}        # label -> wavelength that fit was made at
         self._wavelength = None  # None = auto
         self._fill_range_boxes = False   # set when the range is ticked; see _on_range_toggled
+        self._stale = False      # results changed while hidden; see request_refresh
         self._build()
 
     # --- layout ---------------------------------------------------------
@@ -424,8 +425,27 @@ class AnalysisTab(QWidget):
         so the visible text is not the key into win.results -- itemData is."""
         return self.segment_combo.currentData()
 
+    def request_refresh(self):
+        """Refresh now if this tab is on screen, otherwise the next time it is.
+
+        The Run tab calls this after every segment. MEASURED 2026-09-25
+        (`20260925_test4`): refreshing unconditionally cost 0.3-1.1 s on the GUI
+        thread at each segment hand-off, which overlapped the NEXT segment's first
+        ~2 s and left 260-463 ms gaps in its spectra — the doping transient.
+        """
+        if self.isVisible():
+            self.refresh_segments()
+        else:
+            self._stale = True
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._stale:
+            self.refresh_segments()
+
     def refresh_segments(self):
         """Repopulate from the main window's results store, keeping the selection."""
+        self._stale = False
         previous = self._current_label()
         self.segment_combo.blockSignals(True)
         self.segment_combo.clear()
