@@ -43,6 +43,7 @@ class ResultsTab(QWidget):
     def __init__(self, main_window):
         super().__init__()
         self.win = main_window
+        self._stale = False      # results changed while hidden; see request_refresh
         self._build()
 
     def _build(self):
@@ -222,10 +223,29 @@ class ResultsTab(QWidget):
 
     # --- segment selection / plotting ---
 
+    def request_refresh(self):
+        """Refresh now if this tab is on screen, otherwise the next time it is.
+
+        The Run tab calls this after every segment. MEASURED 2026-09-25
+        (`20260925_test4`): refreshing unconditionally cost 0.3-1.1 s on the GUI
+        thread at each segment hand-off, which overlapped the NEXT segment's first
+        ~2 s and left 260-463 ms gaps in its spectra — the doping transient.
+        """
+        if self.isVisible():
+            self.refresh_segments()
+        else:
+            self._stale = True
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._stale:
+            self.refresh_segments()
+
     def refresh_segments(self):
         """Repopulate the dropdown from the main window's results store, keeping the
         current selection if it still exists — so a mid-run completion doesn't yank
         the user back to the first segment while they're inspecting another."""
+        self._stale = False
         current = self._current_label()
         self.segment_combo.blockSignals(True)
         self.segment_combo.clear()

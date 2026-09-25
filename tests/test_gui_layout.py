@@ -2225,21 +2225,24 @@ def test_linearity_labels_stay_inside_the_canvas(app, size):
     assert box.x0 >= ax_box.x0 and box.x1 <= ax_box.x1, "legend stays inside the axes"
 
 
-def test_a_flat_live_trace_is_not_zoomed_into_its_noise(app):
+def test_a_flat_live_trace_is_labelled_readably(app):
     """MEASURED 2026-09-25: a 30 uA chrono hold on a resistor, flat to a few nA, was
-    autoscaled into that noise and labelled "1e-9+3.027e-5". The view is held to a
-    sensible span; the data on the line is untouched."""
+    labelled "1e-9+3.027e-5". The axis still autoscales to the data (a minimum span
+    was tried and rejected at the rig), but the ticks are written in full."""
     import numpy as np
-    from gui.widgets.plot_canvas import MplCanvas, LIVE_MIN_Y_SPAN_FRAC
+    from gui.widgets.plot_canvas import MplCanvas
 
     canvas = MplCanvas()
     t = np.arange(150) * 0.1
     i = 30.2734e-6 + 1.5e-9 * np.sin(t)
-    canvas.update_live_line(t, i, "Time (s)", "Current (A)")
+    canvas.update_live_line(t, i, "Time (s)", "Current", y_unit="A")
+    canvas.draw()
 
     lo, hi = canvas.ax.get_ylim()
-    assert hi - lo >= LIVE_MIN_Y_SPAN_FRAC * i.max() * 0.999
-    assert lo < i.min() and hi > i.max()
+    assert hi - lo < 1e-8, "autoscaled to the data, not widened"
+    assert canvas.ax.yaxis.get_offset_text().get_text() == ""
+    labels = [l.get_text() for l in canvas.ax.get_yticklabels() if l.get_text()]
+    assert labels and all(l.endswith("\u00b5A") or l.endswith("µA") for l in labels), labels
     assert np.array_equal(canvas._live_line.get_ydata(), i)
 
 
@@ -2333,3 +2336,164 @@ def test_the_parameters_tab_is_locked_for_exactly_the_run(ready_window, monkeypa
     assert params._body.isEnabled()
     assert params.load_btn.isEnabled()
     assert params.lock_note.isHidden()
+
+
+# --- Segment hand-off cost (2026-09-25) --------------------------------------------
+# 20260925_test4: 260-463 ms spectra gaps in the first ~2 s of every chrono segment,
+# from GUI-thread work on the PREVIOUS segment overlapping the next one's start.
+
+def test_the_absorbance_plot_draws_every_spectrum_as_one_collection(app):
+    import numpy as np
+    import pandas as pd
+    from matplotlib.collections import LineCollection
+    from gui.widgets.plot_canvas import MplCanvas
+
+    wl = np.linspace(410.0, 1100.0, 50)
+    times = np.arange(151) * 0.1
+    data = np.outer(np.sin(wl / 100.0), 1.0 + times / 15.0)
+    data[0, 3] = -np.inf                     # log10 of a non-positive transmittance
+    df = pd.DataFrame(data, index=wl, columns=times)
+
+    canvas = MplCanvas()
+    canvas.show_absorbance(df, title="Doping 0")
+
+    colls = [c for c in canvas.ax.collections if isinstance(c, LineCollection)]
+    assert len(colls) == 1
+    assert len(colls[0].get_segments()) == 151, "every spectrum is still drawn"
+    lo, hi = canvas.ax.get_ylim()
+    finite = data[np.isfinite(data)]
+    assert np.isfinite([lo, hi]).all()
+    assert lo <= finite.min() and hi >= finite.max()
+    xlo, xhi = canvas.ax.get_xlim()
+    assert xlo <= wl.min() and xhi >= wl.max()
+
+
+def test_hidden_result_tabs_refresh_when_shown_not_after_every_segment(window,
+                                                                      monkeypatch):
+    for tab in (window.results_tab, window.analysis_tab):
+        calls = []
+        monkeypatch.setattr(tab, "refresh_segments",
+                            lambda calls=calls, tab=tab: (calls.append(1),
+                                                          setattr(tab, "_stale", False)))
+        monkeypatch.setattr(tab, "isVisible", lambda: False)
+        tab.request_refresh()
+        tab.request_refresh()
+        assert calls == [], "a hidden tab must not refresh mid-run"
+        assert tab._stale
+
+        from qtpy.QtGui import QShowEvent
+        tab.showEvent(QShowEvent())
+        assert calls == [1], "it catches up once, when it is shown"
+        tab.showEvent(QShowEvent())
+        assert calls == [1]
+
+
+def test_a_visible_result_tab_still_refreshes_at_once(window, monkeypatch):
+    tab = window.results_tab
+    calls = []
+    monkeypatch.setattr(tab, "refresh_segments", lambda: calls.append(1))
+    monkeypatch.setattr(tab, "isVisible", lambda: True)
+    tab.request_refresh()
+    assert calls == [1]
+
+
+# --- Wait for the display between segments (2026-09-25) --------------------------
+
+def _worker():
+    from gui.workers import AcquisitionWorker
+    return AcquisitionWorker(None, [], None, None, None, "", "")
+
+
+def test_only_python_paced_drivers_pause_between_segments():
+    """External mode's sequence keeps its own clock: a pause there would miss a
+    trigger. The Python drivers switch the cell off after each segment, so a wait is
+    open-circuit time, not extra hold time."""
+    from spec_echem import potentiostat as p
+    assert p.ExternalPotentiostat.python_paced is False
+    assert p.AutolabPotentiostat.python_paced is True
+    assert p.ToolkitPotentiostat.python_paced is True
+
+
+def test_the_wait_ends_as_soon_as_the_gui_is_idle(app):
+    import logging, threading
+    w = _worker()
+    threading.Timer(0.05, w.gui_idle.set).start()
+    records = []
+    log = logging.getLogger("test.wait")
+    log.addHandler(type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r)})())
+    log.setLevel(logging.INFO)
+    w._wait_for_gui(log)
+    assert w.gui_idle.is_set()
+    assert any("Waited" in r.getMessage() for r in records)
+
+
+def test_the_wait_gives_up_rather_than_hang(app, monkeypatch):
+    import logging, time
+    import gui.workers as workers
+    monkeypatch.setattr(workers, "GUI_SETTLE_TIMEOUT_S", 0.1)
+    w = _worker()
+    records = []
+    log = logging.getLogger("test.wait.timeout")
+    log.addHandler(type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r)})())
+    t0 = time.perf_counter()
+    w._wait_for_gui(log)
+    assert time.perf_counter() - t0 < 1.0
+    assert any(r.levelno == logging.WARNING for r in records)
+
+
+def test_abort_ends_the_wait_at_once(app):
+    import logging, threading, time
+    w = _worker()
+    threading.Timer(0.05, w.abort_event.set).start()
+    t0 = time.perf_counter()
+    w._wait_for_gui(logging.getLogger("test.wait.abort"))
+    assert time.perf_counter() - t0 < 1.0
+
+
+def test_the_run_tab_releases_the_worker_after_drawing(window):
+    import numpy as np
+    import pandas as pd
+    from qtpy.QtWidgets import QApplication
+    w = _worker()
+    window.run_tab._worker = w
+    df = pd.DataFrame(np.ones((5, 3)), index=np.linspace(400, 800, 5),
+                      columns=[0.0, 0.1, 0.2])
+    window.run_tab.on_segment_done("Doping 0", df)
+    assert not w.gui_idle.is_set(), "released only after the queued redraw"
+    for _ in range(5):
+        QApplication.processEvents()
+    assert w.gui_idle.is_set()
+    window.run_tab._worker = None
+
+
+def test_a_failing_display_still_releases_the_worker(window, monkeypatch):
+    from qtpy.QtWidgets import QApplication
+    w = _worker()
+    window.run_tab._worker = w
+
+    def boom(*a, **k):
+        raise RuntimeError("draw failed")
+
+    monkeypatch.setattr(window.run_tab, "_show_finished_segment", boom)
+    with pytest.raises(RuntimeError):
+        window.run_tab.on_segment_done("Doping 0", None)
+    for _ in range(5):
+        QApplication.processEvents()
+    assert w.gui_idle.is_set()
+    window.run_tab._worker = None
+
+
+def test_the_live_axis_keeps_autoscaling_after_widening_a_first_point(app):
+    """MEASURED 2026-09-25 (20260925_test5, dedoping at 0 V, 5.5-12.2 nA): the first
+    tick had one point, the span was widened around it, and set_ylim's default
+    switched autoscaling off -- every later point outside that span ran off the axis."""
+    import numpy as np
+    from gui.widgets.plot_canvas import MplCanvas
+
+    canvas = MplCanvas()
+    canvas.update_live_line([0.0], [8.2e-9], "Time (s)", "Current (A)")
+    i = np.array([8.2, 12.2, 10.1, 7.9, 5.5, 9.0]) * 1e-9
+    canvas.update_live_line(np.arange(len(i)) * 0.1, i, "Time (s)", "Current (A)")
+
+    lo, hi = canvas.ax.get_ylim()
+    assert lo <= i.min() and hi >= i.max(), (lo, hi)

@@ -190,12 +190,12 @@ failure is logged at DEBUG, and a WARNING is raised only after
 
 **The unreadable axis label on the chrono plots.** The label read
 "1e-9+3.027e-5". Autoscale zoomed into nA noise on a flat 30 uA hold, and matplotlib
-labelled that with an offset. The live plot now holds its y-span to at least 10% of
-the largest |y| (`LIVE_MIN_Y_SPAN_FRAC`). Only the view changes; the data on the line
-and in the file do not.
+labelled that with an offset. The first fix, a minimum y-span, was rejected at the rig
+the same day. The axis now always autoscales and writes its ticks in engineering units;
+see `bench-2026-09-25.md`.
 
 ### Later runs the same day
 
 - **`20260925_` (an accidental start) and `20260925_test4` (on `CR11_100uA`):** the
-  y-span fix and the GUI start/lock fixes were confirmed on the rig. The session summary
+  GUI start/lock fixes were confirmed on the rig. The session summary
   and the open spectra-gap item are in [`bench-2026-09-25.md`](bench-2026-09-25.md).

@@ -10,6 +10,7 @@ widgets — so the GUI thread can update safely. Stop and Abort are threading.Ev
 """
 import logging
 import threading
+import time
 
 from qtpy.QtCore import QObject, Signal
 
@@ -17,6 +18,11 @@ from spec_echem.data import segment_potential_text
 from spec_echem.experiment import run_one_segment
 from spec_echem.potentiostat import ConfigurationError
 from spec_echem.logging_config import get_run_logger
+
+# Longest the worker waits for the GUI to finish drawing a segment before starting the
+# next one. The wait normally ends in well under 1 s; this only bounds a GUI that
+# never answers, so a display fault can delay a run but never hang it.
+GUI_SETTLE_TIMEOUT_S = 5.0
 
 
 class QtLogHandler(logging.Handler):
@@ -54,6 +60,8 @@ class AcquisitionWorker(QObject):
         self.potentiostat = potentiostat
         self.stop_event = threading.Event()
         self.abort_event = threading.Event()
+        # Set by the GUI once it has finished drawing a completed segment.
+        self.gui_idle = threading.Event()
 
     def request_stop(self):
         self.stop_event.set()
@@ -62,6 +70,32 @@ class AcquisitionWorker(QObject):
         self.abort_event.set()
         if self.potentiostat is not None:
             self.potentiostat.stop()
+
+    def _wait_for_gui(self, logger):
+        """Hold the next segment until the GUI has drawn the one just finished.
+
+        MEASURED 2026-09-25 (`20260925_test4`): drawing a finished segment on the GUI
+        thread overlapped the NEXT segment's first ~2 s and left 260-463 ms gaps in its
+        spectra, because the draw and the acquisition take turns on the GIL. Those
+        first seconds are the doping transient. Waiting here moves that cost into
+        the gap between segments, where the cell is already off.
+
+        Only for python_paced drivers; in External mode the sequence file keeps its
+        own clock and a pause would miss its trigger. Abort ends the wait at once.
+        """
+        t0 = time.perf_counter()
+        deadline = t0 + GUI_SETTLE_TIMEOUT_S
+        while not self.gui_idle.wait(0.02):
+            if self.abort_event.is_set():
+                return
+            if time.perf_counter() > deadline:
+                logger.warning(
+                    "The display was still busy %.1f s after the last segment; "
+                    "starting the next one anyway. Its first spectra may be "
+                    "unevenly spaced.", GUI_SETTLE_TIMEOUT_S)
+                return
+        logger.info("Waited %.0f ms for the display before the next segment (cell off).",
+                    (time.perf_counter() - t0) * 1000.0)
 
     def run(self):
         logger = get_run_logger()
@@ -111,6 +145,7 @@ class AcquisitionWorker(QObject):
                     break
 
                 absorb_df, path = result
+                self.gui_idle.clear()
                 self.segment_done.emit(seg.label, absorb_df)
                 logger.info("%s complete → %s", seg.label,
                             path.name if path is not None else "discarded (not saved)")
@@ -129,6 +164,9 @@ class AcquisitionWorker(QObject):
                         seg.label)
                     reason = "error"
                     break
+
+                if i + 1 < total and getattr(self.potentiostat, "python_paced", False):
+                    self._wait_for_gui(logger)
         except ConfigurationError as exc:
             # A setup mistake, not a defect: the message names what to change, so it
             # reads as one line in the status pane instead of a stack trace nobody

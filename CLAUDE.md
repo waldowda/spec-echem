@@ -451,9 +451,11 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   passed through all of them. Qt-dependent tests must `pytest.importorskip("qtpy")` — the suite
   has to keep running in environments with no Qt.
 - **The live-CV wedge fix is confirmed on the rig (2026-09-25).** Read
-  [`docs/bench-2026-09-25.md`](docs/bench-2026-09-25.md) first. OPEN there: spectra gaps
-  of 260-463 ms in the first ~2 s of every chrono segment, probably the GUI redrawing the
-  previous segment during the hand-off.
+  [`docs/bench-2026-09-25.md`](docs/bench-2026-09-25.md) first. **Between segments the
+  worker waits for the GUI to finish drawing** (Python-driven modes only, cell off).
+  Without it, the redraw of the previous segment held the GIL during the next one's first
+  ~2 s, the doping transient, and left 260-463 ms spectra gaps. Do not remove the wait
+  to save time.
 - **The trigger cable's build** (connector, pinout, shielding) is undocumented — only its endpoints.
 
 ---
