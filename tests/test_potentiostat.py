@@ -456,11 +456,47 @@ def test_device_lost_resets_between_segments(autolab):
     assert p.device_lost() is False
 
 
-def test_live_data_accumulates_the_scalar_samples(autolab):
-    """The Autolab gives instantaneous values, not a growing array, so the live
-    trace is built from what pump() collected."""
+def test_the_live_cv_is_drawn_from_the_recorder_not_the_latch(autolab):
+    """The wedge fix. MEASURED 2026-09-24: the latch stream lags the sweep by ~3
+    staircase steps, so points land off the trace; the recorder's own arrays over the
+    same run had 0 of 480 off it. In procedure mode the live plot reads the recorder,
+    which is also what CV.txt is written from."""
+    p, inst = autolab(duration=0.4, points=40)
+    p.prepare(_cv_segment())
+    p.fire()
+
+    # A latch holding something the recorder does not agree with: if live_data()
+    # reads the latch, these are the values that come back.
+    inst.Ei.true_potential, inst.Ei.true_current = -0.2500, 9.0e-06
+    p.pump()
+    p.pump()
+    time.sleep(0.2)
+    assert p._proc.IsMeasuring is True    # the poll that fills the arrays, as the
+    #                                       driver's own loop does mid-run
+
+    live = p.live_data()
+    assert live is not None
+    assert -0.25 not in list(live.potential)
+    # The fake's recorder ramps potential 0.001*i from zero — the CV staircase, not
+    # the two latched scalars pump() collected.
+    assert live.potential[0] == pytest.approx(0.0)
+    assert len(live.current) > 2
+
+
+def test_a_recorder_with_nothing_in_it_yet_draws_nothing(autolab):
+    """Early in a run the arrays are empty. None leaves the Run tab's 'waiting for
+    data…' message up, which is honest; falling back to the latch would put the
+    lagging stream back on screen."""
     p, inst = autolab()
     p.prepare(_cv_segment())
+    assert p.live_data() is None
+
+
+def test_live_data_accumulates_the_scalar_samples_in_ei_mode(ei_autolab):
+    """Ei mode has no procedure and therefore no recorder: the scalars pump()
+    collects ARE the segment's data, saved as well as plotted."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
     p.fire()
     assert p.live_data() is None                  # nothing sampled yet
     inst.Ei.true_potential, inst.Ei.true_current = 0.25, 1e-5
@@ -1279,6 +1315,42 @@ def test_a_pair_that_straddles_every_read_is_dropped(autolab, caplog):
     assert p._live_samples == []
     assert p._bad_samples == 2
     assert sum("dropped a live sample" in r.message for r in caplog.records) == 1
+
+
+def test_samples_taken_before_the_latch_loaded_are_not_recorded(ei_autolab):
+    """MEASURED 2026-09-24 (20260924_test2): samples 0-3 read E = 0.0000 V and
+    I = 0.0000e+00 A, exactly zero, four times — pump() ran before the latch had ever
+    been loaded. The live plot drew a point at the origin; in Ei mode they reach
+    steps(N).txt as data."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+
+    for _ in range(3):                      # the cell is on, nothing has landed yet
+        p.pump()
+    assert p._live_samples == []
+    assert p._pre_latch_samples == 3
+
+    inst.Ei.true_potential, inst.Ei.true_current = 0.300, 1.2e-05
+    p.pump()
+    assert len(p._live_samples) == 1
+
+
+def test_a_real_zero_after_the_latch_has_loaded_is_kept(ei_autolab):
+    """Only LEADING zeros are the artifact. A cell that genuinely reads zero later in
+    a segment is data, and dropping it would be the software deciding what the
+    instrument is allowed to have measured."""
+    p, inst = ei_autolab()
+    p.prepare(_doping_segment())
+    p.fire()
+
+    inst.Ei.true_potential, inst.Ei.true_current = 0.300, 1.2e-05
+    p.pump()
+    inst.Ei.true_potential, inst.Ei.true_current = 0.0, 0.0
+    p.pump()
+
+    assert len(p._live_samples) == 2
+    assert p._pre_latch_samples == 0
 
 
 def test_a_held_potential_never_reports_a_straddle(ei_autolab):
