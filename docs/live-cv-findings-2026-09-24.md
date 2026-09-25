@@ -122,3 +122,41 @@ The evidence from this afternoon is committed under `examples/`:
 - **Still open from the original handoff, and still needing the rig:** a film run on
   `CR10_1mA`; `examples/bench_ei_sampling.py` phase A; the ULS2048L linearity items; and
   whether the CV's `FHPreCurrentRangingCV` picks too sensitive a range.
+
+## 7. Confirmed on the rig, 2026-09-25
+
+Both fixes (`7b9da23`) ran on the instrument for the first time in the GUI run
+`20260925_test1`. The run used the 10 kOhm dummy with 100 mV/s, 10 mV steps and
+−0.5 to +0.7 V for a 3-cycle CV, followed by pre-dedoping and two doping/dedoping pairs.
+The chrono segments used `Ei` mode on `CR09_10mA`, each a 30 s hold at 0.1 s.
+
+- **Fix 1: the wedge is gone.** The user watched the live trace and saw no wedge on any
+  cycle. The trace drew normally and the log has no "could not read the recorder" warning,
+  so `.Signals` is readable mid-run on this instrument.
+- **Fix 2: no origin point.** The CV logged `2 sample(s) before the latch loaded`, where
+  about 4 was expected; it was 4 on 2026-09-24, and the count depends on poll phase. There
+  was no `live sample(s) dropped` line, so the straddle guard counted 0.
+- **The chrono path did not regress.** `prededoping(0)`, `steps(0/1)` and `dedoping(0/1)`
+  each have 301 data rows. That matches `20260916_test1` under the same hold and
+  `delta_time`, and no file starts with an all-zero row.
+- **The cadence stall did not recur.** Across all six segments the maximum was 140.1 ms,
+  with jitter (sd) of 8.6 ms at most, against 1139 ms on `20260924_test2`. The cause is
+  still unknown.
+
+**The echem data from this run is not clean, but the fault was the cell connection, not
+the code.** The reference clip was making intermittent contact, and the user reseated the
+clips during `steps(0)`.
+
+- **CV cycles 1–2:** the fit gives a slope of R = 9.9 kOhm with residual sd 0.17 uA, but an
+  intercept of **+40 uA**, which a resistor cannot have. Treat it as a floating reference
+  shifting the measured potential.
+- **CV cycle 3:** the data degrades from index 587 to the end, reaching a max residual of
+  20 uA.
+- **After reseating:** `steps(1)` gives 28.87 uA at +0.300 V, which is 10.4 kOhm with no
+  offset.
+- **`dedoping(1)`:** logged a POTENTIAL OVERLOAD at t = 20.5 s, meaning the clip let go
+  again.
+
+The live trace draws from the same `.Signals` arrays as `CV.txt`, so the bad cycle-3 data
+is real measured data being plotted faithfully, not a display artifact. Use this run for
+the plotting result only. Do not take resistances or offsets from it.
