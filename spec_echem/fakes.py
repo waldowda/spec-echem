@@ -331,7 +331,25 @@ class FakeProcedure:
         if time.time() - self._started >= self._duration:
             self._finish()
             return False
+        self._publish_progress()
         return True
+
+    def _publish_progress(self):
+        """Fill .Signals as the run proceeds, which is what the rig does.
+
+        MEASURED 2026-09-24 on a PGSTAT302N: 0 points at 1.2 s climbing to 1040 at
+        118 s, 106 distinct intermediate counts. The earlier reading that the arrays
+        only materialise at completion came from an ABORTED run, which never filled
+        because it was aborted. A fake that published nothing until the end would let
+        a live-plot path that reads the recorder pass every test and then draw
+        nothing at all on the instrument.
+        """
+        if not self._duration:
+            return
+        fraction = (time.time() - self._started) / self._duration
+        n = int(max(0.0, min(1.0, fraction)) * self._points)
+        if n:
+            self._publish_prefix(n)
 
     def Abort(self):
         self._aborted = True
@@ -339,7 +357,9 @@ class FakeProcedure:
 
     # --- what a finished run leaves behind ---
     def _finish(self, partial=False):
-        n = max(1, self._points // 2) if partial else self._points
+        self._publish_prefix(max(1, self._points // 2) if partial else self._points)
+
+    def _publish_prefix(self, n):
         wait = float(self.Commands[WAIT_COMMAND_ID].CommandParameters[0].ValueAsObject)
         # CalcTime is wall-clock from procedure start and begins at ~the wait value,
         # which is exactly the offset the driver has to remove.
