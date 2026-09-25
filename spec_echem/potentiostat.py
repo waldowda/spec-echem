@@ -497,13 +497,20 @@ def _set_cell(inst, on):
     inst.Ei.CellOnOff = EI.EICellOnOff.On if on else EI.EICellOnOff.Off
 
 
-def echem_from_signals(cmd):
-    """command.Signals (read after the run) -> EchemData.
+def echem_from_signals(cmd, align=False):
+    """command.Signals -> EchemData.
 
     CalcTime is wall-clock from procedure start and begins at roughly the
     procedure's wait duration, so it is rebased here. CalcPotential is the MEASURED
     potential — SetpointApplied is what was commanded, which is not what the data
     file should carry. Current is already amps.
+
+    `align` is for reading the arrays WHILE the run is going (MEASURED 2026-09-24:
+    they fill as it proceeds, 0 points at 1.2 s to 1040 at 118 s). A snapshot can
+    catch one channel a sample ahead of another, so align truncates all three to the
+    shortest. At the end of a run they are equal and it changes nothing — which is
+    why the saved-data path does not pass it: there, a length mismatch is a fault to
+    hear about, not something to paper over.
     """
     sigs = getattr(cmd, "Signals", None)
     if sigs is None:
@@ -521,6 +528,11 @@ def echem_from_signals(cmd):
     if missing:
         raise ValueError(
             f"Autolab .Signals missing {missing}; got {list(channels)}")
+
+    names = ("CalcTime", "EI_0.CalcPotential", "EI_0.CalcCurrent")
+    if align:
+        n = min(len(channels[name]) for name in names)
+        channels = {name: channels[name][:n] for name in names}
 
     t = np.asarray(channels["CalcTime"], dtype=float)
     return EchemData(
@@ -753,6 +765,9 @@ class AutolabPotentiostat(Potentiostat):
         self._last_data = None
         self._live_samples = []     # (t, E, I) scalars accumulated by pump()
         self._bad_samples = 0       # refresh failed, or the pair straddled one
+        self._pre_latch_samples = 0  # read before the latch had ever been loaded
+        self._latch_loaded = False
+        self._live_read_failed = False
         self._t0 = None
         self._overloaded = False
         self._device_lost = False
@@ -827,6 +842,9 @@ class AutolabPotentiostat(Potentiostat):
         self._last_data = None
         self._live_samples = []
         self._bad_samples = 0
+        self._pre_latch_samples = 0
+        self._latch_loaded = False
+        self._live_read_failed = False
         self._t0 = None
         self._overloaded = False
         self._device_lost = False
@@ -1062,6 +1080,18 @@ class AutolabPotentiostat(Potentiostat):
                             else "potential and current came from different instants")
                 else:
                     potential, current = pair
+                    if not self._latch_loaded:
+                        # MEASURED 2026-09-24 (20260924_test2): samples 0-3 read
+                        # E = 0.0000 V and I = 0.0000e+00 A — exactly zero, four
+                        # times, from t = 1.114 s — because pump() runs before the
+                        # latch has ever been loaded. Ei mode writes these to
+                        # steps(N).txt; procedure mode drew a point at the origin.
+                        # Only LEADING zeros are dropped: once anything real has
+                        # arrived, a genuine zero reading is data.
+                        if potential == 0.0 and current == 0.0:
+                            self._pre_latch_samples += 1
+                            return
+                        self._latch_loaded = True
                     self._live_samples.append(
                         (time.perf_counter() - origin, potential, current))
         except Exception:  # noqa: BLE001 — a live sample must never sink a segment
@@ -1074,11 +1104,55 @@ class AutolabPotentiostat(Potentiostat):
         return self._last_data
 
     def live_data(self):
+        """What the Run tab plots mid-segment.
+
+        PROCEDURE MODE READS THE RECORDER, NOT THE LATCH. MEASURED 2026-09-24: the
+        latch stream lags — seven wedge points in 20260924_test2 sat ~3 staircase
+        steps (~31 mV, 0.31 s at 100 mV/s) off the resistor line, sign following the
+        sweep, because the potential arrives persistently behind the current. The
+        recorder's own arrays over the same run had 0 points off the line out of 480,
+        and they fill as the run proceeds, so drawing from them cannot lag by
+        construction. It is also the same source `CV.txt` is written from, so the
+        live plot and the saved file finally agree.
+
+        `pump()` keeps sampling the latch regardless — the overload flags are only
+        readable while the run is going, which is its first and most important job.
+
+        Ei mode keeps the latch: there `_live_samples` IS the segment's saved data,
+        no procedure is loaded to have a recorder, and a lag cannot draw a wedge
+        anyway because the potential is held constant across the segment.
+        """
+        if not self._ei_mode:
+            return self._recorder_snapshot()
         if not self._live_samples:
             return None
         t, e, i = zip(*self._live_samples)
         return EchemData(time=np.asarray(t), potential=np.asarray(e),
                          current=np.asarray(i))
+
+    def _recorder_snapshot(self):
+        """The recorder's arrays as they stand right now, or None.
+
+        None means "nothing to draw yet", which the Run tab already handles by
+        leaving its "waiting for data…" message up. Deliberately NOT falling back to
+        `_live_samples`: that fallback is the lagging stream this exists to stop
+        drawing, and a silently wrong plot is worse than a late one. A read that
+        keeps failing says so once, then stays quiet.
+        """
+        if self._cmd is None:
+            return None
+        try:
+            return echem_from_signals(self._cmd, align=True)
+        except ValueError:
+            return None            # channels not populated yet — normal early on
+        except Exception as exc:   # noqa: BLE001 — a live plot must never sink a run
+            if not self._live_read_failed:
+                self._live_read_failed = True
+                get_run_logger().warning(
+                    "Autolab: could not read the recorder for the live plot (%s). "
+                    "The run and the saved data are unaffected; the live trace will "
+                    "stay blank for this segment.", exc)
+            return None
 
     # --- internals ------------------------------------------------------
 
@@ -1594,6 +1668,8 @@ class AutolabPotentiostat(Potentiostat):
             parts.append(f"EDGE -> spectrum 0 {(spec0 - edge) * 1000:+.1f} ms")
         if self._bad_samples:
             parts.append(f"{self._bad_samples} live sample(s) dropped")
+        if self._pre_latch_samples:
+            parts.append(f"{self._pre_latch_samples} sample(s) before the latch loaded")
         if self._ei_mode:
             if self._live_samples:
                 parts.append(f"first Ei sample +{self._live_samples[0][0]:.3f} s")
