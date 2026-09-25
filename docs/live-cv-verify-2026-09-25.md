@@ -1,4 +1,4 @@
-# Verify the live-CV fixes — UW Autolab rig, 2026-09-25
+# Verify the live-CV fixes — PGSTAT302N rig, 2026-09-25
 
 For a Claude session **on the Windows instrument PC**. `git pull` first; the fixes are on
 `gui-dev` at `7b9da23`.
@@ -6,6 +6,8 @@ For a Claude session **on the Windows instrument PC**. `git pull` first; the fix
 Read [`live-cv-findings-2026-09-24.md`](live-cv-findings-2026-09-24.md) for what yesterday
 established. This note is only about confirming the two fixes written afterwards, neither
 of which has ever run on an instrument.
+
+**Done 2026-09-25 — both confirmed.** Results are in §7 of the findings note.
 
 **Cell safety:** the checks below want the **10 kΩ dummy resistor**, not a film. If a film
 goes in for the separate run at the end: current range **`CR10_1mA`**, dedope at

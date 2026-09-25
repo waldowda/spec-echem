@@ -950,18 +950,24 @@ object. The as-loaded defaults are the tell: [3] is 0.00244 (a step), [5] is 0.0
       construction. In `Ei` mode the latch stays (it IS the data there), and a lag cannot
       make a wedge because the potential is held constant per segment.
 
-- [ ] **Draw the live CV trace from `.Signals` in procedure mode.** The fix for the wedge.
+- [x] **Draw the live CV trace from `.Signals` in procedure mode.** The fix for the wedge.
       `run_tab.py:377` calls `pot.live_data()`; in procedure mode that should read the
       recorder's arrays rather than `_live_samples`. Keep `pump()` sampling regardless —
       the overload flags are only readable while the run is going.
-- [ ] **Do not plot a sample before the latch has content.** The fix for the origin point.
+      DONE (`7b9da23`), **confirmed on the rig 2026-09-25** (`20260925_test1`): no wedge
+      on screen across a 3-cycle CV, and no "could not read the recorder" warning.
+- [x] **Do not plot a sample before the latch has content.** The fix for the origin point.
       An exactly-zero (E, I) pair is trivially detectable, and the first recorded
       `CalcTime` says when the staircase really began.
+      DONE (`7b9da23`), **confirmed on the rig 2026-09-25**: the CV dropped 2 pre-latch
+      samples; every chrono file kept all 301 rows (same count as `20260916_test1`).
 - [ ] **Cadence stall, seen 2026-09-24.** `20260924_test2` logged spectra cadence
       `max 1139.0 ms, jitter(sd) 67.5 ms` against `20260924_test1`'s `max 140.5, sd 6.2`.
       A 1.1 s stall in the acquisition loop, on the same rig, minutes apart. NOT the cause
       of the wedges (the gaps at all seven glitch points were a normal 102-141 ms), but
       unexplained and new.
+      **Did not recur 2026-09-25** (`20260925_test1`, 6 segments): max 140.1 ms, sd at most
+      8.6 ms. Still unexplained; keep watching the cadence line.
 
 **How to re-examine any of this without the rig.** `SPECECHEM_LIVE_DUMP=1` in the
 environment makes the Autolab driver write `{folder}/{label}_live_samples.csv` — the
