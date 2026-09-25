@@ -98,10 +98,20 @@ class ParametersTab(QWidget):
         btn_row.addStretch()
         outer.addLayout(btn_row)
 
+        self.lock_note = QLabel(
+            "A run is in progress. These settings are locked: the run uses the values "
+            "frozen when Start was pressed.")
+        self.lock_note.setWordWrap(True)
+        self.lock_note.setStyleSheet(
+            "background: #ffd; padding: 6px; border: 1px solid #cc9;")
+        self.lock_note.setVisible(False)
+        outer.addWidget(self.lock_note)
+
         # Scrollable form body
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         body = QWidget()
+        self._body = body
         layout = QVBoxLayout(body)
         scroll.setWidget(body)
         outer.addWidget(scroll)
@@ -265,6 +275,18 @@ class ParametersTab(QWidget):
         layout.addWidget(dope_group)
 
         layout.addStretch()
+
+    def lock_for_run(self, locked):
+        """Freeze the form while a run is going.
+
+        Start snapshots the settings, so an edit made mid-run never reached the run —
+        but the form accepted it silently, which on 2026-09-25 read as the change
+        being ignored. Locked, the form still scrolls and Save still records what is
+        running; only edits and Load are refused.
+        """
+        self._body.setEnabled(not locked)
+        self.load_btn.setEnabled(not locked)
+        self.lock_note.setVisible(locked)
 
     # --- settings round-trip ---
 

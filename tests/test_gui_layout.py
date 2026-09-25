@@ -234,6 +234,9 @@ def ready_window(window, tmp_path, monkeypatch):
 
     started = []
     monkeypatch.setattr(QThread, "start", lambda self, *a, **k: started.append(self))
+    # Start now asks for confirmation; say OK unless a test says otherwise.
+    from qtpy.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Ok)
     return window, started
 
 
@@ -2220,3 +2223,113 @@ def test_linearity_labels_stay_inside_the_canvas(app, size):
     r = canvas.fig.canvas.get_renderer()
     box, ax_box = legend.get_window_extent(r), canvas.ax.get_window_extent(r)
     assert box.x0 >= ax_box.x0 and box.x1 <= ax_box.x1, "legend stays inside the axes"
+
+
+def test_a_flat_live_trace_is_not_zoomed_into_its_noise(app):
+    """MEASURED 2026-09-25: a 30 uA chrono hold on a resistor, flat to a few nA, was
+    autoscaled into that noise and labelled "1e-9+3.027e-5". The view is held to a
+    sensible span; the data on the line is untouched."""
+    import numpy as np
+    from gui.widgets.plot_canvas import MplCanvas, LIVE_MIN_Y_SPAN_FRAC
+
+    canvas = MplCanvas()
+    t = np.arange(150) * 0.1
+    i = 30.2734e-6 + 1.5e-9 * np.sin(t)
+    canvas.update_live_line(t, i, "Time (s)", "Current (A)")
+
+    lo, hi = canvas.ax.get_ylim()
+    assert hi - lo >= LIVE_MIN_Y_SPAN_FRAC * i.max() * 0.999
+    assert lo < i.min() and hi > i.max()
+    assert np.array_equal(canvas._live_line.get_ydata(), i)
+
+
+def test_a_live_trace_that_really_moves_is_scaled_as_before(app):
+    import numpy as np
+    from gui.widgets.plot_canvas import MplCanvas
+
+    canvas = MplCanvas()
+    e = np.linspace(-0.5, 0.7, 121)
+    canvas.update_live_line(e, e / 9900.0, "Potential (V)", "Current (A)")
+    lo, hi = canvas.ax.get_ylim()
+    assert hi - lo < 1.5 * (0.7 - -0.5) / 9900.0      # autoscale margins only
+
+
+
+# --- What Start will run, and what it runs (2026-09-25) --------------------------
+# A run started at the bench with the relaunch defaults (blank sample, folder = the
+# date prefix, doping to +0.8 V). The Run tab list, only filled at Start, was read as
+# "the plan"; edits made on the Parameters tab afterwards silently did not apply.
+
+def test_the_run_tab_lists_the_planned_sequence_before_start(window):
+    window.settings.update(cv_enabled=False, prededoping_enabled=False,
+                           doping_enabled=True, doping_potential_start=0.2,
+                           doping_potential_end=0.3, doping_potential_step=0.1)
+    window.parameters_tab.populate_from(window.settings)
+    tab = window.run_tab
+    tab.refresh_plan()
+
+    items = [tab.sequence_list.item(i).text() for i in range(tab.sequence_list.count())]
+    assert len(items) == 4                       # two doping/dedoping pairs
+    assert any("+0.300 V" in t for t in items)
+    assert "planned" in tab.seq_group.title()
+
+
+def test_the_plan_follows_an_edit_on_the_parameters_tab(window):
+    window.settings.update(cv_enabled=False, prededoping_enabled=False,
+                           doping_enabled=True, doping_potential_start=0.2,
+                           doping_potential_end=0.8, doping_potential_step=0.1)
+    window.parameters_tab.populate_from(window.settings)
+    tab = window.run_tab
+    tab.refresh_plan()
+    assert tab.sequence_list.count() == 14
+
+    window.parameters_tab._widgets["doping_potential_end"].setValue(0.3)
+    tab.refresh_plan()                           # what showEvent does
+    assert tab.sequence_list.count() == 4
+
+
+def test_cancelling_the_confirmation_starts_nothing(ready_window, monkeypatch):
+    from qtpy.QtWidgets import QMessageBox
+    window, started = ready_window
+    monkeypatch.setattr(window, "collect_settings", lambda: dict(window.settings))
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Cancel)
+
+    window.run_tab.on_start()
+
+    assert not started
+    assert window.run_tab._worker is None
+
+
+def test_the_confirmation_names_a_blank_sample_and_a_bare_date_folder(ready_window,
+                                                                    monkeypatch):
+    from qtpy.QtWidgets import QMessageBox
+    window, started = ready_window
+    window.settings.update(sample_name="", data_folder="20260925_")
+    monkeypatch.setattr(window, "collect_settings", lambda: dict(window.settings))
+    seen = []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda parent, title, text, *a, **k:
+                        seen.append(text) or QMessageBox.Cancel)
+
+    window.run_tab.on_start()
+
+    assert seen, "Start did not ask"
+    assert "sample name is blank" in seen[0]
+    assert "only the date prefix" in seen[0]
+
+
+def test_the_parameters_tab_is_locked_for_exactly_the_run(ready_window, monkeypatch):
+    window, started = ready_window
+    monkeypatch.setattr(window, "collect_settings", lambda: dict(window.settings))
+    params = window.parameters_tab
+
+    window.run_tab.on_start()
+    assert started
+    assert not params._body.isEnabled()
+    assert not params.load_btn.isEnabled()
+    assert not params.lock_note.isHidden()
+
+    window.run_tab.on_finished("aborted")
+    assert params._body.isEnabled()
+    assert params.load_btn.isEnabled()
+    assert params.lock_note.isHidden()
