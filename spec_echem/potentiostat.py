@@ -297,6 +297,10 @@ CV_PARAMS = {
 # POTENTIAL is on the FHSetSetpointPotential command, NOT the FHLevel recorder —
 # same split as the CV template. `Commands["FHLevel"]` returns the FIRST of the
 # three (bench-confirmed), which is step 1.
+# Consecutive failed recorder reads before the live plot is reported as stopped. The
+# Run tab polls every 400 ms, so 5 is ~2 s with no new frame; ONE failure is the
+# recorder appending mid-enumeration and is expected (see _recorder_snapshot).
+LIVE_READ_WARN_AFTER = 5
 CA_RECORDER_COMMAND = "FHLevel"                  # holds duration + interval; owns .Signals
 CA_SETPOINT_COMMAND = "FHSetSetpointPotential"   # holds the potential
 CA_IDX_POTENTIAL = 0     # on FHSetSetpointPotential
@@ -767,7 +771,7 @@ class AutolabPotentiostat(Potentiostat):
         self._bad_samples = 0       # refresh failed, or the pair straddled one
         self._pre_latch_samples = 0  # read before the latch had ever been loaded
         self._latch_loaded = False
-        self._live_read_failed = False
+        self._live_read_errors = 0  # consecutive failed recorder reads (live plot)
         self._t0 = None
         self._overloaded = False
         self._device_lost = False
@@ -844,7 +848,7 @@ class AutolabPotentiostat(Potentiostat):
         self._bad_samples = 0
         self._pre_latch_samples = 0
         self._latch_loaded = False
-        self._live_read_failed = False
+        self._live_read_errors = 0  # consecutive failed recorder reads (live plot)
         self._t0 = None
         self._overloaded = False
         self._device_lost = False
@@ -1133,26 +1137,37 @@ class AutolabPotentiostat(Potentiostat):
     def _recorder_snapshot(self):
         """The recorder's arrays as they stand right now, or None.
 
-        None means "nothing to draw yet", which the Run tab already handles by
-        leaving its "waiting for data…" message up. Deliberately NOT falling back to
-        `_live_samples`: that fallback is the lagging stream this exists to stop
-        drawing, and a silently wrong plot is worse than a late one. A read that
-        keeps failing says so once, then stays quiet.
+        None means "nothing new to draw", which the Run tab handles by leaving the
+        last frame (or its "waiting for data…" message) up. Deliberately NOT falling
+        back to `_live_samples`: that fallback is the lagging stream this exists to
+        stop drawing, and a silently wrong plot is worse than a late one.
+
+        A single failed read is EXPECTED, not a fault. MEASURED 2026-09-25
+        (`20260925_test2`): the SDK raised "Collection was modified; enumeration
+        operation may not execute" — the recorder appended a point while this was
+        iterating its list. The next tick reads fine, so one failure only skips a
+        frame. Only a run of consecutive failures means the trace really has
+        stopped, and only that is worth a warning.
         """
         if self._cmd is None:
             return None
         try:
-            return echem_from_signals(self._cmd, align=True)
+            data = echem_from_signals(self._cmd, align=True)
         except ValueError:
             return None            # channels not populated yet — normal early on
         except Exception as exc:   # noqa: BLE001 — a live plot must never sink a run
-            if not self._live_read_failed:
-                self._live_read_failed = True
+            self._live_read_errors += 1
+            get_run_logger().debug(
+                "Autolab: live recorder read failed (%d in a row): %s",
+                self._live_read_errors, exc)
+            if self._live_read_errors == LIVE_READ_WARN_AFTER:
                 get_run_logger().warning(
-                    "Autolab: could not read the recorder for the live plot (%s). "
-                    "The run and the saved data are unaffected; the live trace will "
-                    "stay blank for this segment.", exc)
+                    "Autolab: %d consecutive reads of the recorder for the live plot "
+                    "failed (%s). The run and the saved data are unaffected, but the "
+                    "live trace has stopped updating.", self._live_read_errors, exc)
             return None
+        self._live_read_errors = 0
+        return data
 
     # --- internals ------------------------------------------------------
 
