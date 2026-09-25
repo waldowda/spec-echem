@@ -968,7 +968,9 @@ object. The as-loaded defaults are the tell: [3] is 0.00244 (a step), [5] is 0.0
       unexplained and new.
       **Did not recur 2026-09-25** (`20260925_test1`, 6 segments): max 140.1 ms, sd at most
       8.6 ms. Still unexplained; keep watching the cadence line.
-- [ ] **Spectra gaps at every chrono hand-off (2026-09-25).** `20260925_test4`: 260-463 ms
+- [x] **Spectra gaps at every chrono hand-off (2026-09-25).** FIXED and confirmed
+      (`20260925_test7`: max 122-129 ms in every segment). The worker now waits for the
+      GUI between segments; see `docs/bench-2026-09-25.md` §4. Original note: `20260925_test4`: 260-463 ms
       gaps in the first ~2 s of each chrono segment, CV clean. Probable cause: GUI-thread
       redraw of the previous segment (absorbance plot 360-1320 ms, Results + Analysis
       refresh 0.6-1.7 s) competing for the GIL. Fix: `LineCollection` for the absorbance

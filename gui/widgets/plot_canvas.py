@@ -11,12 +11,11 @@ import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.cm import ScalarMappable
+from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
+from matplotlib.ticker import EngFormatter
 
 from spec_echem.gamry_data import POTENTIAL_COL, CURRENT_COL
-
-# Smallest live-plot y-span, as a fraction of the largest |y| (see _widen_flat_y).
-LIVE_MIN_Y_SPAN_FRAC = 0.10
 
 logger = logging.getLogger(__name__)
 
@@ -155,44 +154,33 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
-    def update_live_line(self, x, y, xlabel, ylabel, title=None):
+    def update_live_line(self, x, y, xlabel, ylabel, title=None, y_unit=None):
         """Incremental live echem trace mid-run (red = running). Reuses ONE Line2D
         and just updates its data + rescales, instead of clearing and rebuilding the
         whole figure each tick — a much lighter redraw, so it holds the GIL only
         briefly and doesn't jitter the spectra cadence on the worker thread. The
         line resets whenever the axes are cleared (_new_axes → _live_line=None),
         e.g. show_message() at the start of each segment. Generic x/y so the caller
-        picks I-vs-E (CV) or I-vs-t (chrono) from the EchemData arrays."""
+        picks I-vs-E (CV) or I-vs-t (chrono) from the EchemData arrays.
+
+        `y_unit` labels the y ticks in engineering units ("20.19 µA", "8 nA"). The
+        axis always autoscales to the data, which on a steady hold means zooming into
+        nA of noise, and the default formatter then wrote an offset such as
+        "1e-9+3.027e-5" (2026-09-25, a 30 uA hold on a resistor). An engineering
+        formatter writes full values instead, so the ticks stay readable at any zoom.
+        A minimum span was tried first and rejected at the rig: it made a hold look
+        flat when it was not, which is the plot deciding what the user sees."""
         if self._live_line is None:
             self._xlabel, self._ylabel = xlabel, ylabel
             self._new_axes()
             (self._live_line,) = self.ax.plot([], [], lw=1.0, color="#d62728")
+            if y_unit:
+                self.ax.yaxis.set_major_formatter(EngFormatter(unit=y_unit))
             self._decorate(title)
         self._live_line.set_data(x, y)
         self.ax.relim()
         self.ax.autoscale_view()
-        self._widen_flat_y(y)
         self.draw_idle()
-
-    def _widen_flat_y(self, y, min_frac=LIVE_MIN_Y_SPAN_FRAC):
-        """Keep a steady trace looking steady.
-
-        A chrono hold on a resistor is flat to a few nA, and autoscale zooms straight
-        into that noise; matplotlib then labels the axis with an offset such as
-        "1e-9+3.027e-5" (seen 2026-09-25 on a 30 uA hold), which is unreadable. The
-        y-span is held to at least `min_frac` of the largest |y|, centred on the data.
-        Only the view changes — the data and the saved file are untouched, and a trace
-        that really moves by more than that is scaled exactly as before.
-        """
-        y = np.asarray(y, float)
-        y = y[np.isfinite(y)]
-        if y.size == 0:
-            return
-        lo, hi = float(y.min()), float(y.max())
-        need = min_frac * max(abs(lo), abs(hi))
-        if need > 0 and hi - lo < need:
-            mid = 0.5 * (lo + hi)
-            self.ax.set_ylim(mid - need / 2, mid + need / 2)
 
     def show_linearity(self, times, counts, result, full_scale=65535, title=None):
         """
@@ -534,8 +522,23 @@ class MplCanvas(FigureCanvasQTAgg):
             cmap = matplotlib.cm.get_cmap("viridis")
         norm = Normalize(vmin=min(times), vmax=max(times)) if len(times) > 1 \
             else Normalize(vmin=0.0, vmax=1.0)
-        for t, col in zip(times, absorb_df.columns):
-            self.ax.plot(wl, absorb_df[col].values, lw=0.8, color=cmap(norm(t)))
+        # ONE LineCollection, not one Line2D per spectrum. Every trace is still drawn;
+        # only the cost changes. MEASURED 2026-09-25: 151 Line2Ds took 360-410 ms and a
+        # 721-spectrum CV 1320 ms on the GUI thread, at the moment the next segment
+        # was starting — enough to open 260-463 ms gaps in its spectra.
+        data = absorb_df.to_numpy(dtype=float)
+        wl_f = np.asarray(wl, dtype=float)
+        traces = [np.column_stack([wl_f, data[:, j]]) for j in range(data.shape[1])]
+        lc = LineCollection(traces, linewidths=0.8,
+                            colors=[cmap(norm(t)) for t in times])
+        self.ax.add_collection(lc, autolim=False)
+        # Limits from the finite data only: log10 of a non-positive transmittance is
+        # -inf/NaN, which a Line2D skipped in autoscale and a collection's datalim may not.
+        finite = data[np.isfinite(data)]
+        if finite.size and wl_f.size:
+            self.ax.update_datalim([(float(np.nanmin(wl_f)), float(finite.min())),
+                                    (float(np.nanmax(wl_f)), float(finite.max()))])
+            self.ax.autoscale_view()
         if wl_min is not None and wl_max is not None:
             self.ax.set_xlim(wl_min, wl_max)
             # Rescale y to the data inside the window — otherwise the y-axis stays

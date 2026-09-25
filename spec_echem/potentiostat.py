@@ -156,7 +156,13 @@ class Potentiostat:
     has armed the spectrometer — examples/diag_trigger_timing.py proved an edge
     fired before arming is missed. This mirrors the legacy order: spectrometer
     armed and waiting, THEN the trigger.
+
+    `python_paced`: True when Python fires the trigger, so the software decides when
+    each segment starts and may wait between segments. False for External mode: the
+    sequence file fires on its own clock, and a pause there would miss a trigger.
     """
+
+    python_paced = False
 
     def open(self):
         pass
@@ -719,6 +725,9 @@ def autolab_identity(settings):
 class AutolabPotentiostat(Potentiostat):
     """Python drives a Metrohm Autolab through the SDK, firing the Avantes trigger.
 
+    python_paced: the cell is switched OFF in finish(), so a wait between segments
+    is time at open circuit, not extra hold time at the last potential.
+
     Simpler than ToolkitPotentiostat, and for one reason: Measure() is
     NON-BLOCKING. The Gamry needed a dedicated per-segment thread because a
     toolkitpy curve dies within ~50 ms if its thread does anything else; here the
@@ -754,6 +763,8 @@ class AutolabPotentiostat(Potentiostat):
     tables matter so much: with no name property on a CommandParameter, the index is
     the only handle there is on a potential.
     """
+
+    python_paced = True
 
     def __init__(self, settings):
         if not AUTOLAB_AVAILABLE:
@@ -1839,6 +1850,8 @@ class ToolkitPotentiostat(Potentiostat):
     from it (a doping cycle's potential is start + run_number * step), keyed off
     the Segment's data_type/run_number.
     """
+
+    python_paced = True
 
     def __init__(self, settings):
         if not TOOLKITPY_AVAILABLE:

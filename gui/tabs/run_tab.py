@@ -463,14 +463,14 @@ class RunTab(QWidget):
         current = data.current
         if seg.data_type == DATA_TYPE_CV:
             self.live_canvas.update_live_line(
-                data.potential, current, "Potential (V)", "Current (A)",
-                title=f"{seg.label} — live")
+                data.potential, current, "Potential (V)", "Current",
+                title=f"{seg.label} — live", y_unit="A")
         else:
             t = data.time
             t0 = t[0] if len(t) else 0.0
             self.live_canvas.update_live_line(
-                t - t0, current, "Time (s)", "Current (A)",
-                title=f"{seg.label} — live")
+                t - t0, current, "Time (s)", "Current",
+                title=f"{seg.label} — live", y_unit="A")
 
     def _stop_live_timer(self):
         if self._live_timer is not None:
@@ -478,6 +478,19 @@ class RunTab(QWidget):
             self._live_timer = None
 
     def on_segment_done(self, label, absorb_df):
+        try:
+            self._show_finished_segment(label, absorb_df)
+        finally:
+            # The plots above only SCHEDULE their redraw (draw_idle, a zero-length
+            # timer). Release the worker from another zero-length timer queued after
+            # them, so it is let go once the drawing has actually happened, and on
+            # the way out of any failure too: the worker also gives up after
+            # GUI_SETTLE_TIMEOUT_S.
+            worker = self._worker
+            if worker is not None:
+                QTimer.singleShot(0, worker.gui_idle.set)
+
+    def _show_finished_segment(self, label, absorb_df):
         seg = self.win.segments_by_label.get(label)
         discarded = seg is not None and not seg.save
 
@@ -495,8 +508,8 @@ class RunTab(QWidget):
             self.log(f"{label} complete — data discarded, nothing saved.")
             return
         self.win.results[label] = absorb_df
-        self.win.results_tab.refresh_segments()
-        self.win.analysis_tab.refresh_segments()
+        self.win.results_tab.request_refresh()
+        self.win.analysis_tab.request_refresh()
 
     def on_finished(self, reason):
         self._update_live_echem()   # draw the last segment's final curve
