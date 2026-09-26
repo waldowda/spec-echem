@@ -214,6 +214,10 @@ class RunTab(QWidget):
         if mode == "autolab":
             lines.append("    Current range (chrono):  "
                          f"{settings.get('autolab_current_range') or 'instrument default'}")
+        if mode == "python":
+            rng = settings.get("gamry_current_range", "auto")
+            lines.append("    Current range:  "
+                         + ("auto" if str(rng).lower() == "auto" else f"{float(rng):.3e} A"))
 
         concerns = []
         if not sample:

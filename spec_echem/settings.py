@@ -125,6 +125,12 @@ DEFAULT_SETTINGS = {
     # instrument has. The procedure sets this itself via FHGetSetValues; with no
     # procedure, it becomes Python's job.
     "autolab_current_range": "",
+    # Gamry I/E range. "auto" matches External mode, which auto-ranges and always
+    # has; a number is a full-scale current in amperes, pinned for the whole
+    # segment. Before this existed the range was never set at all and every
+    # Python-mode run sat on the instrument's power-up range — 600 mA — which put
+    # 1-2 uA of noise on films drawing 1-26 uA. See apply_gamry_current_range.
+    "gamry_current_range": "auto",
     "autolab_pulse_delay_s": None,  # None = FHWait + the template's setup lag
     "autolab_setup_lag_cv_s": None,  # None = AUTOLAB_SETUP_LAG_CV_S (measured)
     "autolab_setup_lag_ca_s": None,  # None = AUTOLAB_SETUP_LAG_CA_S (measured)

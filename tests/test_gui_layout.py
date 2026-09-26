@@ -2537,3 +2537,41 @@ def test_a_plan_with_nothing_enabled_names_the_fix(window):
     items = [tab.sequence_list.item(i).text() for i in range(tab.sequence_list.count())]
     assert len(items) == 1
     assert "nothing enabled" in items[0]
+
+
+def test_the_gamry_range_defaults_to_auto_and_offers_the_ladder(window):
+    """Auto must be the default and the first entry: it is what External mode has
+    always done, and the absence of any range at all is what put 1-2 uA of noise on
+    films drawing 1-26 uA (2026-09-25)."""
+    from spec_echem.potentiostat import GAMRY_CURRENT_RANGES
+    combo = window.parameters_tab._widgets["gamry_current_range"]
+
+    assert combo.itemData(0) == "auto"
+    assert combo.count() == len(GAMRY_CURRENT_RANGES) + 1
+    assert combo.itemData(combo.count() - 1) == 6.0e-1        # 600 mA, the top rung
+    labels = [combo.itemText(i) for i in range(combo.count())]
+    assert any("[!] high current" in t for t in labels)
+
+    window.parameters_tab.populate_from(window.settings)
+    assert window.parameters_tab._widgets["gamry_current_range"].currentData() == "auto"
+    out = {}
+    window.parameters_tab.collect_into(out)
+    assert out["gamry_current_range"] == "auto"
+
+
+def test_the_confirmation_names_the_gamry_current_range(ready_window, monkeypatch):
+    win, _ = ready_window
+    win.settings.update(potentiostat_mode="python", gamry_current_range=6.0e-4)
+    seen = {}
+
+    def fake_question(parent, title, text, *a, **k):
+        seen["text"] = text
+        from qtpy.QtWidgets import QMessageBox
+        return QMessageBox.Cancel
+    from qtpy.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(fake_question))
+
+    segments = []
+    win.run_tab._confirm_start(win.settings, segments, "run")
+    assert "Current range:" in seen["text"]
+    assert "6.000e-04" in seen["text"]
