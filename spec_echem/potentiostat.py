@@ -89,6 +89,21 @@ GAMRY_CURRENT_RANGES = [
 GAMRY_HIGH_CURRENT_RANGE_A = 1.0e-2
 
 
+def gamry_range_full_scale(ie_range):
+    """Full scale in amperes for an IERange index, or None if it is off the ladder.
+
+    CONFIRMED on a Reference 600 2026-09-25: asking for 6 mA set IERange 10 and
+    asking for 60 uA set IERange 8, which are 60 mA and 600 uA in toolkitpy's table —
+    so the documented ladder holds for this model, and test_ie_range() deliberately
+    returns a range ONE RUNG ABOVE the current asked for. What you pick is therefore
+    the peak you expect, not the range you get.
+    """
+    idx = int(ie_range) - 1
+    if 0 <= idx < len(GAMRY_CURRENT_RANGES):
+        return GAMRY_CURRENT_RANGES[idx][0]
+    return None
+
+
 def suggest_gamry_current_range(peak_a, headroom=0.8):
     """The finest Gamry range whose full scale still covers `peak_a` with headroom.
 
@@ -174,16 +189,40 @@ def apply_gamry_current_range(pstat, current_range):
     """
     if current_range is None or str(current_range).strip().lower() == "auto":
         pstat.set_ie_range_mode(True)
-        return "AUTO (not recommended above 1 point/s; we sample at 10)"
+        return "AUTO (not recommended above 1 point/s; we sample at 10)", None
     amps = float(current_range)
     if amps <= 0:
         raise ConfigurationError(
             "gamry_current_range must be 'auto' or a positive current in amperes "
             f"(the largest the segment should draw); got {current_range!r}.")
     pstat.set_ie_range_mode(False)
-    chosen = pstat.test_ie_range(amps)   # ask the instrument, don't assume the ladder
-    pstat.set_ie_range(chosen)
-    return f"fixed at IERange {chosen} for a peak of {amps:.3e} A"
+    # A value ON the ladder means "use THIS range", so set the index directly.
+    # test_ie_range() answers a different question -- "what range holds a peak of
+    # I?" -- and returns the rung ABOVE, because a range's own full scale is not a
+    # current it can comfortably hold. MEASURED three times on a Reference 600
+    # 2026-09-25: 6 mA -> IERange 10 (60 mA), 60 uA -> IERange 8 (600 uA), 6 uA ->
+    # IERange 7 (60 uA). Asking for 6 uA and receiving 60 uA is a mislabelled
+    # control, and it cost a clipped CV (plateau at ~64 uA) to notice.
+    index = next((i + 1 for i, (full_a, _) in enumerate(GAMRY_CURRENT_RANGES)
+                  if abs(full_a - amps) <= full_a * 1e-6), None)
+    if index is not None:
+        pstat.set_ie_range(index)
+    else:
+        index = pstat.test_ie_range(amps)    # an off-ladder current: ask for a fit
+        pstat.set_ie_range(index)
+    # Read back rather than trust: if a model's ladder differs from the documented
+    # one, the log says so on the first segment instead of after a day of files.
+    try:
+        chosen = int(pstat.ie_range())
+    except Exception:   # noqa: BLE001 — readback is a check, not a requirement
+        chosen = index
+    full = gamry_range_full_scale(chosen)
+    # Name the range that was SET, not just the peak that was asked for: they differ
+    # by a rung, and reporting only the request made a 12%-of-range CV read as 118%.
+    return (f"IERange {chosen}"
+            + (f" = {full:.3g} A full scale" if full else "")
+            + ("" if full and abs(full - amps) <= full * 1e-6
+               else f" (requested {amps:.3g} A)")), full
 
 
 def initialize_pstat(pstat, current_range=6.0e-3):
@@ -2135,10 +2174,11 @@ class ToolkitPotentiostat(Potentiostat):
                 return
             peak = float(np.nanmax(np.abs(
                 np.asarray(self._last_data.current, dtype=float))))
-            configured = self.settings.get("gamry_current_range", 6.0e-3)
-            if peak <= 0 or str(configured).strip().lower() == "auto":
+            # The range the instrument actually SET, not the peak we asked for.
+            full = getattr(self, "_range_full_a", None)
+            if peak <= 0 or not full:
                 return
-            full = float(configured)
+            full = float(full)
             used = peak / full
 
             # An overload is only believed when the CURRENT corroborates it. MEASURED
@@ -2166,17 +2206,25 @@ class ToolkitPotentiostat(Potentiostat):
                         "gamry_current_range.",
                         label, counts[0], counts[1], used * 100, full)
             better = suggest_gamry_current_range(peak)
+            # ALWAYS one line per segment. On 20260925_test6 a doping step that sat
+            # comfortably inside its range printed nothing at all, which reads as
+            # "not checked" rather than "fine" — and silence about the range is what
+            # let 600 mA go unnoticed for months in the first place.
             if used > 0.9:
                 get_run_logger().warning(
-                    "%s: peak current %.3g A is %.0f%% of the %.3g A full scale — "
-                    "close to clipping. A healthier film draws more, so raise the "
-                    "range.", label, peak, used * 100, full)
+                    "%s: peak current %.3g A is %.0f%% of the %.3g A range — close to "
+                    "clipping. A healthier film draws more, so raise the range.",
+                    label, peak, used * 100, full)
             elif better and better < full:
                 get_run_logger().info(
-                    "%s: peak current %.3g A used %.2f%% of the %.3g A full scale. "
-                    "%.3g A would fit with headroom and give ~%.0fx finer "
-                    "resolution.", label, peak, used * 100, full, better,
+                    "%s: peak current %.3g A used %.2f%% of the %.3g A range. A "
+                    "%.3g A peak setting would fit with headroom and give ~%.0fx "
+                    "finer resolution.", label, peak, used * 100, full, better,
                     full / better)
+            else:
+                get_run_logger().info(
+                    "%s: peak current %.3g A used %.1f%% of the %.3g A range — a good "
+                    "fit.", label, peak, used * 100, full)
         except Exception:   # noqa: BLE001 — advice must never sink a segment
             get_run_logger().debug("%s: could not assess the current range.",
                                    label, exc_info=True)
@@ -2222,7 +2270,7 @@ class ToolkitPotentiostat(Potentiostat):
             # nothing ever said what it was, and no overload bit fires to announce a
             # range that is merely too coarse. The .dta carries it per point; this
             # puts it where a run log is read.
-            how = initialize_pstat(
+            how, self._range_full_a = initialize_pstat(
                 pstat, self.settings.get("gamry_current_range", 6.0e-3))
             get_run_logger().info("%s: Gamry current range %s.",
                                   segment.label, how)

@@ -52,6 +52,19 @@ class RunTab(QWidget):
         self.abort_btn.setStyleSheet("color: #b00; font-weight: bold;")
         self.abort_btn.clicked.connect(self.on_abort)
         self.abort_btn.setEnabled(False)
+        # Stopping a run must take a deliberate CLICK. Start is disabled the moment a
+        # run begins, and Qt then hands focus to the next widget in the tab order --
+        # which is Stop, sitting directly beside it. A Space or Return left over from
+        # dismissing the Start confirmation then lands on a focused Stop and ends the
+        # run with nothing but "Stop requested" in the log to show for it. Reported
+        # 2026-09-25: a run stopped after its CV and the user had not touched Stop.
+        # ClickFocus keeps the mouse working while taking these two off the keyboard
+        # path; they are not the only way out, since Abort has a confirmation and the
+        # window close is unaffected.
+        for btn in (self.stop_btn, self.abort_btn):
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
+            btn.setFocusPolicy(Qt.ClickFocus)
         top_row.addWidget(self.start_btn)
         top_row.addWidget(self.stop_btn)
         top_row.addWidget(self.abort_btn)
@@ -422,9 +435,19 @@ class RunTab(QWidget):
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.abort_btn.setEnabled(True)
+        self._park_focus()
         self.win.instrument_tab._set_actions_enabled(False)  # avoid concurrent spec access
         self.win.instrument_tab.lock_for_run(True)           # lock Connect/Simulated too
         self.win.parameters_tab.lock_for_run(True)           # the run's settings are frozen
+
+    def _park_focus(self):
+        """Put focus somewhere harmless when a run starts.
+
+        Disabling Start is what hands focus away, and Qt's next choice is Stop,
+        sitting right beside it. Its own focus policy already blocks the keyboard
+        path; this stops the hand-off happening at all.
+        """
+        self.sequence_list.setFocus()
 
     def on_stop(self):
         if self._worker is not None:
