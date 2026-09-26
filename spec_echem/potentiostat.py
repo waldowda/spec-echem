@@ -111,7 +111,11 @@ _GAMRY_OVERLOAD_FIELDS = ("overload", "over", "ovl", "overld")
 
 
 def gamry_overload_count(acq):
-    """(flagged, total) per-point overload counts from acq_data, or None.
+    """(flagged, total, distinct_values) from acq_data's flag field, or None.
+
+    The caller must NOT treat a nonzero count as an overload on its own -- see
+    _report_current_range. The field's meaning is undocumented and, measured on a
+    Reference 600, does not agree with the .dta's `Over` column.
 
     Two encodings are handled because the field's type is undocumented: the `.dta`
     writes a dot-per-bit string (`..ch.....v.`), where any non-dot means a bit is
@@ -125,14 +129,18 @@ def gamry_overload_count(acq):
         return None
     flagged = 0
     values = list(acq[field])
+    distinct = set()
     for v in values:
         if isinstance(v, (bytes, str)):
             text = v.decode() if isinstance(v, bytes) else v
+            distinct.add(text)
             if text.strip(". ") != "":
                 flagged += 1
-        elif v:
-            flagged += 1
-    return flagged, len(values)
+        else:
+            distinct.add(v)
+            if v:
+                flagged += 1
+    return flagged, len(values), sorted(distinct, key=repr)[:8]
 
 
 def apply_gamry_current_range(pstat, current_range):
@@ -2123,15 +2131,6 @@ class ToolkitPotentiostat(Potentiostat):
         """
         label = getattr(segment, "label", "?")
         try:
-            counts = gamry_overload_count(acq)
-            if counts and counts[0]:
-                flagged, total = counts
-                get_run_logger().warning(
-                    "%s: %d of %d points flagged OVERLOAD — the current range is too "
-                    "small for what the cell drew. The data is kept and is often "
-                    "still usable, but treat those points with care and consider a "
-                    "coarser gamry_current_range.", label, flagged, total)
-
             if self._last_data is None or not len(self._last_data.current):
                 return
             peak = float(np.nanmax(np.abs(
@@ -2141,6 +2140,31 @@ class ToolkitPotentiostat(Potentiostat):
                 return
             full = float(configured)
             used = peak / full
+
+            # An overload is only believed when the CURRENT corroborates it. MEASURED
+            # 2026-09-25 (`20260925_test5`): acq_data's flag field reported 721 of 721
+            # points set while the cell drew 1.24% of full scale, and the same run's
+            # .dta `Over` column was all-clear -- so that field does not mean what the
+            # .dta's does, and warning on it alone is a false alarm on every segment.
+            # A real current overload pins the reading near full scale, so requiring
+            # that costs nothing and cannot cry wolf. The raw values go to the run log
+            # at DEBUG so the encoding can be decoded from a real run rather than
+            # guessed at again.
+            counts = gamry_overload_count(acq)
+            if counts and counts[0]:
+                get_run_logger().debug(
+                    "%s: acq_data flag field set on %d of %d points at %.2f%% of full "
+                    "scale; distinct values %s. Encoding NOT yet validated on this "
+                    "instrument -- the .dta Over column is the record.",
+                    label, counts[0], counts[1], used * 100, counts[2])
+                if used > 0.9:
+                    get_run_logger().warning(
+                        "%s: %d of %d points flagged OVERLOAD and the peak reached "
+                        "%.0f%% of the %.3g A full scale — the range is too small for "
+                        "what the cell drew. The data is KEPT and is often still "
+                        "usable; treat those points with care and consider a coarser "
+                        "gamry_current_range.",
+                        label, counts[0], counts[1], used * 100, full)
             better = suggest_gamry_current_range(peak)
             if used > 0.9:
                 get_run_logger().warning(
