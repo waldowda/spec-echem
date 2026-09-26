@@ -1629,3 +1629,16 @@ def test_an_unparseable_range_is_not_flagged():
 
     assert not is_high_current_range("")
     assert not is_high_current_range("NOT_A_RANGE")
+
+
+def test_a_failed_toolkitpy_import_records_why():
+    """Mirrors avaspec's AVASPEC_IMPORT_ERROR. A 64-bit env and a missing Gamry DLL
+    both surface as "toolkitpy not available" and are fixed differently, so the
+    message has to survive the import guard."""
+    from spec_echem import potentiostat as p
+
+    assert hasattr(p, "TOOLKITPY_IMPORT_ERROR")
+    if p.TOOLKITPY_AVAILABLE:
+        assert p.TOOLKITPY_IMPORT_ERROR is None
+    else:
+        assert p.TOOLKITPY_IMPORT_ERROR

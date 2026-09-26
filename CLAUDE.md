@@ -278,10 +278,25 @@ workflow.
 ### GUI
 Planned instrument control GUI to replace the Jupyter notebook workflow.
 
-- **Which env runs the GUI (important):** the GUI currently talks ONLY to the Avantes spectrometer
-  (`avaspec`), which lives in the **64-bit `SpecEchem`** env (Python 3.13). So run the GUI there NOW:
-  `conda activate SpecEchem; pip install PyQt5 qtpy matplotlib; python -m gui`. PyQt5 + PyQt5-sip
-  have prebuilt cp313 win_amd64 wheels → no compiler needed.
+- **Which env runs the GUI — it depends on the potentiostat, and getting it wrong is silent.**
+  This bullet used to say "the GUI talks ONLY to `avaspec`, so run it in the 64-bit `SpecEchem`
+  env". That predates Python Gamry mode and contradicts the Phase 2 bullet below; it cost a
+  session on 2026-09-25.
+
+  | Potentiostat | Env | Why |
+  |---|---|---|
+  | **Gamry, Python mode** | **32-bit `SpecEchem32`** (3.7.13) | `toolkitpy` is 32-bit ONLY. It does not exist in the 64-bit env. |
+  | **Autolab** | 64-bit `SpecEchem` (3.13) | The Autolab SDK is happy at 64-bit. |
+  | **External (either rig)** | Either | Nothing Python-side talks to the potentiostat. |
+
+  **The failure mode:** in the wrong env the "Python — drive the Gamry from here" radio is
+  simply greyed out, and it reads as the Gamry being unplugged or broken. It is not — the
+  radio is gated on `import toolkitpy` succeeding and knows nothing about the instrument.
+  Hover the radio for the import error, or read the launch banner in the app log
+  (`{data_root}/logs/spec-echem.log`), which records Python version, bitness and env.
+
+  `conda activate SpecEchem32; python -m gui`. 32-bit PyQt5 install notes are in the Phase 2
+  bullet below.
 - **Phase 1 (now):** 64-bit SpecEchem env. PyQt5 + QtPy + embedded matplotlib. No Gamry Python
   control yet — `.GSequence` + hardware trigger; Python only drives the spectrometer.
 - **Phase 2 (EchemToolkitPy integration, CURRENT until Gamry ships 64-bit ~Sept 2026):** GUI runs in

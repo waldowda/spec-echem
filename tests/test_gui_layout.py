@@ -2497,3 +2497,43 @@ def test_the_live_axis_keeps_autoscaling_after_widening_a_first_point(app):
 
     lo, hi = canvas.ax.get_ylim()
     assert lo <= i.min() and hi >= i.max(), (lo, hi)
+
+
+def test_stop_ends_the_wait_at_once(app):
+    """Abort already ended the wait; Stop did not, so a wedged display could make the
+    button the user is pressing feel dead for GUI_SETTLE_TIMEOUT_S. The run is ending
+    either way."""
+    import logging, threading, time
+    w = _worker()
+    threading.Timer(0.05, w.stop_event.set).start()
+    t0 = time.perf_counter()
+    w._wait_for_gui(logging.getLogger("test.wait.stop"))
+    assert time.perf_counter() - t0 < 1.0
+
+
+def test_an_unbuildable_plan_says_so_rather_than_showing_an_empty_list(window,
+                                                                      monkeypatch):
+    """An empty list under "planned" reads as "nothing will run" — the same silence
+    the panel exists to remove. It has to say WHICH empty it is."""
+    def boom():
+        raise ValueError("half-filled form")
+    monkeypatch.setattr(window, "collect_settings", boom)
+    tab = window.run_tab
+    tab.refresh_plan()
+
+    items = [tab.sequence_list.item(i).text() for i in range(tab.sequence_list.count())]
+    assert len(items) == 1
+    assert "could not be built" in items[0]
+    assert "planned" in tab.seq_group.title()
+
+
+def test_a_plan_with_nothing_enabled_names_the_fix(window):
+    window.settings.update(cv_enabled=False, prededoping_enabled=False,
+                           doping_enabled=False)
+    window.parameters_tab.populate_from(window.settings)
+    tab = window.run_tab
+    tab.refresh_plan()
+
+    items = [tab.sequence_list.item(i).text() for i in range(tab.sequence_list.count())]
+    assert len(items) == 1
+    assert "nothing enabled" in items[0]

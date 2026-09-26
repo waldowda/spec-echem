@@ -81,12 +81,14 @@ class AcquisitionWorker(QObject):
         the gap between segments, where the cell is already off.
 
         Only for python_paced drivers; in External mode the sequence file keeps its
-        own clock and a pause would miss its trigger. Abort ends the wait at once.
+        own clock and a pause would miss its trigger. Abort and Stop both end the
+        wait at once: the run is ending either way, and a display that has wedged
+        must not make the button the user is pressing feel dead for 5 s.
         """
         t0 = time.perf_counter()
         deadline = t0 + GUI_SETTLE_TIMEOUT_S
         while not self.gui_idle.wait(0.02):
-            if self.abort_event.is_set():
+            if self.abort_event.is_set() or self.stop_event.is_set():
                 return
             if time.perf_counter() > deadline:
                 logger.warning(
