@@ -89,6 +89,52 @@ GAMRY_CURRENT_RANGES = [
 GAMRY_HIGH_CURRENT_RANGE_A = 1.0e-2
 
 
+def suggest_gamry_current_range(peak_a, headroom=0.8):
+    """The finest Gamry range whose full scale still covers `peak_a` with headroom.
+
+    Same headroom argument as the Autolab's: a healthier film draws MORE than a
+    degraded one, so a range chosen to fit today's peak exactly clips tomorrow's.
+    """
+    if not peak_a or peak_a <= 0:
+        return None
+    for full, _label in GAMRY_CURRENT_RANGES:
+        if peak_a <= full * headroom:
+            return full
+    return None
+
+
+# acq_data()'s field for the per-point overload flags, whose name is not documented
+# in the toolkitpy help. Tried in order; if none is present the check stays silent
+# rather than inventing an alarm. The .dta always carries the `Over` column
+# regardless, so the record on disk is complete either way.
+_GAMRY_OVERLOAD_FIELDS = ("overload", "over", "ovl", "overld")
+
+
+def gamry_overload_count(acq):
+    """(flagged, total) per-point overload counts from acq_data, or None.
+
+    Two encodings are handled because the field's type is undocumented: the `.dta`
+    writes a dot-per-bit string (`..ch.....v.`), where any non-dot means a bit is
+    set, while a structured array is more likely to carry an integer bitmask.
+    """
+    if acq is None:
+        return None
+    names = getattr(acq.dtype, "names", None) or ()
+    field = next((n for n in _GAMRY_OVERLOAD_FIELDS if n in names), None)
+    if field is None:
+        return None
+    flagged = 0
+    values = list(acq[field])
+    for v in values:
+        if isinstance(v, (bytes, str)):
+            text = v.decode() if isinstance(v, bytes) else v
+            if text.strip(". ") != "":
+                flagged += 1
+        elif v:
+            flagged += 1
+    return flagged, len(values)
+
+
 def apply_gamry_current_range(pstat, current_range):
     """Set the I/E (current) range, and return a phrase naming what was done.
 
@@ -106,15 +152,21 @@ def apply_gamry_current_range(pstat, current_range):
     and then settling, at the SAME 10 points/s we use. So "auto" here is not a guess;
     it is what the proven path has always done on this instrument.
 
-    `current_range` is "auto" (match External) or a number: the largest current in
-    amperes the segment is expected to draw, which pins one range for the whole
-    segment. Gamry's own documentation cautions against auto-ranging above 1 point/s
-    — the External baseline contradicts that in practice at 10 points/s, but the
-    fixed option is there for a run that wants no range change inside its transient.
+    `current_range` is a number — the largest current in amperes the segment is
+    expected to draw, pinning one range for the whole segment — or "auto".
+
+    **A fixed range is the default, and "auto" is not recommended at our sampling
+    rate.** Gamry documents auto-ranging as unsuitable above 1 point/s with default
+    filter settings, and we sample at 10. External-mode files from 2026-06-16 appeared
+    to show healthy auto-ranging at 10 points/s and were briefly cited here as
+    evidence otherwise; they are not valid measurements — all 171 points carry
+    overload bits and Vf sits at -2.0 to -2.6 V against a -0.5..+0.7 V window, i.e. an
+    open cell. There is no good evidence that Gamry auto-ranging behaves at 10
+    points/s, so the deliberate range is the default, matching the Autolab.
     """
     if current_range is None or str(current_range).strip().lower() == "auto":
         pstat.set_ie_range_mode(True)
-        return "auto (matches External mode)"
+        return "AUTO (not recommended above 1 point/s; we sample at 10)"
     amps = float(current_range)
     if amps <= 0:
         raise ConfigurationError(
@@ -126,7 +178,7 @@ def apply_gamry_current_range(pstat, current_range):
     return f"fixed at IERange {chosen} for a peak of {amps:.3e} A"
 
 
-def initialize_pstat(pstat, current_range="auto"):
+def initialize_pstat(pstat, current_range=6.0e-3):
     """
     Hardware ranges / modes — the "Advanced Pstat Setup". Lifted verbatim from
     the bundled toolkitpy examples (cyclic_voltammetery.py / chronoamperometry.py)
@@ -136,8 +188,10 @@ def initialize_pstat(pstat, current_range="auto"):
 
     The I/E range is NOT one of the toolkitpy examples' settings and was missing
     here entirely — see apply_gamry_current_range for what that cost. It defaults
-    to "auto" so every caller, including the bench scripts in examples/, gets the
-    same behavior External mode has always had.
+    to 6 mA -- coarse enough to clip nothing seen on these rigs, ~100x finer than
+    the 600 mA it was silently using -- so every caller, including the bench scripts
+    in examples/, gets a sane range. The per-segment advisory then names a finer one
+    for the sample actually in the cell.
     """
     pstat.set_ach_select(tkp.ACHSELECT_GND)
     pstat.set_ie_stability(tkp.STABILITY_NORM)
@@ -2054,6 +2108,55 @@ class ToolkitPotentiostat(Potentiostat):
             t.join(timeout=self._max_wait + 5.0)
         self._thread = None
 
+    def _report_current_range(self, segment, acq):
+        """Per segment: did the range fit, and did anything overload?
+
+        The Autolab's _advise_current_range exists because a range 30x too coarse
+        went unnoticed for a day of files. The Gamry's went unnoticed for MONTHS —
+        no range was set at all — so the same one line per segment is worth more
+        here, not less.
+
+        Advisory only, and it never discards a point. An overload is a concern
+        raised beside the data, not a reason to withhold it: a Gamry that overloads
+        a little still returns usable numbers, and it is the scientist's call
+        whether this segment is one of those.
+        """
+        label = getattr(segment, "label", "?")
+        try:
+            counts = gamry_overload_count(acq)
+            if counts and counts[0]:
+                flagged, total = counts
+                get_run_logger().warning(
+                    "%s: %d of %d points flagged OVERLOAD — the current range is too "
+                    "small for what the cell drew. The data is kept and is often "
+                    "still usable, but treat those points with care and consider a "
+                    "coarser gamry_current_range.", label, flagged, total)
+
+            if self._last_data is None or not len(self._last_data.current):
+                return
+            peak = float(np.nanmax(np.abs(
+                np.asarray(self._last_data.current, dtype=float))))
+            configured = self.settings.get("gamry_current_range", 6.0e-3)
+            if peak <= 0 or str(configured).strip().lower() == "auto":
+                return
+            full = float(configured)
+            used = peak / full
+            better = suggest_gamry_current_range(peak)
+            if used > 0.9:
+                get_run_logger().warning(
+                    "%s: peak current %.3g A is %.0f%% of the %.3g A full scale — "
+                    "close to clipping. A healthier film draws more, so raise the "
+                    "range.", label, peak, used * 100, full)
+            elif better and better < full:
+                get_run_logger().info(
+                    "%s: peak current %.3g A used %.2f%% of the %.3g A full scale. "
+                    "%.3g A would fit with headroom and give ~%.0fx finer "
+                    "resolution.", label, peak, used * 100, full, better,
+                    full / better)
+        except Exception:   # noqa: BLE001 — advice must never sink a segment
+            get_run_logger().debug("%s: could not assess the current range.",
+                                   label, exc_info=True)
+
     def _note_early_exit(self, pstat, segment, elapsed):
         """Warn if the Gamry poll loop ended for any reason other than the waveform
         finishing, so a truncated echem file is never written silently.
@@ -2096,7 +2199,7 @@ class ToolkitPotentiostat(Potentiostat):
             # range that is merely too coarse. The .dta carries it per point; this
             # puts it where a run log is read.
             how = initialize_pstat(
-                pstat, self.settings.get("gamry_current_range", "auto"))
+                pstat, self.settings.get("gamry_current_range", 6.0e-3))
             get_run_logger().info("%s: Gamry current range %s.",
                                   segment.label, how)
             # Hold `signal` as a live local for the WHOLE segment. The toolkitpy
@@ -2136,7 +2239,9 @@ class ToolkitPotentiostat(Potentiostat):
                     pass
 
             if not self._abort.is_set():
-                self._last_data = echem_from_acq_data(curve.acq_data())
+                acq = curve.acq_data()
+                self._last_data = echem_from_acq_data(acq)
+                self._report_current_range(segment, acq)
                 self._write_dta(curve, pstat, segment)
                 # WHY the poll loop ended matters, and used to be thrown away: leaving
                 # early because the instrument vanished looked exactly like finishing

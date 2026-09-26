@@ -1653,7 +1653,7 @@ class _FakePstat:
         self.calls = []
         self.auto = None
         self.range_set = None
-        self._ranges = ranges or {6.0e-4: 8, 5.0e-5: 7, 1.0e-1: 11}
+        self._ranges = ranges or {6.0e-4: 8, 5.0e-5: 7, 6.0e-3: 9, 1.0e-1: 11}
 
     def __getattr__(self, name):
         def record(*args):
@@ -1688,17 +1688,31 @@ def stub_tkp(monkeypatch):
         ACHSELECT_GND=0, STABILITY_NORM=0, CASPEED_NORM=0, FLOAT=0))
 
 
-def test_initialize_pstat_sets_the_current_range_to_auto_by_default(stub_tkp):
+def test_initialize_pstat_pins_a_fixed_range_by_default(stub_tkp):
     """The bug this closes: the I/E range was never set, so every Python-mode run
-    inherited the instrument's power-up 600 mA range while measuring microamps."""
+    inherited the instrument's power-up 600 mA range while measuring microamps.
+
+    The default is FIXED, not auto. Gamry documents auto-ranging as unsuitable above
+    1 point/s and every segment samples at 10 -- and the External files once cited as
+    evidence to the contrary turned out to be an open cell (all 171 points carry
+    overload bits)."""
     from spec_echem.potentiostat import initialize_pstat
 
     p = _FakePstat()
     how = initialize_pstat(p)
+    assert p.auto is False
+    assert p.range_set == 9          # 6 mA, the shipped default
+    assert "auto" not in how.lower()
+
+
+def test_auto_is_available_but_must_be_asked_for(stub_tkp):
+    from spec_echem.potentiostat import initialize_pstat
+
+    p = _FakePstat()
+    how = initialize_pstat(p, "auto")
     assert p.auto is True
     assert p.range_set is None
-    assert "auto" in how.lower()
-    assert any(name == "set_ie_range_mode" for name, _ in p.calls)
+    assert "not recommended" in how.lower()
 
 
 def test_a_fixed_range_asks_the_instrument_to_map_the_current(stub_tkp):
@@ -1730,3 +1744,77 @@ def test_the_gamry_ladder_is_full_scale_amps_and_auto_is_not_in_it():
     assert all(isinstance(v, float) and v > 0 for v in values)
     assert values == sorted(values)
     assert values[-1] == 6.0e-1          # 600 mA, the Reference 600's top range
+
+
+def test_overload_counts_handle_both_encodings():
+    """The acq_data field's type is undocumented; the .dta writes a dot-per-bit
+    string while a structured array more likely carries an integer bitmask."""
+    import numpy as np
+    from spec_echem.potentiostat import gamry_overload_count
+
+    dotted = np.array([("..ch.....v.",), ("...........",), ("..chihs.iv.",)],
+                      dtype=[("over", "U11")])
+    assert gamry_overload_count(dotted) == (2, 3)
+
+    mask = np.array([(0,), (4,), (0,), (1,)], dtype=[("overload", "i4")])
+    assert gamry_overload_count(mask) == (2, 4)
+
+    # No overload field at all: stay silent rather than invent an alarm.
+    none = np.array([(1.0,)], dtype=[("im", "f8")])
+    assert gamry_overload_count(none) is None
+    assert gamry_overload_count(None) is None
+
+
+def test_an_overload_warns_and_never_stops_the_segment(monkeypatch):
+    """Requested: an overload must not stop an experiment, but it must be noticeable.
+    A Gamry that overloads a little still returns usable numbers, so the data is kept
+    and the concern is raised beside it."""
+    import logging
+    import numpy as np
+    from spec_echem.potentiostat import ToolkitPotentiostat, EchemData
+
+    p = ToolkitPotentiostat.__new__(ToolkitPotentiostat)
+    p.settings = {"gamry_current_range": 6.0e-3}
+    p._last_data = EchemData(time=np.zeros(3), potential=np.zeros(3),
+                             current=np.array([1e-5, 2e-5, 1e-5]))
+    acq = np.array([("..ch.....v.",), ("...........",)], dtype=[("over", "U11")])
+
+    records = []
+    logger = logging.getLogger("spec_echem.run")
+    h = type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r)})()
+    logger.addHandler(h)
+    try:
+        p._report_current_range(type("S", (), {"label": "Doping 0"})(), acq)
+    finally:
+        logger.removeHandler(h)
+
+    text = " ".join(r.getMessage() for r in records)
+    assert "OVERLOAD" in text and "1 of 2" in text
+    assert "kept" in text                      # never withheld
+    assert p._last_data is not None            # and never discarded
+
+
+def test_the_advisory_names_a_finer_range_when_one_would_fit():
+    import logging
+    import numpy as np
+    from spec_echem.potentiostat import ToolkitPotentiostat, EchemData
+
+    p = ToolkitPotentiostat.__new__(ToolkitPotentiostat)
+    p.settings = {"gamry_current_range": 6.0e-3}       # 6 mA
+    p._last_data = EchemData(time=np.zeros(2), potential=np.zeros(2),
+                             current=np.array([2.4e-5, -1.0e-5]))   # peak 24 uA
+    records = []
+    logger = logging.getLogger("spec_echem.run")
+    h = type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r)})()
+    was = logger.level
+    logger.addHandler(h)
+    logger.setLevel(logging.INFO)          # the advice is INFO, not a warning
+    try:
+        p._report_current_range(type("S", (), {"label": "Doping 0"})(), None)
+    finally:
+        logger.removeHandler(h)
+        logger.setLevel(was)
+
+    text = " ".join(r.getMessage() for r in records)
+    assert "6e-05 A would fit" in text      # 60 uA suits a 24 uA peak
+    assert "100x finer" in text

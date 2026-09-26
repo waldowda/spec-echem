@@ -276,25 +276,31 @@ class ParametersTab(QWidget):
 
         # The Gamry equivalent, and it applies to EVERY segment including the CV --
         # unlike the Autolab, where the CV runs a procedure that ranges itself.
-        # "Auto" is the default and matches External mode, whose own .DTA files show
-        # Gamry Framework ranging 8->1 and settling at the same 10 points/s we use.
         # MEASURED 2026-09-25: with no range set at all -- which is what every
         # Python-mode run did until now -- the instrument stays on its power-up
         # 600 mA range, putting a +35 uA offset and ~2.7 uA of noise on a +-50 uA
         # sweep, and 1-2 uA of noise on films drawing 1-26 uA.
+        # A FIXED range is the default, matching the Autolab's deliberate choice.
+        # Auto is offered last and marked: Gamry documents auto-ranging as not
+        # recommended above 1 point/s and every segment here samples at 10.
         gamry_range_combo = self._combo(
             "gamry_current_range",
-            [("auto", "Auto — match External mode (recommended)")]
-            + [(v, l + ("   [!] high current"
-                        if v > GAMRY_HIGH_CURRENT_RANGE_A else ""))
-               for v, l in GAMRY_CURRENT_RANGES])
+            [(v, l + ("   [!] high current"
+                      if v > GAMRY_HIGH_CURRENT_RANGE_A else ""))
+             for v, l in GAMRY_CURRENT_RANGES]
+            + [("auto", "Auto-range   [!] not recommended at 10 points/s")])
         gamry_range_combo.setToolTip(
             "Gamry I/E range, for ALL segments including the CV.\n\n"
-            "Auto is what External mode has always done and is the right default.\n"
-            "Pick a fixed range only if you do not want the range changing inside\n"
-            "a step's transient - then choose for the PEAK current, not the settled\n"
-            "one. A range far above what the sample draws is not free: it coarsens\n"
-            "every reading and removes the overload protection.")
+            "Choose for the PEAK current, not the settled one - a step draws far\n"
+            "more at t=0 than it settles to. Each segment logs the peak it saw and\n"
+            "names a finer range if one would fit, so one test run tells you what\n"
+            "this sample wants.\n\n"
+            "A range far above what the sample draws is not free: it coarsens every\n"
+            "reading. Ranges marked [!] high current are above 10 mA full scale -\n"
+            "far more than an OMIEC film draws.\n\n"
+            "Auto-ranging is offered but not advised: Gamry documents it as\n"
+            "unsuitable above 1 point/s with default filters, and every segment\n"
+            "here samples at 10 points/s.")
         dope_form.addRow("Current range (Gamry):", gamry_range_combo)
         layout.addWidget(dope_group)
 

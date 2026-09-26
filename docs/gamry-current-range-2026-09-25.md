@@ -32,11 +32,22 @@ ever set**, because nothing was overloaded; the range was merely far too coarse.
 `initialize_pstat()` set nine hardware parameters and never touched the I/E range, so
 every Python-mode run inherited whatever the instrument powered up on.
 
-**External mode never had this problem.** Gamry Framework auto-ranges: its `.DTA` files
-from this rig show the range walking 8→1 across the first points and then settling — at
-the **same 10 points/s** the Python path uses. (Gamry's documentation cautions against
-auto-ranging above 1 point/s; the External baseline on this rig contradicts that in
-practice, which is why "auto" is the default rather than a fixed range.)
+**External mode never had this problem**, because Gamry Framework sets a range rather
+than leaving the instrument on its power-up one.
+
+### A retraction, recorded because it nearly set the default
+
+The 20260616 External `.DTA` files show the range walking 8→1 over the first points at
+10 points/s, and that was briefly taken as evidence that Gamry auto-ranging is safe at
+our sampling rate. **It is not evidence: those files are not valid measurements.** Across
+all 171 points in four files, ZERO are free of overload bits, `Vf` sits at −2.0 to
+−2.6 V against a −0.5 to +0.7 V window, and the currents are picoamps. That is an open
+cell, and the range walking down to 60 pA is auto-ranging finding nothing to measure.
+
+So there is no good evidence either way, and Gamry's own documentation says auto-ranging
+is not recommended above 1 point/s with default filter settings — we sample at 10. **A
+deliberate fixed range is therefore the default**, which also makes the Gamry consistent
+with the standing Autolab decision instead of contradicting it.
 
 ## What it cost, in data already taken
 
@@ -58,13 +69,30 @@ The answer is to match the range to the currents a real film draws.
 
 ## The fix
 
-`gamry_current_range`, default `"auto"`:
+`gamry_current_range`, default **6 mA**:
 
-- **`"auto"`** calls `set_ie_range_mode(True)` — what External mode has always done.
-- **A number** is the largest current in amperes the segment should draw. The driver asks
+- **A number** — the largest current in amperes the segment should draw. The driver asks
   the instrument to map it (`test_ie_range`) rather than assuming the ladder, then pins
-  it with `set_ie_range` and turns auto-ranging off. For a run that should not have the
-  range changing inside its transient.
+  it with `set_ie_range`. 6 mA is the shipped default because it clips nothing observed
+  on these rigs (peaks reach 742 µA) while being ~100× finer than the 600 mA that was
+  silently in use. It is deliberately not the *best* range for a given film — the
+  advisory below names that.
+- **`"auto"`** is accepted, offered last in the dropdown and marked as not recommended
+  at 10 points/s.
+
+**Every segment reports what it saw**, mirroring the Autolab's `_advise_current_range`:
+the peak current, what fraction of full scale it used, and a finer range if one would fit
+with headroom ("peak 2.4e-05 A used 0.40% of the 0.006 A full scale. 6e-05 A would fit
+… ~100x finer resolution"). One test run therefore tells you what the sample wants,
+which is the range-finding procedure made self-interpreting rather than a habit to
+remember.
+
+**An overload warns; it never stops a run and never discards a point.** Requested
+2026-09-25: a Gamry that overloads a little still returns usable numbers, so the concern
+is raised beside the data and the scientist decides. The warning names the count
+("N of M points flagged OVERLOAD") and says the data is kept. The overload field's name
+in `acq_data()` is undocumented, so the check tries several and stays silent if none is
+present — the `.dta` carries the `Over` column regardless.
 
 A dropdown on the Parameters tab offers Auto plus the full ladder in absolute currents,
 marking anything above 10 mA as high current — the same treatment the Autolab's range
