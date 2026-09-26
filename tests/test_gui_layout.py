@@ -2580,3 +2580,33 @@ def test_the_confirmation_names_the_gamry_current_range(ready_window, monkeypatc
     win.run_tab._confirm_start(win.settings, segments, "run")
     assert "Current range:" in seen["text"]
     assert "6.000e-04" in seen["text"]
+
+
+def test_stop_and_abort_cannot_be_triggered_from_the_keyboard(window):
+    """Reported 2026-09-25: a run ended after its CV with 'Stop requested' in the log
+    and the user had not touched Stop. Start is disabled the instant a run begins, so
+    Qt hands focus to the next widget in the tab order -- Stop, right beside it -- and
+    a Space or Return left over from the Start confirmation lands on it."""
+    from qtpy.QtCore import Qt
+    tab = window.run_tab
+
+    assert tab.stop_btn.focusPolicy() == Qt.ClickFocus
+    assert tab.abort_btn.focusPolicy() == Qt.ClickFocus
+    assert not tab.stop_btn.autoDefault()
+    assert not tab.abort_btn.autoDefault()
+    # Start stays reachable by keyboard: it is the one that should be.
+    assert tab.start_btn.focusPolicy() != Qt.ClickFocus
+
+
+def test_starting_a_run_parks_focus_off_the_run_controls(window):
+    """Calls the parking step directly: driving the whole of on_start() here made
+    this test deadlock inside a full-file run (an unpatched modal in the start path),
+    while passing in isolation -- so it tested the harness as much as the fix."""
+    tab = window.run_tab
+    tab.stop_btn.setEnabled(True)
+    tab.stop_btn.setFocus()
+
+    tab._park_focus()
+
+    assert not tab.stop_btn.hasFocus()
+    assert not tab.abort_btn.hasFocus()

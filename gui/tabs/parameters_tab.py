@@ -290,7 +290,9 @@ class ParametersTab(QWidget):
              for v, l in GAMRY_CURRENT_RANGES]
             + [("auto", "Auto-range   [!] not recommended at 10 points/s")])
         gamry_range_combo.setToolTip(
-            "Gamry I/E range, for ALL segments including the CV.\n\n"
+            "Gamry I/E range, for ALL segments including the CV. What you pick is\n"
+            "the RANGE: 60 uA means the 60 uA range, and the log names the IERange\n"
+            "the instrument confirmed.\n\n"
             "Choose for the PEAK current, not the settled one - a step draws far\n"
             "more at t=0 than it settles to. Each segment logs the peak it saw and\n"
             "names a finer range if one would fit, so one test run tells you what\n"

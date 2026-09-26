@@ -1675,6 +1675,9 @@ class _FakePstat:
         self.range_set = index
         return index
 
+    def ie_range(self):
+        return self.range_set
+
 
 @pytest.fixture
 def stub_tkp(monkeypatch):
@@ -1699,19 +1702,21 @@ def test_initialize_pstat_pins_a_fixed_range_by_default(stub_tkp):
     from spec_echem.potentiostat import initialize_pstat
 
     p = _FakePstat()
-    how = initialize_pstat(p)
+    how, full = initialize_pstat(p)
     assert p.auto is False
     assert p.range_set == 9          # 6 mA, the shipped default
     assert "auto" not in how.lower()
+    assert "IERange 9" in how and full is not None
 
 
 def test_auto_is_available_but_must_be_asked_for(stub_tkp):
     from spec_echem.potentiostat import initialize_pstat
 
     p = _FakePstat()
-    how = initialize_pstat(p, "auto")
+    how, full = initialize_pstat(p, "auto")
     assert p.auto is True
     assert p.range_set is None
+    assert full is None
     assert "not recommended" in how.lower()
 
 
@@ -1721,10 +1726,13 @@ def test_a_fixed_range_asks_the_instrument_to_map_the_current(stub_tkp):
     from spec_echem.potentiostat import initialize_pstat
 
     p = _FakePstat()
-    how = initialize_pstat(p, 6.0e-4)
+    how, full = initialize_pstat(p, 6.0e-4)
     assert p.auto is False
     assert p.range_set == 8
     assert "IERange 8" in how
+    # CONFIRMED on the rig: asking for 60 uA sets IERange 8, which IS 600 uA. The
+    # advisory must report the range that was set, or a 12%-of-range CV reads 118%.
+    assert full == 6.0e-4
 
 
 def test_an_impossible_current_range_is_refused_not_silently_ignored(stub_tkp):
@@ -1779,6 +1787,7 @@ def test_an_overload_warns_and_never_stops_the_segment(monkeypatch):
 
     p = ToolkitPotentiostat.__new__(ToolkitPotentiostat)
     p.settings = {"gamry_current_range": 6.0e-3}
+    p._range_full_a = 6.0e-3
     p._last_data = EchemData(time=np.zeros(3), potential=np.zeros(3),
                              current=np.array([5.9e-3, 5.8e-3, 5.9e-3]))  # ~full scale
     acq = np.array([("..ch.....v.",), ("...........",)], dtype=[("over", "U11")])
@@ -1805,6 +1814,7 @@ def test_the_advisory_names_a_finer_range_when_one_would_fit():
 
     p = ToolkitPotentiostat.__new__(ToolkitPotentiostat)
     p.settings = {"gamry_current_range": 6.0e-3}       # 6 mA
+    p._range_full_a = 6.0e-3
     p._last_data = EchemData(time=np.zeros(2), potential=np.zeros(2),
                              current=np.array([2.4e-5, -1.0e-5]))   # peak 24 uA
     records = []
@@ -1820,7 +1830,7 @@ def test_the_advisory_names_a_finer_range_when_one_would_fit():
         logger.setLevel(was)
 
     text = " ".join(r.getMessage() for r in records)
-    assert "6e-05 A would fit" in text      # 60 uA suits a 24 uA peak
+    assert "6e-05 A peak setting would fit" in text   # 60 uA suits a 24 uA peak
     assert "100x finer" in text
 
 
@@ -1834,6 +1844,7 @@ def test_flags_without_a_matching_current_do_not_cry_wolf():
 
     p = ToolkitPotentiostat.__new__(ToolkitPotentiostat)
     p.settings = {"gamry_current_range": 6.0e-3}
+    p._range_full_a = 6.0e-3
     p._last_data = EchemData(time=np.zeros(2), potential=np.zeros(2),
                              current=np.array([7.4e-5, -7.4e-5]))   # 1.2% of full scale
     acq = np.array([("..ch.....v.",), ("..ch.....v.",)], dtype=[("over", "U11")])
@@ -1848,3 +1859,65 @@ def test_flags_without_a_matching_current_do_not_cry_wolf():
         logger.removeHandler(h)
 
     assert not [r for r in records if r.levelno >= logging.WARNING]
+
+
+def test_every_segment_reports_its_range_even_when_it_fits():
+    """20260925_test6: a doping step comfortably inside its range printed nothing,
+    which reads as 'not checked' rather than 'fine'. Silence about the range is what
+    let 600 mA go unnoticed for months."""
+    import logging
+    import numpy as np
+    from spec_echem.potentiostat import ToolkitPotentiostat, EchemData
+
+    p = ToolkitPotentiostat.__new__(ToolkitPotentiostat)
+    p.settings = {"gamry_current_range": 6.0e-5}
+    p._range_full_a = 6.0e-4                      # what IERange 8 really is
+    p._last_data = EchemData(time=np.zeros(2), potential=np.zeros(2),
+                             current=np.array([3.0e-4, -1.0e-4]))   # 50% of range
+    records = []
+    logger = logging.getLogger("spec_echem.run")
+    h = type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r)})()
+    was = logger.level
+    logger.addHandler(h)
+    logger.setLevel(logging.INFO)
+    try:
+        p._report_current_range(type("S", (), {"label": "Doping 0"})(), None)
+    finally:
+        logger.removeHandler(h)
+        logger.setLevel(was)
+
+    text = " ".join(r.getMessage() for r in records)
+    assert "a good fit" in text and "50.0%" in text
+
+
+def test_the_ladder_maps_an_ierange_index_to_full_scale():
+    """Both rig observations agree with toolkitpy's table: IERange 8 = 600 uA and
+    IERange 10 = 60 mA on a Reference 600."""
+    from spec_echem.potentiostat import gamry_range_full_scale
+    assert gamry_range_full_scale(8) == 6.0e-4
+    assert gamry_range_full_scale(10) == 6.0e-2
+    assert gamry_range_full_scale(11) == 6.0e-1     # the 600 mA the bug sat on
+    assert gamry_range_full_scale(0) is None
+    assert gamry_range_full_scale(99) is None
+
+
+def test_picking_a_ladder_value_sets_exactly_that_range(stub_tkp):
+    """Every rung, because the off-by-one only showed up at one of them."""
+    from spec_echem.potentiostat import initialize_pstat, GAMRY_CURRENT_RANGES
+
+    for i, (full_a, _label) in enumerate(GAMRY_CURRENT_RANGES):
+        p = _FakePstat()
+        how, full = initialize_pstat(p, full_a)
+        assert p.range_set == i + 1, f"{_label} set IERange {p.range_set}"
+        assert full == full_a
+        assert "requested" not in how     # it got what was asked for
+
+
+def test_an_off_ladder_current_still_asks_the_instrument(stub_tkp):
+    from spec_echem.potentiostat import initialize_pstat
+
+    p = _FakePstat(ranges={7.5e-5: 8})
+    how, full = initialize_pstat(p, 7.5e-5)
+    assert any(name == "test_ie_range" for name, _ in p.calls)
+    assert p.range_set == 8
+    assert "requested 7.5e-05 A" in how
