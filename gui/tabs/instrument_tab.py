@@ -51,6 +51,7 @@ from spec_echem.fakes import FakeSpectrometer
 from spec_echem.linearity import (
     LinearityError, analyze_linearity, find_saturation_time, measure_linearity_series,
 )
+from spec_echem import potentiostat as _potentiostat
 from spec_echem.potentiostat import (
     TOOLKITPY_AVAILABLE, AUTOLAB_AVAILABLE, probe_identity, autolab_identity,
 )
@@ -220,6 +221,18 @@ class InstrumentTab(QWidget):
             self.pstat_python_radio.setEnabled(False)
             self.pstat_python_radio.setText(
                 "Python — drive the Gamry from here (EchemToolkitPy) — toolkitpy not available")
+            # A greyed-out radio reads as "the Gamry isn't there", but the cause is
+            # almost always the environment: toolkitpy is 32-bit only, so a 64-bit
+            # env cannot import it however well Windows sees the instrument. Hovering
+            # gives the actual import error without opening the app log.
+            self.pstat_python_radio.setToolTip(
+                "toolkitpy could not be imported, so this machine cannot drive the "
+                "Gamry from Python. This is about the Python environment, not the "
+                "instrument — toolkitpy is 32-bit only.\n\nImport error: "
+                + (getattr(_potentiostat, "TOOLKITPY_IMPORT_ERROR", None)
+                   or "not recorded")
+                + "\n\nThe launch banner in the app log records the same thing, "
+                  "with the Python version, bitness and conda env.")
         if not AUTOLAB_AVAILABLE:
             self.pstat_autolab_radio.setEnabled(False)
             self.pstat_autolab_radio.setText(

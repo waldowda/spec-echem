@@ -159,10 +159,19 @@ class RunTab(QWidget):
         try:
             settings = self.win.collect_settings()
             segments = build_segments(settings)
+            failed = False
         except Exception:  # noqa: BLE001 — an unfinished form must not break the tab
-            settings, segments = self.win.settings, []
+            settings, segments, failed = self.win.settings, [], True
         self.seq_group.setTitle("Sequence — planned (not started)")
         self._fill_sequence(segments, settings)
+        # An EMPTY list under "planned" reads as "nothing will run", which is the same
+        # kind of silence this whole panel exists to remove: a list believed to be the
+        # plan when it is not. Say which empty it is.
+        if not segments:
+            self.sequence_list.addItem(
+                "(the plan could not be built — check the Parameters tab)" if failed
+                else "(nothing enabled — turn on CV, pre-dedoping or doping "
+                     "on the Parameters tab)")
 
     def _fill_sequence(self, segments, settings):
         self.sequence_list.clear()
