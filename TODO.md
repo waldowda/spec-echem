@@ -2,6 +2,35 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Next up — 2026-09-25 evening (Gamry rig)
+
+Tonight's session fixed the Gamry current range end to end and confirmed it on the
+10 kOhm dummy (`docs/gamry-current-range-2026-09-25.md`). What is left:
+
+- [ ] **Move the current-range control to Tab 1, beside the potentiostat selection.**
+      Requested. There are now two range dropdowns in the doping group -- "Current
+      range (Ei mode):" (Autolab) and "Current range (Gamry):" -- and on 2026-09-25 it
+      was not clear which had been set, costing two runs. Show ONE control, next to the
+      potentiostat radio buttons that decide which instrument is driving, switching with
+      the selected mode. External mode shows none (the sequence file owns it).
+- [ ] **Consider a range per segment TYPE.** `20260925_test10` wanted 600 uA for its CV
+      (71 uA peak) and 6 uA for its chrono hold (0.8 uA peak); one setting covers both,
+      so a run with both is a compromise. The per-segment advisory already names the
+      better range for each. Not a defect -- a decision.
+- [ ] **Decode the acq_data overload field.** Its name and encoding are undocumented and
+      it fired on 721 of 721 points at 1.24% of full scale, so the warning now requires
+      the current to corroborate it. The raw distinct values are logged at DEBUG on any
+      run where flags appear; read them from a real run and then decide whether an
+      uncorroborated warning is worth restoring.
+- [ ] **Confirm the stray-Stop fix on hardware.** A run ended after its CV with "Stop
+      requested" logged and Stop untouched; the cause was diagnosed by reasoning, not
+      reproduced -- Start is disabled at run start, Qt hands focus to Stop beside it, and
+      a Space/Return left over from the new confirmation dialog lands on it. Stop and
+      Abort are ClickFocus now. **If a run stops on its own again, it is something else.**
+- [ ] **Past Gamry data.** Settled currents from Python-mode runs before 2026-09-25 are
+      not quantitatively trustworthy (1-2 uA of noise on 1-26 uA signals). Decide whether
+      anything needs re-taking.
+
 ## Next up — sequencing, 2026-09-24
 
 What to do after the live-CV fixes are confirmed at the rig
