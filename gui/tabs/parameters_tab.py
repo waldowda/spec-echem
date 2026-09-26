@@ -16,7 +16,8 @@ from qtpy.QtWidgets import (
     QDoubleSpinBox, QSpinBox, QFileDialog, QComboBox,
 )
 
-from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES,
+from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES, GAMRY_CURRENT_RANGES,
+                                     GAMRY_HIGH_CURRENT_RANGE_A,
                                      is_high_current_range)
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import _next_serial_path
@@ -272,6 +273,29 @@ class ParametersTab(QWidget):
             "protection that would otherwise stop a fault damaging it.\n"
             "CV is unaffected: it runs the procedure, which ranges itself.")
         dope_form.addRow("Current range (Ei mode):", range_combo)
+
+        # The Gamry equivalent, and it applies to EVERY segment including the CV --
+        # unlike the Autolab, where the CV runs a procedure that ranges itself.
+        # "Auto" is the default and matches External mode, whose own .DTA files show
+        # Gamry Framework ranging 8->1 and settling at the same 10 points/s we use.
+        # MEASURED 2026-09-25: with no range set at all -- which is what every
+        # Python-mode run did until now -- the instrument stays on its power-up
+        # 600 mA range, putting a +35 uA offset and ~2.7 uA of noise on a +-50 uA
+        # sweep, and 1-2 uA of noise on films drawing 1-26 uA.
+        gamry_range_combo = self._combo(
+            "gamry_current_range",
+            [("auto", "Auto — match External mode (recommended)")]
+            + [(v, l + ("   [!] high current"
+                        if v > GAMRY_HIGH_CURRENT_RANGE_A else ""))
+               for v, l in GAMRY_CURRENT_RANGES])
+        gamry_range_combo.setToolTip(
+            "Gamry I/E range, for ALL segments including the CV.\n\n"
+            "Auto is what External mode has always done and is the right default.\n"
+            "Pick a fixed range only if you do not want the range changing inside\n"
+            "a step's transient - then choose for the PEAK current, not the settled\n"
+            "one. A range far above what the sample draws is not free: it coarsens\n"
+            "every reading and removes the overload protection.")
+        dope_form.addRow("Current range (Gamry):", gamry_range_combo)
         layout.addWidget(dope_group)
 
         layout.addStretch()

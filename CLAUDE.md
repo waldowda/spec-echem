@@ -265,6 +265,18 @@ workflow.
   GC'd immediately and the curve runs an empty/degenerate waveform (0 data). Open follow-up: with the
   signal kept alive, whether the dedicated-thread machinery is still necessary is unconfirmed —
   candidate simplification.
+- **⚠️ The I/E range was never set until 2026-09-25 — read
+  [`docs/gamry-current-range-2026-09-25.md`](docs/gamry-current-range-2026-09-25.md).**
+  `initialize_pstat()` configured nine hardware parameters and not the current range, so
+  every Python-mode run sat on the instrument's power-up range, **`IERange 11` = 600 mA**,
+  while measuring microamps. On a 10 kΩ dummy that is a +35 µA offset at 0 V and ~2.7 µA of
+  noise on a ±50 µA sweep; on the 20260709/20260710 film runs it is 1.0–2.0 µA of noise
+  against settled currents of 1–26 µA. **No overload flag fires** — nothing was overloaded,
+  the range was just far too coarse. External mode was never affected: Gamry Framework
+  auto-ranges, at the same 10 points/s. Now `gamry_current_range` (default `"auto"`,
+  matching External) with a Parameters-tab dropdown, and **every segment logs its range.**
+  Treat settled currents from Python-mode runs before this date as not quantitatively
+  trustworthy — same conclusion as the Autolab's `CR09_10mA`, same cause.
 - **Status:** `toolkitpy` is 32-bit Python only; Gamry targets 64-bit support ~September 2026
   (historically late). Plan around 32-bit until further notice. External mode stays the default + fallback.
 - **Architecture gate PASSED (2026-06-18):** in one 32-bit env (`SpecEchem32`, Python 3.7.13),
