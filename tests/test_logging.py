@@ -136,3 +136,33 @@ def test_app_log_failure_does_not_stop_startup(tmp_path):
     blocker = tmp_path / "logs"
     blocker.write_text("not a directory")   # mkdir will fail against a file
     assert configure_app_logging(tmp_path) is None
+
+
+def test_launch_banner_says_why_a_driver_is_missing(app_log, monkeypatch):
+    """"toolkitpy: no" is exactly what a greyed-out Python (Gamry) radio looks like,
+    and the cause is usually the conda env rather than the instrument. The reason was
+    recorded for avaspec and discarded for toolkitpy, so the one question the banner
+    exists to answer had no answer on the Gamry side (2026-09-25, a home Win11 rig)."""
+    import logging
+    import spec_echem.logging_config as lc
+
+    monkeypatch.setattr(lc, "_driver_status",
+                        lambda: (True, False, None, "DLL load failed: not found"))
+    records = []
+    log = logging.getLogger("test.banner")
+    log.addHandler(type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r)})())
+    log.setLevel(logging.INFO)
+    lc._log_launch_banner(log)
+
+    text = "\n".join(r.getMessage() for r in records)
+    assert "toolkitpy import failed: DLL load failed: not found" in text
+
+
+def test_driver_status_reports_a_reason_for_both_drivers():
+    """Four values, and each 'no' can be explained. getattr-guarded on both sides:
+    these files get hand-copied between machines."""
+    from spec_echem.logging_config import _driver_status
+
+    avaspec_ok, toolkitpy_ok, avaspec_reason, toolkitpy_reason = _driver_status()
+    assert (toolkitpy_reason is None) == bool(toolkitpy_ok)
+    assert (avaspec_reason is None) == bool(avaspec_ok)

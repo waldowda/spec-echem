@@ -50,9 +50,16 @@ from spec_echem.settings import parse_dio_mask
 try:
     import toolkitpy as tkp
     TOOLKITPY_AVAILABLE = True
-except ImportError:
+    TOOLKITPY_IMPORT_ERROR = None
+except ImportError as exc:
     tkp = None
     TOOLKITPY_AVAILABLE = False
+    # Kept so the launch banner and the greyed-out radio can say WHY, mirroring
+    # avaspec's AVASPEC_IMPORT_ERROR. "toolkitpy not available" is the same words for
+    # a 64-bit env (toolkitpy is 32-bit only) and for a Gamry DLL the wrapper could
+    # not find, and those are fixed differently. Discarding the message meant the
+    # answer only existed in a shell nobody keeps.
+    TOOLKITPY_IMPORT_ERROR = str(exc)
 
 # Generous curve buffer; the Gamry manual caps a signal at < 262143 points.
 MAX_CURVE_SIZE = 200000
