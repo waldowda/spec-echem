@@ -2539,24 +2539,29 @@ def test_a_plan_with_nothing_enabled_names_the_fix(window):
     assert "nothing enabled" in items[0]
 
 
-def test_the_gamry_range_defaults_to_auto_and_offers_the_ladder(window):
-    """Auto must be the default and the first entry: it is what External mode has
-    always done, and the absence of any range at all is what put 1-2 uA of noise on
-    films drawing 1-26 uA (2026-09-25)."""
+def test_the_gamry_range_offers_the_ladder_with_auto_last_and_marked(window):
+    """A FIXED range is the default, matching the Autolab's deliberate choice. Auto
+    is offered but marked, because Gamry documents auto-ranging as unsuitable above
+    1 point/s and every segment here samples at 10."""
     from spec_echem.potentiostat import GAMRY_CURRENT_RANGES
     combo = window.parameters_tab._widgets["gamry_current_range"]
 
-    assert combo.itemData(0) == "auto"
     assert combo.count() == len(GAMRY_CURRENT_RANGES) + 1
-    assert combo.itemData(combo.count() - 1) == 6.0e-1        # 600 mA, the top rung
+    assert combo.itemData(0) == 6.0e-11                    # finest rung first
+    assert combo.itemData(combo.count() - 1) == "auto"     # auto last, not default
     labels = [combo.itemText(i) for i in range(combo.count())]
+    assert "[!] not recommended" in labels[-1]
     assert any("[!] high current" in t for t in labels)
 
     window.parameters_tab.populate_from(window.settings)
-    assert window.parameters_tab._widgets["gamry_current_range"].currentData() == "auto"
     out = {}
     window.parameters_tab.collect_into(out)
-    assert out["gamry_current_range"] == "auto"
+    assert out["gamry_current_range"] == 6.0e-3            # 6 mA round-trips
+
+
+def test_the_shipped_gamry_default_is_a_fixed_range():
+    from spec_echem.settings import DEFAULT_SETTINGS
+    assert DEFAULT_SETTINGS["gamry_current_range"] == 6.0e-3
 
 
 def test_the_confirmation_names_the_gamry_current_range(ready_window, monkeypatch):
