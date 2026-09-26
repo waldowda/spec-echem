@@ -71,13 +71,73 @@ MAX_CURVE_SIZE = 200000
 _FIRE_ARM_MARGIN_S = 0.005
 
 
-def initialize_pstat(pstat):
+# The Reference 600/620 I/E ladder, from toolkitpy's own IERANGE table
+# (Help/hardwarespecificsettings_ierange.html). Values are FULL SCALE in amperes and
+# are what gets stored; the instrument is asked to map one to a range index via
+# test_ie_range(), so the ladder here never has to agree with a model's internals.
+# "auto" is first and is the default: it is what External mode (Gamry Framework) has
+# always done on this rig.
+GAMRY_CURRENT_RANGES = [
+    (6.0e-11, "60 pA"), (6.0e-10, "600 pA"), (6.0e-9, "6 nA"), (6.0e-8, "60 nA"),
+    (6.0e-7, "600 nA"), (6.0e-6, "6 µA"), (6.0e-5, "60 µA"), (6.0e-4, "600 µA"),
+    (6.0e-3, "6 mA"), (6.0e-2, "60 mA"), (6.0e-1, "600 mA"),
+]
+
+# Above this the range is far past anything an OMIEC film draws, and an oversized
+# range both coarsens the quantum and removes the protection an overload would give
+# the sample. Same principle as the Autolab's is_high_current_range.
+GAMRY_HIGH_CURRENT_RANGE_A = 1.0e-2
+
+
+def apply_gamry_current_range(pstat, current_range):
+    """Set the I/E (current) range, and return a phrase naming what was done.
+
+    MEASURED 2026-09-25, and the reason this function exists: `initialize_pstat`
+    never touched the I/E range, so every Python-mode run inherited whatever the
+    instrument powered up on — `IERange 11` = **600 mA** on a Reference 600 — on
+    every point of every segment. Currents of 5-740 uA were therefore measured on a
+    600 mA scale. On a 10 kOhm dummy that put a **+35 uA offset** at 0.000 V and
+    2.5-2.9 uA of noise on a +-50 uA sweep; on two film runs the point-to-point
+    noise was 1.0-2.0 uA against settled currents of 1-26 uA, i.e. 40-200% of the
+    signal. Nothing flagged it: no overload bit ever set.
+
+    External mode never had the problem, because Gamry Framework auto-ranges — its
+    own `.DTA` files from this rig show the range walking 8->1 over the first points
+    and then settling, at the SAME 10 points/s we use. So "auto" here is not a guess;
+    it is what the proven path has always done on this instrument.
+
+    `current_range` is "auto" (match External) or a number: the largest current in
+    amperes the segment is expected to draw, which pins one range for the whole
+    segment. Gamry's own documentation cautions against auto-ranging above 1 point/s
+    — the External baseline contradicts that in practice at 10 points/s, but the
+    fixed option is there for a run that wants no range change inside its transient.
+    """
+    if current_range is None or str(current_range).strip().lower() == "auto":
+        pstat.set_ie_range_mode(True)
+        return "auto (matches External mode)"
+    amps = float(current_range)
+    if amps <= 0:
+        raise ConfigurationError(
+            "gamry_current_range must be 'auto' or a positive current in amperes "
+            f"(the largest the segment should draw); got {current_range!r}.")
+    pstat.set_ie_range_mode(False)
+    chosen = pstat.test_ie_range(amps)   # ask the instrument, don't assume the ladder
+    pstat.set_ie_range(chosen)
+    return f"fixed at IERange {chosen} for a peak of {amps:.3e} A"
+
+
+def initialize_pstat(pstat, current_range="auto"):
     """
     Hardware ranges / modes — the "Advanced Pstat Setup". Lifted verbatim from
     the bundled toolkitpy examples (cyclic_voltammetery.py / chronoamperometry.py)
     so we start from Gamry's known-good defaults. The .GSequence's per-test
     fields (Max Current / Sampling Mode / I-E range mode / IRComp) map onto these
     set_* calls — tune on the bench if a run needs the .GSequence's exact ranges.
+
+    The I/E range is NOT one of the toolkitpy examples' settings and was missing
+    here entirely — see apply_gamry_current_range for what that cost. It defaults
+    to "auto" so every caller, including the bench scripts in examples/, gets the
+    same behavior External mode has always had.
     """
     pstat.set_ach_select(tkp.ACHSELECT_GND)
     pstat.set_ie_stability(tkp.STABILITY_NORM)
@@ -95,6 +155,7 @@ def initialize_pstat(pstat):
     pstat.set_analog_out(0.0)
     pstat.set_voltage(0.0)
     pstat.set_pos_feed_resistance(0.0)
+    return apply_gamry_current_range(pstat, current_range)
 
 
 def probe_identity():
@@ -2030,7 +2091,14 @@ class ToolkitPotentiostat(Potentiostat):
             tkp.toolkitpy_init("spec-echem")
             pstat = tkp.Pstat("PSTAT")
             pstat.set_ctrl_mode(tkp.PSTATMODE)
-            initialize_pstat(pstat)
+            # Log the range EVERY segment. It was wrong for months precisely because
+            # nothing ever said what it was, and no overload bit fires to announce a
+            # range that is merely too coarse. The .dta carries it per point; this
+            # puts it where a run log is read.
+            how = initialize_pstat(
+                pstat, self.settings.get("gamry_current_range", "auto"))
+            get_run_logger().info("%s: Gamry current range %s.",
+                                  segment.label, how)
             # Hold `signal` as a live local for the WHOLE segment. The toolkitpy
             # signal object must outlive curve.run(): if its last Python reference
             # drops, CPython frees it immediately (refcount, no GC needed) and the

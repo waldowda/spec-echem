@@ -1642,3 +1642,91 @@ def test_a_failed_toolkitpy_import_records_why():
         assert p.TOOLKITPY_IMPORT_ERROR is None
     else:
         assert p.TOOLKITPY_IMPORT_ERROR
+
+
+class _FakePstat:
+    """Records the Advanced-Pstat-Setup calls. There was no Gamry pstat fake at all,
+    which is part of why a missing I/E range went unnoticed from Phase 2 until
+    2026-09-25: nothing anywhere asserted what initialize_pstat configures."""
+
+    def __init__(self, ranges=None):
+        self.calls = []
+        self.auto = None
+        self.range_set = None
+        self._ranges = ranges or {6.0e-4: 8, 5.0e-5: 7, 1.0e-1: 11}
+
+    def __getattr__(self, name):
+        def record(*args):
+            self.calls.append((name, args))
+            return args[0] if args else None
+        return record
+
+    def set_ie_range_mode(self, on):
+        self.calls.append(("set_ie_range_mode", (on,)))
+        self.auto = on
+        return on
+
+    def test_ie_range(self, amps):
+        self.calls.append(("test_ie_range", (amps,)))
+        return self._ranges.get(amps, 11)
+
+    def set_ie_range(self, index):
+        self.calls.append(("set_ie_range", (index,)))
+        self.range_set = index
+        return index
+
+
+@pytest.fixture
+def stub_tkp(monkeypatch):
+    """initialize_pstat reads constants off the toolkitpy module, which is absent on
+    a dev machine. Stub just those names so the REAL function runs against the fake
+    pstat -- testing apply_gamry_current_range alone would not have caught the actual
+    defect, which was initialize_pstat never calling it."""
+    import types
+    from spec_echem import potentiostat as p
+    monkeypatch.setattr(p, "tkp", types.SimpleNamespace(
+        ACHSELECT_GND=0, STABILITY_NORM=0, CASPEED_NORM=0, FLOAT=0))
+
+
+def test_initialize_pstat_sets_the_current_range_to_auto_by_default(stub_tkp):
+    """The bug this closes: the I/E range was never set, so every Python-mode run
+    inherited the instrument's power-up 600 mA range while measuring microamps."""
+    from spec_echem.potentiostat import initialize_pstat
+
+    p = _FakePstat()
+    how = initialize_pstat(p)
+    assert p.auto is True
+    assert p.range_set is None
+    assert "auto" in how.lower()
+    assert any(name == "set_ie_range_mode" for name, _ in p.calls)
+
+
+def test_a_fixed_range_asks_the_instrument_to_map_the_current(stub_tkp):
+    """Never assume the ladder: test_ie_range() is the instrument's own mapping from
+    a current to a range index, so this keeps working on a model with other ranges."""
+    from spec_echem.potentiostat import initialize_pstat
+
+    p = _FakePstat()
+    how = initialize_pstat(p, 6.0e-4)
+    assert p.auto is False
+    assert p.range_set == 8
+    assert "IERange 8" in how
+
+
+def test_an_impossible_current_range_is_refused_not_silently_ignored(stub_tkp):
+    from spec_echem.potentiostat import initialize_pstat, ConfigurationError
+
+    for bad in (0.0, -1e-3):
+        with pytest.raises(ConfigurationError):
+            initialize_pstat(_FakePstat(), bad)
+
+
+def test_the_gamry_ladder_is_full_scale_amps_and_auto_is_not_in_it():
+    """The combo stores these values, so they must be numbers the driver can hand to
+    test_ie_range(); 'auto' is a separate first entry, not a ladder rung."""
+    from spec_echem.potentiostat import GAMRY_CURRENT_RANGES
+
+    values = [v for v, _ in GAMRY_CURRENT_RANGES]
+    assert all(isinstance(v, float) and v > 0 for v in values)
+    assert values == sorted(values)
+    assert values[-1] == 6.0e-1          # 600 mA, the Reference 600's top range
