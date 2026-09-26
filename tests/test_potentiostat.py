@@ -1754,10 +1754,11 @@ def test_overload_counts_handle_both_encodings():
 
     dotted = np.array([("..ch.....v.",), ("...........",), ("..chihs.iv.",)],
                       dtype=[("over", "U11")])
-    assert gamry_overload_count(dotted) == (2, 3)
+    assert gamry_overload_count(dotted)[:2] == (2, 3)
 
     mask = np.array([(0,), (4,), (0,), (1,)], dtype=[("overload", "i4")])
-    assert gamry_overload_count(mask) == (2, 4)
+    assert gamry_overload_count(mask)[:2] == (2, 4)
+    assert 4 in gamry_overload_count(mask)[2]   # raw values, for decoding
 
     # No overload field at all: stay silent rather than invent an alarm.
     none = np.array([(1.0,)], dtype=[("im", "f8")])
@@ -1768,7 +1769,10 @@ def test_overload_counts_handle_both_encodings():
 def test_an_overload_warns_and_never_stops_the_segment(monkeypatch):
     """Requested: an overload must not stop an experiment, but it must be noticeable.
     A Gamry that overloads a little still returns usable numbers, so the data is kept
-    and the concern is raised beside it."""
+    and the concern is raised beside it.
+
+    The flags are believed only when the CURRENT corroborates them -- acq_data's field
+    fired on 721 of 721 points at 1.24% of full scale on 2026-09-25."""
     import logging
     import numpy as np
     from spec_echem.potentiostat import ToolkitPotentiostat, EchemData
@@ -1776,7 +1780,7 @@ def test_an_overload_warns_and_never_stops_the_segment(monkeypatch):
     p = ToolkitPotentiostat.__new__(ToolkitPotentiostat)
     p.settings = {"gamry_current_range": 6.0e-3}
     p._last_data = EchemData(time=np.zeros(3), potential=np.zeros(3),
-                             current=np.array([1e-5, 2e-5, 1e-5]))
+                             current=np.array([5.9e-3, 5.8e-3, 5.9e-3]))  # ~full scale
     acq = np.array([("..ch.....v.",), ("...........",)], dtype=[("over", "U11")])
 
     records = []
@@ -1790,7 +1794,7 @@ def test_an_overload_warns_and_never_stops_the_segment(monkeypatch):
 
     text = " ".join(r.getMessage() for r in records)
     assert "OVERLOAD" in text and "1 of 2" in text
-    assert "kept" in text                      # never withheld
+    assert "KEPT" in text                      # never withheld
     assert p._last_data is not None            # and never discarded
 
 
@@ -1818,3 +1822,29 @@ def test_the_advisory_names_a_finer_range_when_one_would_fit():
     text = " ".join(r.getMessage() for r in records)
     assert "6e-05 A would fit" in text      # 60 uA suits a 24 uA peak
     assert "100x finer" in text
+
+
+def test_flags_without_a_matching_current_do_not_cry_wolf():
+    """MEASURED 20260925_test5: the flag field fired on every one of 721 points while
+    the cell drew 1.24% of full scale, and the same run's .dta Over column was clear.
+    Warning on the field alone put a false alarm on every segment."""
+    import logging
+    import numpy as np
+    from spec_echem.potentiostat import ToolkitPotentiostat, EchemData
+
+    p = ToolkitPotentiostat.__new__(ToolkitPotentiostat)
+    p.settings = {"gamry_current_range": 6.0e-3}
+    p._last_data = EchemData(time=np.zeros(2), potential=np.zeros(2),
+                             current=np.array([7.4e-5, -7.4e-5]))   # 1.2% of full scale
+    acq = np.array([("..ch.....v.",), ("..ch.....v.",)], dtype=[("over", "U11")])
+
+    records = []
+    logger = logging.getLogger("spec_echem.run")
+    h = type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r)})()
+    logger.addHandler(h)
+    try:
+        p._report_current_range(type("S", (), {"label": "CV"})(), acq)
+    finally:
+        logger.removeHandler(h)
+
+    assert not [r for r in records if r.levelno >= logging.WARNING]
