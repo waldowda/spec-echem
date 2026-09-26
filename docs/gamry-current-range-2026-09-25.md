@@ -102,6 +102,37 @@ removes the overload protection that would otherwise stop a fault damaging the s
 **Every segment now logs the range it used**, because this was wrong for months precisely
 because nothing ever said what it was.
 
+## Confirmed on the rig, same evening (`20260925_test10`)
+
+Same 10 kΩ dummy, same CV, range chosen as **600 µA** from the dropdown
+(`IERange 8`, confirmed by readback in the log):
+
+| | 600 mA (no range set) | 600 µA (chosen) | |
+|---|---|---|---|
+| Fitted R | 9,700 / 10,348 Ω | **9,900.3 Ω** | matches the Autolab's 9,899-9,901 Ω on the same dummy |
+| CV fit intercept | +35.1 µA | **+0.133 µA** | 264× |
+| CV residual sd | 2,879 nA | **34.5 nA** | 83× |
+| Chrono hold noise (point-to-point) | 2,567 nA | **1.8 nA** | **1,400×** |
+
+**The chrono hold is the honest noise figure.** A CV's "residual about a straight
+line" is not pure noise — at a coarse range the instrument noise buries everything, and
+at a fine one the real structure (staircase steps, capacitive current at each step)
+emerges and inflates the residual. The hold has no such structure, and there the
+improvement tracked the 1,000× range change.
+
+**And the offset that remains is not a current-measurement offset at all.** The hold
+sits at +246.6 nA while the *potential* reads +1.4 mV against a commanded 0.000 V; across
+9,900 Ω that is 141 nA of genuinely-flowing current. The CV fit's +133 nA intercept is the
+same number. So after the range fix the current channel's own zero offset is consistent
+with zero, and what is left is a small potential offset — a different quantity, which no
+current range will change.
+
+**Two ranges, one setting.** This run wanted 600 µA for the CV (71 µA peak) but its
+chrono hold peaked at 0.8 µA and would have been happier on 6 µA. The range applies to
+every segment, so a run with both is a compromise. The per-segment advisory names the
+better range for each; making it settable per segment type is a future decision, not a
+defect.
+
 ## Checking a past run
 
 ```
