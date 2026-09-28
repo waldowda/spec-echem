@@ -2646,19 +2646,23 @@ def test_only_the_active_potentiostats_range_is_shown(window, monkeypatch):
     assert tab.gamry_range_combo.isVisibleTo(tab)
     assert not tab.autolab_range_combo.isVisibleTo(tab)
     # Scope in the LABEL: the Gamry range reaches the CV, the Autolab's does not.
-    assert "all segments" in tab.range_label.text()
+    assert "all segments" in tab.gamry_range_label.text()
 
     monkeypatch.setattr(tab, "current_mode", lambda: "autolab")
     tab.sync_potentiostat_rows()
     assert tab.autolab_range_combo.isVisibleTo(tab)
     assert not tab.gamry_range_combo.isVisibleTo(tab)
-    assert "chrono steps" in tab.range_label.text()
+    assert "chrono steps" in tab.autolab_range_label.text()
 
+    # External uses NEITHER, so both stay reachable: a settings file for the Gamry
+    # rig is routinely prepared on a machine where toolkitpy cannot be imported, so
+    # Python mode is not even selectable there. Hiding both made that impossible.
     monkeypatch.setattr(tab, "current_mode", lambda: "external")
     tab.sync_potentiostat_rows()
-    assert not tab.gamry_range_combo.isVisibleTo(tab)
-    assert not tab.autolab_range_combo.isVisibleTo(tab)
-    assert not tab.range_label.isVisibleTo(tab)
+    assert tab.gamry_range_combo.isVisibleTo(tab)
+    assert tab.autolab_range_combo.isVisibleTo(tab)
+    assert tab.range_external_note.isVisibleTo(tab)
+    assert "neither" in tab.range_external_note.text().lower()
 
 
 def test_the_mode_comes_from_the_instrument_tab_not_stale_settings(window):

@@ -266,10 +266,24 @@ class ParametersTab(QWidget):
             "Auto-ranging is offered but not advised: Gamry documents it as\n"
             "unsuitable above 1 point/s with default filters, and every segment\n"
             "here samples at 10 points/s.")
-        self.range_label = QLabel()
-        shared_form.addRow(self.range_label, self.autolab_range_combo)
-        shared_form.addWidget(self.gamry_range_combo)
-        self.gamry_range_combo.setVisible(False)
+        # Each combo gets its OWN labelled row so either can be hidden cleanly, and
+        # so the label can carry that row's scope.
+        self.gamry_range_label = QLabel()
+        shared_form.addRow(self.gamry_range_label, self.gamry_range_combo)
+        self.autolab_range_label = QLabel()
+        shared_form.addRow(self.autolab_range_label, self.autolab_range_combo)
+        # External mode uses NEITHER, but both must stay reachable: a settings file
+        # for the Gamry rig is routinely prepared on a machine where toolkitpy
+        # cannot be imported, so Python/Autolab modes are not even selectable there.
+        # Hiding both on external made that impossible -- the same "you cannot set
+        # up offline" failure as gating the control on being connected.
+        self.range_external_note = QLabel(
+            "External mode uses neither — the sequence file sets the range. Both are "
+            "still saved with the experiment, so a file can be prepared here for "
+            "either rig.")
+        self.range_external_note.setStyleSheet("color: #888;")
+        self.range_external_note.setWordWrap(True)
+        shared_form.addRow("", self.range_external_note)
 
         self.delta_label = QLabel("Time between spectra (all chrono steps):")
         shared_form.addRow(
@@ -386,17 +400,23 @@ class ParametersTab(QWidget):
         """
         mode = self.current_mode()
         gamry, autolab = mode == "python", mode == "autolab"
-        self.gamry_range_combo.setVisible(gamry)
-        self.autolab_range_combo.setVisible(autolab)
+        external = not (gamry or autolab)
+        # In external NEITHER applies, so showing both is not the ambiguity this
+        # exists to remove -- the answer to "which one is in effect" is "neither",
+        # and the note says so.
+        for widget in (self.gamry_range_combo, self.gamry_range_label):
+            widget.setVisible(gamry or external)
+        for widget in (self.autolab_range_combo, self.autolab_range_label):
+            widget.setVisible(autolab or external)
+        self.range_external_note.setVisible(external)
         # Scope in the LABEL, not implied by position: the Gamry range reaches the
         # CV and the Autolab's does not.
-        if gamry:
-            self.range_label.setText("Current range (Gamry — all segments):")
-        elif autolab:
-            self.range_label.setText("Current range (Autolab, Ei mode — chrono steps):")
-        else:
-            self.range_label.setText("Current range:")
-        self.range_label.setVisible(gamry or autolab)
+        self.gamry_range_label.setText(
+            "Current range (Gamry — all segments):" if gamry
+            else "Current range (Gamry rig):")
+        self.autolab_range_label.setText(
+            "Current range (Autolab, Ei mode — chrono steps):" if autolab
+            else "Current range (Autolab rig, Ei mode):")
         self._update_delta_cost_hint(mode)
 
     def _update_delta_cost_hint(self, mode=None):
