@@ -19,6 +19,7 @@ from qtpy.QtWidgets import (
 from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES, GAMRY_CURRENT_RANGES,
                                      GAMRY_HIGH_CURRENT_RANGE_A,
                                      is_high_current_range)
+from spec_echem.acquisition import spectrum_cost_seconds
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import _next_serial_path
 
@@ -192,6 +193,99 @@ class ParametersTab(QWidget):
         sform.addRow(trigger_check)
         layout.addWidget(sample_group)
 
+        # --- settings that govern MORE THAN ONE step ---
+        # Requested 2026-09-25: a value that governs several sections must not sit
+        # INSIDE one of them. chrono_delta_time spaces the spectra of pre-dedoping,
+        # doping AND dedoping (experiment.build_segments), and the current range
+        # reaches further still on a Gamry. Both used to live in the Doping group,
+        # which read as "doping only".
+        #
+        # ABOVE the CV, not merely above pre-dedoping, because the GAMRY range
+        # applies to every segment INCLUDING the CV -- that is how a CV came to clip
+        # at ~64 uA on 2026-09-25. The Autolab's does not (its CV runs the .nox,
+        # which ranges itself), so the SCOPE lives in each row's label rather than
+        # being implied by position, and stays honest in both modes.
+        shared_group = QGroupBox("Applies to more than one step")
+        shared_form = QFormLayout(shared_group)
+
+        # Per SAMPLE, not per rig, which is why it belongs here rather than only in
+        # bench.ini: one film draws µA and the next draws mA. It applies to the
+        # chrono steps only — a CV runs the .nox, which sets and auto-ranges its own.
+        # Pick for the PEAK: in Ei mode nothing autoranges, so a range too small
+        # clips the transient, and one too large buys a coarse quantum and a larger
+        # zero offset. MEASURED across six ranges 2026-09-16: the offset runs
+        # ~0.01-0.02% of full scale down to CR12_10uA, so ~1.1 µA on CR09_10mA
+        # against ~0.11 µA on CR10_1mA. It is NOT a stable constant -- the same
+        # range read +1.605 µA on 2026-09-11 and -1.084 µA five days later -- so it
+        # is recorded per run rather than corrected for.
+        # Mark, never forbid. The right range depends on the system being measured,
+        # so the choice stays the scientist's -- but a range above 10 mA is far past
+        # anything an OMIEC film draws, and an oversized one removes the protection an
+        # overload would otherwise give the sample.
+        self.autolab_range_combo = self._combo(
+            "autolab_current_range",
+            [("", "leave the instrument's own")]
+            + [(v, l + ("   [!] high current" if is_high_current_range(v) else ""))
+               for v, l in AUTOLAB_CURRENT_RANGES])
+        self.autolab_range_combo.setToolTip(
+            "Fixed current range for doping/dedoping/pre-dedoping (Ei mode only).\n"
+            "Nothing autoranges there, so choose for the PEAK current, not the\n"
+            "settled one - a step draws far more at t=0 than it settles to.\n"
+            "The right range depends on the system you are running, not the rig.\n"
+            "Ranges marked [!] are above 10 mA full scale - far more than an\n"
+            "OMIEC film draws, and an oversized range removes the overload\n"
+            "protection that would otherwise stop a fault damaging it.\n"
+            "CV is unaffected: it runs the procedure, which ranges itself.")
+
+        # The Gamry equivalent, and it applies to EVERY segment including the CV --
+        # unlike the Autolab, where the CV runs a procedure that ranges itself.
+        # MEASURED 2026-09-25: with no range set at all -- which is what every
+        # Python-mode run did until now -- the instrument stays on its power-up
+        # 600 mA range, putting a +35 uA offset and ~2.7 uA of noise on a +-50 uA
+        # sweep, and 1-2 uA of noise on films drawing 1-26 uA.
+        # A FIXED range is the default, matching the Autolab's deliberate choice.
+        # Auto is offered last and marked: Gamry documents auto-ranging as not
+        # recommended above 1 point/s and every segment here samples at 10.
+        self.gamry_range_combo = self._combo(
+            "gamry_current_range",
+            [(v, l + ("   [!] high current"
+                      if v > GAMRY_HIGH_CURRENT_RANGE_A else ""))
+             for v, l in GAMRY_CURRENT_RANGES]
+            + [("auto", "Auto-range   [!] not recommended at 10 points/s")])
+        self.gamry_range_combo.setToolTip(
+            "Gamry I/E range, for ALL segments including the CV. What you pick is\n"
+            "the RANGE: 60 uA means the 60 uA range, and the log names the IERange\n"
+            "the instrument confirmed.\n\n"
+            "Choose for the PEAK current, not the settled one - a step draws far\n"
+            "more at t=0 than it settles to. Each segment logs the peak it saw and\n"
+            "names a finer range if one would fit, so one test run tells you what\n"
+            "this sample wants.\n\n"
+            "A range far above what the sample draws is not free: it coarsens every\n"
+            "reading. Ranges marked [!] high current are above 10 mA full scale -\n"
+            "far more than an OMIEC film draws.\n\n"
+            "Auto-ranging is offered but not advised: Gamry documents it as\n"
+            "unsuitable above 1 point/s with default filters, and every segment\n"
+            "here samples at 10 points/s.")
+        self.range_label = QLabel()
+        shared_form.addRow(self.range_label, self.autolab_range_combo)
+        shared_form.addWidget(self.gamry_range_combo)
+        self.gamry_range_combo.setVisible(False)
+
+        self.delta_label = QLabel("Time between spectra (all chrono steps):")
+        shared_form.addRow(
+            self.delta_label,
+            self._dspin("chrono_delta_time", 0.001, 100.0, 3, 0.01, " s"))
+        # The floor is set on the Instrument tab (integration x averages), so the
+        # constraint was invisible here until Start refused the grid. Showing the
+        # cost where the value is CHOSEN is the point -- moving the control to
+        # Tab 1 instead would only have split it from the durations it works with.
+        self.delta_cost_hint = QLabel()
+        self.delta_cost_hint.setStyleSheet("color: #888;")
+        self.delta_cost_hint.setWordWrap(True)
+        shared_form.addRow("", self.delta_cost_hint)
+        layout.addWidget(shared_group)
+
+
         # --- Cyclic voltammetry ---
         cv_group = QGroupBox("Cyclic Voltammetry")
         cv_form = QFormLayout(cv_group)
@@ -242,71 +336,10 @@ class ParametersTab(QWidget):
         dope_form.addRow("Dedoping potential (vs Vref):",
                          self._dspin("dedoping_potential", -10.0, 10.0, 3, 0.05, " V"))
         dope_form.addRow("Step duration:", self._dspin("chrono_time", 0.1, 100000.0, 1, 1.0, " s"))
-        dope_form.addRow("Time between spectra:",
-                         self._dspin("chrono_delta_time", 0.001, 100.0, 3, 0.01, " s"))
-        # Per SAMPLE, not per rig, which is why it belongs here rather than only in
-        # bench.ini: one film draws µA and the next draws mA. It applies to the
-        # chrono steps only — a CV runs the .nox, which sets and auto-ranges its own.
-        # Pick for the PEAK: in Ei mode nothing autoranges, so a range too small
-        # clips the transient, and one too large buys a coarse quantum and a larger
-        # zero offset. MEASURED across six ranges 2026-09-16: the offset runs
-        # ~0.01-0.02% of full scale down to CR12_10uA, so ~1.1 µA on CR09_10mA
-        # against ~0.11 µA on CR10_1mA. It is NOT a stable constant -- the same
-        # range read +1.605 µA on 2026-09-11 and -1.084 µA five days later -- so it
-        # is recorded per run rather than corrected for.
-        # Mark, never forbid. The right range depends on the system being measured,
-        # so the choice stays the scientist's -- but a range above 10 mA is far past
-        # anything an OMIEC film draws, and an oversized one removes the protection an
-        # overload would otherwise give the sample.
-        range_combo = self._combo(
-            "autolab_current_range",
-            [("", "leave the instrument's own")]
-            + [(v, l + ("   [!] high current" if is_high_current_range(v) else ""))
-               for v, l in AUTOLAB_CURRENT_RANGES])
-        range_combo.setToolTip(
-            "Fixed current range for doping/dedoping/pre-dedoping (Ei mode only).\n"
-            "Nothing autoranges there, so choose for the PEAK current, not the\n"
-            "settled one - a step draws far more at t=0 than it settles to.\n"
-            "The right range depends on the system you are running, not the rig.\n"
-            "Ranges marked [!] are above 10 mA full scale - far more than an\n"
-            "OMIEC film draws, and an oversized range removes the overload\n"
-            "protection that would otherwise stop a fault damaging it.\n"
-            "CV is unaffected: it runs the procedure, which ranges itself.")
-        dope_form.addRow("Current range (Ei mode):", range_combo)
-
-        # The Gamry equivalent, and it applies to EVERY segment including the CV --
-        # unlike the Autolab, where the CV runs a procedure that ranges itself.
-        # MEASURED 2026-09-25: with no range set at all -- which is what every
-        # Python-mode run did until now -- the instrument stays on its power-up
-        # 600 mA range, putting a +35 uA offset and ~2.7 uA of noise on a +-50 uA
-        # sweep, and 1-2 uA of noise on films drawing 1-26 uA.
-        # A FIXED range is the default, matching the Autolab's deliberate choice.
-        # Auto is offered last and marked: Gamry documents auto-ranging as not
-        # recommended above 1 point/s and every segment here samples at 10.
-        gamry_range_combo = self._combo(
-            "gamry_current_range",
-            [(v, l + ("   [!] high current"
-                      if v > GAMRY_HIGH_CURRENT_RANGE_A else ""))
-             for v, l in GAMRY_CURRENT_RANGES]
-            + [("auto", "Auto-range   [!] not recommended at 10 points/s")])
-        gamry_range_combo.setToolTip(
-            "Gamry I/E range, for ALL segments including the CV. What you pick is\n"
-            "the RANGE: 60 uA means the 60 uA range, and the log names the IERange\n"
-            "the instrument confirmed.\n\n"
-            "Choose for the PEAK current, not the settled one - a step draws far\n"
-            "more at t=0 than it settles to. Each segment logs the peak it saw and\n"
-            "names a finer range if one would fit, so one test run tells you what\n"
-            "this sample wants.\n\n"
-            "A range far above what the sample draws is not free: it coarsens every\n"
-            "reading. Ranges marked [!] high current are above 10 mA full scale -\n"
-            "far more than an OMIEC film draws.\n\n"
-            "Auto-ranging is offered but not advised: Gamry documents it as\n"
-            "unsuitable above 1 point/s with default filters, and every segment\n"
-            "here samples at 10 points/s.")
-        dope_form.addRow("Current range (Gamry):", gamry_range_combo)
         layout.addWidget(dope_group)
 
         layout.addStretch()
+        self._wire_shared_hints()
 
     def lock_for_run(self, locked):
         """Freeze the form while a run is going.
@@ -321,6 +354,75 @@ class ParametersTab(QWidget):
         self.lock_note.setVisible(locked)
 
     # --- settings round-trip ---
+
+    # --- rows that depend on which potentiostat is driving ---
+
+    def current_mode(self):
+        """Which potentiostat the run will use, read LIVE from the Instrument tab.
+
+        The radio buttons there are the truth; win.settings is only as fresh as the
+        last collect. Guarded, because the Parameters tab is built before the
+        Instrument tab in some test harnesses.
+        """
+        tab = getattr(self.win, "instrument_tab", None)
+        if tab is not None:
+            try:
+                if tab.pstat_python_radio.isChecked():
+                    return "python"
+                if tab.pstat_autolab_radio.isChecked():
+                    return "autolab"
+                return "external"
+            except AttributeError:
+                pass
+        return self.win.settings.get("potentiostat_mode", "external")
+
+    def sync_potentiostat_rows(self):
+        """Show ONE current-range control, the one that will actually be used.
+
+        Two similarly-named dropdowns were visible at once, and on 2026-09-25 it was
+        not clear which had been set -- it cost two bench runs. Hiding rather than
+        removing keeps both values round-tripping through collect_into, so a settings
+        file written on the Gamry rig still carries its Autolab range and vice versa.
+        """
+        mode = self.current_mode()
+        gamry, autolab = mode == "python", mode == "autolab"
+        self.gamry_range_combo.setVisible(gamry)
+        self.autolab_range_combo.setVisible(autolab)
+        # Scope in the LABEL, not implied by position: the Gamry range reaches the
+        # CV and the Autolab's does not.
+        if gamry:
+            self.range_label.setText("Current range (Gamry — all segments):")
+        elif autolab:
+            self.range_label.setText("Current range (Autolab, Ei mode — chrono steps):")
+        else:
+            self.range_label.setText("Current range:")
+        self.range_label.setVisible(gamry or autolab)
+        self._update_delta_cost_hint(mode)
+
+    def _update_delta_cost_hint(self, mode=None):
+        """State the floor that integration x averages puts under the delta."""
+        try:
+            cost = spectrum_cost_seconds(
+                self.win.settings.get("integration_time_ms", 0.0),
+                self.win.settings.get("scan_averages", 1),
+                mode if mode is not None else self.current_mode())
+        except Exception:      # noqa: BLE001 — a hint must never break the tab
+            self.delta_cost_hint.setText("")
+            return
+        chosen = self._widgets["chrono_delta_time"].value()
+        text = (f"minimum {cost:.3f} s at the Instrument tab's integration time and "
+                f"averages")
+        if chosen < cost:
+            text = ("⚠ " + text
+                    + " — the spectra cannot keep up with this spacing")
+            self.delta_cost_hint.setStyleSheet("color: #a60;")
+        else:
+            self.delta_cost_hint.setStyleSheet("color: #888;")
+        self.delta_cost_hint.setText(text)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.sync_potentiostat_rows()
 
     def populate_from(self, settings):
         for key, w in self._widgets.items():
@@ -345,6 +447,16 @@ class ParametersTab(QWidget):
         folder = self._widgets["data_folder"]
         if not folder.text().strip():
             folder.setText(datetime.now().strftime("%Y%m%d_"))
+
+        # A loaded file can change the mode and the spectrometer settings, so the
+        # shared rows and the floor hint are only right if they follow it.
+        self.sync_potentiostat_rows()
+
+    def _wire_shared_hints(self):
+        """Keep the floor hint live: it answers a question about the value being
+        typed, so it has to update as it is typed."""
+        self._widgets["chrono_delta_time"].valueChanged.connect(
+            lambda _v: self._update_delta_cost_hint())
 
     def collect_into(self, settings):
         for key, w in self._widgets.items():

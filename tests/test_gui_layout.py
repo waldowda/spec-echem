@@ -2610,3 +2610,96 @@ def test_starting_a_run_parks_focus_off_the_run_controls(window):
 
     assert not tab.stop_btn.hasFocus()
     assert not tab.abort_btn.hasFocus()
+
+
+def _group_titles(tab):
+    from qtpy.QtWidgets import QGroupBox
+    return [g.title() for g in tab.findChildren(QGroupBox)]
+
+
+def test_shared_settings_sit_above_the_cv_not_inside_doping(window):
+    """Requested 2026-09-25: a value governing several sections must not live INSIDE
+    one of them. chrono_delta_time spaces pre-dedoping, doping AND dedoping, and the
+    Gamry range reaches every segment including the CV -- which is how a CV came to
+    clip at ~64 uA. Hence above the CV, not merely above pre-dedoping."""
+    titles = _group_titles(window.parameters_tab)
+    assert "Applies to more than one step" in titles
+    assert titles.index("Applies to more than one step") < titles.index("Cyclic Voltammetry")
+    doping = next(t for t in titles if t.startswith("Doping / Dedoping"))
+    assert titles.index("Applies to more than one step") < titles.index(doping)
+
+
+def test_only_the_active_potentiostats_range_is_shown(window, monkeypatch):
+    """Two similarly-named dropdowns were visible at once and it was not clear which
+    had been set -- it cost two bench runs.
+
+    isVisibleTo(), not isVisible(): the window is never shown in these tests, so
+    isVisible() is False for every widget and asserting it proves nothing. The first
+    version of this test passed happily with BOTH combos forced visible. It also
+    forces the mode rather than clicking the radios, which are disabled on a machine
+    without the vendor stacks -- so the interesting branches were being skipped.
+    """
+    tab = window.parameters_tab
+
+    monkeypatch.setattr(tab, "current_mode", lambda: "python")
+    tab.sync_potentiostat_rows()
+    assert tab.gamry_range_combo.isVisibleTo(tab)
+    assert not tab.autolab_range_combo.isVisibleTo(tab)
+    # Scope in the LABEL: the Gamry range reaches the CV, the Autolab's does not.
+    assert "all segments" in tab.range_label.text()
+
+    monkeypatch.setattr(tab, "current_mode", lambda: "autolab")
+    tab.sync_potentiostat_rows()
+    assert tab.autolab_range_combo.isVisibleTo(tab)
+    assert not tab.gamry_range_combo.isVisibleTo(tab)
+    assert "chrono steps" in tab.range_label.text()
+
+    monkeypatch.setattr(tab, "current_mode", lambda: "external")
+    tab.sync_potentiostat_rows()
+    assert not tab.gamry_range_combo.isVisibleTo(tab)
+    assert not tab.autolab_range_combo.isVisibleTo(tab)
+    assert not tab.range_label.isVisibleTo(tab)
+
+
+def test_the_mode_comes_from_the_instrument_tab_not_stale_settings(window):
+    """The radios there are the truth; win.settings is only as fresh as the last
+    collect."""
+    window.settings["potentiostat_mode"] = "autolab"
+    window.instrument_tab.pstat_external_radio.setChecked(True)
+    assert window.parameters_tab.current_mode() == "external"
+
+
+def test_a_hidden_range_still_round_trips(window):
+    """Hidden, not removed: a settings file written on one rig must still carry the
+    other rig's range."""
+    tab = window.parameters_tab
+    window.instrument_tab.pstat_external_radio.setChecked(True)
+    tab.sync_potentiostat_rows()
+
+    settings = dict(window.settings)
+    settings["gamry_current_range"] = 6.0e-4
+    settings["autolab_current_range"] = "CR10_1mA"
+    tab.populate_from(settings)
+    out = {}
+    tab.collect_into(out)
+    assert out["gamry_current_range"] == 6.0e-4
+    assert out["autolab_current_range"] == "CR10_1mA"
+
+
+def test_the_delta_names_its_scope_and_shows_the_floor(window):
+    """The label said 'Time between spectra' while governing only the chrono steps,
+    and the floor that integration x averages puts under it was invisible here --
+    you found out at Start, after choosing."""
+    tab = window.parameters_tab
+    assert "chrono steps" in tab.delta_label.text()
+
+    window.settings["integration_time_ms"] = 0.022
+    window.settings["scan_averages"] = 200
+    tab._widgets["chrono_delta_time"].setValue(0.100)
+    tab.sync_potentiostat_rows()
+    assert "minimum" in tab.delta_cost_hint.text()
+    assert "⚠" not in tab.delta_cost_hint.text()
+
+    tab._widgets["chrono_delta_time"].setValue(0.002)   # below any real floor
+    assert "⚠" in tab.delta_cost_hint.text()
+    assert "cannot keep up" in tab.delta_cost_hint.text()
