@@ -54,6 +54,7 @@ from spec_echem.linearity import (
 from spec_echem import potentiostat as _potentiostat
 from spec_echem.potentiostat import (
     TOOLKITPY_AVAILABLE, AUTOLAB_AVAILABLE, probe_identity, autolab_identity,
+    probe_gamry_ladder,
 )
 from spec_echem.settings import (DEFAULT_SETTINGS, LIN_STOP_FLOOR_SPANS,
                                  tidy_detector_floor)
@@ -861,6 +862,21 @@ class InstrumentTab(QWidget):
                 return
         self._pstat_connected = True
         self.win.pstat_identity = who
+        if not autolab:
+            # Learn the ladder from the instrument now that it is reachable. The
+            # documented table is a Reference 600's; an Interface 1010 runs 1/10/100
+            # decades, so the same IERange means a different current there. Best
+            # effort -- a None leaves the documented list in place.
+            ladder = probe_gamry_ladder()
+            if ladder:
+                self.win.gamry_ladder = ladder
+                self.win.gamry_ladder_source = who
+                logger.info("Gamry I/E ladder read from %s: %d ranges, %s",
+                            who, len(ladder),
+                            ", ".join(l for _i, _a, l in ladder))
+                params = getattr(self.win, "parameters_tab", None)
+                if params is not None:
+                    params.apply_gamry_ladder()
         logger.info("Potentiostat connected in %.1f s: %s",
                     time.perf_counter() - t0, who)
         self._set_pstat_status(f"● Connected — {who}", "#080")

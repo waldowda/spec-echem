@@ -35,6 +35,7 @@ captured data. The spectrometer keeps its own thread, so their timing is
 independent; t=0 is still synced by the hardware trigger.
 """
 import os
+import re
 import threading
 import time
 
@@ -87,6 +88,54 @@ GAMRY_CURRENT_RANGES = [
 # range both coarsens the quantum and removes the protection an overload would give
 # the sample. Same principle as the Autolab's is_high_current_range.
 GAMRY_HIGH_CURRENT_RANGE_A = 1.0e-2
+
+
+# Decade EXPONENTS, not multipliers: 100 * 1e-6 is 9.999999999999999e-05, which is
+# not the 1e-4 the rest of the code compares against. float("100e-6") is exact.
+_CURRENT_DECADES = {"p": -12, "n": -9, "u": -6, "\u00b5": -6, "\u03bc": -6,
+                    "m": -3, "": 0}
+
+
+def parse_current_label(text):
+    """'600 uA' -> 6e-4. None if it is not a current."""
+    m = re.match(r"\s*([0-9.]+)\s*([pnu\u00b5\u03bcm]?)\s*A\b",
+                 str(text).strip(), re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        return float(f"{m.group(1)}e{_CURRENT_DECADES[m.group(2).lower()]}")
+    except (ValueError, KeyError):
+        return None
+
+
+def read_gamry_ladder(pstat):
+    """The I/E ladder the INSTRUMENT reports: [(index, full_scale_a, label)], or None.
+
+    Why this is not a nicety: the documented ladders differ BY MODEL. A Reference
+    600/620 runs 60 pA..600 mA, so IERange 8 is 600 uA -- but an Interface 1010 runs
+    10 nA..1 A in 1/10/100 decades, where IERange 8 is 100 uA. Hardcoding one model's
+    table would silently mis-state every "% of full scale" on the other, which is the
+    same class of error as the range that was never set at all.
+
+    Returns None whenever the instrument cannot answer, and every caller falls back to
+    the documented Reference 600 table -- so this can only improve on a guess, never
+    replace a working path with a broken one.
+    """
+    try:
+        values = list(pstat.ie_range_value_list() or ())
+        labels = list(pstat.ie_range_label_list() or ())
+    except Exception:   # noqa: BLE001 — an unsupported call must not stop a run
+        return None
+    if not values or len(values) != len(labels):
+        return None
+    ladder = []
+    for index, label in zip(values, labels):
+        amps = parse_current_label(label)
+        if amps is None:
+            amps = gamry_range_full_scale(index)    # documented fallback, per rung
+        if amps is not None:
+            ladder.append((int(index), float(amps), str(label)))
+    return ladder or None
 
 
 def gamry_range_full_scale(ie_range):
@@ -203,8 +252,16 @@ def apply_gamry_current_range(pstat, current_range):
     # 2026-09-25: 6 mA -> IERange 10 (60 mA), 60 uA -> IERange 8 (600 uA), 6 uA ->
     # IERange 7 (60 uA). Asking for 6 uA and receiving 60 uA is a mislabelled
     # control, and it cost a clipped CV (plateau at ~64 uA) to notice.
-    index = next((i + 1 for i, (full_a, _) in enumerate(GAMRY_CURRENT_RANGES)
-                  if abs(full_a - amps) <= full_a * 1e-6), None)
+    # Prefer the ladder the INSTRUMENT reports over the documented Reference 600
+    # table: an Interface 1010's rungs are 1/10/100 decades, so the same index means
+    # a different current there.
+    ladder = read_gamry_ladder(pstat)
+    if ladder:
+        index = next((i for i, full_a, _ in ladder
+                      if abs(full_a - amps) <= full_a * 1e-6), None)
+    else:
+        index = next((i + 1 for i, (full_a, _) in enumerate(GAMRY_CURRENT_RANGES)
+                      if abs(full_a - amps) <= full_a * 1e-6), None)
     if index is not None:
         pstat.set_ie_range(index)
     else:
@@ -216,7 +273,9 @@ def apply_gamry_current_range(pstat, current_range):
         chosen = int(pstat.ie_range())
     except Exception:   # noqa: BLE001 — readback is a check, not a requirement
         chosen = index
-    full = gamry_range_full_scale(chosen)
+    full = next((a for i, a, _ in (ladder or ()) if i == chosen), None)
+    if full is None:
+        full = gamry_range_full_scale(chosen)
     # Name the range that was SET, not just the peak that was asked for: they differ
     # by a rung, and reporting only the request made a 12%-of-range CV read as 118%.
     return (f"IERange {chosen}"
@@ -274,6 +333,31 @@ def probe_identity():
         return pstat.label(), pstat.serial_no()
     finally:
         tkp.toolkitpy_close()
+
+
+def probe_gamry_ladder():
+    """Open the Gamry briefly and return its I/E ladder, or None.
+
+    Separate from probe_identity() rather than folded into it: that returns a pair
+    and two callers unpack it, and a signature change is a poor trade for a read
+    that is allowed to fail. Never raises for an instrument that cannot answer --
+    the documented Reference 600 table remains the fallback everywhere.
+    """
+    if not TOOLKITPY_AVAILABLE:
+        return None
+    try:
+        tkp.toolkitpy_init("spec-echem-ladder")
+    except Exception:   # noqa: BLE001
+        return None
+    try:
+        return read_gamry_ladder(tkp.Pstat("PSTAT"))
+    except Exception:   # noqa: BLE001
+        return None
+    finally:
+        try:
+            tkp.toolkitpy_close()
+        except Exception:   # noqa: BLE001
+            pass
 
 
 def echem_from_acq_data(acq):

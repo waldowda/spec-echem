@@ -1921,3 +1921,65 @@ def test_an_off_ladder_current_still_asks_the_instrument(stub_tkp):
     assert any(name == "test_ie_range" for name, _ in p.calls)
     assert p.range_set == 8
     assert "requested 7.5e-05 A" in how
+
+
+def test_a_current_label_parses_to_amps():
+    from spec_echem.potentiostat import parse_current_label
+    assert parse_current_label("600 uA") == 6.0e-4
+    assert parse_current_label("600 µA") == 6.0e-4
+    assert parse_current_label("60mA") == 6.0e-2
+    assert parse_current_label("1 A") == 1.0
+    assert parse_current_label("60 pA") == 6.0e-11
+    assert parse_current_label("not a current") is None
+    assert parse_current_label("") is None
+
+
+class _LadderPstat(_FakePstat):
+    """A pstat that reports its own ladder, like an Interface 1010 whose rungs are
+    1/10/100 decades rather than the Reference 600's 6/60/600."""
+
+    LADDER = [(4, "10 nA"), (5, "100 nA"), (6, "1 uA"), (7, "10 uA"),
+              (8, "100 uA"), (9, "1 mA"), (10, "10 mA"), (11, "100 mA"), (12, "1 A")]
+
+    def ie_range_value_list(self):
+        return [i for i, _ in self.LADDER]
+
+    def ie_range_label_list(self):
+        return [l for _, l in self.LADDER]
+
+
+def test_the_instrument_ladder_beats_the_documented_table(stub_tkp):
+    """IERange 8 is 600 uA on a Reference 600 and 100 uA on an Interface 1010.
+    Hardcoding one model would mis-state every '% of full scale' on the other."""
+    from spec_echem.potentiostat import initialize_pstat
+
+    p = _LadderPstat()
+    how, full = initialize_pstat(p, 1.0e-4)      # 100 uA exists on THIS ladder
+    assert p.range_set == 8
+    assert full == 1.0e-4                        # not the Reference 600's 6e-4
+    assert "IERange 8" in how
+
+
+def test_a_reported_ladder_is_read_back_into_the_full_scale(stub_tkp):
+    from spec_echem.potentiostat import read_gamry_ladder
+
+    ladder = read_gamry_ladder(_LadderPstat())
+    assert (8, 1.0e-4, "100 uA") in ladder
+    assert len(ladder) == 9
+
+
+def test_an_instrument_that_cannot_list_its_ladder_still_works(stub_tkp):
+    """Every caller falls back to the documented table, so this can only improve on
+    a guess -- never replace a working path with a broken one."""
+    from spec_echem.potentiostat import initialize_pstat, read_gamry_ladder
+
+    assert read_gamry_ladder(_FakePstat()) is None      # returns None from __getattr__
+
+    class Angry(_FakePstat):
+        def ie_range_value_list(self):
+            raise RuntimeError("not supported on this model")
+
+    assert read_gamry_ladder(Angry()) is None
+    p = Angry()
+    how, full = initialize_pstat(p, 6.0e-4)
+    assert p.range_set == 8 and full == 6.0e-4          # documented table
