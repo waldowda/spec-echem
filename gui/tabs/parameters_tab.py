@@ -284,6 +284,12 @@ class ParametersTab(QWidget):
         self.range_external_note.setStyleSheet("color: #888;")
         self.range_external_note.setWordWrap(True)
         shared_form.addRow("", self.range_external_note)
+        # Where the ladder came from. The documented table is a Reference 600's;
+        # say so until an instrument has confirmed its own.
+        self.ladder_source = QLabel()
+        self.ladder_source.setStyleSheet("color: #888;")
+        self.ladder_source.setWordWrap(True)
+        shared_form.addRow("", self.ladder_source)
 
         self.delta_label = QLabel("Time between spectra (all chrono steps):")
         shared_form.addRow(
@@ -371,6 +377,51 @@ class ParametersTab(QWidget):
 
     # --- rows that depend on which potentiostat is driving ---
 
+    def apply_gamry_ladder(self):
+        """Rebuild the Gamry range dropdown from the ladder the instrument reported.
+
+        Called after a successful Python-mode Connect. Until then the list is the
+        documented Reference 600 table, which is right for that model and wrong for
+        an Interface 1010 (1/10/100 decades, so the same IERange is a different
+        current). The selection is preserved by VALUE, and if the connected
+        instrument does not offer the selected range the nearest rung at or above it
+        is taken -- never silently a finer one, which would clip.
+        """
+        ladder = getattr(self.win, "gamry_ladder", None)
+        combo = self.gamry_range_combo
+        wanted = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        if ladder:
+            for _index, amps, label in ladder:
+                combo.addItem(
+                    label + ("   [!] high current"
+                             if amps > GAMRY_HIGH_CURRENT_RANGE_A else ""), amps)
+        else:
+            for amps, label in GAMRY_CURRENT_RANGES:
+                combo.addItem(
+                    label + ("   [!] high current"
+                             if amps > GAMRY_HIGH_CURRENT_RANGE_A else ""), amps)
+        combo.addItem("Auto-range   [!] not recommended at 10 points/s", "auto")
+
+        i = combo.findData(wanted) if wanted is not None else -1
+        if i < 0 and isinstance(wanted, float):
+            # Not offered by this instrument: take the nearest rung AT OR ABOVE, so a
+            # range change caused by swapping hardware can never quietly clip.
+            above = [n for n in range(combo.count())
+                     if isinstance(combo.itemData(n), float)
+                     and combo.itemData(n) >= wanted]
+            i = above[0] if above else -1
+        combo.setCurrentIndex(i if i >= 0 else 0)
+        combo.blockSignals(False)
+        self._update_ladder_source()
+
+    def _update_ladder_source(self):
+        who = getattr(self.win, "gamry_ladder_source", None)
+        self.ladder_source.setText(
+            f"ranges read from {who}" if who and getattr(self.win, "gamry_ladder", None)
+            else "documented Reference 600 ranges — connect to confirm")
+
     def current_mode(self):
         """Which potentiostat the run will use, read LIVE from the Instrument tab.
 
@@ -409,6 +460,8 @@ class ParametersTab(QWidget):
         for widget in (self.autolab_range_combo, self.autolab_range_label):
             widget.setVisible(autolab or external)
         self.range_external_note.setVisible(external)
+        self.ladder_source.setVisible(gamry or external)
+        self._update_ladder_source()
         # Scope in the LABEL, not implied by position: the Gamry range reaches the
         # CV and the Autolab's does not.
         self.gamry_range_label.setText(

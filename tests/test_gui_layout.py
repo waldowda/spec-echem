@@ -2707,3 +2707,48 @@ def test_the_delta_names_its_scope_and_shows_the_floor(window):
     tab._widgets["chrono_delta_time"].setValue(0.002)   # below any real floor
     assert "⚠" in tab.delta_cost_hint.text()
     assert "cannot keep up" in tab.delta_cost_hint.text()
+
+
+def test_the_range_list_is_rebuilt_from_the_connected_instrument(window):
+    """The documented table is a Reference 600's. An Interface 1010 runs 1/10/100
+    decades, so the same IERange is a different current -- and the '% of full scale'
+    advice would be wrong on it. A REF 610+ and an IFC 1010 are both available to the
+    lab, so this is not hypothetical."""
+    tab = window.parameters_tab
+    assert "documented" in tab.ladder_source.text()
+
+    window.gamry_ladder = [(4, 1e-8, "10 nA"), (7, 1e-5, "10 uA"),
+                           (8, 1e-4, "100 uA"), (11, 1e-1, "100 mA")]
+    window.gamry_ladder_source = "Interface 1010 (serial 12345)"
+    tab.apply_gamry_ladder()
+
+    values = [tab.gamry_range_combo.itemData(i)
+              for i in range(tab.gamry_range_combo.count())]
+    assert values == [1e-8, 1e-5, 1e-4, 1e-1, "auto"]
+    assert "Interface 1010" in tab.ladder_source.text()
+    assert "100 mA   [!] high current" in [
+        tab.gamry_range_combo.itemText(i) for i in range(tab.gamry_range_combo.count())]
+
+
+def test_a_range_the_new_instrument_lacks_moves_UP_never_down(window):
+    """Swapping hardware must not quietly land on a finer range: that clips, and a
+    clipped transient is the part of a doping step that matters."""
+    tab = window.parameters_tab
+    tab.gamry_range_combo.setCurrentIndex(tab.gamry_range_combo.findData(6.0e-4))
+    assert tab.gamry_range_combo.currentData() == 6.0e-4      # 600 uA, documented
+
+    window.gamry_ladder = [(7, 1e-5, "10 uA"), (8, 1e-3, "1 mA")]   # no 600 uA rung
+    window.gamry_ladder_source = "Some Other Pstat"
+    tab.apply_gamry_ladder()
+
+    assert tab.gamry_range_combo.currentData() == 1e-3        # up, not down to 10 uA
+
+
+def test_an_unlistable_ladder_leaves_the_documented_one(window):
+    tab = window.parameters_tab
+    window.gamry_ladder = None
+    tab.apply_gamry_ladder()
+    values = [tab.gamry_range_combo.itemData(i)
+              for i in range(tab.gamry_range_combo.count())]
+    assert values[0] == 6.0e-11 and values[-1] == "auto"
+    assert "connect to confirm" in tab.ladder_source.text()
