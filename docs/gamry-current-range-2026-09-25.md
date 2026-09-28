@@ -133,6 +133,30 @@ every segment, so a run with both is a compromise. The per-segment advisory name
 better range for each; making it settable per segment type is a future decision, not a
 defect.
 
+## The ladder differs by model — read it from the instrument
+
+`IERange 8` is **600 µA** on a Reference 600/620 and **100 µA** on an Interface 1010,
+whose rungs are 1/10/100 decades rather than 6/60/600. Hardcoding one model's table
+would silently mis-state every "% of full scale" on the other — the same class of error
+as the range that was never set at all, and the lab has a REF 610+ and an IFC 1010 to
+hand.
+
+So the ladder is **read from the instrument**, via `ie_range_value_list()` and
+`ie_range_label_list()`:
+
+- **In the driver**, before a range is set, so correctness never depends on the GUI.
+- **In the GUI**, on a successful Python-mode Connect, rebuilding the dropdown and
+  saying where the list came from — "ranges read from Duck (serial 08083)" versus
+  "documented Reference 600 ranges — connect to confirm".
+
+Every path falls back to the documented table when an instrument cannot answer, so this
+can only improve on a guess, never replace a working path with a broken one.
+
+**Swapping hardware moves a selection UP, never down.** If the newly connected
+instrument does not offer the selected range, the nearest rung *at or above* it is
+taken. Landing on a finer one would clip, and a clipped transient is the part of a
+doping step that matters.
+
 ## Checking a past run
 
 ```
