@@ -365,6 +365,190 @@ def write_echem_file(echem, data_type, run_number, data_root, added_path):
     return path
 
 
+# HDF5 filename per segment TYPE — one file per type, all that type's cycles inside.
+# Fourth map beside _filename_for / _echem_filename_for / _echem_dta_path, same idiom.
+# The {added_path}_ prefix matches {added_path}_metadata.json and {added_path}_log.log,
+# so a file that gets moved still names its own run.
+def _h5_filename_for(data_type, added_path):
+    return {
+        DATA_TYPE_CV:          f'{added_path}_cv.h5',
+        DATA_TYPE_DOPING:      f'{added_path}_doping.h5',
+        DATA_TYPE_DEDOPING:    f'{added_path}_dedoping.h5',
+        DATA_TYPE_PREDEDOPING: f'{added_path}_prededoping.h5',
+    }[data_type]
+
+
+_H5_TYPE_NAME = {
+    DATA_TYPE_CV: "CV",
+    DATA_TYPE_DOPING: "Doping",
+    DATA_TYPE_DEDOPING: "Dedoping",
+    DATA_TYPE_PREDEDOPING: "Pre-dedoping",
+}
+
+H5_SCHEMA_VERSION = "1"
+
+
+def h5_path(run_folder, data_type, added_path=None):
+    """Full path to a segment type's .h5 inside an existing run folder.
+    Public accessor, mirroring echem_txt_path."""
+    folder = Path(run_folder)
+    return folder / _h5_filename_for(data_type, added_path or folder.name)
+
+
+def counts_dtype(counts):
+    """uint16 when the counts really are integral and in range, float32 otherwise.
+
+    The ADC is 16-bit, so a SINGLE scan is an exact integer — but `scan_averages`
+    defaults to 200 and an averaged count is not. MEASURED 2026-09-29 on a real CV
+    (20260925_test10): a fractional part of up to exactly 0.5, so a uint16 cast would
+    misstate every half-count. This rule is load-bearing, not a nicety; the first
+    version of that measurement used uint16 and was quietly lossy.
+    """
+    arr = np.asarray(counts, dtype=float)
+    finite = arr[np.isfinite(arr)]
+    if finite.size and np.all(finite == np.rint(finite)) \
+            and finite.min() >= 0 and finite.max() <= np.iinfo(np.uint16).max:
+        return np.uint16
+    return np.float32
+
+
+def _h5_dataset(group, name, data, dtype=None, units=None, dims=None,
+                compression=0, description=None):
+    """One dataset plus the attributes that make it self-describing.
+
+    `units` on everything and `dims` on every 2-D array: attributes are free and
+    nobody reads a spec.
+    """
+    kwargs = {}
+    if compression:
+        kwargs = dict(compression="gzip", compression_opts=int(compression),
+                      chunks=True)
+    arr = np.asarray(data)
+    if dtype is not None:
+        arr = arr.astype(dtype)
+    ds = group.create_dataset(name, data=arr, **kwargs)
+    if units:
+        ds.attrs["units"] = units
+    if dims:
+        ds.attrs["dims"] = dims
+    if description:
+        ds.attrs["description"] = description
+    return ds
+
+
+def _h5_root_attrs(f, data_type, added_path, run_folder):
+    """Provenance, read from the run's own metadata JSON rather than rebuilt.
+
+    THE ANTI-DIVERGENCE MEASURE: the JSON is the single source, and this copies it
+    verbatim instead of reassembling it from a settings dict, so the two cannot drift.
+    It also needs no new plumbing — run_one_segment has no settings or instruments,
+    but the JSON is guaranteed on disk, written at run start.
+    """
+    f.attrs["schema_version"] = H5_SCHEMA_VERSION
+    f.attrs["run_id"] = added_path
+    f.attrs["data_type"] = int(data_type)
+    f.attrs["data_type_name"] = _H5_TYPE_NAME[data_type]
+    f.attrs["build_id"] = build_id()
+
+    meta_path = Path(run_folder) / f"{added_path}_metadata.json"
+    try:
+        text = meta_path.read_text(encoding="utf-8")
+    except OSError:
+        return                      # a run without metadata is still worth writing
+    f.attrs["metadata_json"] = text
+    try:
+        meta = json.loads(text)
+    except ValueError:
+        return
+    # Promote the handful worth seeing at a glance, so HDFView and h5dump show them
+    # without anyone parsing JSON. The full document stays above regardless.
+    for key in ("run_started", "sample_name", "electrolyte", "notes"):
+        if meta.get(key) is not None:
+            f.attrs[key] = str(meta[key])
+    for key, value in (meta.get("instruments") or {}).items():
+        f.attrs[str(key)] = str(value)
+
+
+def write_segment_h5(absorb7, spectra, dark, ref, wavelengths, timestamps, echem,
+                     data_type, run_number, data_root, added_path,
+                     segment=None, settings=None, compression=0):
+    """Append one segment to its per-type .h5. Returns the Path, or None if h5py
+    is unavailable.
+
+    Written IN ADDITION to the ascii, never instead: docs/data-format.md is the
+    authority and the downstream reader depends on those names. Retiring the text is
+    a later decision resting on the round-trip evidence this writer makes possible.
+
+    One file per segment TYPE, all that type's cycles inside as groups keyed by CYCLE
+    NUMBER — never by potential. A potential repeats (every dedoping step shares one),
+    the series need not be monotonic, and a future CA scheme need not be an ordered
+    ladder at all: potential is an attribute of a cycle, never its address.
+    """
+    if not H5PY_AVAILABLE:
+        return None
+
+    folder = resolve_data_root(data_root) / added_path
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / _h5_filename_for(data_type, added_path)
+
+    wl = np.asarray(wavelengths, dtype=float)
+    counts = np.asarray(spectra, dtype=float).T          # (n_times, n_px) -> (n_wl, n_t)
+    absorbance = np.asarray(absorb7, dtype=float)        # already (n_wl, n_t)
+    stamps = np.asarray(timestamps, dtype=float)
+
+    with h5py.File(path, "a") as f:
+        if not f.attrs.get("schema_version"):
+            _h5_root_attrs(f, data_type, added_path, folder)
+        if "wavelength" not in f:
+            _h5_dataset(f, "wavelength", wl, units="nm")
+
+        key = str(int(run_number))
+        if key in f:
+            del f[key]                      # a re-run of one segment replaces it
+        g = f.create_group(key)
+
+        g.attrs["run_number"] = int(run_number)
+        if segment is not None:
+            for attr in ("label", "num_points", "delta_time", "trigger"):
+                value = getattr(segment, attr, None)
+                if value is not None:
+                    g.attrs[attr] = value
+        # potential_set, never a bare `potential`: the bare name belongs to the
+        # MEASURED trace in echem/ and must mean one thing in one file.
+        if settings is not None:
+            v = segment_potential(settings, data_type, run_number)
+            if v is not None:
+                g.attrs["potential_set"] = float(v)
+        if echem is not None and len(np.asarray(echem.potential)):
+            g.attrs["potential_measured"] = float(
+                np.nanmedian(np.asarray(echem.potential, dtype=float)))
+
+        _h5_dataset(g, "counts_vs_time", counts, dtype=counts_dtype(counts),
+                    units="counts", dims="wavelength x time",
+                    compression=compression)
+        _h5_dataset(g, "absorbance_vs_time", absorbance, dtype=np.float32,
+                    units="-log10(T)", dims="wavelength x time",
+                    compression=compression)
+        _h5_dataset(g, "dark", dark, units="counts")
+        _h5_dataset(g, "reference", ref, units="counts")
+        _h5_dataset(g, "time", stamps - stamps[0] if stamps.size else stamps,
+                    units="s",
+                    description="seconds from this segment's first spectrum")
+        _h5_dataset(g, "time_spectrometer", stamps, units="s",
+                    description="the spectrometer's own clock, unrebased; no known "
+                                "relation to wall time or to the echem clock")
+
+        if echem is not None:
+            e = g.create_group("echem")
+            _h5_dataset(e, "time", echem.time, units="s",
+                        description="potentiostat clock, rebased to 0; NOT the same "
+                                    "length or clock as the spectra axis")
+            _h5_dataset(e, "potential", echem.potential, units="V")
+            _h5_dataset(e, "current", echem.current, units="A")
+
+    return path
+
+
 def write_run_metadata(settings, data_root, added_path, instruments=None):
     """
     Write a metadata JSON file to the run folder at experiment start.
