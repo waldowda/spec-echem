@@ -7,6 +7,12 @@ pandas>=1.3.0
 PyQt5
 qtpy
 
+# HDF5 output — OPTIONAL, installed on demand (`pip install -e .[h5]`):
+#   h5py            64-bit envs: any current release.
+#                   32-bit SpecEchem32 (Python 3.7): pin `h5py==2.10.0` — win32
+#                   cp37 wheels stop there, and h5py 3.x ships none at all.
+#                   Nothing in spec_echem requires h5py to import or to run.
+
 # Proprietary vendor packages — NOT pip-installable; require the vendor hardware + SDK:
 #   avaspec        — Avantes SDK (spectrometer control)
 #   EchemToolkitPy — Gamry Framework (Python potentiostat control, 32-bit)
