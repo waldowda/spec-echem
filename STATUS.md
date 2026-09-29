@@ -4,11 +4,44 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-09-24_
+_Last updated: 2026-09-28_
 
 ---
 
-## The live-CV wedge is diagnosed, and it was not what we thought (2026-09-24, `gui-dev`) — newest
+## The Gamry was measuring microamps on its 600 mA range (2026-09-25/28, `gui-dev`) — newest
+
+**A "very noisy" 10 kΩ dummy CV turned out to be a four-decade current-range error that
+had been corrupting Python-mode Gamry data since Phase 2.** `initialize_pstat()` set nine
+hardware parameters and never the I/E range, so every run inherited the instrument's
+power-up `IERange 11` — 600 mA — while measuring microamps. Nothing announced it: no
+overload flag fires for a range that is merely too coarse.
+
+- **Cost, measured:** +35 µA reported at 0.000 V and 2,879 nA of noise on a ±50 µA sweep;
+  on the 20260709/20260710 film runs, 1.0–2.0 µA of noise against settled currents of
+  1–26 µA — **40–200% of the signal**. Those settled currents are not quantitatively
+  trustworthy. External mode was never affected.
+- **Fixed and confirmed the same evening:** R = **9,900.3 Ω**, against the Autolab's
+  9,899–9,901 Ω on the same dummy — two vendors agreeing to 0.01%. CV intercept +35.1 →
+  +0.133 µA; chrono hold noise 2,567 → **1.8 nA**. What offset remains is a +1.4 mV
+  *potential* offset, not a current one.
+- **`gamry_current_range`** is now a deliberate choice (default 6 mA) with a dropdown, and
+  **every segment logs its range, its peak, and a finer range if one would fit**.
+- **The ladder is read from the instrument**, because `IERange 8` is 600 µA on a
+  Reference 600 and 100 µA on an Interface 1010.
+- Full evidence, including a retraction: [`docs/gamry-current-range-2026-09-25.md`](docs/gamry-current-range-2026-09-25.md).
+
+**Also settled:** the live-CV wedge is fixed and confirmed on the rig; spectra gaps of
+260–463 ms at every chrono segment start are gone (the worker now waits for the GUI
+between segments — **do not remove that wait**); Stop and Abort need a deliberate click,
+after a run ended itself with nobody touching Stop.
+
+**Next:** Wednesday at the rig with a Reference 610+ and an Interface 1010
+(`examples/probe_gamry_ladder.py`); then the HDF5 writer, whose plan is drafted and
+awaiting a conversation with the downstream maintainer.
+
+---
+
+## The live-CV wedge is diagnosed, and it was not what we thought (2026-09-24, `gui-dev`)
 
 **529 tests.** A bench afternoon on the Autolab rig with a 10 kOhm dummy settled the
 display glitch reported on 2026-09-16, and disproved the fix that had been written for it.
