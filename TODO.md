@@ -17,6 +17,19 @@ Running list of planned work and deferred cleanups. (Active design/status notes 
       `pip show toolkitpy`) and add it beside the documented `avaspec.py` setup steps.
       Same category as the undocumented trigger-cable build: it works on one machine and
       nobody has written down why.
+- [x] **HDF5 — phases 1-3 BUILT 2026-09-29.** Writer, reader, round-trip, backfill,
+      benchmark, OECT export and its button. Format documented in
+      `docs/data-format.md` §4. Still deliberately NOT done: wiring the H5 reader into
+      the Results tab, which is the gate for ever making the ascii optional.
+- [ ] **Decide where the HDF5 DESIGN doc lives.** `private-notes/hdf5-design.md` holds
+      the reasoning — why cycle keys not potentials, why no `charge`, why
+      `time_spectrometer` rather than `time_abs`, the rejected alternatives. The plan
+      said it moves into `docs/` when phase 1 lands, but it carries ~21 personal and
+      institution names and the standing rule keeps those out of the public repo.
+      Either scrub it to roles ("the downstream maintainer", "Requested:") and move it,
+      or leave the narrative in `private-notes/` now that `docs/data-format.md` §4
+      carries the spec. The second is probably right: that file is a specification,
+      not a design diary.
 - [ ] **HDF5 — the plan is drafted and waiting on one conversation.** Design in
       `private-notes/hdf5-design.md` (outside the repo until phase 1 lands). Doping and
       dedoping stay in separate files matching the downstream repo; the merged

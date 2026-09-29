@@ -27,6 +27,25 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **HDF5 output, written IN ADDITION to the ascii.** Four files per run, one per
+  segment type, cycles inside keyed by cycle number. Carries everything the 8-column
+  format does and more: raw counts, the dark and the reference (which no reader had
+  ever read back), both time axes, the echem trace, and the run's metadata JSON
+  verbatim. Measured on a real CV: **83.6 MB of ascii becomes 7.3 MB of HDF5**, and a
+  backfilled run agrees with the text it came from to 7.5e-08 across 900,000 values.
+  The ascii format is **unchanged and still authoritative** — `docs/data-format.md` §4
+  documents the new files. `h5py` is optional (`pip install -e .[h5]`; 32-bit
+  SpecEchem32 must pin `h5py==2.10.0`), and when it is missing the run log says so
+  rather than silently writing nothing.
+- **`examples/ascii_to_h5.py`** — rebuild the HDF5 for any run recorded before this
+  existed, so nothing already on disk is stranded. One axis cannot be recovered and
+  the file says which.
+- **`examples/bench_h5_size.py`** — bytes and write time per segment at several gzip
+  levels, on the machine's own disk.
+- **`spec_echem.oect_export` and an "Export for OECT analysis" button** — a derived
+  view in the downstream pipeline's layout, verified by running that pipeline's own
+  reader against the output.
+
 - **`gamry_current_range`** — a deliberate fixed range (default 6 mA), chosen from a
   Parameters-tab dropdown, with auto-ranging offered but marked (Gamry documents it as
   unsuitable above 1 point/s; every segment here samples at 10). **Every segment logs

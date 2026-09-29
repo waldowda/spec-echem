@@ -43,6 +43,10 @@ For a CV + N doping/dedoping-cycle run, the run folder should contain (parenthes
   dedoping(0).txt … (N-1)             # clean echem, 5 cols                       [Python mode]
   prededoping(0).txt                  # clean echem, 5 cols (if it ran)           [Python mode]
   dta/CV.dta, dta/steps(0).dta, …     # native Gamry .dta                         [Python mode]
+  <run_folder>_cv.h5                  # HDF5, one file per segment type — written IN
+  <run_folder>_prededoping.h5         #   ADDITION to the ascii above (since 2026-09-29).
+  <run_folder>_doping.h5              #   Absent if h5py is not installed, and the run
+  <run_folder>_dedoping.h5            #   log says so. See docs/data-format.md §4.
   <run_folder>_metadata.json          # sample name, electrolyte, notes, settings snapshot
   <run_folder>_log.log                # full DEBUG log incl. per-segment cadence lines
 ```
