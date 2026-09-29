@@ -215,9 +215,18 @@ class ResultsTab(QWidget):
         self.save_plot_btn.clicked.connect(self.on_save_plot)
         self.open_folder_btn = QPushButton("Open Data Folder")
         self.open_folder_btn.clicked.connect(self.on_open_folder)
+        self.export_oect_btn = QPushButton("Export for OECT analysis")
+        self.export_oect_btn.setToolTip(
+            "Write this run's doping and dedoping into the layout the downstream\n"
+            "OECT_processing pipeline reads, in an oect/ subfolder.\n\n"
+            "A DERIVED VIEW, not the archival record: that layout has nowhere to\n"
+            "put the raw counts, the dark, the reference, the CV, pre-dedoping or\n"
+            "any provenance. The complete data stays in the run's own .h5 files.")
+        self.export_oect_btn.clicked.connect(self.on_export_oect)
         btn_row.addWidget(self.load_run_btn)
         btn_row.addWidget(self.save_plot_btn)
         btn_row.addWidget(self.open_folder_btn)
+        btn_row.addWidget(self.export_oect_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
@@ -656,6 +665,40 @@ class ResultsTab(QWidget):
                                    "No run folder yet — run a sequence or Load Run… first.")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def on_export_oect(self):
+        """Export the loaded run into the downstream layout.
+
+        Says what it DROPS, not just that it succeeded: a file that looks like the
+        data but is missing the counts, the dark and the reference is exactly the
+        kind of thing that gets analysed a year later as though it were the record.
+        """
+        folder = self.win.run_folder
+        if folder is None or not Path(folder).exists():
+            QMessageBox.information(
+                self, "No run loaded",
+                "Load a run first (Load Run…), or finish a run.")
+            return
+        try:
+            from spec_echem.oect_export import export_run
+            written = export_run(folder)
+        except Exception as exc:  # noqa: BLE001 — an export must not crash the tab
+            QMessageBox.warning(self, "Export failed", str(exc))
+            return
+        if not written:
+            QMessageBox.information(
+                self, "Nothing to export",
+                "This run has no doping or dedoping .h5 files.\n\n"
+                "Runs recorded before HDF5 output existed can be converted with "
+                "examples/ascii_to_h5.py.")
+            return
+        QMessageBox.information(
+            self, "Exported",
+            "Written to the oect/ subfolder:\n  "
+            + "\n  ".join(p.name for p in written)
+            + "\n\nThis is a DERIVED VIEW for the downstream pipeline. It drops "
+              "the raw counts, the dark, the reference, the CV and pre-dedoping — "
+              "the complete data stays in this run's own .h5 files.")
 
     def on_load_run(self):
         """Open a previously saved run folder and load its spectra + echem into the
