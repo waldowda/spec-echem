@@ -207,6 +207,36 @@ in an archive drifts out of agreement with its source. The OECT export computes 
 for ~120 ms a segment, and level 9 is byte-identical to level 4. `hdf5_compression` in the
 settings turns it on for archiving.
 
+### The one knowing compromise: float32
+
+**Absorbance and averaged counts are stored as float32, so the round trip is exact to
+about seven significant figures rather than bit-exact.** Decided deliberately 2026-09-29,
+with the numbers measured on a real 13-segment run rather than estimated:
+
+| column | agreement after text → h5 → text |
+|---|---|
+| wavelength, dark, reference, Index / Spectrum number, both time columns | **exact** |
+| echem potential, current, corrected time | **exact** |
+| Absorbance | max 3.0e-08 |
+| Measured value (counts) | max 1.9e-03 |
+
+The counts figure is the one that looks alarming and is not: 1.9e-03 at ~54,700 counts is
+**3.6e-08 relative**, seven orders of magnitude below the shot noise of √54,700 ≈ 234
+counts. Nothing measurable is lost.
+
+float64 counts would round-trip bit-exactly at roughly **+50% file size**. That trade was
+considered and declined — the error is far below the physics, and the format's whole
+purpose is size.
+
+**When this would be worth revisiting:** a detector with a much larger dynamic range (the
+absolute error scales with magnitude), or a use that needs the archive to be
+*bit*-reproducible rather than *physically* faithful — a checksum-verified deposit, say.
+Neither applies today. `counts_dtype()` already stores integral counts as exact `uint16`,
+so a run at one scan average is bit-exact as it stands; only averaged counts take the
+float32 path.
+
+Reproduce any of this with `python examples/h5_to_ascii.py <run> --out /tmp/x --compare`.
+
 ### Reading, converting, exporting
 
 | | |
