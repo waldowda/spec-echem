@@ -147,7 +147,7 @@ def test_launch_banner_says_why_a_driver_is_missing(app_log, monkeypatch):
     import spec_echem.logging_config as lc
 
     monkeypatch.setattr(lc, "_driver_status",
-                        lambda: (True, False, None, "DLL load failed: not found"))
+                        lambda: (True, False, None, "DLL load failed: not found", True, None))
     records = []
     log = logging.getLogger("test.banner")
     log.addHandler(type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r)})())
@@ -159,10 +159,32 @@ def test_launch_banner_says_why_a_driver_is_missing(app_log, monkeypatch):
 
 
 def test_driver_status_reports_a_reason_for_both_drivers():
-    """Four values, and each 'no' can be explained. getattr-guarded on both sides:
+    """Six values, and each 'no' can be explained. getattr-guarded on both sides:
     these files get hand-copied between machines."""
     from spec_echem.logging_config import _driver_status
 
-    avaspec_ok, toolkitpy_ok, avaspec_reason, toolkitpy_reason = _driver_status()
+    (avaspec_ok, toolkitpy_ok, avaspec_reason, toolkitpy_reason,
+     h5py_ok, h5py_reason) = _driver_status()
     assert (toolkitpy_reason is None) == bool(toolkitpy_ok)
     assert (avaspec_reason is None) == bool(avaspec_ok)
+    assert (h5py_reason is None) == bool(h5py_ok)
+
+
+def test_launch_banner_reports_h5py(app_log, monkeypatch):
+    """A run that writes its ascii and no .h5 looked exactly like a broken feature
+    on 2026-09-29, with nothing in any log. The banner says it before a run starts."""
+    import logging
+    import spec_echem.logging_config as lc
+
+    monkeypatch.setattr(lc, "_driver_status",
+                        lambda: (True, True, None, None, False, "No module named 'h5py'"))
+    records = []
+    log = logging.getLogger("test.banner.h5")
+    log.addHandler(type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r)})())
+    log.setLevel(logging.INFO)
+    lc._log_launch_banner(log)
+
+    text = "\n".join(r.getMessage() for r in records)
+    assert "h5py: no" in text
+    assert "no HDF5 files will be written" in text
+    assert "ascii output is unaffected" in text

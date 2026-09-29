@@ -1,0 +1,43 @@
+2026-09-29 14:01:17,913  INFO    spec-echem 0.3.1+42.gb893f98
+2026-09-29 14:01:17,913  INFO    Spectrometer: simulated (FAKE-0001)
+2026-09-29 14:01:17,913  INFO    Potentiostat: external — the potentiostat runs its own sequence (not queried)
+2026-09-29 14:01:17,919  INFO    Run started: 16 segments.
+2026-09-29 14:01:17,921  INFO    Starting CV (1/16) — Gamry setup, then arm and wait for trigger
+2026-09-29 14:01:17,921  INFO    CV potential: set by the Gamry sequence (external mode)
+2026-09-29 14:01:17,921  DEBUG   CV: 241 points @ 0.1s, trigger=True
+2026-09-29 14:01:42,021  INFO    CV spectra cadence: mean 100.0 ms (target 100.0), min 70.0, max 130.1, jitter(sd) 2.7 ms, n=241
+2026-09-29 14:01:42,887  INFO    CV complete → CVspectra.txt
+2026-09-29 14:01:42,891  INFO    Starting Pre-dedoping (2/16) — Gamry setup, then arm and wait for trigger
+2026-09-29 14:01:42,891  INFO    Pre-dedoping potential: set by the Gamry sequence (external mode)
+2026-09-29 14:01:42,891  DEBUG   Pre-dedoping: 301 points @ 0.1s, trigger=True
+2026-09-29 14:02:12,991  INFO    Pre-dedoping spectra cadence: mean 100.0 ms (target 100.0), min 73.6, max 125.0, jitter(sd) 2.1 ms, n=301
+2026-09-29 14:02:14,079  INFO    Pre-dedoping complete → prededopingspectra(0).txt
+2026-09-29 14:02:14,084  INFO    Starting Doping 0 (3/16) — Gamry setup, then arm and wait for trigger
+2026-09-29 14:02:14,084  INFO    Doping 0 potential: set by the Gamry sequence (external mode)
+2026-09-29 14:02:14,084  DEBUG   Doping 0: 301 points @ 0.1s, trigger=True
+2026-09-29 14:02:22,851  INFO    Run finished: aborted.
+2026-09-29 14:04:02,728  INFO    spec-echem 0.3.1+42.gb893f98
+2026-09-29 14:04:02,729  INFO    Spectrometer: simulated (FAKE-0001)
+2026-09-29 14:04:02,729  INFO    Potentiostat: external — the potentiostat runs its own sequence (not queried)
+2026-09-29 14:04:02,733  INFO    Run started: 4 segments.
+2026-09-29 14:04:02,735  INFO    Starting CV (1/4) — Gamry setup, then arm and wait for trigger
+2026-09-29 14:04:02,735  INFO    CV potential: set by the Gamry sequence (external mode)
+2026-09-29 14:04:02,735  DEBUG   CV: 231 points @ 0.1s, trigger=False
+2026-09-29 14:04:25,835  INFO    CV spectra cadence: mean 100.0 ms (target 100.0), min 69.2, max 130.8, jitter(sd) 2.9 ms, n=231
+2026-09-29 14:04:26,686  INFO    CV complete → CVspectra.txt
+2026-09-29 14:04:26,690  INFO    Starting Pre-dedoping (2/4) — Gamry setup, then arm and wait for trigger
+2026-09-29 14:04:26,690  INFO    Pre-dedoping potential: set by the Gamry sequence (external mode)
+2026-09-29 14:04:26,690  DEBUG   Pre-dedoping: 151 points @ 0.1s, trigger=False
+2026-09-29 14:04:41,790  INFO    Pre-dedoping spectra cadence: mean 100.0 ms (target 100.0), min 72.7, max 120.2, jitter(sd) 2.8 ms, n=151
+2026-09-29 14:04:42,303  INFO    Pre-dedoping complete → prededopingspectra(0).txt
+2026-09-29 14:04:42,308  INFO    Starting Doping 0 (3/4) — Gamry setup, then arm and wait for trigger
+2026-09-29 14:04:42,308  INFO    Doping 0 potential: set by the Gamry sequence (external mode)
+2026-09-29 14:04:42,308  DEBUG   Doping 0: 151 points @ 0.1s, trigger=False
+2026-09-29 14:04:57,408  INFO    Doping 0 spectra cadence: mean 100.0 ms (target 100.0), min 75.0, max 139.0, jitter(sd) 3.9 ms, n=151
+2026-09-29 14:04:57,935  INFO    Doping 0 complete → spectra(0).txt
+2026-09-29 14:04:57,940  INFO    Starting Dedoping 0 (4/4) — Gamry setup, then arm and wait for trigger
+2026-09-29 14:04:57,940  INFO    Dedoping 0 potential: set by the Gamry sequence (external mode)
+2026-09-29 14:04:57,940  DEBUG   Dedoping 0: 151 points @ 0.1s, trigger=False
+2026-09-29 14:05:13,040  INFO    Dedoping 0 spectra cadence: mean 100.0 ms (target 100.0), min 69.5, max 117.0, jitter(sd) 3.1 ms, n=151
+2026-09-29 14:05:13,553  INFO    Dedoping 0 complete → dedopingspectra(0).txt
+2026-09-29 14:05:13,558  INFO    Run finished: done.

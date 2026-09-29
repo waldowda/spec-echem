@@ -101,6 +101,13 @@ def _driver_status():
         AVASPEC_AVAILABLE = False
         AVASPEC_IMPORT_ERROR = str(exc)
     try:
+        from spec_echem import data as _data
+        H5PY_AVAILABLE = _data.H5PY_AVAILABLE
+        H5PY_IMPORT_ERROR = getattr(_data, "H5PY_IMPORT_ERROR", None)
+    except Exception as exc:      # noqa: BLE001
+        H5PY_AVAILABLE = False
+        H5PY_IMPORT_ERROR = str(exc)
+    try:
         from spec_echem import potentiostat
         TOOLKITPY_AVAILABLE = potentiostat.TOOLKITPY_AVAILABLE
         # getattr for the same reason as avaspec's above: these files get hand-copied
@@ -111,7 +118,8 @@ def _driver_status():
         TOOLKITPY_AVAILABLE = False
         TOOLKITPY_IMPORT_ERROR = str(exc)
     return (AVASPEC_AVAILABLE, TOOLKITPY_AVAILABLE,
-            AVASPEC_IMPORT_ERROR, TOOLKITPY_IMPORT_ERROR)
+            AVASPEC_IMPORT_ERROR, TOOLKITPY_IMPORT_ERROR,
+            H5PY_AVAILABLE, H5PY_IMPORT_ERROR)
 
 
 def _log_launch_banner(logger):
@@ -124,7 +132,8 @@ def _log_launch_banner(logger):
     dead potentiostat but is almost always the wrong conda env (toolkitpy is 32-bit
     only). Recording it means any pasted log answers that question by itself.
     """
-    avaspec_ok, toolkitpy_ok, avaspec_reason, toolkitpy_reason = _driver_status()
+    (avaspec_ok, toolkitpy_ok, avaspec_reason, toolkitpy_reason,
+     h5py_ok, h5py_reason) = _driver_status()
     env = os.environ.get("CONDA_DEFAULT_ENV") or Path(sys.prefix).name
     yes_no = lambda ok: "yes" if ok else "no"        # noqa: E731
 
@@ -135,8 +144,8 @@ def _log_launch_banner(logger):
     logger.info("  build   %s", build_id())
     logger.info("  python  %s (%d-bit), env %s",
                 platform.python_version(), struct.calcsize("P") * 8, env)
-    logger.info("  drivers avaspec: %s | toolkitpy: %s",
-                yes_no(avaspec_ok), yes_no(toolkitpy_ok))
+    logger.info("  drivers avaspec: %s | toolkitpy: %s | h5py: %s",
+                yes_no(avaspec_ok), yes_no(toolkitpy_ok), yes_no(h5py_ok))
     # The reason matters on a fresh install: "no" reads as an unplugged spectrometer,
     # but it is usually a DLL the wrapper could not find (see SPEC_ECHEM_AVASPEC_DLL_DIR).
     if not avaspec_ok and avaspec_reason:
@@ -146,6 +155,11 @@ def _log_launch_banner(logger):
     # with the instrument. The message says which.
     if not toolkitpy_ok and toolkitpy_reason:
         logger.info("          toolkitpy import failed: %s", toolkitpy_reason)
+    # Without h5py a run writes its ascii and NO .h5, which on 2026-09-29 looked
+    # exactly like the feature being broken. Say it at launch, before a run.
+    if not h5py_ok:
+        logger.info("          h5py missing (%s) — no HDF5 files will be written; "
+                    "the ascii output is unaffected.", h5py_reason)
     logger.info("")
 
 
