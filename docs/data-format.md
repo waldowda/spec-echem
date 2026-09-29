@@ -126,3 +126,99 @@ When `save_dta` is true (default), a genuine Gamry `.DTA` is also written via
 
 Lowercase `.dta` matches the toolkitpy convention. These open directly in Gamry Echem Analyst
 and are for archival / cross-check; the clean `.txt` files above are the analysis interface.
+
+---
+
+## 4. HDF5 files — written IN ADDITION, never instead
+
+Since 2026-09-29 a run also writes HDF5 beside the ascii. **The 8-column format above is
+unchanged and remains the authority**: downstream analysis depends on those names, so the
+text files are still the source of truth. The H5 is additive and best-effort — if `h5py`
+is missing or a write fails, the run and the ascii are unaffected and the run log says so.
+
+Why: a 14-segment run is ~645 MB of ascii, because every wavelength is reprinted for every
+time point. Measured on a real CV (1261 wavelengths × 721 spectra): **83.6 MB of ascii
+becomes 7.3 MB of HDF5**, and it carries strictly more.
+
+### Four files per run, one per segment type
+
+```
+{folder}/{folder}_cv.h5
+         {folder}_prededoping.h5
+         {folder}_doping.h5            all doping cycles
+         {folder}_dedoping.h5          all dedoping cycles
+```
+
+Cycles are groups **keyed by cycle number**, never by potential: a potential repeats —
+every dedoping step shares one — the ladder need not be monotonic, and a chronoamperometry
+scheme need not be an ordered ladder at all. Potential is an *attribute* of a cycle, never
+its address.
+
+### Layout
+
+```
+/ (root) attrs
+    schema_version   "1"
+    run_id           the run folder name
+    data_type        1/2/3/4          data_type_name   "CV" | "Doping" | ...
+    build_id         the code that wrote it
+    metadata_json    the ENTIRE {folder}_metadata.json, verbatim
+    run_started, sample_name, electrolyte, notes, instrument identities
+                     promoted from that JSON so a viewer shows them
+
+/wavelength                  float64 (n_wl)        units="nm"
+
+/{cycle}/  attrs: run_number, label, num_points, delta_time, trigger,
+                  potential_set       what was asked for   (absent for a CV)
+                  potential_measured  median of the trace  (absent without echem)
+
+    counts_vs_time      uint16 or float32 (n_wl, n_t)  units="counts"
+    absorbance_vs_time  float32           (n_wl, n_t)  units="-log10(T)"
+    dark                float64 (n_wl)
+    reference           float64 (n_wl)
+    time                float64 (n_t)  seconds from THIS segment's first spectrum
+    time_spectrometer   float64 (n_t)  the spectrometer's own clock, unrebased
+
+    echem/time | echem/potential | echem/current     three parallel 1-D arrays,
+                     absent in External mode (no potentiostat, so no data)
+```
+
+Every dataset carries `units`; every 2-D one carries `dims` ("wavelength x time").
+
+### Five things worth knowing
+
+**`potential_set`, never a bare `potential`.** The bare name belongs to the *measured*
+trace in `echem/`. Everything inside `echem/` is measured by definition, so one word means
+one thing in one file.
+
+**The counts dtype is chosen, not assumed.** The ADC is 16-bit, so a single scan is an
+exact integer — but `scan_averages` defaults to 200 and an averaged count is not. Measured
+on real data: a fractional part of up to exactly 0.5. The writer stores `uint16` only when
+the array really is integral and in range, `float32` otherwise.
+
+**`n_echem` is not `n_t`.** The potentiostat and the spectrometer are independent devices
+on independent clocks — roughly 300 echem points against 301 spectra for a 30 s hold.
+Neither is resampled onto the other; correlating them is the reader's decision.
+
+**No `charge`.** It is derived (trapezoidal integration of current), and a derived quantity
+in an archive drifts out of agreement with its source. The OECT export computes it.
+
+**Compression is off by default.** Measured: gzip buys 21%, not the 2-4× first estimated,
+for ~120 ms a segment, and level 9 is byte-identical to level 4. `hdf5_compression` in the
+settings turns it on for archiving.
+
+### Reading, converting, exporting
+
+| | |
+|---|---|
+| `spec_echem.data.read_segment_h5(path, cycle)` | absorbance, shaped exactly like `read_spectra_absorbance()` |
+| `spec_echem.data.discover_run_h5(folder)` | segments in run order, mirroring `discover_run_segments()` |
+| `examples/ascii_to_h5.py` | rebuild the H5 for a run recorded before this existed |
+| `examples/bench_h5_size.py` | bytes and write time on this machine's disk |
+| `spec_echem.oect_export` | a derived view in the downstream pipeline's own layout |
+
+**A backfilled file cannot have `time_spectrometer`.** `write_spectra_file` computes
+`Time (s)` and `Corrected time (s)` identically — a leftover from when `Time` carried a
++100 offset — so the device clock was never in the ascii. Backfilled files omit the
+dataset and set `time_spectrometer_recovered = False` rather than store a copy of `time`
+under that name.
