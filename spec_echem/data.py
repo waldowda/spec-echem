@@ -468,6 +468,13 @@ def counts_dtype(counts):
     (20260925_test10): a fractional part of up to exactly 0.5, so a uint16 cast would
     misstate every half-count. This rule is load-bearing, not a nicety; the first
     version of that measurement used uint16 and was quietly lossy.
+
+        KNOWING COMPROMISE, 2026-09-29: the float32 branch is NOT bit-exact. Measured on
+    a real run, counts round-trip to 1.9e-03 absolute at ~54,700 counts -- 3.6e-08
+    RELATIVE, seven orders below the shot noise of sqrt(54700) ~ 234. float64 would
+    be bit-exact at ~+50% file size and was declined. See docs/data-format.md, "The
+    one knowing compromise". The uint16 branch IS exact, so a run at one scan average
+    loses nothing at all.
     """
     arr = np.asarray(counts, dtype=float)
     finite = arr[np.isfinite(arr)]
