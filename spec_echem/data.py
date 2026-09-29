@@ -171,6 +171,79 @@ def read_spectra_absorbance(path):
     return pd.DataFrame(absorb, index=wavelengths, columns=corr)
 
 
+def read_segment_h5(path, run_number=0):
+    """One cycle's absorbance from an .h5, shaped exactly like the ascii reader's.
+
+    Deliberately the same return as read_spectra_absorbance(): a DataFrame indexed
+    by wavelength with corrected-time columns, so anything that plots a past run
+    works unchanged whichever file it came from. That equivalence is what the
+    round-trip test pins, and it is what will eventually license retiring the ascii.
+
+    Reads the STORED absorbance rather than recomputing it from counts. The
+    2026-09-04 shutter-closed run produced 8982 NaN and 513 inf, and those are
+    correct outputs of compute_absorbance -- reproducing them would mean
+    reproducing its arithmetic exactly, forever.
+    """
+    if not H5PY_AVAILABLE:
+        raise RuntimeError(f"h5py is not importable: {H5PY_IMPORT_ERROR}")
+    key = str(int(run_number))
+    with h5py.File(path, "r") as f:
+        if key not in f:
+            raise ValueError(f"{Path(path).name}: no cycle {key} "
+                             f"(has {sorted(k for k in f if k != 'wavelength')})")
+        g = f[key]
+        absorb = np.asarray(g["absorbance_vs_time"])
+        wavelengths = np.asarray(f["wavelength"])
+        times = np.asarray(g["time"])
+    return pd.DataFrame(absorb, index=wavelengths, columns=times)
+
+
+def discover_run_h5(run_folder):
+    """[(label, data_type, run_number, path)] for the .h5 files in a run folder.
+
+    Mirrors discover_run_segments, in the same run order, so the Results tab can
+    eventually open either. One file per TYPE holding several cycles, so a file
+    yields several entries -- unlike the ascii, which is one file per segment.
+    """
+    if not H5PY_AVAILABLE:
+        return []
+    folder = Path(run_folder)
+    found = []
+    for data_type, base in (
+            (DATA_TYPE_CV, "CV"), (DATA_TYPE_PREDEDOPING, "Pre-dedoping"),
+            (DATA_TYPE_DOPING, "Doping"), (DATA_TYPE_DEDOPING, "Dedoping")):
+        path = folder / _h5_filename_for(data_type, folder.name)
+        if not path.is_file():
+            continue
+        try:
+            with h5py.File(path, "r") as f:
+                cycles = sorted((int(k) for k in f if k != "wavelength"))
+                labels = {c: f[str(c)].attrs.get("label") for c in cycles}
+        except (OSError, ValueError):
+            continue          # an unreadable file is skipped, never fatal
+        for cycle in cycles:
+            label = labels.get(cycle) or (
+                base if data_type == DATA_TYPE_CV else f"{base} {cycle}")
+            found.append((str(label), data_type, cycle, path))
+    found.sort(key=lambda item: segment_sort_key(item[1], item[2]))
+    return found
+
+
+def segment_sort_key(data_type, run_number):
+    """Run order: CV, then pre-dedoping, then doping/dedoping pairs by cycle.
+
+    ONE definition, for the same reason segment_potential() is: the H5 discovery
+    below needs the identical ordering, and a second copy would be a second thing to
+    keep in step.
+    """
+    if data_type == DATA_TYPE_CV:
+        return (0, 0, 0)
+    if data_type == DATA_TYPE_PREDEDOPING:
+        return (1, run_number, 0)
+    sub = 0 if data_type == DATA_TYPE_DOPING else 1       # doping before dedoping
+    return (2, run_number, sub)
+
+
 def discover_run_segments(run_folder):
     """Scan a run folder for saved spectra files and return, in run order,
     (label, data_type, run_number, path) tuples — the inverse of _filename_for.
@@ -192,16 +265,7 @@ def discover_run_segments(run_folder):
             found.append((label, data_type, run_number, p))
             break
 
-    def sort_key(item):
-        _, data_type, run_number, _ = item
-        if data_type == DATA_TYPE_CV:
-            return (0, 0, 0)
-        if data_type == DATA_TYPE_PREDEDOPING:
-            return (1, run_number, 0)
-        sub = 0 if data_type == DATA_TYPE_DOPING else 1   # doping before dedoping
-        return (2, run_number, sub)
-
-    found.sort(key=sort_key)
+    found.sort(key=lambda item: segment_sort_key(item[1], item[2]))
     return found
 
 
