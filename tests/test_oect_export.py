@@ -155,3 +155,25 @@ def test_their_own_reader_opens_what_we_write(tmp_path):
     assert frame.columns.name == "Time (s)"
     assert data.current.shape[1] == len(DOPING_V)
     assert len(data.charge.columns) == len(DOPING_V) or len(data.charge) == len(DOPING_V)
+
+
+def test_potentials_and_group_keys_agree(tmp_path):
+    """CAUGHT 2026-09-29 against their own file for the same run: /potentials held
+    our raw first samples ([0.199703, ...]) while the group keys were rounded
+    ('0.2'), so their volt() -> spectra_vs_time[...] lookups would all miss. Both
+    carry the rounded value, as read_files.py does."""
+    folder = tmp_path / "20260929_run"
+    for cycle, volts in enumerate((0.199703, 0.299442, 0.698698)):
+        absorb, spectra, dark, ref, wl, stamps = _absorb(1.0 + cycle)
+        write_segment_h5(absorb, spectra, dark, ref, wl, stamps, _echem_at(volts),
+                         DATA_TYPE_DOPING, cycle, tmp_path, "20260929_run")
+
+    with h5py.File(export_oect_h5(folder, DATA_TYPE_DOPING)) as f:
+        keys = sorted((k for k in f if k not in ("current", "charge", "potentials")),
+                      key=float)
+        np.testing.assert_allclose(f["potentials"][:], [0.2, 0.3, 0.7])
+        assert keys == ["0.2", "0.3", "0.7"]
+        # every value in /potentials addresses a real group
+        for p in f["potentials"][:]:
+            assert str(p) in f
+        np.testing.assert_allclose(f["current"]["columns"][:], [0.2, 0.3, 0.7])
