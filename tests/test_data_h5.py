@@ -14,7 +14,7 @@ h5py = pytest.importorskip("h5py")
 from spec_echem.data import (                                        # noqa: E402
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, EchemData,
     H5_SCHEMA_VERSION, compute_absorbance, counts_dtype, h5_path,
-    write_segment_h5,
+    read_segment_h5, write_segment_h5,
 )
 
 N_WL, N_T, N_ECHEM = 6, 4, 9
@@ -293,3 +293,95 @@ def test_backfill_rebuilds_a_run_from_its_ascii(tmp_path):
         assert f.attrs["time_spectrometer_recovered"] is np.False_ or \
                f.attrs["time_spectrometer_recovered"] == False        # noqa: E712
         assert g["time"][0] == 0.0
+
+
+# --- the round trip: ascii and H5 must agree ---
+
+def test_ascii_and_h5_carry_the_same_absorbance(tmp_path):
+    """THE test that eventually licenses retiring the ascii.
+
+    Both files are written from the SAME inputs and read back through their own
+    readers; the matrices must agree. Everything else in this file checks that the
+    H5 is well-formed -- this checks that it is EQUIVALENT.
+    """
+    from spec_echem.data import read_spectra_absorbance, write_spectra_file
+
+    absorb, spectra, dark, ref, wl, stamps = _inputs()
+    txt = write_spectra_file(absorb, spectra, dark, ref, wl, stamps,
+                             DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
+    h5 = write_segment_h5(absorb, spectra, dark, ref, wl, stamps, None,
+                          DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
+
+    from_txt = read_spectra_absorbance(txt)
+    from_h5 = read_segment_h5(h5, 0)
+
+    assert from_h5.shape == from_txt.shape
+    np.testing.assert_allclose(from_h5.index.to_numpy(),
+                               from_txt.index.to_numpy(), rtol=1e-12)
+    np.testing.assert_allclose(from_h5.columns.to_numpy(),
+                               from_txt.columns.to_numpy(), atol=1e-9)
+    # float32 storage is the only difference, so compare at float32 resolution.
+    np.testing.assert_allclose(from_h5.to_numpy(), from_txt.to_numpy(),
+                               rtol=1e-6, atol=1e-7)
+
+
+def test_the_round_trip_holds_for_nan_and_inf(tmp_path):
+    """NaN and inf are correct outputs, not damage: the 2026-09-04 shutter-closed
+    run produced 8982 NaN and 513 inf. They must survive BOTH paths identically."""
+    import warnings
+    from spec_echem.data import read_spectra_absorbance, write_spectra_file
+
+    wl = np.linspace(400.0, 900.0, N_WL)
+    dark = np.full(N_WL, 100.0)
+    ref = np.full(N_WL, 100.0)                 # ref == dark
+    spectra = [np.full(N_WL, 100.0), np.full(N_WL, 50.0)]
+    stamps = [0.0, 0.1]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        absorb = compute_absorbance(spectra, dark, ref, wl, stamps)
+
+    txt = write_spectra_file(absorb, spectra, dark, ref, wl, stamps,
+                             DATA_TYPE_DEDOPING, 0, tmp_path, "20260929_run")
+    h5 = write_segment_h5(absorb, spectra, dark, ref, wl, stamps, None,
+                          DATA_TYPE_DEDOPING, 0, tmp_path, "20260929_run")
+
+    a, b = read_spectra_absorbance(txt).to_numpy(), read_segment_h5(h5, 0).to_numpy()
+    np.testing.assert_array_equal(np.isnan(a), np.isnan(b))
+    np.testing.assert_array_equal(np.isinf(a), np.isinf(b))
+
+
+def test_h5_discovery_matches_the_ascii_discovery(tmp_path):
+    """Same labels, same run order, so the Results tab can open either."""
+    from spec_echem.data import (DATA_TYPE_PREDEDOPING, discover_run_h5,
+                                 discover_run_segments, write_spectra_file)
+
+    absorb, spectra, dark, ref, wl, stamps = _inputs()
+    plan = [(DATA_TYPE_CV, 0), (DATA_TYPE_PREDEDOPING, 0),
+            (DATA_TYPE_DOPING, 0), (DATA_TYPE_DEDOPING, 0),
+            (DATA_TYPE_DOPING, 1), (DATA_TYPE_DEDOPING, 1)]
+    for data_type, run in plan:
+        seg = type("S", (), {"label": None})()
+        write_spectra_file(absorb, spectra, dark, ref, wl, stamps,
+                           data_type, run, tmp_path, "20260929_run")
+        write_segment_h5(absorb, spectra, dark, ref, wl, stamps, None,
+                         data_type, run, tmp_path, "20260929_run", segment=seg)
+
+    folder = tmp_path / "20260929_run"
+    from_ascii = [(lbl, dt, run) for lbl, dt, run, _ in discover_run_segments(folder)]
+    from_h5 = [(lbl, dt, run) for lbl, dt, run, _ in discover_run_h5(folder)]
+    assert from_h5 == from_ascii
+    assert [x[0] for x in from_h5] == ["CV", "Pre-dedoping 0", "Doping 0",
+                                       "Dedoping 0", "Doping 1", "Dedoping 1"]
+
+
+def test_reading_a_cycle_that_is_not_there_says_which_are(tmp_path):
+    path = _write(tmp_path, run_number=2)
+    with pytest.raises(ValueError, match=r"no cycle 5.*\['2'\]"):
+        read_segment_h5(path, 5)
+
+
+def test_discovery_is_empty_rather_than_fatal_without_h5py(tmp_path, monkeypatch):
+    import spec_echem.data as d
+    from spec_echem.data import discover_run_h5
+    monkeypatch.setattr(d, "H5PY_AVAILABLE", False)
+    assert discover_run_h5(tmp_path) == []
