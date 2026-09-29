@@ -266,15 +266,21 @@ def _ascii_run(tmp_path, with_echem=True):
 
 
 def test_backfill_rebuilds_a_run_from_its_ascii(tmp_path):
-    """Every run already on disk stays useful when the H5 becomes primary."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "ascii_to_h5", "examples/ascii_to_h5.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    """Every run already on disk stays useful when the H5 becomes primary.
+
+    The logic lives in the PACKAGE, not in examples/, because the Results tab's
+    "Convert to HDF5" button needs it too."""
+    from spec_echem.h5_backfill import backfill_run
 
     folder, absorb = _ascii_run(tmp_path)
-    assert mod.convert_run(str(folder)) == 1
+    result = backfill_run(folder)
+    assert result["segments"] == 1
+    assert result["ascii_bytes"] > 0 and result["h5_bytes"] > 0
+    # NOT asserting h5 < ascii here: this fixture is 6 wavelengths x 4 times, and
+    # HDF5's fixed header (~19 KB) dwarfs 1.7 KB of text. The format only wins at
+    # real sizes -- 11.2x on a measured 904 MB run -- which is what
+    # examples/bench_h5_size.py is for.
+    assert [p.name for p in result["files"]] == ["20260929_run_doping.h5"]
 
     with h5py.File(folder / "20260929_run_doping.h5") as f:
         g = f["0"]
