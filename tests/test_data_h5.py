@@ -249,3 +249,47 @@ def test_a_missing_h5py_says_so_once(monkeypatch, tmp_path):
     assert len(warnings) == 1, "said once per process, not once per segment"
     msg = warnings[0].getMessage()
     assert "h5py is not importable" in msg and "ascii files are unaffected" in msg
+
+
+# --- the ascii -> H5 backfill (examples/ascii_to_h5.py) ---
+
+def _ascii_run(tmp_path, with_echem=True):
+    """A real run folder, written by the real ascii writers."""
+    from spec_echem.data import write_spectra_file, write_echem_file
+    absorb, spectra, dark, ref, wl, stamps = _inputs()
+    write_spectra_file(absorb, spectra, dark, ref, wl, stamps,
+                       DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
+    if with_echem:
+        write_echem_file(_echem(), DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
+    return tmp_path / "20260929_run", absorb
+
+
+def test_backfill_rebuilds_a_run_from_its_ascii(tmp_path):
+    """Every run already on disk stays useful when the H5 becomes primary."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "ascii_to_h5", "examples/ascii_to_h5.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    folder, absorb = _ascii_run(tmp_path)
+    assert mod.convert_run(str(folder)) == 1
+
+    with h5py.File(folder / "20260929_run_doping.h5") as f:
+        g = f["0"]
+        np.testing.assert_allclose(g["absorbance_vs_time"][:],
+                                   absorb.values.astype(np.float32), rtol=1e-6)
+        assert g["echem"]["current"].shape == (N_ECHEM,)
+        assert f.attrs["backfilled_from_ascii"]
+
+        # The counts, dark and reference the ascii kept are all recovered.
+        assert g["counts_vs_time"].shape == absorb.shape
+        assert g["dark"].shape == (N_WL,) and g["reference"].shape == (N_WL,)
+
+        # ...but the spectrometer clock is ABSENT, not faked. write_spectra_file
+        # writes 'Time (s)' and 'Corrected time (s)' identically, so it never
+        # survived. Absent is checkable; a copy of `time` under that name is not.
+        assert "time_spectrometer" not in g
+        assert f.attrs["time_spectrometer_recovered"] is np.False_ or \
+               f.attrs["time_spectrometer_recovered"] == False        # noqa: E712
+        assert g["time"][0] == 0.0
