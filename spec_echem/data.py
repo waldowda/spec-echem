@@ -29,6 +29,7 @@ except ImportError as exc:
     H5PY_IMPORT_ERROR = str(exc)
 
 from spec_echem.build_info import build_id
+from spec_echem.logging_config import get_run_logger
 from spec_echem.gamry_data import (
     POTENTIAL_COL, CURRENT_COL, CV_COLUMNS, CHRONO_COLUMNS,
 )
@@ -469,6 +470,28 @@ def _h5_root_attrs(f, data_type, added_path, run_folder):
         f.attrs[str(key)] = str(value)
 
 
+_h5py_warning_said = False
+
+
+def _warn_h5py_missing_once():
+    """Say ONCE per process why no .h5 appeared.
+
+    Silence here is the exact failure this project keeps paying for: on 2026-09-29 a
+    simulated run wrote its four ascii files and no HDF5 at all, with nothing in any
+    log, because the environment running the GUI had no h5py. That is the same shape
+    as a greyed-out Gamry radio reading as a dead instrument. A feature that declines
+    to run must say so.
+    """
+    global _h5py_warning_said
+    if _h5py_warning_said:
+        return
+    _h5py_warning_said = True
+    get_run_logger().warning(
+        "No HDF5 files will be written: h5py is not importable in this environment "
+        "(%s). The ascii files are unaffected. Install it with `pip install h5py` "
+        "(32-bit SpecEchem32 must pin h5py==2.10.0).", H5PY_IMPORT_ERROR)
+
+
 def write_segment_h5(absorb7, spectra, dark, ref, wavelengths, timestamps, echem,
                      data_type, run_number, data_root, added_path,
                      segment=None, settings=None, compression=0):
@@ -485,6 +508,7 @@ def write_segment_h5(absorb7, spectra, dark, ref, wavelengths, timestamps, echem
     ladder at all: potential is an attribute of a cycle, never its address.
     """
     if not H5PY_AVAILABLE:
+        _warn_h5py_missing_once()
         return None
 
     folder = resolve_data_root(data_root) / added_path
