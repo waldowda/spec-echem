@@ -243,7 +243,8 @@ Reproduce any of this with `python examples/h5_to_ascii.py <run> --out /tmp/x --
 |---|---|
 | `spec_echem.data.read_segment_h5(path, cycle)` | absorbance, shaped exactly like `read_spectra_absorbance()` |
 | `spec_echem.data.discover_run_h5(folder)` | segments in run order, mirroring `discover_run_segments()` |
-| `examples/ascii_to_h5.py` | rebuild the H5 for a run recorded before this existed |
+| `examples/ascii_to_h5.py`, or the Results tab's **Convert to HDF5** | rebuild the H5 for a run recorded before this existed (`spec_echem.h5_backfill`) |
+| `examples/h5_to_ascii.py` | regenerate the ascii FROM the H5 — the round-trip evidence |
 | `examples/bench_h5_size.py` | bytes and write time on this machine's disk |
 | `spec_echem.oect_export` | a derived view in the downstream pipeline's own layout |
 

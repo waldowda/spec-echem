@@ -215,6 +215,15 @@ class ResultsTab(QWidget):
         self.save_plot_btn.clicked.connect(self.on_save_plot)
         self.open_folder_btn = QPushButton("Open Data Folder")
         self.open_folder_btn.clicked.connect(self.on_open_folder)
+        self.to_h5_btn = QPushButton("Convert to HDF5")
+        self.to_h5_btn.setToolTip(
+            "Rebuild this run's own .h5 files from its ascii.\n\n"
+            "Runs from 2026-09-29 onward write them during acquisition; this is for\n"
+            "older runs, so they are not stranded when the HDF5 becomes primary.\n\n"
+            "Read-only with respect to the text files — it never changes or deletes\n"
+            "one. The spectrometer's own clock cannot be recovered (the ascii wrote\n"
+            "both time columns identically), and the files say so.")
+        self.to_h5_btn.clicked.connect(self.on_convert_to_h5)
         self.export_oect_btn = QPushButton("Export for OECT analysis")
         self.export_oect_btn.setToolTip(
             "Write this run's doping and dedoping into the layout the downstream\n"
@@ -226,6 +235,7 @@ class ResultsTab(QWidget):
         btn_row.addWidget(self.load_run_btn)
         btn_row.addWidget(self.save_plot_btn)
         btn_row.addWidget(self.open_folder_btn)
+        btn_row.addWidget(self.to_h5_btn)
         btn_row.addWidget(self.export_oect_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
@@ -665,6 +675,55 @@ class ResultsTab(QWidget):
                                    "No run folder yet — run a sequence or Load Run… first.")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    def on_convert_to_h5(self):
+        """Rebuild this run's OWN .h5 files from its ascii.
+
+        Distinct from the OECT export beside it, and the distinction matters: these
+        are the archival files, complete; that one is a derived view shaped for a
+        downstream pipeline.
+        """
+        folder = self.win.run_folder
+        if folder is None or not Path(folder).exists():
+            QMessageBox.information(
+                self, "No run loaded",
+                "Load a run first (Load Run…), or finish a run.")
+            return
+        try:
+            from spec_echem.data import H5PY_AVAILABLE, H5PY_IMPORT_ERROR
+            if not H5PY_AVAILABLE:
+                QMessageBox.warning(
+                    self, "h5py not available",
+                    f"HDF5 output needs h5py, which is not importable here:\n\n"
+                    f"{H5PY_IMPORT_ERROR}\n\n`pip install h5py` "
+                    f"(32-bit SpecEchem32 must pin h5py==2.10.0).")
+                return
+            from spec_echem.h5_backfill import backfill_run
+            result = backfill_run(folder)
+        except Exception as exc:  # noqa: BLE001 — must not take the tab down
+            QMessageBox.warning(self, "Conversion failed", str(exc))
+            return
+        if not result["segments"]:
+            QMessageBox.information(self, "Nothing to convert",
+                                    "No spec-echem spectra files found in this run.")
+            return
+
+        ratio = result["ascii_bytes"] / max(result["h5_bytes"], 1)
+        box = QMessageBox(self)
+        box.setWindowTitle("Converted")
+        box.setText(f"{result['segments']} segment(s) written to:\n\n  {folder}\n\n  "
+                    + "\n  ".join(p.name for p in result["files"]))
+        box.setInformativeText(
+            f"{result['ascii_bytes']/1e6:.1f} MB of ascii -> "
+            f"{result['h5_bytes']/1e6:.1f} MB ({ratio:.1f}x). The text files are "
+            f"unchanged.\n\nOne axis could not be recovered: the ascii wrote both "
+            f"time columns identically, so the spectrometer's own clock was never "
+            f"in it. The files record that rather than storing a wrong one.")
+        open_btn = box.addButton("Open Folder", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec_()
+        if box.clickedButton() is open_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     def on_export_oect(self):
         """Export the loaded run into the downstream layout.
