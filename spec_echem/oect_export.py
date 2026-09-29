@@ -51,9 +51,22 @@ OECT_FILENAMES = {DATA_TYPE_DOPING: "dopingdata.h5",
                   DATA_TYPE_DEDOPING: "dedopingdata.h5"}
 
 
+def _rounded(potential):
+    """The potential as the downstream pipeline stores it: rounded to 2 dp.
+
+    read_files.py does `np.round(pp[pot][0], 2)`, so BOTH its group keys and its
+    /potentials array carry the rounded value. Ours must too: its `volt()` does a
+    searchsorted on /potentials and its notebooks then index spectra_vs_time by that
+    result, so an array of raw first samples against rounded keys means every lookup
+    misses. CAUGHT 2026-09-29 by comparing our export against its own file for the
+    same run, where /potentials read [0.1 ... 0.8] and ours [0.199703, ...].
+    """
+    return float(np.round(float(potential), 2))
+
+
 def _potential_key(potential):
-    """The group name, derived HIS way: rounded to 2 dp, then str()."""
-    return str(np.round(float(potential), 2))
+    """The group name: the rounded potential, stringified as it stringifies it."""
+    return str(_rounded(potential))
 
 
 def read_cycles(path):
@@ -109,7 +122,7 @@ def _current_frame(cycles, potentials):
             "truncating every one to %d points, because the target layout puts them "
             "in a single table sharing one time axis.", sorted(lengths), n)
     index = traces[0][1]["time"].to_numpy()[:n]
-    return pd.DataFrame({p: c["current"].to_numpy()[:n] for p, c in traces},
+    return pd.DataFrame({_rounded(p): c["current"].to_numpy()[:n] for p, c in traces},
                         index=index)
 
 
@@ -146,7 +159,8 @@ def export_oect_h5(run_folder, data_type=DATA_TYPE_DOPING, out_path=None,
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     with h5py.File(out_path, "w") as f:
-        f.create_dataset("potentials", data=np.asarray(potentials, dtype=float))
+        rounded = np.asarray([_rounded(p) for p in potentials], dtype=float)
+        f.create_dataset("potentials", data=rounded)
 
         # charge is DERIVED, which is why the archive does not store it: computed
         # here the way he computes it, trapezoidal over current, in mC.
@@ -169,12 +183,12 @@ def export_oect_h5(run_folder, data_type=DATA_TYPE_DOPING, out_path=None,
         # unguarded, so a file without them cannot be read back by his own reader.
         cg = f.create_group("current")
         if current is None:
-            cg.create_dataset("data", data=np.zeros((0, len(potentials))))
+            cg.create_dataset("data", data=np.zeros((0, len(rounded))))
             cg.create_dataset("index", data=np.zeros(0))
         else:
             cg.create_dataset("data", data=current.to_numpy(dtype=float))
             cg.create_dataset("index", data=current.index.to_numpy(dtype=float))
-        cg.create_dataset("columns", data=np.asarray(potentials, dtype=float))
+        cg.create_dataset("columns", data=rounded)
 
         # Attributes are ignored by his reader, so they are the safe place to say
         # what this file is. Nothing may go at the TOP LEVEL as a group or dataset.
