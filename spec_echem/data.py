@@ -10,6 +10,24 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+try:
+    import h5py
+    H5PY_AVAILABLE = True
+    H5PY_IMPORT_ERROR = None
+except ImportError as exc:
+    h5py = None
+    H5PY_AVAILABLE = False
+    # Kept for the same reason as AVASPEC_IMPORT_ERROR and TOOLKITPY_IMPORT_ERROR:
+    # "not available" is the same words for a missing package and for a 32-bit
+    # environment that cannot have one, and they are fixed differently. Discarding
+    # the message cost a session on 2026-09-25 when a greyed-out Gamry radio read as
+    # a dead instrument and was actually the wrong conda env.
+    #
+    # h5py is OPTIONAL on purpose: win32 cp37 wheels stop at h5py 2.10.0 (checked
+    # against PyPI 2026-09-29), so `SpecEchem32` must pin that version and may not
+    # have it at all. Nothing here may require h5py to import or to run.
+    H5PY_IMPORT_ERROR = str(exc)
+
 from spec_echem.build_info import build_id
 from spec_echem.gamry_data import (
     POTENTIAL_COL, CURRENT_COL, CV_COLUMNS, CHRONO_COLUMNS,

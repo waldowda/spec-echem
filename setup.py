@@ -29,5 +29,10 @@ setup(
         # library/notebook-only path. Vendor SDKs (avaspec, EchemToolkitPy) are not
         # pip-installable — see requirements.txt.
         "gui": ["PyQt5", "qtpy"],
+        # HDF5 output (`pip install -e .[h5]`). Optional because the 32-bit
+        # SpecEchem32 environment cannot take a current h5py: win32 cp37 wheels
+        # stop at 2.10.0 (PyPI, checked 2026-09-29). Pin that version there; any
+        # current release works in the 64-bit env.
+        "h5": ["h5py>=2.10.0"],
     },
 )
