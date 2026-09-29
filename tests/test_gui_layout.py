@@ -2752,3 +2752,57 @@ def test_an_unlistable_ladder_leaves_the_documented_one(window):
               for i in range(tab.gamry_range_combo.count())]
     assert values[0] == 6.0e-11 and values[-1] == "auto"
     assert "connect to confirm" in tab.ladder_source.text()
+
+
+def test_the_oect_export_button_says_what_it_drops(window, monkeypatch, tmp_path):
+    """A derived file that looks like the data is exactly what gets analysed a year
+    later as though it were the record, so the confirmation names the omissions."""
+    from qtpy.QtWidgets import QMessageBox
+    tab = window.results_tab
+    assert tab.export_oect_btn is not None
+
+    seen = {}
+    monkeypatch.setattr(QMessageBox, "information",
+                        staticmethod(lambda p, t, m, *a, **k: seen.update(title=t, msg=m)))
+
+    # no run loaded -> says so, exports nothing
+    window.run_folder = None
+    tab.on_export_oect()
+    assert "No run loaded" in seen["title"]
+
+    # a run with no doping/dedoping h5 -> points at the backfill script
+    folder = tmp_path / "20260929_run"
+    folder.mkdir()
+    window.run_folder = folder
+    tab.on_export_oect()
+    assert "Nothing to export" in seen["title"]
+    assert "ascii_to_h5" in seen["msg"]
+
+
+def test_the_oect_export_reports_what_it_wrote(window, monkeypatch, tmp_path):
+    pytest.importorskip("h5py")
+    import numpy as np
+    from qtpy.QtWidgets import QMessageBox
+    from spec_echem.data import (DATA_TYPE_DOPING, EchemData, compute_absorbance,
+                                 write_segment_h5)
+
+    wl = np.linspace(400.0, 900.0, 5)
+    dark, ref = np.full(5, 100.0), np.full(5, 5000.0)
+    spectra = [np.linspace(500.0, 4000.0, 5) + i for i in range(3)]
+    stamps = [0.0, 0.1, 0.2]
+    absorb = compute_absorbance(spectra, dark, ref, wl, stamps)
+    echem = EchemData(time=np.linspace(0, 0.5, 6), potential=np.full(6, 0.7),
+                      current=np.linspace(2e-5, 5e-6, 6))
+    write_segment_h5(absorb, spectra, dark, ref, wl, stamps, echem,
+                     DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
+
+    seen = {}
+    monkeypatch.setattr(QMessageBox, "information",
+                        staticmethod(lambda p, t, m, *a, **k: seen.update(title=t, msg=m)))
+    window.run_folder = tmp_path / "20260929_run"
+    window.results_tab.on_export_oect()
+
+    assert seen["title"] == "Exported"
+    assert "dopingdata.h5" in seen["msg"]
+    assert "DERIVED VIEW" in seen["msg"] and "raw counts" in seen["msg"]
+    assert (tmp_path / "20260929_run" / "oect" / "dopingdata.h5").exists()
