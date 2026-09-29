@@ -20,6 +20,14 @@ import os
 import struct
 import sys
 
+# `python examples/probe_gamry_ladder.py` puts examples/ on sys.path, NOT the repo
+# root, so `import spec_echem` fails unless the package happens to be installed.
+# Reported 2026-09-28 from a fresh clone. Bootstrap the root so the script runs from
+# a clone with nothing installed, which is the whole point of taking it to a rig.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 
 def show_environment():
     """Print the interpreter first: a failed toolkitpy import reads as a dead
@@ -38,9 +46,19 @@ def show_environment():
 
 def main():
     show_environment()
-    from spec_echem.potentiostat import (TOOLKITPY_AVAILABLE, TOOLKITPY_IMPORT_ERROR,
-                                         probe_identity, probe_gamry_ladder,
-                                         gamry_range_full_scale, GAMRY_CURRENT_RANGES)
+    try:
+        from spec_echem.potentiostat import (
+            TOOLKITPY_AVAILABLE, TOOLKITPY_IMPORT_ERROR, probe_identity,
+            probe_gamry_ladder, gamry_range_full_scale, GAMRY_CURRENT_RANGES)
+    except ImportError as exc:
+        print(f"Cannot import spec_echem: {exc}\n")
+        print(f"Looking in: {_REPO_ROOT}")
+        if not os.path.isdir(os.path.join(_REPO_ROOT, "spec_echem")):
+            print("There is no spec_echem/ there — run this from inside the clone.")
+        else:
+            print("The package is there, so this is a missing dependency.")
+            print("This script needs numpy and pandas:  pip install numpy pandas")
+        return 1
 
     if not TOOLKITPY_AVAILABLE:
         print(f"toolkitpy is not importable: {TOOLKITPY_IMPORT_ERROR}")
