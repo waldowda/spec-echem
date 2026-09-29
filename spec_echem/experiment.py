@@ -12,7 +12,7 @@ import numpy as np
 
 from spec_echem.acquisition import acquire_segment
 from spec_echem.data import (
-    compute_absorbance, write_spectra_file, write_echem_file,
+    compute_absorbance, write_spectra_file, write_echem_file, write_segment_h5,
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
 )
 from spec_echem.logging_config import get_run_logger
@@ -162,5 +162,29 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     if echem is not None:
         write_echem_file(echem, segment.data_type, segment.run_number,
                          data_root, added_path)
+
+    # HDF5 beside the ascii -- ADDITIVE, never instead. docs/data-format.md is the
+    # authority and the downstream reader depends on those names, so the text files
+    # stay the source of truth through the transition.
+    #
+    # Best-effort by design: a failure here must never abort a run or touch what was
+    # already written. The H5 is the new thing; the ascii is what the science
+    # currently rests on.
+    #
+    # Settings come from the potentiostat, the same source and the same getattr the
+    # worker's potential log line uses. External mode has none -- the .GSequence sets
+    # the potentials there -- so potential_set is simply absent, which is honest.
+    pot_settings = getattr(potentiostat, "settings", None) or {}
+    try:
+        write_segment_h5(
+            absorb_df, spectra, dark, ref, wavelengths, timestamps, echem,
+            segment.data_type, segment.run_number, data_root, added_path,
+            segment=segment, settings=pot_settings or None,
+            compression=pot_settings.get("hdf5_compression", 0),
+        )
+    except Exception:  # noqa: BLE001 -- an additive file must not sink a run
+        get_run_logger().warning(
+            "%s: the HDF5 file could not be written. The run and the ascii files "
+            "are unaffected.", segment.label, exc_info=True)
 
     return absorb_df, path
