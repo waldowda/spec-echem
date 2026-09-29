@@ -11,7 +11,39 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Fixed — the Gamry current range was never set (2026-09-25)
+
+- **Every Python-mode run sat on the instrument's power-up I/E range — `IERange 11`,
+  600 mA — while measuring microamps.** `initialize_pstat()` configured nine hardware
+  parameters and not the current range. On a 10 kΩ dummy that is a +35 µA offset at
+  0.000 V and 2,879 nA of noise on a ±50 µA sweep; on the 20260709/20260710 film runs it
+  is 1.0–2.0 µA of point-to-point noise against settled currents of 1–26 µA, i.e.
+  40–200% of the signal. **No overload flag fires** — nothing was overloaded, the range
+  was four decades too coarse. **Treat settled currents from Python-mode runs before
+  2026-09-25 as not quantitatively trustworthy.** External mode was never affected.
+  Confirmed fixed the same evening: R = 9,900.3 Ω (the Autolab reads 9,899–9,901 Ω on
+  the same dummy), CV intercept +35.1 → +0.133 µA, chrono hold noise 2,567 → 1.8 nA.
+  Evidence: [`docs/gamry-current-range-2026-09-25.md`](docs/gamry-current-range-2026-09-25.md).
+
 ### Added
+
+- **`gamry_current_range`** — a deliberate fixed range (default 6 mA), chosen from a
+  Parameters-tab dropdown, with auto-ranging offered but marked (Gamry documents it as
+  unsuitable above 1 point/s; every segment here samples at 10). **Every segment logs
+  the range it used, the peak current it saw, and a finer range if one would fit**, so
+  one test run tells you what a sample wants. An overload warns and never stops a run or
+  discards a point.
+- **The I/E ladder is read from the instrument**, not from one model's table: `IERange 8`
+  is 600 µA on a Reference 600/620 and 100 µA on an Interface 1010. The driver reads it
+  before setting a range, and the GUI rebuilds the dropdown on Connect and names the
+  source. Everything falls back to the documented table when an instrument cannot answer.
+- **`examples/probe_gamry_ladder.py`** — prints the ladder an instrument reports beside
+  the documented table, for taking to a model nobody has tested against. Read-only and
+  cell-safe; needs no spectrometer and no dummy cell.
+- **`TOOLKITPY_IMPORT_ERROR`** — a failed `import toolkitpy` greys out the "Python — drive
+  the Gamry" radio, which reads as a dead instrument but is nearly always the wrong conda
+  env (toolkitpy is 32-bit only). The reason now appears in the launch banner and the
+  radio's tooltip.
 
 - **`SPECECHEM_LIVE_DUMP=1` writes the live echem stream beside the data.**
   `{folder}/{label}_live_samples.csv` holds the `(t, potential, current)` samples the Run
