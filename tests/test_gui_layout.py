@@ -2797,12 +2797,15 @@ def test_the_oect_export_reports_what_it_wrote(window, monkeypatch, tmp_path):
                      DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
 
     seen = {}
-    monkeypatch.setattr(QMessageBox, "information",
-                        staticmethod(lambda p, t, m, *a, **k: seen.update(title=t, msg=m)))
+    monkeypatch.setattr(QMessageBox, "setText", lambda self, m: seen.update(msg=m))
+    monkeypatch.setattr(QMessageBox, "setInformativeText",
+                        lambda self, m: seen.update(info=m))
+    monkeypatch.setattr(QMessageBox, "exec_", lambda self: 0)
     window.run_folder = tmp_path / "20260929_run"
     window.results_tab.on_export_oect()
 
-    assert seen["title"] == "Exported"
+    # The FULL path, not "the oect/ subfolder": that phrasing sent the user hunting.
+    assert str(tmp_path / "20260929_run" / "oect") in seen["msg"]
     assert "dopingdata.h5" in seen["msg"]
-    assert "DERIVED VIEW" in seen["msg"] and "raw counts" in seen["msg"]
+    assert "DERIVED VIEW" in seen["info"] and "raw counts" in seen["info"]
     assert (tmp_path / "20260929_run" / "oect" / "dopingdata.h5").exists()

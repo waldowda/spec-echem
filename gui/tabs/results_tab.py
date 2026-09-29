@@ -692,13 +692,22 @@ class ResultsTab(QWidget):
                 "Runs recorded before HDF5 output existed can be converted with "
                 "examples/ascii_to_h5.py.")
             return
-        QMessageBox.information(
-            self, "Exported",
-            "Written to the oect/ subfolder:\n  "
-            + "\n  ".join(p.name for p in written)
-            + "\n\nThis is a DERIVED VIEW for the downstream pipeline. It drops "
-              "the raw counts, the dark, the reference, the CV and pre-dedoping — "
-              "the complete data stays in this run's own .h5 files.")
+        # The FULL path, not "the oect/ subfolder": that phrasing sent the user
+        # hunting for the files on 2026-09-29. A message about where something was
+        # written has to be enough to find it.
+        box = QMessageBox(self)
+        box.setWindowTitle("Exported")
+        box.setText("Written to:\n\n  " + str(written[0].parent) + "\n\n  "
+                    + "\n  ".join(p.name for p in written))
+        box.setInformativeText(
+            "A DERIVED VIEW for the downstream pipeline — it drops the raw counts, "
+            "the dark, the reference, the CV and pre-dedoping. The complete data "
+            "stays in this run's own .h5 files.")
+        open_btn = box.addButton("Open Folder", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec_()
+        if box.clickedButton() is open_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(written[0].parent)))
 
     def on_load_run(self):
         """Open a previously saved run folder and load its spectra + echem into the

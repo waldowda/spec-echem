@@ -118,12 +118,15 @@ def test_the_potential_key_is_derived_their_way(tmp_path):
 
 def test_a_segment_with_no_potential_is_refused_clearly(tmp_path):
     """The layout addresses groups BY potential, so a segment without one cannot be
-    exported -- say that, rather than writing a file keyed 'None'."""
+    exported. Say WHY in terms of the run rather than the schema: this is normal for
+    External mode, where the sequence file sets the potentials and the software never
+    sees them."""
     absorb, spectra, dark, ref, wl, stamps = _absorb()
     write_segment_h5(absorb, spectra, dark, ref, wl, stamps, None,
                      DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
-    with pytest.raises(ValueError, match="no potential to key on"):
+    with pytest.raises(ValueError, match="no potential recorded") as exc:
         export_oect_h5(tmp_path / "20260929_run", DATA_TYPE_DOPING)
+    assert "External mode" in str(exc.value)
 
 
 def test_their_own_reader_opens_what_we_write(tmp_path):
