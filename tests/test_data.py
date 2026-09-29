@@ -300,3 +300,48 @@ def test_the_spectra_reader_needs_only_three_columns(tmp_path):
     assert df.shape == (len(wl), len(times))
     assert list(df.columns) == times
     assert df.iloc[0, 2] == pytest.approx(0.2)
+
+
+def test_h5py_is_optional_and_records_why_it_is_missing():
+    """Mirrors AVASPEC_IMPORT_ERROR / TOOLKITPY_IMPORT_ERROR. h5py is optional on
+    purpose: win32 cp37 wheels stop at h5py 2.10.0, so SpecEchem32 may not have it."""
+    from spec_echem import data as d
+
+    assert hasattr(d, "H5PY_AVAILABLE") and hasattr(d, "H5PY_IMPORT_ERROR")
+    if d.H5PY_AVAILABLE:
+        assert d.H5PY_IMPORT_ERROR is None and d.h5py is not None
+    else:
+        assert d.H5PY_IMPORT_ERROR and d.h5py is None
+
+
+def test_data_module_still_imports_with_no_h5py():
+    """The guard has to be real: every ascii path must keep working on a machine
+    that cannot install h5py at all. Imports the module fresh with h5py blocked."""
+    import builtins
+    import importlib
+    import sys
+
+    real_import = builtins.__import__
+
+    def blocked(name, *args, **kwargs):
+        if name == "h5py" or name.startswith("h5py."):
+            raise ImportError("No module named 'h5py'")
+        return real_import(name, *args, **kwargs)
+
+    saved = {k: v for k, v in sys.modules.items() if k.startswith("h5py")}
+    for k in saved:
+        del sys.modules[k]
+    builtins.__import__ = blocked
+    try:
+        reloaded = importlib.reload(importlib.import_module("spec_echem.data"))
+        assert reloaded.H5PY_AVAILABLE is False
+        assert reloaded.h5py is None
+        assert "h5py" in reloaded.H5PY_IMPORT_ERROR
+        # and the ascii side is untouched
+        assert reloaded.DATA_TYPE_DOPING == 2
+        assert callable(reloaded.write_spectra_file)
+        assert callable(reloaded.compute_absorbance)
+    finally:
+        builtins.__import__ = real_import
+        sys.modules.update(saved)
+        importlib.reload(importlib.import_module("spec_echem.data"))
