@@ -2,6 +2,29 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Next up — 2026-09-28
+
+- [ ] **Wednesday 2026-09-30: confirm the ladder on a Reference 610+ and an Interface
+      1010.** `examples/probe_gamry_ladder.py` — read-only, cell-safe, needs no
+      spectrometer and no dummy cell. The 610+ should match the documented Reference 600
+      column; the 1010 should report 10 nA..1 A in 1/10/100 decades, so ITS `IERange 8`
+      is 100 uA rather than 600 uA. That is the whole reason the ladder is read from the
+      instrument, and it has only been verified on one model.
+- [ ] **Write down how toolkitpy gets into the conda env.** It is recorded NOWHERE —
+      not here, not in CLAUDE.md, not in docs/ — and installing Gamry Framework may not
+      be sufficient on its own. Capture it on a machine where it already works
+      (`python -c "import toolkitpy; print(toolkitpy.__file__)"` and
+      `pip show toolkitpy`) and add it beside the documented `avaspec.py` setup steps.
+      Same category as the undocumented trigger-cable build: it works on one machine and
+      nobody has written down why.
+- [ ] **HDF5 — the plan is drafted and waiting on one conversation.** Design in
+      `private-notes/hdf5-design.md` (outside the repo until phase 1 lands). Doping and
+      dedoping stay in separate files matching the downstream repo; the merged
+      alternative is recorded for comparison. Five questions to settle first, the pivotal
+      one being whether that split is load-bearing or incidental.
+- [ ] **A range per segment TYPE** (carried over): `20260925_test10` wanted 600 uA for
+      its CV and 6 uA for its chrono hold, and one setting covers both.
+
 ## Next up — 2026-09-25 evening (Gamry rig)
 
 Tonight's session fixed the Gamry current range end to end and confirmed it on the
