@@ -222,3 +222,30 @@ def test_the_writer_is_a_no_op_without_h5py(tmp_path, monkeypatch):
     monkeypatch.setattr(d, "H5PY_AVAILABLE", False)
     assert _write(tmp_path) is None
     assert not list(tmp_path.glob("**/*.h5"))
+
+
+def test_a_missing_h5py_says_so_once(monkeypatch, tmp_path):
+    """Silence is the failure this project keeps paying for: on 2026-09-29 a run
+    wrote four ascii files and no .h5, with nothing in any log, because the GUI's
+    environment had no h5py."""
+    import logging
+
+    import spec_echem.data as d
+    monkeypatch.setattr(d, "H5PY_AVAILABLE", False)
+    monkeypatch.setattr(d, "H5PY_IMPORT_ERROR", "No module named 'h5py'")
+    monkeypatch.setattr(d, "_h5py_warning_said", False)
+
+    records = []
+    logger = logging.getLogger("spec_echem.run")
+    h = type("H", (logging.Handler,), {"emit": lambda s, r: records.append(r)})()
+    logger.addHandler(h)
+    try:
+        assert _write(tmp_path) is None
+        assert _write(tmp_path, run_number=1) is None     # second call stays quiet
+    finally:
+        logger.removeHandler(h)
+
+    warnings = [r for r in records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1, "said once per process, not once per segment"
+    msg = warnings[0].getMessage()
+    assert "h5py is not importable" in msg and "ascii files are unaffected" in msg
