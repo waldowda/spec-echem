@@ -38,6 +38,10 @@ def main():
                          "for ~120 ms a segment, so it is for archiving")
     ap.add_argument("--keep", action="store_true",
                     help="append to existing .h5 instead of rebuilding them")
+    ap.add_argument("--out", metavar="DIR", default=None,
+                    help="write the .h5 under DIR/<run name>/ instead of into the "
+                         "run folder. For a source on read-only media, or a "
+                         "conversion that must not touch an archived original")
     args = ap.parse_args()
 
     if not H5PY_AVAILABLE:
@@ -50,7 +54,8 @@ def main():
     total = 0
     for folder in args.folders:
         try:
-            result = backfill_run(folder, compression=args.gzip, keep=args.keep)
+            result = backfill_run(folder, compression=args.gzip, keep=args.keep,
+                                  out_root=args.out)
         except Exception as exc:                       # noqa: BLE001
             print(f"{folder}: FAILED — {exc}")
             continue
@@ -58,7 +63,8 @@ def main():
             print(f"{os.path.basename(str(folder).rstrip(os.sep))}: nothing to convert")
             continue
         total += result["segments"]
-        print(f"{result['name']}: {result['segments']} segment(s), "
+        print(f"{result['name']}: {result['segments']} segment(s) -> "
+              f"{result['destination']}\n   "
               f"{result['ascii_bytes']/1e6:.1f} MB ascii -> "
               f"{result['h5_bytes']/1e6:.1f} MB h5 "
               f"({result['ascii_bytes']/max(result['h5_bytes'], 1):.1f}x)")

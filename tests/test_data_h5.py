@@ -466,3 +466,18 @@ def test_the_rebuilt_echem_matches_too(tmp_path):
     b = read_chrono(echem_txt_path(out / "20260929_run", DATA_TYPE_DOPING, 0))
     for col in a.columns:
         np.testing.assert_array_equal(a[col].to_numpy(), b[col].to_numpy())
+
+
+def test_the_backfill_can_write_somewhere_else(tmp_path):
+    """For a source on read-only media, or a conversion that must not touch an
+    archived original. The default still writes INTO the run, because a .h5 is that
+    run's own data."""
+    from spec_echem.h5_backfill import backfill_run
+
+    folder, _ = _ascii_run(tmp_path)
+    elsewhere = tmp_path / "scratch"
+    result = backfill_run(folder, out_root=elsewhere)
+
+    assert result["destination"] == str(elsewhere / "20260929_run")
+    assert (elsewhere / "20260929_run" / "20260929_run_doping.h5").exists()
+    assert not list(folder.glob("*.h5"))            # the run is untouched
