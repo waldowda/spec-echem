@@ -180,3 +180,17 @@ def test_potentials_and_group_keys_agree(tmp_path):
         for p in f["potentials"][:]:
             assert str(p) in f
         np.testing.assert_allclose(f["current"]["columns"][:], [0.2, 0.3, 0.7])
+
+
+def test_the_export_can_go_somewhere_else(tmp_path):
+    """Unlike the archival .h5 -- which is the run's own data and belongs with it --
+    this is a DELIVERABLE, so wanting it on a shared drive is the normal case."""
+    folder = _run(tmp_path)
+    elsewhere = tmp_path / "share"
+    written = export_run(folder, out_dir=elsewhere)
+
+    assert [p.parent for p in written] == [elsewhere, elsewhere]
+    assert sorted(p.name for p in written) == sorted(OECT_FILENAMES.values())
+    assert not (folder / "oect").exists()           # nothing left in the run
+    with h5py.File(elsewhere / OECT_FILENAMES[DATA_TYPE_DOPING]) as f:
+        np.testing.assert_allclose(f["potentials"][:], DOPING_V)

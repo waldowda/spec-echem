@@ -237,6 +237,13 @@ float32 path.
 
 Reproduce any of this with `python examples/h5_to_ascii.py <run> --out /tmp/x --compare`.
 
+**Where each one writes.** The archival `.h5` goes INTO the run folder, because it is that
+run's own data — like its ascii, its metadata JSON and its log — and a run folder being
+self-contained is a property the rest of the project relies on. `--out` overrides it for a
+source on read-only media or a conversion that must not touch an archived original. The
+OECT export defaults to `<run>/oect/` but is a DELIVERABLE rather than the run's data, so
+sending it elsewhere with `--out` is the normal case there, not the exception.
+
 ### Reading, converting, exporting
 
 | | |
@@ -245,6 +252,7 @@ Reproduce any of this with `python examples/h5_to_ascii.py <run> --out /tmp/x --
 | `spec_echem.data.discover_run_h5(folder)` | segments in run order, mirroring `discover_run_segments()` |
 | `examples/ascii_to_h5.py`, or the Results tab's **Convert to HDF5** | rebuild the H5 for a run recorded before this existed (`spec_echem.h5_backfill`) |
 | `examples/h5_to_ascii.py` | regenerate the ascii FROM the H5 — the round-trip evidence |
+| `examples/export_oect.py`, or the Results tab's **Export for OECT analysis** | a derived view in the downstream pipeline's own layout |
 | `examples/bench_h5_size.py` | bytes and write time on this machine's disk |
 | `spec_echem.oect_export` | a derived view in the downstream pipeline's own layout |
 

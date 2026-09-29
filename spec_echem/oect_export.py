@@ -205,17 +205,31 @@ def export_oect_h5(run_folder, data_type=DATA_TYPE_DOPING, out_path=None,
     return out_path
 
 
-def export_run(run_folder):
-    """Both directions, keyed the way the downstream reader expects. [Path, ...]"""
+def export_run(run_folder, out_dir=None):
+    """Both directions, keyed the way the downstream reader expects. [Path, ...]
+
+    `out_dir` sends them somewhere else. Unlike the archival .h5 — which is the run's
+    own data and belongs with it — this is a DELIVERABLE: made to hand to someone, or
+    to point a notebook at. Wanting it on a shared drive or in an analysis working
+    directory is the normal case, not the edge one. The default stays <run>/oect/
+    because that is predictable and self-describing.
+    """
     run_folder = Path(run_folder)
+    out_dir = Path(out_dir) if out_dir else None
     written = []
     doping_potentials = None
     if h5_path(run_folder, DATA_TYPE_DOPING).is_file():
         cycles = read_cycles(h5_path(run_folder, DATA_TYPE_DOPING))
         doping_potentials = [p for _, p, _, _ in cycles]
-        written.append(export_oect_h5(run_folder, DATA_TYPE_DOPING))
+        written.append(export_oect_h5(
+            run_folder, DATA_TYPE_DOPING,
+            out_path=(out_dir / OECT_FILENAMES[DATA_TYPE_DOPING]
+                      if out_dir else None)))
     if h5_path(run_folder, DATA_TYPE_DEDOPING).is_file():
         # Rule 2: the dedoping file carries the DOPING potentials.
-        written.append(export_oect_h5(run_folder, DATA_TYPE_DEDOPING,
-                                      doping_potentials=doping_potentials))
+        written.append(export_oect_h5(
+            run_folder, DATA_TYPE_DEDOPING,
+            out_path=(out_dir / OECT_FILENAMES[DATA_TYPE_DEDOPING]
+                      if out_dir else None),
+            doping_potentials=doping_potentials))
     return written

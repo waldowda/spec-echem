@@ -90,14 +90,24 @@ def read_echem(run_folder, data_type, run_number):
         pass
         return None
 
-def backfill_run(folder, compression=0, keep=False):
+def backfill_run(folder, compression=0, keep=False, out_root=None):
     """Rebuild every segment's HDF5 from the ascii. -> dict summary.
 
     Returns {"name", "segments", "ascii_bytes", "h5_bytes", "files"} so a caller can
     report it however it likes — the command line prints, the GUI shows a dialog.
+
+    `out_root` puts the rebuilt files somewhere else, under a folder of the same
+    name. The default writes them INTO the run, because a .h5 is that run's own data
+    — like its ascii, its metadata JSON and its log — and a run folder being
+    self-contained is a property the rest of the project relies on. The override is
+    for the cases where that is impossible or unwanted: a source on read-only media
+    or a network share, or a conversion you do not want touching an archived original.
     """
     folder = os.path.abspath(os.path.expanduser(str(folder)))
     name = os.path.basename(folder.rstrip(os.sep))
+    root = (os.path.abspath(os.path.expanduser(str(out_root))) if out_root
+            else os.path.dirname(folder))
+    destination = os.path.join(root, name)
     segments = discover_run_segments(folder)
     if not segments:
         return {"name": name, "segments": 0, "ascii_bytes": 0, "h5_bytes": 0,
@@ -107,7 +117,7 @@ def backfill_run(folder, compression=0, keep=False):
     written = []
     for label, data_type, run_number, path in segments:
         ascii_bytes += os.path.getsize(path)
-        target = h5_path(folder, data_type, name)
+        target = h5_path(destination, data_type, name)
         if target.exists() and target not in written and not keep:
             os.remove(target)          # rebuild rather than append to a stale file
 
@@ -116,7 +126,7 @@ def backfill_run(folder, compression=0, keep=False):
         seg = type("Seg", (), {"label": label, "num_points": len(times),
                                "delta_time": None, "trigger": None})()
         out = write_segment_h5(absorb, spectra, dark, ref, wl, times, echem,
-                               data_type, run_number, os.path.dirname(folder), name,
+                               data_type, run_number, root, name,
                                segment=seg, compression=compression)
         if out is None:                # no h5py — write_segment_h5 has said so
             return {"name": name, "segments": 0, "ascii_bytes": 0, "h5_bytes": 0,
@@ -130,7 +140,7 @@ def backfill_run(folder, compression=0, keep=False):
     h5_bytes = sum(os.path.getsize(p) for p in written)
     _report(f"{name}: {ascii_bytes/1e6:.1f} MB ascii -> {h5_bytes/1e6:.1f} MB h5")
     return {"name": name, "segments": len(segments), "ascii_bytes": ascii_bytes,
-            "h5_bytes": h5_bytes, "files": written}
+            "h5_bytes": h5_bytes, "files": written, "destination": destination}
 
 
 def _mark_backfilled(paths):
