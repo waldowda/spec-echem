@@ -7,6 +7,7 @@ nobody would ever see them. Everything here is synthesised.
 import json
 
 import numpy as np
+import pandas as pd
 import pytest
 
 h5py = pytest.importorskip("h5py")
@@ -385,3 +386,77 @@ def test_discovery_is_empty_rather_than_fatal_without_h5py(tmp_path, monkeypatch
     from spec_echem.data import discover_run_h5
     monkeypatch.setattr(d, "H5PY_AVAILABLE", False)
     assert discover_run_h5(tmp_path) == []
+
+
+def test_the_ascii_can_be_REBUILT_from_the_h5(tmp_path):
+    """text -> h5 -> text, the strongest form of the round trip.
+
+    read_segment_h5 shows the ABSORBANCE survives; this shows the whole FILE does,
+    by regenerating it with the same writer acquisition uses and comparing column by
+    column. This is the evidence that would let the ascii stop being written.
+
+    Exact for everything except the two float32 datasets. MEASURED on a real
+    13-segment run 2026-09-29: absorbance agrees to 3e-08, counts to 1.9e-03
+    absolute -- 3.6e-08 RELATIVE at ~54,700 counts, seven orders below the shot
+    noise of sqrt(54700) ~ 234.
+    """
+    import importlib.util
+    from spec_echem.data import write_spectra_file
+
+    spec_ = importlib.util.spec_from_file_location("h5_to_ascii",
+                                                   "examples/h5_to_ascii.py")
+    mod = importlib.util.module_from_spec(spec_)
+    spec_.loader.exec_module(mod)
+
+    absorb, spectra, dark, ref, wl, stamps = _inputs(integral=False)
+    original = write_spectra_file(absorb, spectra, dark, ref, wl, stamps,
+                                  DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
+    h5 = write_segment_h5(absorb, spectra, dark, ref, wl, stamps, _echem(),
+                          DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
+
+    out = tmp_path / "rebuilt"
+    rebuilt = mod.rebuild_segment(h5, 0, DATA_TYPE_DOPING, out, "20260929_run")
+
+    a = pd.read_csv(original, sep="\t")
+    b = pd.read_csv(rebuilt, sep="\t")
+    assert list(a.columns) == list(b.columns)        # incl. 'Spectrum number'
+    assert len(a) == len(b)
+
+    for col in ("Wavelength (nm)", "Column 3 (a. u.)", "Column 4 (a. u.)",
+                "Spectrum number", "Time (s)", "Corrected time (s)"):
+        x, y = a[col].to_numpy(), b[col].to_numpy()
+        np.testing.assert_array_equal(np.isnan(x), np.isnan(y))
+        np.testing.assert_array_equal(x[~np.isnan(x)], y[~np.isnan(y)])   # EXACT
+
+    for col, tol in (("Absorbance", 1e-6), ("Measured value (a.u.)", 1e-2)):
+        x, y = a[col].to_numpy(), b[col].to_numpy()
+        np.testing.assert_array_equal(np.isnan(x), np.isnan(y))
+        np.testing.assert_allclose(x[~np.isnan(x)], y[~np.isnan(y)], rtol=1e-6, atol=tol)
+
+
+def test_the_rebuilt_echem_matches_too(tmp_path):
+    """The current writer drops the legacy '+100' Time offset, so a file rebuilt
+    from a 2025 run differs there by exactly 100 -- a deliberate format change, not
+    a loss. Within one version, every echem column is exact."""
+    import importlib.util
+    from spec_echem.data import echem_txt_path, write_echem_file
+    from spec_echem.gamry_data import read_chrono
+
+    spec_ = importlib.util.spec_from_file_location("h5_to_ascii",
+                                                   "examples/h5_to_ascii.py")
+    mod = importlib.util.module_from_spec(spec_)
+    spec_.loader.exec_module(mod)
+
+    absorb, spectra, dark, ref, wl, stamps = _inputs()
+    echem = _echem()
+    write_echem_file(echem, DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
+    h5 = write_segment_h5(absorb, spectra, dark, ref, wl, stamps, echem,
+                          DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
+
+    out = tmp_path / "rebuilt"
+    mod.rebuild_segment(h5, 0, DATA_TYPE_DOPING, out, "20260929_run")
+
+    a = read_chrono(echem_txt_path(tmp_path / "20260929_run", DATA_TYPE_DOPING, 0))
+    b = read_chrono(echem_txt_path(out / "20260929_run", DATA_TYPE_DOPING, 0))
+    for col in a.columns:
+        np.testing.assert_array_equal(a[col].to_numpy(), b[col].to_numpy())
