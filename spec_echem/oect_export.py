@@ -96,9 +96,13 @@ def read_cycles(path):
                     potential = echem["potential"].iloc[0]
             if potential is None:
                 raise ValueError(
-                    f"{Path(path).name} cycle {key}: no potential to key on — the "
-                    f"target layout addresses groups BY potential, so a segment "
-                    f"without one cannot be exported.")
+                    f"{Path(path).name} cycle {key} has no potential recorded, so "
+                    f"it cannot be exported: the target layout addresses its groups "
+                    f"BY potential.\n\nThis is normal for a run taken in External "
+                    f"mode — there the sequence file sets the potentials and the "
+                    f"software never sees them, so neither the echem trace nor a "
+                    f"requested value was stored. Only Python-mode or Autolab runs "
+                    f"can be exported.")
             out.append((int(key), float(potential), absorb, echem))
     return out
 
