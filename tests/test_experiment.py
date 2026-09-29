@@ -294,3 +294,140 @@ def test_run_one_segment_aborts_without_writing(tmp_path):
     result = run_one_segment(spec, seg, dark, ref, wl, tmp_path, "20250715_Test", abort)
     assert result is None
     assert not (tmp_path / "20250715_Test" / "spectra(0).txt").exists()
+
+
+# --- the HDF5 file written alongside (additive, best-effort) ---
+
+def _fake_segment_inputs():
+    spec = FakeSpectrometer()
+    spec.init()
+    _, wl = spec.wavelengths()
+    dark = np.full(len(wl), 100.0)
+    _, ref = spec.measure()
+    return spec, wl, dark, ref
+
+
+class _FakePstat:
+    """Just the two things run_one_segment asks a potentiostat for."""
+
+    def __init__(self, settings=None, echem=None):
+        self.settings = settings if settings is not None else {}
+        self._echem = echem
+
+    def prepare(self, segment):
+        pass
+
+    def fire(self):
+        pass
+
+    def pump(self, *a):
+        pass
+
+    def note_first_spectrum(self, *a):
+        pass
+
+    def finish(self, aborted=False):
+        pass
+
+    def last_data(self):
+        return self._echem
+
+
+def test_an_h5_is_written_beside_the_ascii(tmp_path):
+    h5py = pytest.importorskip("h5py")
+    from spec_echem.data import h5_path
+
+    spec, wl, dark, ref = _fake_segment_inputs()
+    seg = Segment("Doping 0", DATA_TYPE_DOPING, 0, num_points=4, delta_time=0.01,
+                  trigger=False)
+    pstat = _FakePstat(settings={"doping_potential_start": 0.7,
+                                 "doping_potential_step": 0.1})
+
+    absorb_df, path = run_one_segment(spec, seg, dark, ref, wl, tmp_path,
+                                      "20250715_Test", potentiostat=pstat)
+
+    assert path.name == "spectra(0).txt" and path.exists()     # ascii unchanged
+    h5 = h5_path(tmp_path / "20250715_Test", DATA_TYPE_DOPING)
+    assert h5.exists()
+    with h5py.File(h5) as f:
+        assert f.attrs["data_type_name"] == "Doping"
+        assert f["0"]["absorbance_vs_time"].shape == absorb_df.shape
+        assert f["0"].attrs["potential_set"] == pytest.approx(0.7)
+        assert f["0"].attrs["label"] == "Doping 0"
+
+
+def test_every_cycle_of_a_type_lands_in_one_file(tmp_path):
+    h5py = pytest.importorskip("h5py")
+    from spec_echem.data import h5_path
+
+    spec, wl, dark, ref = _fake_segment_inputs()
+    for run in range(3):
+        seg = Segment(f"Doping {run}", DATA_TYPE_DOPING, run, num_points=3,
+                      delta_time=0.01, trigger=False)
+        run_one_segment(spec, seg, dark, ref, wl, tmp_path, "20250715_Test")
+
+    with h5py.File(h5_path(tmp_path / "20250715_Test", DATA_TYPE_DOPING)) as f:
+        assert sorted(k for k in f if k != "wavelength") == ["0", "1", "2"]
+
+
+def test_a_failing_h5_write_never_touches_the_run_or_the_ascii(tmp_path, monkeypatch):
+    """The H5 is the new thing; the ascii is what the science currently rests on.
+    A failure here must not abort a segment or affect what was already written."""
+    import spec_echem.experiment as ex
+
+    def boom(*a, **k):
+        raise RuntimeError("disk full")
+    monkeypatch.setattr(ex, "write_segment_h5", boom)
+
+    spec, wl, dark, ref = _fake_segment_inputs()
+    seg = Segment("Doping 0", DATA_TYPE_DOPING, 0, num_points=4, delta_time=0.01,
+                  trigger=False)
+
+    result = run_one_segment(spec, seg, dark, ref, wl, tmp_path, "20250715_Test")
+
+    assert result is not None                       # the segment still succeeded
+    absorb_df, path = result
+    assert path.exists() and absorb_df.shape == (len(wl), 4)
+    assert not list((tmp_path / "20250715_Test").glob("*.h5"))
+
+
+def test_external_mode_writes_an_h5_with_no_set_potential(tmp_path):
+    """External has no driver settings -- the .GSequence sets the potentials -- so
+    potential_set is absent rather than guessed."""
+    h5py = pytest.importorskip("h5py")
+    from spec_echem.data import h5_path
+
+    spec, wl, dark, ref = _fake_segment_inputs()
+    seg = Segment("Doping 0", DATA_TYPE_DOPING, 0, num_points=3, delta_time=0.01,
+                  trigger=False)
+    run_one_segment(spec, seg, dark, ref, wl, tmp_path, "20250715_Test")
+
+    with h5py.File(h5_path(tmp_path / "20250715_Test", DATA_TYPE_DOPING)) as f:
+        assert "potential_set" not in f["0"].attrs
+        assert "echem" not in f["0"]
+
+
+def test_the_compression_setting_is_honoured(tmp_path):
+    h5py = pytest.importorskip("h5py")
+    from spec_echem.data import h5_path
+
+    spec, wl, dark, ref = _fake_segment_inputs()
+    seg = Segment("Doping 0", DATA_TYPE_DOPING, 0, num_points=3, delta_time=0.01,
+                  trigger=False)
+    run_one_segment(spec, seg, dark, ref, wl, tmp_path, "20250715_Test",
+                    potentiostat=_FakePstat(settings={"hdf5_compression": 4}))
+
+    with h5py.File(h5_path(tmp_path / "20250715_Test", DATA_TYPE_DOPING)) as f:
+        assert f["0"]["counts_vs_time"].compression == "gzip"
+
+
+def test_a_discarded_segment_leaves_no_h5_either(tmp_path):
+    """save=False means run it, write nothing -- all four writers honour it."""
+    spec, wl, dark, ref = _fake_segment_inputs()
+    seg = Segment("Pre-dedoping", DATA_TYPE_PREDEDOPING, 0, num_points=3,
+                  delta_time=0.01, trigger=False, save=False)
+
+    absorb_df, path = run_one_segment(spec, seg, dark, ref, wl, tmp_path,
+                                      "20250715_Test")
+    assert path is None and absorb_df is not None
+    assert not list((tmp_path / "20250715_Test").glob("*.h5"))

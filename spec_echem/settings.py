@@ -134,6 +134,13 @@ DEFAULT_SETTINGS = {
     # Gamry documents auto-ranging as not recommended above 1 point/s and we sample
     # at 10. See apply_gamry_current_range.
     "gamry_current_range": 6.0e-3,
+    # gzip level for the HDF5 files: 0 = off (the default), 1-9 = gzip.
+    # MEASURED 2026-09-29 on a real CV (1261 wavelengths x 721 spectra): ascii
+    # 83.6 MB -> H5 plain 7.29 MB -> gzip4 5.74 MB. So compression buys 21%, NOT
+    # the 2-4x first estimated, for ~120 ms a segment, and level 9 buys nothing
+    # over 4. It is an archiving option, not something to pay for routinely once
+    # the format has already won an order of magnitude.
+    "hdf5_compression": 0,
     "autolab_pulse_delay_s": None,  # None = FHWait + the template's setup lag
     "autolab_setup_lag_cv_s": None,  # None = AUTOLAB_SETUP_LAG_CV_S (measured)
     "autolab_setup_lag_ca_s": None,  # None = AUTOLAB_SETUP_LAG_CA_S (measured)
