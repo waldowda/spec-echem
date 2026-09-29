@@ -16,18 +16,43 @@ Read-only and cell-safe: it opens the instrument, reads its identity and its lis
 ranges, and closes. **It does not switch the cell on, apply a potential, or measure.**
 No spectrometer and no dummy cell are needed.
 """
+import os
+import struct
 import sys
 
 
+def show_environment():
+    """Print the interpreter first: a failed toolkitpy import reads as a dead
+    instrument and is nearly always the wrong environment, so the answer should be
+    on screen before the question is asked."""
+    print(f"python     {sys.version.split()[0]} ({struct.calcsize('P') * 8}-bit)")
+    print(f"env        {os.environ.get('CONDA_DEFAULT_ENV') or sys.prefix}")
+    try:
+        import toolkitpy
+        print(f"toolkitpy  YES  {getattr(toolkitpy, '__version__', 'version unknown')}")
+        print(f"           {toolkitpy.__file__}")
+    except ImportError as exc:
+        print(f"toolkitpy  NO   {exc}")
+    print()
+
+
 def main():
+    show_environment()
     from spec_echem.potentiostat import (TOOLKITPY_AVAILABLE, TOOLKITPY_IMPORT_ERROR,
                                          probe_identity, probe_gamry_ladder,
                                          gamry_range_full_scale, GAMRY_CURRENT_RANGES)
 
     if not TOOLKITPY_AVAILABLE:
-        print(f"toolkitpy is not importable here: {TOOLKITPY_IMPORT_ERROR}")
-        print("\nThis is almost always the wrong conda environment rather than the")
-        print("instrument: toolkitpy is 32-bit only. Try `conda activate SpecEchem32`.")
+        print(f"toolkitpy is not importable: {TOOLKITPY_IMPORT_ERROR}")
+        if struct.calcsize("P") * 8 == 64:
+            print("\nThis interpreter is 64-bit and the shipping toolkitpy is 32-bit"
+                  " only.\nTry `conda activate SpecEchem32`. (A 64-bit, pip-installable"
+                  "\ntoolkitpy is expected from Gamry — when it lands this note is"
+                  " stale.)")
+        else:
+            print("\nThe interpreter is 32-bit, so this is toolkitpy itself: it ships"
+                  "\nwith Gamry Framework rather than from pip. Check Framework is"
+                  "\ninstalled on this machine.")
         return 1
 
     try:
