@@ -2809,3 +2809,38 @@ def test_the_oect_export_reports_what_it_wrote(window, monkeypatch, tmp_path):
     assert "dopingdata.h5" in seen["msg"]
     assert "DERIVED VIEW" in seen["info"] and "raw counts" in seen["info"]
     assert (tmp_path / "20260929_run" / "oect" / "dopingdata.h5").exists()
+
+
+def test_convert_to_h5_is_distinct_from_the_oect_export(window, monkeypatch, tmp_path):
+    """Two buttons, two different things: ours is the archive, complete; the OECT
+    export is a derived view for a downstream pipeline. Conflating them is how a
+    derived file gets treated as the record."""
+    pytest.importorskip("h5py")
+    import numpy as np
+    from qtpy.QtWidgets import QMessageBox
+    from spec_echem.data import (DATA_TYPE_DOPING, compute_absorbance,
+                                 write_spectra_file)
+
+    tab = window.results_tab
+    assert tab.to_h5_btn is not None and tab.export_oect_btn is not None
+
+    wl = np.linspace(400.0, 900.0, 5)
+    dark, ref = np.full(5, 100.0), np.full(5, 5000.0)
+    spectra = [np.linspace(500.0, 4000.0, 5) + i for i in range(3)]
+    stamps = [0.0, 0.1, 0.2]
+    absorb = compute_absorbance(spectra, dark, ref, wl, stamps)
+    write_spectra_file(absorb, spectra, dark, ref, wl, stamps,
+                       DATA_TYPE_DOPING, 0, tmp_path, "20260929_run")
+
+    seen = {}
+    monkeypatch.setattr(QMessageBox, "setText", lambda self, m: seen.update(msg=m))
+    monkeypatch.setattr(QMessageBox, "setInformativeText",
+                        lambda self, m: seen.update(info=m))
+    monkeypatch.setattr(QMessageBox, "exec_", lambda self: 0)
+    window.run_folder = tmp_path / "20260929_run"
+    tab.on_convert_to_h5()
+
+    assert (tmp_path / "20260929_run" / "20260929_run_doping.h5").exists()
+    assert str(tmp_path / "20260929_run") in seen["msg"]     # the full path
+    assert "text files are unchanged" in seen["info"]
+    assert "could not be recovered" in seen["info"]          # names the one loss
