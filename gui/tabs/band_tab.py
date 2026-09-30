@@ -23,6 +23,7 @@ from qtpy.QtWidgets import (
 
 from spec_echem.analysis import MODELS, fit_band
 from spec_echem.data import DATA_TYPE_CV, DATA_TYPE_DOPING
+from gui.segment_labels import prepare_segment_combo, segment_display
 from gui.widgets.plot_canvas import MplCanvas
 
 # Which tau quantities each model actually has. A single generic "tau" curve hid the
@@ -68,6 +69,7 @@ class BandTab(QWidget):
         form = QFormLayout(controls)
 
         self.segment_combo = QComboBox()
+        prepare_segment_combo(self.segment_combo)
         form.addRow("Segment:", self.segment_combo)
 
         wl_row = QHBoxLayout()
@@ -227,7 +229,7 @@ class BandTab(QWidget):
             seg = self.win.segments_by_label.get(label)
             if seg is not None and seg.data_type == DATA_TYPE_CV:
                 continue
-            self.segment_combo.addItem(label, label)
+            self.segment_combo.addItem(segment_display(self.win, label), label)
         if previous:
             i = self.segment_combo.findData(previous)
             if i >= 0:

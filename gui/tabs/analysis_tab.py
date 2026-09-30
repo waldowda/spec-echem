@@ -25,9 +25,11 @@ from spec_echem.analysis import (
     MODELS, MODEL_FORMULAS, fit_band, fit_transient, probe_wavelength, tau_ratio,
 )
 from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
-                             DATA_TYPE_DOPING, DATA_TYPE_DEDOPING)
+                             DATA_TYPE_DOPING, DATA_TYPE_DEDOPING,
+                             DATA_TYPE_PREDEDOPING)
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
+from gui.segment_labels import prepare_segment_combo, segment_display
 
 # How far a measured rung potential may sit outside the potential-range boxes and
 # still count as inside. Measured potentials differ from the nominal step by a
@@ -140,6 +142,7 @@ class AnalysisTab(QWidget):
         form = QFormLayout(controls)
 
         self.segment_combo = QComboBox()
+        prepare_segment_combo(self.segment_combo)
         self.segment_combo.currentIndexChanged.connect(self.on_segment_changed)
         form.addRow("Segment:", self.segment_combo)
 
@@ -433,9 +436,7 @@ class AnalysisTab(QWidget):
         """'Doping 5  (+0.700 V)'. The ladder plots against potential, so the segment
         that produced a point has to name one too -- otherwise the only place a
         potential appears is an axis you cannot map back to a selection."""
-        seg = self.win.segments_by_label.get(label)
-        text = self.win.segment_potential_text(seg) if seg is not None else ""
-        return f"{label}  ({text})" if text else label
+        return segment_display(self.win, label)
 
     def _current_label(self):
         """The segment's REAL label. The combo displays the potential alongside it,
@@ -654,8 +655,7 @@ class AnalysisTab(QWidget):
                 continue
             seg = self.win.segments_by_label.get(label)
             potential = self._ladder_potential(seg) if seg is not None else None
-            direction = ("doping" if seg is not None
-                         and seg.data_type == DATA_TYPE_DOPING else "dedoping")
+            direction = self._direction_for(seg)
             # The residual split needs the DATA, which only this tab has -- compute it
             # here rather than making the dialog reach back for traces.
             traces = self._all_traces(label)
@@ -857,6 +857,20 @@ class AnalysisTab(QWidget):
             return f"abs @ {lo:.1f} nm"
         return f"abs @ {lo:.0f}-{hi:.0f} nm (AUTO, VARIES)"
 
+    def _direction_for(self, seg):
+        """'doping' / 'dedoping' / 'pre-dedoping'.
+
+        Pre-dedoping is named, not folded into dedoping. It IS a hold at the dedoping
+        potential, but it happens before any doping has been done, so its relaxation
+        is the film's starting state rather than a point on the ladder -- and a table
+        that called it "dedoping" invited it to be averaged in with the real ones.
+        """
+        if seg is None or seg.data_type == DATA_TYPE_DOPING:
+            return "doping"
+        if seg.data_type == DATA_TYPE_PREDEDOPING:
+            return "pre-dedoping"
+        return "dedoping"
+
     def _ladder_potential(self, seg):
         """x for this segment: the potential the film was DOPED TO.
 
@@ -906,6 +920,7 @@ class AnalysisTab(QWidget):
         # the box live there would be a control that silently does nothing.
         self.hide_flagged_check.setEnabled(not self.ratio_check.isChecked())
         rows = []
+        no_rung = []
         for i in range(self.segment_combo.count()):
             label = self.segment_combo.itemData(i)
             seg = self.win.segments_by_label.get(label)
@@ -914,9 +929,13 @@ class AnalysisTab(QWidget):
                 continue
             x = self._ladder_potential(seg)
             if x is None:
+                # Fitted, in the table, but it has no potential to sit at: a
+                # pre-dedope is a baseline, not a rung. Named below rather than
+                # dropped -- "Fit all segments" fits it, so its absence from the
+                # plot has to be visible somewhere.
+                no_rung.append(label)
                 continue
-            direction = "doping" if seg.data_type == DATA_TYPE_DOPING else "dedoping"
-            rows.append((x, direction, label, fits))
+            rows.append((x, self._direction_for(seg), label, fits))
 
         if not rows:
             self.ladder_canvas.show_message("Fit a segment to build this plot.")
@@ -936,7 +955,8 @@ class AnalysisTab(QWidget):
 
         # Applied BEFORE the x axis is built, so a restricted ladder rescales instead
         # of leaving empty rungs at the ends.
-        excluded = []
+        excluded = ([f"{', '.join(no_rung)} (no ladder potential)"]
+                    if no_rung else [])
         if self.range_check.isChecked():
             lo, hi = self.range_lo.value(), self.range_hi.value()
             # Rung potentials are MEASURED (+0.399627 V for a "+0.400" step) and the
