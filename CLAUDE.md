@@ -74,7 +74,7 @@ spec-echem/
 │   ├── logging_config.py            # Per-run log file
 │   ├── fakes.py                     # Hardware fakes — the suite runs with no instruments
 │   └── globals.py                   # Global variables for Avantes SDK
-├── gui/                             # PyQt5 GUI (4 tabs); run via `python -m gui`
+├── gui/                             # PyQt5 GUI (6 tabs); run via `python -m gui`
 ├── config/                          # defaults.ini (tracked, lab-wide) + bench.ini (per-rig, ignored)
 ├── notebooks/                       # Legacy Jupyter workflow (still functional)
 ├── gamry/
@@ -333,7 +333,7 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   ever wanted, throttled redraw (2–5 Hz) of in-memory data stays well within matplotlib's range —
   PyQtGraph would only be needed for 30–60 Hz rendering, which human monitoring never requires.
 - **PySide6 version pin:** when migrating, pin below 6.9.1 (active regressions in 6.9.x)
-- **UI pattern:** tabbed layout (4 tabs), not QWizard.
+- **UI pattern:** tabbed layout (6 tabs: Instrument, Parameters, Run, Results, Analysis, Band Fits), not QWizard.
 - **Architecture:** thin GUI over current workflow first; swap in EchemToolkitPy backend later.
   Threading: worker-object + `moveToThread()` (not QThread subclass).
 - **Potentiostat status (phase-aware):** keep a potentiostat status indicator in the layout, but in

@@ -250,10 +250,10 @@ class AnalysisTab(QWidget):
         # BESIDE the single-wavelength fit, not replacing it. The normal path is to
         # fit one wavelength, look at it, and only then ask whether tau holds across
         # the band -- so this is a second question, asked after the first.
-        self.band_btn = QPushButton("Fit band…")
+        self.band_btn = QPushButton("Band fits →")
         self.band_btn.setToolTip(
-            "Fit the transient at EVERY wavelength in a range, using the model and\n"
-            "time window set here, and plot tau against wavelength.\n\n"
+            "Open the Band Fits tab with this wavelength, model and window already\n"
+            "filled in, and the range centred where you are looking.\n\n"
             "A tau that varies across an absorption band says the band is not one\n"
             "species relaxing — which a single probe wavelength cannot show.")
         self.band_btn.clicked.connect(self.on_fit_band)
@@ -622,31 +622,27 @@ class AnalysisTab(QWidget):
         self._stop_seeded = round(self.stop_spin.value(), 3)
 
     def on_fit_band(self):
-        """Fit every wavelength in a range and show tau against wavelength."""
-        label = self._current_label()
-        df = self.win.results.get(label) if label else None
-        if df is None or df.empty:
-            QMessageBox.information(self, "No segment",
-                                    "Choose a segment with data first.")
+        """Hand off to the Band Fits tab, pre-filled.
+
+        A launcher rather than a dialog: an all-segment band fit is tens of seconds
+        of compute and must survive being looked away from, and you want its strip
+        plot visible WHILE reading a single fit here. Pre-filling keeps the natural
+        order — fit one wavelength, look at it, then ask whether tau holds across the
+        band — without the other tab being a dead end you configure from scratch.
+        """
+        tab = getattr(self.win, "band_tab", None)
+        if tab is None:
             return
-        wl = np.asarray(df.index.values, dtype=float)
-
-        # Centred on the wavelength already in use, so the band starts where the
-        # single fit was looking rather than at an arbitrary default.
-        centre = self._wavelength or float(np.median(wl))
-        span = BAND_DEFAULT_SPAN_NM
-        start = max(float(wl.min()), centre - span / 2)
-        stop = min(float(wl.max()), centre + span / 2)
-
-        dialog = BandFitDialog(self, label, df, wl, start, stop,
-                               self.model_combo.currentData(), self._window_for_band(df))
-        dialog.exec_()
-
-    def _window_for_band(self, df):
-        """The same (start, stop) the single fit uses, so the band cannot silently
-        be fitted over a different interval than the fit above it."""
-        t = np.asarray(df.columns.values, dtype=float)
-        return self._window({"absorbance": (t, df.values[0, :])})
+        label = self._current_label()
+        if label:
+            i = tab.segment_combo.findData(label)
+            tab.refresh_segments()
+            i = tab.segment_combo.findData(label)
+            if i >= 0:
+                tab.segment_combo.setCurrentIndex(i)
+        tab.seed_from_analysis(centre=self._wavelength)
+        tab._seeded = True
+        self.win.tabs.setCurrentWidget(tab)
 
     def on_show_all_fits(self):
         """Every fit made so far, in one reviewable table."""
@@ -1191,199 +1187,3 @@ class AllFitsDialog(QDialog):
             pathlib.Path(path).write_text(self._csv(), encoding="utf-8")
         except OSError as exc:
             QMessageBox.warning(self, "Could not save", str(exc))
-
-
-class BandFitDialog(QDialog):
-    """tau at every wavelength across a band.
-
-    Separate from the single-wavelength fit rather than replacing it: the normal
-    path is to fit one wavelength, look at it, and only then ask whether tau holds
-    across the band. It inherits the tab's MODEL and TIME WINDOW so the band cannot
-    silently be fitted over a different interval than the fit above it.
-    """
-
-    def __init__(self, parent, label, df, wavelengths, start, stop, model, window):
-        super().__init__(parent)
-        self.setWindowTitle(f"Fit band — {label}")
-        self.resize(940, 640)
-        self._df = df
-        self._wl = wavelengths
-        self._model = model
-        self._window = window
-        self._band = None
-        self._label = label
-
-        layout = QVBoxLayout(self)
-
-        row = QHBoxLayout()
-        row.addWidget(QLabel("From:"))
-        self.start_spin = self._wl_spin(start)
-        row.addWidget(self.start_spin)
-        row.addWidget(QLabel("to:"))
-        self.stop_spin = self._wl_spin(stop)
-        row.addWidget(self.stop_spin)
-        self.fit_btn = QPushButton("Fit band", self)
-        self.fit_btn.clicked.connect(self._run)
-        row.addWidget(self.fit_btn)
-        row.addStretch()
-        layout.addLayout(row)
-
-        # Says which model and window are in force, because they come from the tab
-        # rather than from this dialog -- inherited settings that are invisible are
-        # how a band ends up compared against a fit it does not match.
-        t_start, t_stop = window
-        self.inherited = QLabel(
-            f"model: {model}    window: "
-            + ("whole segment" if t_start is None and t_stop is None
-               else f"{t_start if t_start is not None else 'start'} to "
-                    f"{t_stop if t_stop is not None else 'end'} s")
-            + "    (both set on the Analysis tab)")
-        self.inherited.setStyleSheet("color: #555;")
-        layout.addWidget(self.inherited)
-
-        self.canvas = MplCanvas(self, xlabel="Wavelength (nm)", ylabel="tau (s)")
-        layout.addWidget(self.canvas, stretch=3)
-
-        self.status = QLabel("Choose a range and press Fit band.")
-        self.status.setWordWrap(True)
-        layout.addWidget(self.status)
-
-        self.table = QTableWidget(0, 0, self)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.verticalHeader().setVisible(False)
-        layout.addWidget(self.table, stretch=2)
-
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        self.save_btn = QPushButton("Save CSV…", self)
-        self.save_btn.clicked.connect(self._save_csv)
-        self.save_btn.setEnabled(False)
-        close_btn = QPushButton("Close", self)
-        close_btn.clicked.connect(self.accept)
-        buttons.addWidget(self.save_btn)
-        buttons.addWidget(close_btn)
-        layout.addLayout(buttons)
-
-    def _wl_spin(self, value):
-        spin = QDoubleSpinBox(self)
-        spin.setRange(float(self._wl.min()), float(self._wl.max()))
-        spin.setDecimals(1)
-        spin.setSuffix(" nm")
-        spin.setValue(value)
-        return spin
-
-    def _run(self):
-        t = np.asarray(self._df.columns.values, dtype=float)
-        try:
-            self._band = fit_band(self._df.values, self._wl, t,
-                                  self.start_spin.value(), self.stop_spin.value(),
-                                  model=self._model,
-                                  t_start=self._window[0], t_stop=self._window[1])
-        except ValueError as exc:
-            self.status.setText(str(exc))
-            return
-        self._draw()
-        self._fill_table()
-        self.save_btn.setEnabled(True)
-
-    # What to plot for each model, and WHICH quantity the hollow "needs review"
-    # markers sit on. A single generic "tau" curve hid the difference: for biexp,
-    # FitResult.tau is the SLOWER component while the single-fit legend headlines
-    # mean tau, so the two panels showed different numbers under the same word.
-    # Reported 2026-09-30: a single fit read mean tau 0.948 s and the band read
-    # 2.5 s at the same wavelength -- tau2 = 2.449 s. Both right, one label.
-    BAND_CURVES = {
-        "exp": [("tau", "tau")],
-        "biexp": [("tau1", "tau1 (fast)"), ("tau2", "tau2 (slow)"),
-                  ("tau_mean", "mean tau")],
-        "stretched": [("tau", "tau"), ("tau_mean", "mean tau")],
-    }
-    BAND_PRIMARY = {"exp": "tau", "biexp": "tau2", "stretched": "tau"}
-
-    def _draw(self):
-        frame = self._band.table()
-        wl = frame["wavelength_nm"].to_numpy()
-        ok = frame["ok"].to_numpy(dtype=bool)
-
-        series = []
-        for column, label in self.BAND_CURVES.get(self._model,
-                                                  self.BAND_CURVES["exp"]):
-            if column not in frame:
-                continue
-            y = frame[column].to_numpy(dtype=float)
-            good = ok & np.isfinite(y)
-            if np.any(good):
-                series.append((wl[good], y[good], label,
-                               {"marker": "o", "markersize": 3.5}))
-
-        # Rejected fits are SHOWN, hollow, on the primary quantity only: a tau
-        # rejected for a wide error bar still says something beside its neighbours,
-        # but drawing every curve twice would make the plot unreadable.
-        primary = self.BAND_PRIMARY.get(self._model, "tau")
-        if primary in frame:
-            y = frame[primary].to_numpy(dtype=float)
-            bad = (~ok) & np.isfinite(y)
-            if np.any(bad):
-                series.append((wl[bad], y[bad], "needs review",
-                               {"marker": "o", "markersize": 4, "linestyle": "none",
-                                "markerfacecolor": "none"}))
-
-        if not series:
-            self.canvas.show_message("No wavelength in this band produced a fit.")
-            return
-        self.canvas.plot_multi_xy(series, "Wavelength (nm)", "tau (s)",
-                                  title=f"{self._label} — tau vs wavelength")
-
-        # beta on its OWN axis for the stretched model: it is dimensionless and runs
-        # 0-1, so sharing the tau axis would either flatten it to a line or stretch
-        # tau off the top. fig.clear() in _new_axes drops the twin each redraw, so
-        # they cannot accumulate.
-        if self._model == "stretched" and "beta" in frame:
-            beta = frame["beta"].to_numpy(dtype=float)
-            good = ok & np.isfinite(beta)
-            if np.any(good):
-                ax2 = self.canvas.ax.twinx()
-                ax2.plot(wl[good], beta[good], color="#2ca02c", lw=1.0,
-                         marker="s", markersize=3, label="beta")
-                ax2.set_ylabel("beta (stretch exponent)", color="#2ca02c")
-                ax2.tick_params(axis="y", labelcolor="#2ca02c")
-                ax2.set_ylim(0, 1.05)
-                self.canvas.draw_idle()
-
-    def _fill_table(self):
-        frame = self._band.table()
-        self._frame = frame
-        self.table.setColumnCount(len(frame.columns))
-        self.table.setHorizontalHeaderLabels([str(c) for c in frame.columns])
-        self.table.setRowCount(len(frame))
-        for r in range(len(frame)):
-            for c, name in enumerate(frame.columns):
-                value = frame.iloc[r, c]
-                if isinstance(value, float):
-                    text = "" if np.isnan(value) else f"{value:.6g}"
-                else:
-                    text = str(value)
-                self.table.setItem(r, c, QTableWidgetItem(text))
-        self.table.resizeColumnsToContents()
-
-        s = self._band.summary()
-        parts = [f"{s['ok']} of {s['n']} wavelengths fitted"]
-        if s["no_convergence"]:
-            parts.append(f"{s['no_convergence']} did not converge")
-        if s["converged"] - s["ok"]:
-            parts.append(f"{s['converged'] - s['ok']} need review")
-        if s["low_snr"]:
-            # Named, not hidden: the user chose this band, and a pixel whose change
-            # never cleared its own noise is not a measurement of anything.
-            parts.append(f"{s['low_snr']} below the noise threshold "
-                         f"(fitted anyway, flagged in the table)")
-        self.status.setText(".  ".join(parts) + ".")
-
-    def _save_csv(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save band fit", f"{self._label}_band.csv", "CSV (*.csv)")
-        if not path:
-            return
-        self._frame.to_csv(path, index=False)
-        QMessageBox.information(self, "Saved", f"Written to:\n\n{path}")
