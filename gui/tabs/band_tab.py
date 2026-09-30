@@ -14,10 +14,11 @@ tab 5 the first time it is shown.
 """
 import numpy as np
 from qtpy.QtCore import Qt
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, QComboBox,
-    QDoubleSpinBox, QPushButton, QTableWidget, QTableWidgetItem, QSplitter,
-    QMessageBox, QFileDialog, QProgressDialog, QApplication,
+    QCheckBox, QDoubleSpinBox, QPushButton, QTableWidget, QTableWidgetItem,
+    QSplitter, QMessageBox, QFileDialog, QProgressDialog, QApplication,
 )
 
 from spec_echem.analysis import MODELS, fit_band
@@ -95,6 +96,41 @@ class BandTab(QWidget):
         win_row.addStretch()
         form.addRow("Time window:", win_row)
 
+        # The PLOT's potential range, not the fit's. Everything is still fitted and
+        # still exported: filtering the fit would delete data from the CSV on the
+        # strength of a threshold guess, and the principle here is that the software
+        # raises concerns and the scientist decides.
+        #
+        # It exists because sub-threshold segments are not a fit-quality problem any
+        # rejection rule can catch. MEASURED on a real ladder 2026-09-30: at +0.20 V
+        # tau2 reached 136 s against 2-8 s above +0.40, and those points PASSED —
+        # they converge with small formal errors while fitting what is essentially
+        # noise. The pathology is physical, and it is not even monotonic: +0.10 was
+        # tamer than +0.20, which is where the film is part-doped and a biexponential
+        # can trade a real fast component against an arbitrarily slow one.
+        vg_row = QHBoxLayout()
+        self.vg_min = self._spin(" V", -10.0, 10.0)
+        self.vg_max = self._spin(" V", -10.0, 10.0)
+        self.vg_min.setValue(-10.0)
+        self.vg_max.setValue(10.0)
+        self.vg_min.setDecimals(2)
+        self.vg_max.setDecimals(2)
+        for spin in (self.vg_min, self.vg_max):
+            spin.valueChanged.connect(self._redraw_ladder)
+        vg_row.addWidget(self.vg_min)
+        vg_row.addWidget(QLabel("to"))
+        vg_row.addWidget(self.vg_max)
+        self.log_check = QCheckBox("log tau axis")
+        self.log_check.setToolTip(
+            "A log axis shows two decades of tau at once, so a sub-threshold\n"
+            "segment no longer flattens the rest onto the bottom of the plot.\n"
+            "The mean +/- SD whisker is clipped where it would reach zero or below,\n"
+            "and the status line says how many.")
+        self.log_check.toggled.connect(self._redraw_ladder)
+        vg_row.addWidget(self.log_check)
+        vg_row.addStretch()
+        form.addRow("Plot potentials:", vg_row)
+
         buttons = QHBoxLayout()
         self.fit_btn = QPushButton("Fit this segment")
         self.fit_btn.clicked.connect(self.on_fit_segment)
@@ -119,8 +155,17 @@ class BandTab(QWidget):
         layout.addWidget(self.status)
 
         split = QSplitter(Qt.Vertical)
+        plot_box = QWidget()
+        plot_layout = QVBoxLayout(plot_box)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
         self.canvas = MplCanvas(self, xlabel="Wavelength (nm)", ylabel="tau (s)")
-        split.addWidget(self.canvas)
+        # Pan, zoom, HOME (unzoom) and save-figure, for three lines. Zoom covers the
+        # ad-hoc looking that neither the potential range nor a log axis can: those
+        # are standing decisions, this is "what is going on just there".
+        self.toolbar = NavigationToolbar2QT(self.canvas, plot_box)
+        plot_layout.addWidget(self.toolbar)
+        plot_layout.addWidget(self.canvas)
+        split.addWidget(plot_box)
         self.table = QTableWidget(0, 0, self)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -269,7 +314,6 @@ class BandTab(QWidget):
             return
         self._ladder = results
         self._band = None
-        self._draw_ladder()
         self._fill_table(self._ladder_frame())
         cancelled = progress.wasCanceled()
         parts = [f"{len(results)} segment(s) fitted"]
@@ -283,7 +327,9 @@ class BandTab(QWidget):
             for key, value in band.summary().items():
                 total[key] += value
         parts.append(self._summary_text(total))
-        self.status.setText(".  ".join(parts))
+        self._base_status = ".  ".join(parts)
+        self.status.setText(self._base_status)
+        self._draw_ladder()
 
     @staticmethod
     def _summary_text(s):
@@ -365,8 +411,16 @@ class BandTab(QWidget):
         """
         model = self._ladder[0][3].model
         beta_row = model == "stretched"
+        lo, hi = self.vg_min.value(), self.vg_max.value()
+        shown = [r for r in self._ladder if lo <= r[1] <= hi]
+        self._excluded = len(self._ladder) - len(shown)
+        if not shown:
+            self.canvas.show_message(
+                f"No segment between {lo:+.2f} and {hi:+.2f} V. "
+                f"All {len(self._ladder)} are outside that range.")
+            return
         directions = [d for d in ("doping", "dedoping")
-                      if any(r[2] == d for r in self._ladder)]
+                      if any(r[2] == d for r in shown)]
 
         fig = self.canvas.fig
         fig.clear()
@@ -376,14 +430,17 @@ class BandTab(QWidget):
         self.canvas.ax = axes[0][0]
 
         offscreen = 0
+        self._clipped = 0
         for col, direction in enumerate(directions):
-            entries = sorted((r for r in self._ladder if r[2] == direction),
+            entries = sorted((r for r in shown if r[2] == direction),
                              key=lambda r: r[1])
             xs = np.arange(len(entries), dtype=float)
             labels = [f"{p:+.2f}" for _l, p, _d, _b in entries]
 
             ax = axes[0][col]
             offscreen += self._strip(ax, entries, xs, model)
+            if self.log_check.isChecked():
+                ax.set_yscale("log")
             ax.set_xticks(xs)
             ax.set_xticklabels(labels)
             ax.set_title(f"{direction} — {model}")
@@ -407,6 +464,32 @@ class BandTab(QWidget):
         fig.tight_layout()
         self.canvas.draw_idle()
         self._offscreen = offscreen
+        self._note_plot_limits()
+
+    def _note_plot_limits(self):
+        """Say what the plot is not showing. A point removed by a range or pushed
+        off a rescaled axis is still a measurement; silence about it is how a
+        trimmed plot starts being read as the whole dataset."""
+        notes = []
+        if getattr(self, "_excluded", 0):
+            notes.append(f"{self._excluded} segment(s) outside the plotted "
+                         f"potential range (still fitted, still in the CSV)")
+        if getattr(self, "_offscreen", 0):
+            notes.append(f"{self._offscreen} rejected point(s) outside the axes")
+        if getattr(self, "_clipped", 0):
+            notes.append(f"{self._clipped} whisker(s) clipped at the log axis floor")
+        if notes:
+            self.status.setText(self.status.text().rstrip(".")
+                                + ".  Not shown: " + "; ".join(notes) + ".")
+
+    def _redraw_ladder(self):
+        """The range and the axis scale change the VIEW, so redraw without refitting.
+        Nothing is recomputed — the fits are unchanged."""
+        if self._ladder:
+            # Reset BEFORE drawing: _draw_ladder appends its "not shown" notes to
+            # whatever is there, so resetting afterwards would erase them.
+            self.status.setText(getattr(self, "_base_status", ""))
+            self._draw_ladder()
 
     def _strip(self, ax, entries, xs, model, column=None):
         """One potential's worth of taus as a vertical strip, with mean +/- SD.
@@ -430,8 +513,16 @@ class BandTab(QWidget):
                             alpha=0.45, color=f"C{k}",
                             label=label if j == 0 else None)
                     mean, sd = float(np.mean(y[good])), float(np.std(y[good]))
-                    ax.errorbar(x, mean, yerr=sd, fmt="_", color=f"C{k}",
-                                markersize=14, capsize=4, lw=1.6, zorder=3)
+                    lower = sd
+                    if self.log_check.isChecked() and mean - sd <= 0:
+                        # A log axis cannot draw a whisker reaching zero. Clip it to
+                        # just above the floor and COUNT it, rather than dropping the
+                        # arm silently and showing a tighter spread than there is.
+                        lower = mean * 0.999
+                        self._clipped += 1
+                    ax.errorbar(x, mean, yerr=[[lower], [sd]], fmt="_",
+                                color=f"C{k}", markersize=14, capsize=4, lw=1.6,
+                                zorder=3)
                 bad = (~ok) & np.isfinite(y)
                 if np.any(bad):
                     ax.plot(np.full(bad.sum(), x), y[bad], "o", markersize=3.5,

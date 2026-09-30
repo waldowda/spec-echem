@@ -30,6 +30,9 @@ GUI except by screenshot.
 
 **Overlaps the existing roadmap item** for figure export via `NavigationToolbar2QT`
 (pan/zoom/save for free, SVG/PDF) — do these together rather than twice.
+**PARTLY DONE 2026-09-30:** tab 6 (Band Fits) now carries that toolbar, so it has
+pan/zoom/home and Save Figure. It is the model for the other tabs — the same three
+lines would give Results and Analysis the same, and would supersede "Save Plots".
 
 Worth deciding at the same time: **what is the Modulation (across the ladder) view
 for?** Raised 2026-09-29: it does not depend on which segment is selected, so sitting
