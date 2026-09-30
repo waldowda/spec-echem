@@ -23,6 +23,7 @@ from gui.tabs.parameters_tab import ParametersTab
 from gui.tabs.run_tab import RunTab
 from gui.tabs.results_tab import ResultsTab
 from gui.tabs.analysis_tab import AnalysisTab
+from gui.tabs.band_tab import BandTab
 
 
 class MainWindow(QMainWindow):
@@ -72,12 +73,14 @@ class MainWindow(QMainWindow):
         self.run_tab = RunTab(self)
         self.results_tab = ResultsTab(self)
         self.analysis_tab = AnalysisTab(self)
+        self.band_tab = BandTab(self)
 
         self.tabs.addTab(self.instrument_tab, "1. Instrument")
         self.tabs.addTab(self.parameters_tab, "2. Parameters")
         self.tabs.addTab(self.run_tab, "3. Run")
         self.tabs.addTab(self.results_tab, "4. Results")
         self.tabs.addTab(self.analysis_tab, "5. Analysis")
+        self.tabs.addTab(self.band_tab, "6. Band Fits")
 
         self.setCentralWidget(self.tabs)
 

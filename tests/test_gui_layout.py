@@ -2866,63 +2866,12 @@ def _band_window(window, tmp_path):
     return df, wl, t
 
 
-def test_the_band_fit_sits_beside_the_single_wavelength_fit(window, tmp_path):
-    """Requested: beside, not replacing. The normal path is to fit one wavelength,
-    look at it, and only then ask whether tau holds across the band."""
+def test_the_band_button_hands_off_to_the_band_tab(window, tmp_path):
+    """Beside, not replacing — and a LAUNCHER, not a dialog: an all-segment band fit
+    is tens of seconds of compute and must survive being looked away from."""
     tab = window.analysis_tab
     assert tab.band_btn is not None and tab.fit_btn is not None
-    assert "EVERY wavelength" in tab.band_btn.toolTip()
-
-
-def test_the_band_dialog_fits_and_reports(window, tmp_path, monkeypatch):
-    import numpy as np
-    from gui.tabs.analysis_tab import BandFitDialog
-
-    df, wl, t = _band_window(window, tmp_path)
-    dialog = BandFitDialog(window.analysis_tab, "Doping 0", df, wl,
-                           720.0, 880.0, "exp", (None, None))
-    dialog._run()
-
-    assert dialog._band is not None and len(dialog._band) == 7
-    assert dialog.table.rowCount() == 7
-    assert "of 7 wavelengths fitted" in dialog.status.text()
-    assert dialog.save_btn.isEnabled()
-    # tau really does vary across this band, which is the point of the feature
-    _w, tau = dialog._band.taus()
-    assert np.nanmax(tau) > 1.5 * np.nanmin(tau)
-
-
-def test_the_band_dialog_inherits_the_model_and_window(window, tmp_path):
-    """Inherited settings that are invisible are how a band ends up compared against
-    a fit it does not match."""
-    from gui.tabs.analysis_tab import BandFitDialog
-
-    df, wl, t = _band_window(window, tmp_path)
-    dialog = BandFitDialog(window.analysis_tab, "Doping 0", df, wl,
-                           720.0, 880.0, "stretched", (2.0, 9.0))
-    assert "stretched" in dialog.inherited.text()
-    assert "2.0 to 9.0 s" in dialog.inherited.text()
-    assert "Analysis tab" in dialog.inherited.text()
-
-    dialog._run()
-    assert dialog._band.model == "stretched"
-    assert dialog._band.t_first >= 2.0 and dialog._band.t_last <= 9.0
-
-
-def test_a_band_outside_the_data_reports_instead_of_raising(window, tmp_path):
-    from gui.tabs.analysis_tab import BandFitDialog
-
-    df, wl, t = _band_window(window, tmp_path)
-    dialog = BandFitDialog(window.analysis_tab, "Doping 0", df, wl,
-                           720.0, 880.0, "exp", (None, None))
-    dialog.start_spin.setRange(0.0, 5000.0)
-    dialog.stop_spin.setRange(0.0, 5000.0)
-    dialog.start_spin.setValue(1200.0)
-    dialog.stop_spin.setValue(1400.0)
-    dialog._run()
-
-    assert "no wavelengths between" in dialog.status.text()
-    assert dialog._band is None and not dialog.save_btn.isEnabled()
+    assert "Band Fits tab" in tab.band_btn.toolTip()
 
 
 def _biexp_band(window):
@@ -2944,55 +2893,3 @@ def _biexp_band(window):
         "Doping 7", DATA_TYPE_DOPING, 7, num_points=300, delta_time=0.1, trigger=False)
     window.analysis_tab.refresh_segments()
     return df, wl
-
-
-def test_a_biexp_band_plots_tau1_tau2_and_the_mean(window):
-    """One generic 'tau' curve hid the difference: FitResult.tau is the SLOWER
-    component for biexp, while the single-fit legend headlines mean tau. On
-    2026-09-30 a single fit read mean tau 0.948 s and the band read 2.5 s at the same
-    wavelength — tau2 = 2.449 s. Both right, one label."""
-    from gui.tabs.analysis_tab import BandFitDialog
-
-    df, wl = _biexp_band(window)
-    dialog = BandFitDialog(window.analysis_tab, "Doping 7", df, wl,
-                           480.0, 540.0, "biexp", (None, None))
-    dialog._run()
-
-    labels = [t.get_text() for t in dialog.canvas.ax.get_legend().get_texts()]
-    assert "tau1 (fast)" in labels
-    assert "tau2 (slow)" in labels
-    assert "mean tau" in labels
-
-    # and the three really are different numbers, not the same curve three times
-    frame = dialog._band.table()
-    assert frame["tau1"].mean() < frame["tau_mean"].mean() < frame["tau2"].mean()
-
-
-def test_a_stretched_band_puts_beta_on_its_own_axis(window):
-    """beta is dimensionless and runs 0-1: sharing the tau axis would either flatten
-    it to a line or push tau off the top."""
-    from gui.tabs.analysis_tab import BandFitDialog
-
-    df, wl = _biexp_band(window)
-    dialog = BandFitDialog(window.analysis_tab, "Doping 7", df, wl,
-                           480.0, 540.0, "stretched", (None, None))
-    dialog._run()
-
-    twins = [a for a in dialog.canvas.fig.axes if a is not dialog.canvas.ax]
-    assert twins, "beta needs its own y axis"
-    assert "beta" in twins[0].get_ylabel()
-    assert twins[0].get_ylim()[1] <= 1.1
-
-
-def test_an_exp_band_stays_a_single_curve(window):
-    """exp has one tau and mean tau equals it — three curves would be three copies."""
-    from gui.tabs.analysis_tab import BandFitDialog
-
-    df, wl = _biexp_band(window)
-    dialog = BandFitDialog(window.analysis_tab, "Doping 7", df, wl,
-                           480.0, 540.0, "exp", (None, None))
-    dialog._run()
-    legend = dialog.canvas.ax.get_legend()
-    labels = [t.get_text() for t in legend.get_texts()] if legend else []
-    assert "tau1 (fast)" not in labels and "mean tau" not in labels
-    assert not [a for a in dialog.canvas.fig.axes if a is not dialog.canvas.ax]
