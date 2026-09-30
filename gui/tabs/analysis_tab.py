@@ -1287,27 +1287,69 @@ class BandFitDialog(QDialog):
         self._fill_table()
         self.save_btn.setEnabled(True)
 
+    # What to plot for each model, and WHICH quantity the hollow "needs review"
+    # markers sit on. A single generic "tau" curve hid the difference: for biexp,
+    # FitResult.tau is the SLOWER component while the single-fit legend headlines
+    # mean tau, so the two panels showed different numbers under the same word.
+    # Reported 2026-09-30: a single fit read mean tau 0.948 s and the band read
+    # 2.5 s at the same wavelength -- tau2 = 2.449 s. Both right, one label.
+    BAND_CURVES = {
+        "exp": [("tau", "tau")],
+        "biexp": [("tau1", "tau1 (fast)"), ("tau2", "tau2 (slow)"),
+                  ("tau_mean", "mean tau")],
+        "stretched": [("tau", "tau"), ("tau_mean", "mean tau")],
+    }
+    BAND_PRIMARY = {"exp": "tau", "biexp": "tau2", "stretched": "tau"}
+
     def _draw(self):
-        band = self._band
-        wl, tau = band.taus()
-        ok = np.array([r.ok for r in band.results])
-        # Rejected fits are DRAWN, hollow, not hidden: a tau rejected for a wide
-        # error bar still says something sitting beside its neighbours, and a gap
-        # would read as "no data here" rather than "this one needs review".
+        frame = self._band.table()
+        wl = frame["wavelength_nm"].to_numpy()
+        ok = frame["ok"].to_numpy(dtype=bool)
+
         series = []
-        if np.any(ok & np.isfinite(tau)):
-            series.append((wl[ok & np.isfinite(tau)], tau[ok & np.isfinite(tau)],
-                           "passed", {"marker": "o", "linestyle": "-"}))
-        bad = (~ok) & np.isfinite(tau)
-        if np.any(bad):
-            series.append((wl[bad], tau[bad], "needs review",
-                           {"marker": "o", "linestyle": "none",
-                            "markerfacecolor": "none"}))
+        for column, label in self.BAND_CURVES.get(self._model,
+                                                  self.BAND_CURVES["exp"]):
+            if column not in frame:
+                continue
+            y = frame[column].to_numpy(dtype=float)
+            good = ok & np.isfinite(y)
+            if np.any(good):
+                series.append((wl[good], y[good], label,
+                               {"marker": "o", "markersize": 3.5}))
+
+        # Rejected fits are SHOWN, hollow, on the primary quantity only: a tau
+        # rejected for a wide error bar still says something beside its neighbours,
+        # but drawing every curve twice would make the plot unreadable.
+        primary = self.BAND_PRIMARY.get(self._model, "tau")
+        if primary in frame:
+            y = frame[primary].to_numpy(dtype=float)
+            bad = (~ok) & np.isfinite(y)
+            if np.any(bad):
+                series.append((wl[bad], y[bad], "needs review",
+                               {"marker": "o", "markersize": 4, "linestyle": "none",
+                                "markerfacecolor": "none"}))
+
         if not series:
             self.canvas.show_message("No wavelength in this band produced a fit.")
             return
         self.canvas.plot_multi_xy(series, "Wavelength (nm)", "tau (s)",
                                   title=f"{self._label} — tau vs wavelength")
+
+        # beta on its OWN axis for the stretched model: it is dimensionless and runs
+        # 0-1, so sharing the tau axis would either flatten it to a line or stretch
+        # tau off the top. fig.clear() in _new_axes drops the twin each redraw, so
+        # they cannot accumulate.
+        if self._model == "stretched" and "beta" in frame:
+            beta = frame["beta"].to_numpy(dtype=float)
+            good = ok & np.isfinite(beta)
+            if np.any(good):
+                ax2 = self.canvas.ax.twinx()
+                ax2.plot(wl[good], beta[good], color="#2ca02c", lw=1.0,
+                         marker="s", markersize=3, label="beta")
+                ax2.set_ylabel("beta (stretch exponent)", color="#2ca02c")
+                ax2.tick_params(axis="y", labelcolor="#2ca02c")
+                ax2.set_ylim(0, 1.05)
+                self.canvas.draw_idle()
 
     def _fill_table(self):
         frame = self._band.table()

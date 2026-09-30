@@ -2923,3 +2923,76 @@ def test_a_band_outside_the_data_reports_instead_of_raising(window, tmp_path):
 
     assert "no wavelengths between" in dialog.status.text()
     assert dialog._band is None and not dialog.save_btn.isEnabled()
+
+
+def _biexp_band(window):
+    """A band with two genuine timescales, so tau1 and tau2 are both meaningful."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    rng = np.random.default_rng(5)
+    t = np.linspace(0.0, 30.0, 300)
+    wl = np.linspace(480.0, 540.0, 5)
+    absorb = np.array([0.05 + 0.3 * (1 - np.exp(-t / 0.45))
+                       + 0.12 * (1 - np.exp(-t / (2.4 + 0.1 * i)))
+                       + rng.normal(0, 5e-5, t.size) for i in range(len(wl))])
+    df = pd.DataFrame(absorb, index=wl, columns=t)
+    window.results["Doping 7"] = df
+    window.segments_by_label["Doping 7"] = Segment(
+        "Doping 7", DATA_TYPE_DOPING, 7, num_points=300, delta_time=0.1, trigger=False)
+    window.analysis_tab.refresh_segments()
+    return df, wl
+
+
+def test_a_biexp_band_plots_tau1_tau2_and_the_mean(window):
+    """One generic 'tau' curve hid the difference: FitResult.tau is the SLOWER
+    component for biexp, while the single-fit legend headlines mean tau. On
+    2026-09-30 a single fit read mean tau 0.948 s and the band read 2.5 s at the same
+    wavelength — tau2 = 2.449 s. Both right, one label."""
+    from gui.tabs.analysis_tab import BandFitDialog
+
+    df, wl = _biexp_band(window)
+    dialog = BandFitDialog(window.analysis_tab, "Doping 7", df, wl,
+                           480.0, 540.0, "biexp", (None, None))
+    dialog._run()
+
+    labels = [t.get_text() for t in dialog.canvas.ax.get_legend().get_texts()]
+    assert "tau1 (fast)" in labels
+    assert "tau2 (slow)" in labels
+    assert "mean tau" in labels
+
+    # and the three really are different numbers, not the same curve three times
+    frame = dialog._band.table()
+    assert frame["tau1"].mean() < frame["tau_mean"].mean() < frame["tau2"].mean()
+
+
+def test_a_stretched_band_puts_beta_on_its_own_axis(window):
+    """beta is dimensionless and runs 0-1: sharing the tau axis would either flatten
+    it to a line or push tau off the top."""
+    from gui.tabs.analysis_tab import BandFitDialog
+
+    df, wl = _biexp_band(window)
+    dialog = BandFitDialog(window.analysis_tab, "Doping 7", df, wl,
+                           480.0, 540.0, "stretched", (None, None))
+    dialog._run()
+
+    twins = [a for a in dialog.canvas.fig.axes if a is not dialog.canvas.ax]
+    assert twins, "beta needs its own y axis"
+    assert "beta" in twins[0].get_ylabel()
+    assert twins[0].get_ylim()[1] <= 1.1
+
+
+def test_an_exp_band_stays_a_single_curve(window):
+    """exp has one tau and mean tau equals it — three curves would be three copies."""
+    from gui.tabs.analysis_tab import BandFitDialog
+
+    df, wl = _biexp_band(window)
+    dialog = BandFitDialog(window.analysis_tab, "Doping 7", df, wl,
+                           480.0, 540.0, "exp", (None, None))
+    dialog._run()
+    legend = dialog.canvas.ax.get_legend()
+    labels = [t.get_text() for t in legend.get_texts()] if legend else []
+    assert "tau1 (fast)" not in labels and "mean tau" not in labels
+    assert not [a for a in dialog.canvas.fig.axes if a is not dialog.canvas.ax]
