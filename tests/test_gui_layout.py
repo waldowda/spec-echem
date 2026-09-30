@@ -2844,3 +2844,82 @@ def test_convert_to_h5_is_distinct_from_the_oect_export(window, monkeypatch, tmp
     assert str(tmp_path / "20260929_run") in seen["msg"]     # the full path
     assert "text files are unchanged" in seen["info"]
     assert "could not be recovered" in seen["info"]          # names the one loss
+
+
+def _band_window(window, tmp_path):
+    """A loaded segment whose band really does have tau varying with wavelength."""
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    t = np.linspace(0.0, 12.0, 60)
+    wl = np.linspace(700.0, 900.0, 9)
+    rng = np.random.default_rng(0)
+    absorb = np.array([0.1 + 0.5 * (1 - np.exp(-t / (1.0 + 0.3 * i)))
+                       + rng.normal(0, 1e-4, t.size) for i in range(len(wl))])
+    df = pd.DataFrame(absorb, index=wl, columns=t)
+    window.results["Doping 0"] = df
+    window.segments_by_label["Doping 0"] = Segment(
+        "Doping 0", DATA_TYPE_DOPING, 0, num_points=60, delta_time=0.2, trigger=False)
+    window.analysis_tab.refresh_segments()
+    return df, wl, t
+
+
+def test_the_band_fit_sits_beside_the_single_wavelength_fit(window, tmp_path):
+    """Requested: beside, not replacing. The normal path is to fit one wavelength,
+    look at it, and only then ask whether tau holds across the band."""
+    tab = window.analysis_tab
+    assert tab.band_btn is not None and tab.fit_btn is not None
+    assert "EVERY wavelength" in tab.band_btn.toolTip()
+
+
+def test_the_band_dialog_fits_and_reports(window, tmp_path, monkeypatch):
+    import numpy as np
+    from gui.tabs.analysis_tab import BandFitDialog
+
+    df, wl, t = _band_window(window, tmp_path)
+    dialog = BandFitDialog(window.analysis_tab, "Doping 0", df, wl,
+                           720.0, 880.0, "exp", (None, None))
+    dialog._run()
+
+    assert dialog._band is not None and len(dialog._band) == 7
+    assert dialog.table.rowCount() == 7
+    assert "of 7 wavelengths fitted" in dialog.status.text()
+    assert dialog.save_btn.isEnabled()
+    # tau really does vary across this band, which is the point of the feature
+    _w, tau = dialog._band.taus()
+    assert np.nanmax(tau) > 1.5 * np.nanmin(tau)
+
+
+def test_the_band_dialog_inherits_the_model_and_window(window, tmp_path):
+    """Inherited settings that are invisible are how a band ends up compared against
+    a fit it does not match."""
+    from gui.tabs.analysis_tab import BandFitDialog
+
+    df, wl, t = _band_window(window, tmp_path)
+    dialog = BandFitDialog(window.analysis_tab, "Doping 0", df, wl,
+                           720.0, 880.0, "stretched", (2.0, 9.0))
+    assert "stretched" in dialog.inherited.text()
+    assert "2.0 to 9.0 s" in dialog.inherited.text()
+    assert "Analysis tab" in dialog.inherited.text()
+
+    dialog._run()
+    assert dialog._band.model == "stretched"
+    assert dialog._band.t_first >= 2.0 and dialog._band.t_last <= 9.0
+
+
+def test_a_band_outside_the_data_reports_instead_of_raising(window, tmp_path):
+    from gui.tabs.analysis_tab import BandFitDialog
+
+    df, wl, t = _band_window(window, tmp_path)
+    dialog = BandFitDialog(window.analysis_tab, "Doping 0", df, wl,
+                           720.0, 880.0, "exp", (None, None))
+    dialog.start_spin.setRange(0.0, 5000.0)
+    dialog.stop_spin.setRange(0.0, 5000.0)
+    dialog.start_spin.setValue(1200.0)
+    dialog.stop_spin.setValue(1400.0)
+    dialog._run()
+
+    assert "no wavelengths between" in dialog.status.text()
+    assert dialog._band is None and not dialog.save_btn.isEnabled()
