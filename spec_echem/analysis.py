@@ -632,6 +632,168 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
     return result
 
 
+class BandFit:
+    """Every wavelength in a band, fitted the same way. -> `.results`
+
+    The scientific point is tau(lambda): a relaxation time that VARIES across an
+    absorption band is evidence the band is not one species relaxing, which a single
+    probe wavelength cannot show you.
+
+    Failures do not stop the band. One wavelength that will not converge comes back
+    as a rejected FitResult beside the others, because "never withhold a result"
+    applies to the neighbours too -- and because a band is most interesting at its
+    edges, which is exactly where fits get hard.
+    """
+
+    def __init__(self, wavelengths, results, model, wl_start, wl_stop,
+                 t_first=None, t_last=None, low_snr=()):
+        self.wavelengths = np.asarray(wavelengths, dtype=float)
+        self.results = list(results)
+        # PARALLEL, and checked: wavelengths come from the row index while results
+        # come from the fitting loop, so a change to either could silently shift one
+        # against the other and every tau would then be labelled with the wrong
+        # wavelength -- a wrong answer, not a crash. Caught by mutation testing
+        # 2026-09-30, where dropping the loop's first iteration left the arrays
+        # misaligned and the tests still passed.
+        if len(self.results) != self.wavelengths.size:
+            raise ValueError(
+                f"BandFit: {self.wavelengths.size} wavelengths but "
+                f"{len(self.results)} results — they must be parallel.")
+        self.model = model
+        self.wl_start = wl_start
+        self.wl_stop = wl_stop
+        self.t_first = t_first
+        self.t_last = t_last
+        # Wavelengths whose change never rose above the noise. Fitted anyway and
+        # flagged, not skipped: the user chose this band deliberately, and silently
+        # dropping pixels would misrepresent where the band ends.
+        self.low_snr = np.asarray(low_snr, dtype=float)
+
+    def __len__(self):
+        return len(self.results)
+
+    @property
+    def ok(self):
+        """The subset that converged AND passed the checks."""
+        return [(w, r) for w, r in zip(self.wavelengths, self.results) if r.ok]
+
+    @property
+    def converged(self):
+        """Converged, pass OR fail -- what you plot. A fit rejected for a wide error
+        bar still has a tau worth seeing next to its neighbours."""
+        return [(w, r) for w, r in zip(self.wavelengths, self.results)
+                if r.params is not None]
+
+    def taus(self, only_ok=False):
+        """(wavelengths, tau) for plotting tau against wavelength. NaN where a fit
+        produced nothing, so the arrays stay aligned with `self.wavelengths`."""
+        keep = {id(r) for _w, r in (self.ok if only_ok else self.converged)}
+        tau = np.array([(r.tau if id(r) in keep and r.tau is not None else np.nan)
+                        for r in self.results], dtype=float)
+        return self.wavelengths, tau
+
+    def summary(self):
+        """Counts, for a one-line status. Says how many were rejected AND why not
+        every rejection is the same thing."""
+        n = len(self.results)
+        converged = sum(1 for r in self.results if r.params is not None)
+        return {"n": n, "converged": converged, "ok": sum(1 for r in self.results if r.ok),
+                "no_convergence": n - converged, "low_snr": len(self.low_snr)}
+
+    def table(self):
+        """One row per wavelength, every parameter and its uncertainty.
+
+        A DataFrame rather than an array: the original returns bare taus, which
+        cannot say which parameter is which, carries no uncertainty, and cannot
+        record that a wavelength failed.
+        """
+        import pandas as pd
+        _func, names = MODELS[self.model]
+        rows = []
+        for wl, r in zip(self.wavelengths, self.results):
+            row = {"wavelength_nm": wl, "ok": r.ok, "reason": r.reason,
+                   "n_points": r.n}
+            for i, name in enumerate(names):
+                row[name] = r.params[i] if r.params is not None else np.nan
+                row[f"{name}_sd"] = (r.sd[i] if r.sd is not None
+                                     and i < len(r.sd) else np.nan)
+            # A `tau` column for EVERY model, so the table matches what taus()
+            # plots and bands fitted with different models stay comparable. For exp
+            # and stretched this repeats the parameter of the same name; for biexp
+            # it is the SLOWER component, which is FitResult.tau's definition and is
+            # not otherwise in the table under any single name.
+            row["tau"] = r.tau if r.params is not None else np.nan
+            row["tau_mean"] = (mean_relaxation_time(self.model, r.params)
+                               if r.params is not None else np.nan)
+            row["low_snr"] = bool(np.any(np.isclose(self.low_snr, wl)))
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+
+def fit_band(absorbance, wavelengths, time, wl_start, wl_stop, model="exp",
+             t_start=None, t_stop=None):
+    """Fit the transient at every wavelength between wl_start and wl_stop. -> BandFit
+
+    `absorbance` is (n_wavelengths, n_times) -- the orientation compute_absorbance
+    produces and the Results tab holds.
+
+    Deliberately different from the equivalent in the downstream repo in three ways,
+    each of which cost something there:
+
+    1. **A failure does not stop the band.** Its version calls curve_fit bare, so one
+       non-converging wavelength raises and the whole band is lost. Ours records a
+       rejected FitResult and carries on.
+    2. **Every wavelength is fitted.** Its version starts at `index.values[1:]`,
+       silently dropping the first, with no comment saying why.
+    3. **The segment's OWN time axis is used.** Its version takes the axis from a
+       different, smoothed product (`time_spectra_norm_sm`), which is only correct
+       while those two happen to share a grid.
+
+    And it reuses fit_transient, so every wavelength gets the same bounds, the same
+    rejection rules and the same uncertainties as a single-wavelength fit. A band
+    whose fits were computed differently from the single fit above it would be worse
+    than no band at all.
+    """
+    absorbance = np.asarray(absorbance, dtype=float)
+    wl = np.asarray(wavelengths, dtype=float)
+    t = np.asarray(time, dtype=float)
+    if absorbance.ndim != 2 or absorbance.shape[0] != wl.size:
+        raise ValueError(
+            f"absorbance must be (n_wavelengths, n_times) matching {wl.size} "
+            f"wavelengths; got {absorbance.shape}")
+    lo, hi = (wl_start, wl_stop) if wl_start <= wl_stop else (wl_stop, wl_start)
+    rows = np.where((wl >= lo) & (wl <= hi))[0]
+    if rows.size == 0:
+        raise ValueError(
+            f"no wavelengths between {lo:g} and {hi:g} nm "
+            f"(this segment covers {wl.min():.1f}-{wl.max():.1f} nm)")
+
+    band = absorbance[rows, :]
+
+    # Which pixels in the band are measuring anything, by the SAME test that stops
+    # the noisy blue edge winning automatic band selection. FLAGGED, never skipped:
+    # the user chose this band deliberately, and silently dropping pixels would
+    # misrepresent where it ends. One call for the whole band -- the estimator needs
+    # the time axis, so it is a 2-D test, not a per-row one.
+    low_snr = []
+    with np.errstate(invalid="ignore"):
+        delta = np.nanmax(band, axis=1) - np.nanmin(band, axis=1)
+    delta = np.where(np.isfinite(delta), delta, 0.0)
+    mask = _significant(band, delta)
+    if mask is not None:
+        low_snr = list(wl[rows][~mask])
+
+    results = []
+    first = last = None
+    for row in rows:
+        result = fit_transient(t, absorbance[row, :], model, t_start, t_stop)
+        results.append(result)
+        if first is None and result.t_first is not None:
+            first, last = result.t_first, result.t_last
+
+    return BandFit(wl[rows], results, model, lo, hi, first, last, low_snr)
+
+
 def _rejected(result, reason):
     """A fit that CONVERGED but failed a physical check, keeping its parameters.
 

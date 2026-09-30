@@ -2,6 +2,40 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Figure output, thought through properly — deferred 2026-09-29, NOT now
+
+Requested: deal with graph output in a more thoughtful manner, Results AND Analysis
+(tab 5), rather than patching the current button.
+
+**What "Save Plots" on the Results tab does today, and why it is ambiguous:**
+
+- It saves the two on-screen canvases for the CURRENTLY SELECTED segment as two
+  files, `<base>_absorbance` and `<base>_echem`.
+- **`_absorbance` is often a lie.** The top canvas hosts four views — Spectra,
+  Kinetics (one wavelength), Modulation (across the ladder), Density of states — and
+  the filename says `_absorbance` for all of them. Save a DOS plot and you get
+  `Doping 0_absorbance.png` containing a density-of-states curve. Same class of error
+  as a `time_spectrometer` dataset holding a copy of `time`: a name asserting what the
+  contents contradict.
+- **You type one filename and get two different ones.** Enter `Doping 0.png`, receive
+  `Doping 0_absorbance.png` and `Doping 0_echem.png`.
+- **Silent one-file case** when a segment has no echem — indistinguishable from a
+  failed save.
+- **The confirmation names no folder**, only basenames. (The OECT export had the same
+  flaw and it cost a hunt on 2026-09-29.)
+- 150 dpi is a screenshot, not a figure. PDF is offered but not signposted.
+
+**Tab 5 (Analysis) has no export at all**, so fits and their plots cannot leave the
+GUI except by screenshot.
+
+**Overlaps the existing roadmap item** for figure export via `NavigationToolbar2QT`
+(pan/zoom/save for free, SVG/PDF) — do these together rather than twice.
+
+Worth deciding at the same time: **what is the Modulation (across the ladder) view
+for?** Raised 2026-09-29: it does not depend on which segment is selected, so sitting
+behind a per-segment selector is misleading. Either it belongs elsewhere in the UI, or
+the selector should visibly not apply while it is showing.
+
 ## Next up — 2026-09-28
 
 - [ ] **Wednesday 2026-09-30: confirm the ladder on a Reference 610+ and an Interface
