@@ -22,7 +22,7 @@ from qtpy.QtWidgets import (
 )
 
 from spec_echem.analysis import MODELS, fit_band
-from spec_echem.data import DATA_TYPE_DOPING
+from spec_echem.data import DATA_TYPE_CV, DATA_TYPE_DOPING
 from gui.widgets.plot_canvas import MplCanvas
 
 # Which tau quantities each model actually has. A single generic "tau" curve hid the
@@ -219,6 +219,14 @@ class BandTab(QWidget):
         self.segment_combo.blockSignals(True)
         self.segment_combo.clear()
         for label in self.win.results:
+            # A CV is excluded, not merely skipped on the ladder. Its spectra are
+            # taken DURING a sweep, so "absorbance against time" there is a sweep
+            # response, not a relaxation, and a tau fitted to it would be a number
+            # with no meaning. Pre-dedoping stays: it is a genuine hold, and only
+            # its place on the ladder is undefined.
+            seg = self.win.segments_by_label.get(label)
+            if seg is not None and seg.data_type == DATA_TYPE_CV:
+                continue
             self.segment_combo.addItem(label, label)
         if previous:
             i = self.segment_combo.findData(previous)
@@ -438,9 +446,12 @@ class BandTab(QWidget):
             labels = [f"{p:+.2f}" for _l, p, _d, _b in entries]
 
             ax = axes[0][col]
-            offscreen += self._strip(ax, entries, xs, model)
+            # BEFORE _strip, which sets the limits: a log axis cannot take a lower
+            # bound of zero or below, and setting linear limits first left
+            # matplotlib to pick its own — every point squashed against the top.
             if self.log_check.isChecked():
                 ax.set_yscale("log")
+            offscreen += self._strip(ax, entries, xs, model)
             ax.set_xticks(xs)
             ax.set_xticklabels(labels)
             ax.set_title(f"{direction} — {model}")
@@ -535,9 +546,18 @@ class BandTab(QWidget):
                  for name, _l in columns for _a, _b, _c, band in entries
                  if name in band.table()] or [np.array([np.nan])])
             passed = passed[np.isfinite(passed)]
+            if ax.get_yscale() == "log":
+                # Multiplicative padding, and only over POSITIVE values: on a log
+                # axis "min - 10%" is meaningless and a non-positive bound is
+                # rejected outright.
+                passed = passed[passed > 0]
             if passed.size:
-                pad = 0.1 * (passed.max() - passed.min() or abs(passed.max()) or 1.0)
-                lo, hi = passed.min() - pad, passed.max() + pad
+                if ax.get_yscale() == "log":
+                    lo, hi = passed.min() / 2.0, passed.max() * 2.0
+                else:
+                    pad = 0.1 * (passed.max() - passed.min()
+                                 or abs(passed.max()) or 1.0)
+                    lo, hi = passed.min() - pad, passed.max() + pad
                 ax.set_ylim(lo, hi)
                 for _lbl, _pot, _dir, band in entries:
                     frame = band.table()
