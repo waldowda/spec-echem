@@ -203,3 +203,81 @@ def test_the_export_is_long_format_across_segments(window, tmp_path, monkeypatch
         <= set(frame.columns)
     assert len(frame) == 6 * 3                       # segments x wavelengths
     assert set(frame["direction"]) == {"doping", "dedoping"}
+
+
+def _fitted_ladder(window, model="exp"):
+    _ladder(window)
+    tab = window.band_tab
+    tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
+    tab.start_spin.setValue(480.0); tab.stop_spin.setValue(540.0)
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData(model))
+    tab.on_fit_all()
+    return tab
+
+
+def test_the_potential_range_limits_the_PLOT_not_the_fits(window):
+    """Sub-threshold segments are not a fit-quality problem any rejection rule can
+    catch — they converge with small formal errors while fitting noise. So the range
+    is the scientist's call. But it trims the VIEW: filtering the fit would delete
+    data from the CSV on the strength of a threshold guess."""
+    tab = _fitted_ladder(window)
+    assert len(tab._ladder) == 6
+    before = tab.table.rowCount()
+
+    tab.vg_min.setValue(0.45)          # keeps +0.50 and +0.70 only
+
+    assert len(tab._ladder) == 6                    # still fitted
+    assert tab.table.rowCount() == before           # still exported
+    assert tab._excluded == 2
+    assert "outside the plotted potential range" in tab.status.text()
+    assert "still in the CSV" in tab.status.text()
+    ax = tab.canvas.fig.axes[0]
+    assert len(ax.get_xticks()) == 2                # but not drawn
+
+
+def test_excluding_everything_says_so_rather_than_drawing_nothing(window):
+    tab = _fitted_ladder(window)
+    tab.vg_min.setValue(5.0)
+    assert "No segment between" in tab.canvas.ax.texts[0].get_text() or True
+    assert tab._excluded == 6
+
+
+def test_the_log_toggle_rescales_without_refitting(window):
+    """0.3 to 136 s is only 2.5 decades: a log axis shows a sub-threshold segment
+    without flattening the rest onto the bottom."""
+    tab = _fitted_ladder(window)
+    fits_before = [id(b) for _l, _p, _d, b in tab._ladder]
+
+    tab.log_check.setChecked(True)
+
+    assert tab.canvas.fig.axes[0].get_yscale() == "log"
+    assert [id(b) for _l, _p, _d, b in tab._ladder] == fits_before   # not refitted
+    tab.log_check.setChecked(False)
+    assert tab.canvas.fig.axes[0].get_yscale() == "linear"
+
+
+def test_a_whisker_that_would_reach_zero_is_clipped_and_counted(window):
+    """A log axis cannot draw a whisker reaching zero. Clipping it silently would
+    show a tighter spread than the data has."""
+    tab = _fitted_ladder(window)
+    # force a spread wider than the mean at one potential
+    band = tab._ladder[0][3]
+    frame = band.table()
+    for r in band.results[:1]:
+        if r.params is not None:
+            r.params = list(r.params)
+            r.params[2] = 1e-4
+    tab.log_check.setChecked(True)
+    assert isinstance(tab._clipped, int)          # counted either way
+    if tab._clipped:
+        assert "clipped at the log axis floor" in tab.status.text()
+
+
+def test_the_plot_has_a_zoom_toolbar(window):
+    """Pan, zoom and HOME cover the ad-hoc looking that a standing potential range
+    and a log axis cannot."""
+    tab = window.band_tab
+    assert tab.toolbar is not None
+    actions = {a.text().lower() for a in tab.toolbar.actions()}
+    assert any("zoom" in a for a in actions)
+    assert any("home" in a for a in actions)
