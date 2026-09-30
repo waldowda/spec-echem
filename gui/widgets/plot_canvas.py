@@ -421,12 +421,19 @@ class MplCanvas(FigureCanvasQTAgg):
             xlabel, ylabel = ylabel, xlabel
         self._xlabel, self._ylabel = xlabel, ylabel
         self._new_axes()
-        for x, y, label in curves:
+        for curve in curves:
+            # (x, y, label) or (x, y, label, style): the optional fourth element is
+            # kwargs merged into plot(), so a caller can draw one series as hollow
+            # markers without every caller learning a new signature. Added for the
+            # band fit, which must show rejected wavelengths DIFFERENTLY rather than
+            # hiding them.
+            x, y, label = curve[0], curve[1], curve[2]
+            style = dict(curve[3]) if len(curve) > 3 else {}
             x_arr = np.asarray(x, dtype=float)
             y_arr = np.asarray(y, dtype=float)
             if swap_axes:
                 x_arr, y_arr = y_arr, x_arr
-            self.ax.plot(x_arr, y_arr, lw=1.2, label=str(label))
+            self.ax.plot(x_arr, y_arr, label=str(label), **{"lw": 1.2, **style})
         if logy:
             # Non-positive points cannot be drawn on a log axis; matplotlib drops
             # them. The caller states how many, so they are not silently lost.
