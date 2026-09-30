@@ -55,6 +55,21 @@ def _segment(window, label, data_type, run, taus, potential_step=0.1):
     return wl
 
 
+def _mono_segment(window, label, data_type, run, taus):
+    """A SINGLE-exponential segment, so fitting with "exp" recovers the tau asked
+    for. _segment builds biexponential data with a fixed 0.45 s fast component, so an
+    exp fit of it returns an effective tau near 0.4 s whatever is passed — which is
+    no good for a test that needs a wide, controlled spread."""
+    rng = np.random.default_rng(abs(hash(label)) % 2**32)
+    t = np.linspace(0.0, 400.0, 400)
+    wl = np.linspace(480.0, 540.0, len(taus))
+    absorb = np.array([0.05 + 0.4 * (1 - np.exp(-t / tau))
+                       + rng.normal(0, 2e-5, t.size) for tau in taus])
+    window.results[label] = pd.DataFrame(absorb, index=wl, columns=t)
+    window.segments_by_label[label] = Segment(
+        label, data_type, run, num_points=400, delta_time=1.0, trigger=False)
+
+
 def _ladder(window):
     """Three doping steps and their dedopes, with a real potential ladder."""
     window.settings.update(doping_potential_start=0.3, doping_potential_step=0.2,
@@ -164,21 +179,42 @@ def test_an_exp_ladder_has_no_beta_row(window):
     assert not any("beta" in a.get_ylabel() for a in tab.canvas.fig.axes)
 
 
-def test_segments_with_no_ladder_potential_are_named_not_dropped(window):
-    """A CV sweeps and a pre-dedope is a single baseline — neither is a rung."""
-    _ladder(window)
+def test_a_cv_is_not_offered_at_all(window):
+    """Not merely skipped on the ladder: a CV's spectra are taken DURING a sweep, so
+    absorbance-against-time there is a sweep response, not a relaxation, and a tau
+    fitted to it would be a number with no meaning."""
     from spec_echem.data import DATA_TYPE_CV
+    _ladder(window)
     _segment(window, "CV", DATA_TYPE_CV, 0, [2.0, 2.2, 2.4])
     window.band_tab.refresh_segments()
 
     tab = window.band_tab
+    offered = [tab.segment_combo.itemData(i)
+               for i in range(tab.segment_combo.count())]
+    assert "CV" not in offered
+    assert "Doping 0" in offered
+
+
+def test_a_hold_with_no_rung_is_named_not_silently_dropped(window):
+    """Pre-dedoping IS a genuine hold, so it stays fittable — only its place on the
+    ladder is undefined, and the status says so."""
+    from spec_echem.data import DATA_TYPE_PREDEDOPING
+    _ladder(window)
+    _segment(window, "Pre-dedoping 0", DATA_TYPE_PREDEDOPING, 0, [2.0, 2.2, 2.4])
+    window.band_tab.refresh_segments()
+
+    tab = window.band_tab
+    offered = [tab.segment_combo.itemData(i)
+               for i in range(tab.segment_combo.count())]
+    assert "Pre-dedoping 0" in offered           # fittable on its own
+
     tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
     tab.start_spin.setValue(480.0); tab.stop_spin.setValue(540.0)
     tab.on_fit_all()
 
-    assert "CV" in tab.status.text()
+    assert "Pre-dedoping 0" in tab.status.text()
     assert "no ladder potential" in tab.status.text()
-    assert len(tab._ladder) == 6          # the six real rungs still fitted
+    assert len(tab._ladder) == 6                 # the six real rungs still fitted
 
 
 def test_the_export_is_long_format_across_segments(window, tmp_path, monkeypatch):
@@ -281,3 +317,48 @@ def test_the_plot_has_a_zoom_toolbar(window):
     actions = {a.text().lower() for a in tab.toolbar.actions()}
     assert any("zoom" in a for a in actions)
     assert any("home" in a for a in actions)
+
+
+def test_the_log_axis_scales_to_the_data_not_to_zero(window):
+    """Reported from the bench: every point squashed against the top of the plot.
+    set_ylim ran BEFORE set_yscale("log") with a lower bound of min - 10% of the
+    range, which on a log axis is meaningless and — across a WIDE tau spread — is
+    negative, so matplotlib ignored it and chose its own decades.
+
+    The spread has to be wide to reproduce it. A first version of this test used the
+    ordinary fixture, whose taus run 1.5-3.0 s, where min - 10% is comfortably
+    positive and the bug cannot appear. On the bench the real ladder ran 0.2 s to
+    136 s."""
+    window.settings.update(doping_potential_start=0.3, doping_potential_step=0.2,
+                           dedoping_potential=-0.5)
+    window.loaded_run_settings = dict(window.settings)
+    _mono_segment(window, "Doping 0", DATA_TYPE_DOPING, 0, [0.5, 0.6, 0.7])
+    _mono_segment(window, "Doping 1", DATA_TYPE_DOPING, 1, [60.0, 80.0, 100.0])
+    tab = window.band_tab
+    tab.refresh_segments()
+    tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
+    tab.start_spin.setValue(480.0); tab.stop_spin.setValue(540.0)
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("exp"))
+    tab.on_fit_all()
+
+    # the condition the bug needs: linear padding would put the floor below zero
+    frame = tab._ladder_frame()
+    taus = frame.loc[frame["ok"], "tau"].to_numpy(dtype=float)
+    assert taus.min() - 0.1 * (taus.max() - taus.min()) < 0
+
+    tab.log_check.setChecked(True)
+
+    ax = tab.canvas.fig.axes[0]
+    assert ax.get_yscale() == "log"
+    lo, hi = ax.get_ylim()
+    assert lo > 0, "a log axis cannot take a non-positive lower bound"
+
+    # the drawn points must sit INSIDE the axes, not crushed against one edge
+    ys = np.concatenate([np.asarray(line.get_ydata(), dtype=float)
+                         for line in ax.lines if len(line.get_ydata())]
+                        or [np.array([np.nan])])
+    ys = ys[np.isfinite(ys) & (ys > 0)]
+    assert ys.size
+    assert lo <= ys.min() and ys.max() <= hi
+    # and the range must be snug, not decades of empty space
+    assert hi / lo < 1e4
