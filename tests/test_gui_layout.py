@@ -453,7 +453,7 @@ def test_an_unknown_range_falls_back_to_leave_alone(window):
 
 def test_the_segment_dropdown_holds_a_full_ladder(window, monkeypatch):
     import pandas as pd
-    from gui.tabs.results_tab import SEGMENT_COMBO_VISIBLE
+    from gui.segment_labels import SEGMENT_COMBO_VISIBLE
 
     # This is a dropdown test; plotting is exercised elsewhere.
     monkeypatch.setattr(window.results_tab.canvas, "show_absorbance",
@@ -489,6 +489,49 @@ def test_a_longer_ladder_still_scrolls_rather_than_vanishing(window, monkeypatch
     window.results_tab.refresh_segments()
     assert window.results_tab.segment_combo.count() == 41
 
+
+
+# 2026-09-30: the three tabs that select a segment had three near-copies of the label
+# builder, and they drifted -- Band Fits showed a bare "Doping 7" while the other two
+# named its potential. A potential visible on one tab and not another gets attributed
+# to the data, so the invariant is now that all three render a segment identically.
+
+def test_all_three_segment_dropdowns_label_a_segment_the_same_way(window, monkeypatch):
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    monkeypatch.setattr(window.results_tab.canvas, "show_absorbance",
+                        lambda *a, **k: None)
+
+    # Wavelength-indexed with time columns, as the tabs' own loaders produce.
+    df = pd.DataFrame([[0.1, 0.2], [0.15, 0.25]],
+                      index=[500.0, 600.0], columns=[0.0, 0.1])
+    label = "Doping 3"
+    window.results = {label: df}
+    window.segments_by_label = {
+        label: Segment(label=label, data_type=DATA_TYPE_DOPING, run_number=3,
+                       num_points=10, delta_time=0.1, trigger=False)}
+    # No run folder, so the potential comes from settings rather than a measured file.
+    window.run_folder = None
+    window._potential_cache = {}
+    window.settings = dict(window.settings, doping_potential_start=0.2,
+                           doping_potential_step=0.1)
+
+    for tab in (window.results_tab, window.analysis_tab, window.band_tab):
+        tab.refresh_segments()
+
+    texts = {tab.segment_combo.itemText(0)
+             for tab in (window.results_tab, window.analysis_tab, window.band_tab)}
+    assert len(texts) == 1, texts
+    shown = texts.pop()
+    assert shown.startswith(label) and "V" in shown     # the potential is named
+
+    # And the sizing/popup behaviour is the same, so one tab cannot elide what
+    # another shows in full.
+    widths = {tab.segment_combo.minimumWidth()
+              for tab in (window.results_tab, window.analysis_tab, window.band_tab)}
+    assert len(widths) == 1 and widths.pop() > 0
 
 # --- Tab 5: Analysis ---------------------------------------------------------
 # Fitting lives in its own tab because it is post-run work with model, window and
@@ -528,6 +571,42 @@ def analysis_window(window, tmp_path):
     window.run_folder = tmp_path / "run"
     window.analysis_tab.refresh_segments()
     return window
+
+
+# 2026-09-30: "Fit all segments" fits the pre-dedope, then dropped it from the
+# ladder without a word AND called it "dedoping" in the all-fits table. It IS a hold
+# at the dedoping potential, but it runs before any doping, so averaging it in with
+# the real dedoping steps would be wrong -- and a silent exclusion from the plot is
+# the kind that turns a plot into a claim it cannot support.
+
+def test_pre_dedoping_is_named_not_counted_as_a_dedoping_step(analysis_window):
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_PREDEDOPING
+    from spec_echem.experiment import Segment
+
+    w = analysis_window
+    doping = w.results["Doping 0"]
+    w.results["Pre-dedoping"] = pd.DataFrame(
+        doping.values, index=doping.index, columns=doping.columns)
+    w.segments_by_label["Pre-dedoping"] = Segment(
+        "Pre-dedoping", DATA_TYPE_PREDEDOPING, 0, 120, 0.1, True)
+    w.analysis_tab.refresh_segments()
+
+    seg = w.segments_by_label["Pre-dedoping"]
+    assert w.analysis_tab._direction_for(seg) == "pre-dedoping"
+    # It has no rung, so it cannot be placed on the ladder...
+    assert w.analysis_tab._ladder_potential(seg) is None
+    # ...but it is still offered for single-segment fitting.
+    labels = [w.analysis_tab.segment_combo.itemData(i)
+              for i in range(w.analysis_tab.segment_combo.count())]
+    assert "Pre-dedoping" in labels
+
+    # ...and the exclusion is stated on the plot rather than left invisible.
+    w.analysis_tab.on_fit_all()
+    stored = w.analysis_tab.ladder_canvas._footnote
+    assert stored is not None, "the ladder drew no footnote"
+    assert "Pre-dedoping" in stored[1], stored[1]
 
 
 def test_the_cv_is_not_offered_for_transient_fitting(analysis_window):
