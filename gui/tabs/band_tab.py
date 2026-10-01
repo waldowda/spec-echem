@@ -14,7 +14,6 @@ tab 5 the first time it is shown.
 """
 import numpy as np
 from qtpy.QtCore import Qt
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, QComboBox,
     QCheckBox, QDoubleSpinBox, QPushButton, QTableWidget, QTableWidgetItem,
@@ -25,7 +24,7 @@ from spec_echem.analysis import MODELS, fit_band
 from spec_echem.data import DATA_TYPE_CV, DATA_TYPE_DOPING
 from gui.segment_labels import prepare_segment_combo, segment_display
 from gui.widgets.plot_canvas import MplCanvas
-from gui.widgets.figure_dialog import open_figure_dialog
+from gui.widgets.figure_dialog import open_figure_dialog, PlotToolbar
 
 # Which tau quantities each model actually has. A single generic "tau" curve hid the
 # difference: FitResult.tau is the SLOWER component for biexp, while the single-fit
@@ -167,7 +166,7 @@ class BandTab(QWidget):
         # decisions, this is "what is going on just there". Saving is NOT done from
         # here -- it goes through the preview, which renders at a chosen size rather
         # than at whatever this widget happens to be.
-        self.toolbar = NavigationToolbar2QT(self.canvas, plot_box)
+        self.toolbar = PlotToolbar(self.canvas, plot_box)
         self.save_fig_btn = QPushButton("Save figure…")
         self.save_fig_btn.setToolTip(
             "Preview this plot at a fixed publication size and save it,\n"
