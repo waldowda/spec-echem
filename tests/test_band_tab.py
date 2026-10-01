@@ -429,3 +429,57 @@ def test_an_unchanged_segment_list_is_not_rebuilt(window):
     assert tab._current_label() == chosen
     assert [tab.segment_combo.itemText(i)
             for i in range(tab.segment_combo.count())] == before
+
+
+# 2026-10-01, reported from use: "save figure appears to only save the single segment
+# plot that is not shown". _draw_ladder composes its own subplots on the figure and
+# _draw_one adds a twin beta axis AFTER its recorded call, so neither was captured by
+# @_records -- Save figure wrote whatever plot came before, under the new one's name.
+
+def test_the_all_segment_ladder_is_what_gets_saved(window):
+    tab, _results = _loaded_band_tab(window)
+    tab.start_spin.setValue(700.0)
+    tab.stop_spin.setValue(900.0)
+
+    tab.on_fit_segment()
+    one = tab.canvas.last_data()
+    assert one is not None and "wavelength_nm" in one.columns
+    assert "doped_to_V" not in one.columns          # a single segment has no rung
+
+    tab.on_fit_all()
+    ladder = tab.canvas.last_data()
+    assert ladder is not None, "the ladder registered no data"
+    # The LADDER's shape, not the single segment's: one row per wavelength per rung.
+    assert {"doped_to_V", "direction", "segment"} <= set(ladder.columns)
+    assert len(ladder) > len(one)
+
+    # ...and re-drawing it produces the ladder's own two-panel layout, not the
+    # single-segment plot that preceded it.
+    from matplotlib.figure import Figure
+    fig = Figure(figsize=(6.5, 4.5), dpi=100)
+    with tab.canvas._retarget(fig):
+        tab.canvas.last_draw()()
+    titles = [ax.get_title() for ax in fig.axes]
+    assert any("doping" in t for t in titles), titles
+    assert any("dedoping" in t for t in titles), titles
+
+
+def test_the_saved_name_says_which_plot_it_is(window):
+    """The two plots look nothing alike and answer different questions, so a folder
+    holding both must not call them the same thing."""
+    tab, _results = _loaded_band_tab(window)
+    tab.start_spin.setValue(700.0)
+    tab.stop_spin.setValue(900.0)
+
+    tab.on_fit_all()
+    ladder_name = tab._figure_basename()
+    tab.on_fit_segment()
+    single_name = tab._figure_basename()
+
+    assert "ladder" in ladder_name
+    assert "ladder" not in single_name
+    assert tab._current_label().replace(" ", "") in single_name
+    # The model is in both: a tau from exp and a tau from biexp are not the same
+    # number, and the file is often all that is left.
+    model = tab.model_combo.currentData()
+    assert model in ladder_name and model in single_name
