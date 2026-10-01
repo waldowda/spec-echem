@@ -605,3 +605,34 @@ def test_fitting_one_segment_keeps_the_ladder_available(window):
     assert tab._showing == "one"
     assert tab._ladder, "the ladder was thrown away by fitting one segment"
     assert tab.ladder_btn.isEnabled()
+
+
+# 2026-10-01, from the console: "UserWarning: No artists with labels found to put in
+# legend." The legend labels were attached to the FIRST segment's points, so a first
+# segment whose fits all failed left every series unlabelled -- the warning, and a
+# panel with no legend, which is the part that matters.
+
+def test_the_legend_survives_a_first_segment_with_no_usable_fits(window):
+    import warnings
+
+    _ladder(window)
+    tab = window.band_tab
+    tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
+    tab.start_spin.setValue(480.0); tab.stop_spin.setValue(540.0)
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("biexp"))
+    tab.on_fit_all()
+
+    # Knock out every fit of the FIRST entry in the first panel, then redraw.
+    doping = [e for e in tab._ladder if e[2] == "doping"]
+    first = min(doping, key=lambda e: e[1])
+    for result in first[3].results:
+        result.ok = False
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        tab._draw_ladder()
+
+    assert not [w for w in caught if "No artists with labels" in str(w.message)]
+    ax = tab.canvas.fig.axes[0]
+    assert ax.get_legend() is not None, "the panel lost its legend"
+    assert [t.get_text() for t in ax.get_legend().get_texts()]
