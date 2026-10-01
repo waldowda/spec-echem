@@ -64,6 +64,7 @@ def _records(method):
     def wrapper(self, *args, **kwargs):
         if not self._rendering:
             self._last_draw = (method, args, kwargs)
+            self._custom_draw = None
         return method(self, *args, **kwargs)
     return wrapper
 
@@ -85,6 +86,9 @@ class MplCanvas(FigureCanvasQTAgg):
         self._rendering = False
         # (method, args, kwargs) of the last plot drawn on screen; see _records.
         self._last_draw = None
+        # (draw, data) for a plot a TAB composed on the axes itself rather than
+        # through one draw method -- see record_draw.
+        self._custom_draw = None
         self.ax = self.fig.add_subplot(111)
         self._decorate()
         self.mpl_connect("resize_event", self._on_resize)
@@ -159,8 +163,24 @@ class MplCanvas(FigureCanvasQTAgg):
                 self._draw_footnote(footnote)
         return fig
 
+    def record_draw(self, draw, data=None):
+        """Register a plot a tab composed on the axes ITSELF, so it can be re-drawn.
+
+        @_records covers the draw methods here, but a tab that builds its own
+        subplots or adds a twin axis afterwards is not one call, so what it drew was
+        invisible to the exporter -- and Save figure then wrote whatever plot came
+        BEFORE it, silently and under the new plot's name. `draw` is zero-argument;
+        `data` is zero-argument returning a DataFrame, or None where the plot has no
+        tabular form.
+        """
+        if not self._rendering:
+            self._last_draw = None
+            self._custom_draw = (draw, data)
+
     def last_draw(self):
         """A zero-argument callable that re-draws the last plot, or None."""
+        if self._custom_draw is not None:
+            return self._custom_draw[0]
         if self._last_draw is None:
             return None
         method, args, kwargs = self._last_draw
@@ -177,6 +197,9 @@ class MplCanvas(FigureCanvasQTAgg):
         AND time): that is a matrix already archived as .h5 and .txt, so a CSV of it
         would be a worse copy of something on disk.
         """
+        if self._custom_draw is not None:
+            data = self._custom_draw[1]
+            return data() if callable(data) else None
         if self._last_draw is None:
             return None
         import pandas as pd
@@ -715,6 +738,7 @@ class MplCanvas(FigureCanvasQTAgg):
         # class of error that got "Save Plots" deleted.
         if not self._rendering:
             self._last_draw = None
+            self._custom_draw = None
         wrapped = "\n".join(textwrap.fill(line, 48)
                             for line in (text.splitlines() or [""]))
         self.ax.text(0.5, 0.5, wrapped, ha="center", va="center",
