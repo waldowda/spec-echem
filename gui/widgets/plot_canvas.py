@@ -4,6 +4,7 @@ and the Results review tab. Static plots only (drawn on demand / post-segment).
 """
 import logging
 import textwrap
+from contextlib import contextmanager
 
 import matplotlib
 matplotlib.use("QtAgg")
@@ -59,9 +60,77 @@ class MplCanvas(FigureCanvasQTAgg):
         # wrap depends on the canvas width, and one computed at draw time ran off
         # both edges once the window was narrowed.
         self._footnote = None
+        # True only while render_to_figure() has this canvas pointed at an offscreen
+        # figure, which suppresses the widget repaint at the end of every draw method.
+        self._rendering = False
         self.ax = self.fig.add_subplot(111)
         self._decorate()
         self.mpl_connect("resize_event", self._on_resize)
+
+    # --- offscreen rendering -------------------------------------------------
+    #
+    # A saved figure must NOT inherit the window it happened to be drawn in. Three
+    # attempts at the linearity-plot legend in September 2026 failed because they
+    # were developed against a wide Mac canvas and broke at the rig's ~6.4x3.8 in,
+    # and the same cause makes a figure saved on one machine differ from the same
+    # figure saved on the other.
+    #
+    # The seam is the FIGURE this canvas points at, not the axes passed to each
+    # draw method. Every draw method here already clears and rebuilds the figure it
+    # is given (_new_axes, or plot_fit's own gridspec), so pointing the canvas
+    # somewhere else for the duration is enough -- where threading an `ax=` argument
+    # through eight public methods and four private helpers would touch every one of
+    # them and still leave the footnote layout, which needs the FIGURE's width.
+
+    # Everything a draw method may rebind. resid_ax exists only after plot_fit, and
+    # plot_fit also overwrites _xlabel/_ylabel -- rendering offscreen must not leave
+    # the widget relabeled.
+    _RETARGET_ATTRS = ("fig", "ax", "resid_ax", "_live_line", "_footnote",
+                       "_xlabel", "_ylabel")
+
+    @contextmanager
+    def _retarget(self, fig):
+        """Point this canvas's draw methods at `fig` for the duration.
+
+        Restores every attribute afterwards, including ones that did not exist
+        before, so the on-screen plot is bit-for-bit what it was.
+        """
+        missing = object()
+        saved = {name: getattr(self, name, missing) for name in self._RETARGET_ATTRS}
+        self.fig = fig
+        self._live_line = None
+        self._footnote = None
+        self._rendering = True
+        try:
+            yield fig
+        finally:
+            self._rendering = False
+            for name, value in saved.items():
+                if value is missing:
+                    if hasattr(self, name):
+                        delattr(self, name)
+                else:
+                    setattr(self, name, value)
+
+    def render_to_figure(self, draw, figsize=(6.5, 4.5), dpi=300):
+        """Draw a plot into a FRESH figure of exactly `figsize`, and return it.
+
+        `draw` is a zero-argument callable that invokes one of this canvas's draw
+        methods, e.g. `lambda: canvas.show_absorbance(df, title=t)`. It renders at
+        the given size rather than the widget's, so the result does not depend on
+        the window -- which is the whole point.
+        """
+        fig = Figure(figsize=figsize, dpi=dpi, tight_layout=True)
+        with self._retarget(fig):
+            draw()
+        return fig
+
+    def draw_idle(self, *args, **kwargs):
+        # Nothing to repaint while pointed at an offscreen figure: the widget is not
+        # what is being drawn. Every draw method ends with this call.
+        if getattr(self, "_rendering", False):
+            return
+        return super().draw_idle(*args, **kwargs)
 
     def _set_layout(self, mode):
         """Select tight or constrained layout across matplotlib versions.
