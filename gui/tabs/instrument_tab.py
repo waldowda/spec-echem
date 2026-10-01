@@ -98,6 +98,19 @@ class InstrumentTab(QWidget):
         self._lin_recommended = None    # integration time from the last linearity check
         self._build()
 
+    def _mode_note(self):
+        """A grey, wrapping, indented note under a potentiostat radio.
+
+        Hidden until there is something to say. Indented to the radio's text so it
+        reads as belonging to that option rather than to the group.
+        """
+        label = QLabel()
+        label.setStyleSheet("color: #888;")
+        label.setWordWrap(True)
+        label.setContentsMargins(22, 0, 0, 0)
+        label.setVisible(False)
+        return fill_width(label)
+
     def _build(self):
         # Scrollable body: four graphs (dark/ref + counts/absorbance) make this tall.
         outer = QVBoxLayout(self)
@@ -221,10 +234,16 @@ class InstrumentTab(QWidget):
         # External stays the default on every machine: it is the proven path and the
         # only one that works with no vendor stack installed.
         self.pstat_external_radio.setChecked(True)
+        # The reason a mode is unavailable goes in a WRAPPING label under its radio,
+        # not appended to the radio's own text: QRadioButton cannot wrap, so the
+        # reason was simply clipped at the edge of the group and the thing it was
+        # there to explain was the part that got cut (2026-10-01).
+        self.pstat_python_note = self._mode_note()
+        self.pstat_autolab_note = self._mode_note()
         if not TOOLKITPY_AVAILABLE:
             self.pstat_python_radio.setEnabled(False)
-            self.pstat_python_radio.setText(
-                "Python — drive the Gamry from here (EchemToolkitPy) — toolkitpy not available")
+            self.pstat_python_note.setText("toolkitpy not available")
+            self.pstat_python_note.setVisible(True)
             # A greyed-out radio reads as "the Gamry isn't there", but the cause is
             # almost always the environment: toolkitpy is 32-bit only, so a 64-bit
             # env cannot import it however well Windows sees the instrument. Hovering
@@ -239,11 +258,13 @@ class InstrumentTab(QWidget):
                   "with the Python version, bitness and conda env.")
         if not AUTOLAB_AVAILABLE:
             self.pstat_autolab_radio.setEnabled(False)
-            self.pstat_autolab_radio.setText(
-                "Autolab — drive a Metrohm Autolab from here (Autolab SDK) — pythonnet not available")
+            self.pstat_autolab_note.setText("pythonnet not available")
+            self.pstat_autolab_note.setVisible(True)
         pstat_layout.addWidget(self.pstat_external_radio)
         pstat_layout.addWidget(self.pstat_python_radio)
+        pstat_layout.addWidget(self.pstat_python_note)
         pstat_layout.addWidget(self.pstat_autolab_radio)
+        pstat_layout.addWidget(self.pstat_autolab_note)
 
         # Connect (Python mode): verify the Gamry is reachable + show its name/serial,
         # mirroring the spectrometer's Connect button + status dot.

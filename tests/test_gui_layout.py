@@ -179,13 +179,23 @@ def test_dta_checkbox_belongs_to_gamry_python_mode_only(window):
 
 
 def test_an_unavailable_mode_is_disabled_and_says_why(window):
-    """A grayed radio with no reason reads as a bug. Whichever vendor stack is missing
-    here, its radio must be off AND its label must name what is missing."""
+    """A grayed radio with no reason reads as a bug. Whichever vendor stack is
+    missing here, its radio must be off AND the reason must be visible.
+
+    The reason lives in a WRAPPING note under the radio, not in the radio's own
+    text: QRadioButton cannot wrap, so appending it meant the explanation was the
+    part clipped at the edge of the group (2026-10-01).
+    """
     tab = _tab(window)
-    for radio, needle in ((tab.pstat_python_radio, "toolkitpy"),
-                          (tab.pstat_autolab_radio, "pythonnet")):
+    for radio, note, needle in (
+            (tab.pstat_python_radio, tab.pstat_python_note, "toolkitpy"),
+            (tab.pstat_autolab_radio, tab.pstat_autolab_note, "pythonnet")):
         if not radio.isEnabled():
-            assert needle in radio.text()
+            assert needle in note.text()
+            assert note.isVisibleTo(tab), "the reason is hidden"
+            assert note.wordWrap(), "the reason cannot wrap and will be clipped"
+        else:
+            assert not note.isVisibleTo(tab), "a note with nothing to say is showing"
 
 
 def test_connect_button_follows_the_selected_mode(window):
