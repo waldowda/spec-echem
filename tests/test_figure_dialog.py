@@ -137,3 +137,76 @@ def test_the_footnote_scales_with_the_preset_and_never_leads(app):
     assert sizes[10] == 7, "the on-screen footnote size must be unchanged"
     assert sizes[7] < sizes[10]
     assert sizes[7] < preset_rc(7)["xtick.labelsize"], "footnote outweighs the ticks"
+
+
+# --- the canvas remembers what it drew, so the tabs need no bookkeeping -------
+
+def test_the_canvas_records_its_last_draw_and_can_repeat_it(app):
+    canvas = MplCanvas()
+    assert canvas.last_draw() is None                  # nothing drawn yet
+
+    wl = np.linspace(400.0, 1100.0, 20)
+    canvas.show_spectrum(wl, np.sin(wl / 100.0), title="first")
+    fig = canvas.render_to_figure(canvas.last_draw(), figsize=(6.5, 4.5), dpi=100)
+    assert fig.axes[0].get_title() == "first"
+
+
+
+def test_a_draw_issued_while_rendering_is_not_recorded(app):
+    """The export must not become the thing the canvas remembers.
+
+    Exercised through the PUBLIC method, which is the only path that reaches the
+    guard: last_draw() re-invokes the undecorated function, so a test that went
+    through it would pass whether the guard existed or not.
+    """
+    canvas = MplCanvas()
+    canvas.show_spectrum(np.arange(5.0), np.arange(5.0), title="on screen")
+    recorded = canvas._last_draw
+
+    canvas.render_to_figure(
+        lambda: canvas.show_spectrum(np.arange(3.0), np.arange(3.0),
+                                     title="offscreen"),
+        figsize=(3.25, 2.25), dpi=100)
+
+    assert canvas._last_draw is recorded
+    assert canvas._last_draw[2].get("title") == "on screen"
+
+
+def test_a_two_dimensional_view_offers_no_csv(app):
+    """Absorbance against wavelength AND time is a matrix already archived as .h5
+    and .txt, so a CSV of it would be a worse copy of something on disk."""
+    canvas = MplCanvas()
+    frame = pd.DataFrame(np.zeros((4, 3)), index=[400.0, 500.0, 600.0, 700.0],
+                         columns=[0.0, 1.0, 2.0])
+    canvas.show_absorbance(frame)
+    assert canvas.last_data() is None
+
+    # ...while a series plot does.
+    canvas.plot_series(np.arange(3.0), {"tau": np.arange(3.0)}, "Potential (V)",
+                       "tau (s)")
+    out = canvas.last_data()
+    assert list(out.columns) == ["x", "tau"] and len(out) == 3
+
+
+def test_every_wired_canvas_opens_the_same_dialog(app, monkeypatch):
+    """Five save buttons, one launcher -- so they cannot drift apart."""
+    from gui.main_window import MainWindow
+    import gui.widgets.figure_dialog as fd
+
+    win = MainWindow()
+    canvases = [win.results_tab.canvas, win.results_tab.echem_canvas,
+                win.analysis_tab.fit_canvas, win.analysis_tab.ladder_canvas,
+                win.band_tab.canvas]
+
+    opened = []
+    monkeypatch.setattr(fd.FigureDialog, "exec_", lambda self: opened.append(self),
+                        raising=False)
+    monkeypatch.setattr(fd.FigureDialog, "exec", lambda self: opened.append(self),
+                        raising=False)
+
+    for canvas in canvases:
+        canvas.show_spectrum(np.arange(5.0), np.arange(5.0), title="x")
+        dialog = fd.open_figure_dialog(None, canvas, win, "basename")
+        assert dialog is not None
+        assert tuple(dialog._fig.get_size_inches()) == PRESETS[0][1]
+    assert len(opened) == len(canvases)
