@@ -3295,3 +3295,36 @@ def test_a_manual_wavelength_title_names_the_pixel_used(analysis_window):
     named = float(title.split("@")[1].split("nm")[0])
     assert any(abs(named - float(p)) < 0.05 for p in wl), (
         f"title names {named} nm, which is not a measured wavelength")
+
+
+# 2026-10-01, reported from use: "now that the figures have a minimum, the buttons
+# are off the screen at the bottom often." A row at the bottom of a SCROLLING body
+# spends most of its life below the fold once the content above it has a floor.
+
+def test_the_results_actions_stay_on_screen_at_any_window_height(window):
+    from qtpy.QtWidgets import QApplication, QScrollArea
+
+    tab = window.results_tab
+    scroll = tab.findChild(QScrollArea)
+    # Structural: pinned OUTSIDE the scrolling body, so no amount of scrolling can
+    # take it away. Asserting only its position would pass while it happened to fit.
+    assert not scroll.widget().isAncestorOf(tab.load_run_btn)
+
+    window.show()
+    window.tabs.setCurrentWidget(tab)
+    for height in (1400, 950, 800):
+        window.resize(1500, height)
+        for _ in range(4):
+            QApplication.processEvents()
+        button = tab.load_run_btn
+        y = button.mapTo(tab, button.rect().topLeft()).y()
+        assert 0 <= y < 200, f"Load Run… sits at y={y} in a {height} px window"
+
+    # ...and they sit in the View group's empty right half rather than costing a
+    # band of their own: three short form rows left a wide strip unused.
+    group = tab._ctrl_group
+    button_x = tab.load_run_btn.mapTo(tab, tab.load_run_btn.rect().topLeft()).x()
+    group_right = (group.mapTo(tab, group.rect().topLeft()).x() + group.width())
+    assert button_x >= group_right - 1, "the actions are not beside the controls"
+    assert group.height() < 260, (
+        f"the View group stretched to {group.height()} px for three rows")
