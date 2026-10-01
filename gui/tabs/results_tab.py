@@ -16,6 +16,7 @@ from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel,
     QComboBox, QDoubleSpinBox, QPushButton, QFileDialog, QSplitter, QMessageBox,
+    QScrollArea,
     QProgressDialog, QApplication, QCheckBox,
 )
 
@@ -50,7 +51,17 @@ class ResultsTab(QWidget):
         self._build()
 
     def _build(self):
-        layout = QVBoxLayout(self)
+        # Scrollable body, as on the Instrument and Parameters tabs. The canvases
+        # have a minimum height now, so without somewhere to overflow to the WINDOW
+        # would simply refuse to get shorter -- the plots stop shrinking, so
+        # something has to give, and it should be the viewport rather than the data.
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
 
         # --- selector / range controls ---
         ctrl_group = QGroupBox("View")
