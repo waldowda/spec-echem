@@ -486,6 +486,20 @@ class BandTab(QWidget):
         ax2.set_ylim(0, 1.05)
         self.canvas.draw_idle()
 
+    def _fit_conditions(self, band):
+        """'740-860 nm, 0.0-20.0 s' -- read from the FIT, not from the controls.
+
+        The spin boxes can be changed after a fit, and a title built from them would
+        then describe a band nobody fitted. BandFit records its own range, so the
+        plot can only say what was actually done.
+        """
+        parts = [f"{band.wl_start:.0f}-{band.wl_stop:.0f} nm"]
+        if band.t_first is not None or band.t_last is not None:
+            first = "start" if band.t_first is None else f"{band.t_first:g}"
+            last = "end" if band.t_last is None else f"{band.t_last:g}"
+            parts.append(f"{first}-{last} s")
+        return ", ".join(parts)
+
     def _draw_ladder(self):
         """Every tau in the band, at each potential, doping and dedoping separately.
 
@@ -507,6 +521,7 @@ class BandTab(QWidget):
         dropped.
         """
         model = self._ladder[0][3].model
+        conditions = self._fit_conditions(self._ladder[0][3])
         beta_row = model == "stretched"
         lo, hi = self.vg_min.value(), self.vg_max.value()
         shown = [r for r in self._ladder if lo <= r[1] <= hi]
@@ -548,7 +563,11 @@ class BandTab(QWidget):
             span = float(xs.max() - xs.min())
             pad = span * 0.1 if span > 0 else 0.05
             ax.set_xlim(float(xs.min()) - pad, float(xs.max()) + pad)
-            ax.set_title(f"{direction} — {model}")
+            # The band is the whole premise of the plot and was nowhere on it: a
+            # tau ladder means nothing without the wavelengths it was fitted over.
+            # Per panel rather than as one suptitle, so a figure cropped to one
+            # direction still carries its own conditions.
+            ax.set_title(f"{direction} — {model}\n{conditions}", fontsize="medium")
             ax.set_ylabel("tau (s)")
             ax.grid(alpha=0.3)
             if col == 0 and len(self._curves_for(model)) > 1:
