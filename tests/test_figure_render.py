@@ -159,16 +159,58 @@ def test_the_fit_legend_never_covers_the_transient(app):
     assert _legend_corner(decay) == "upper right"
     assert _legend_corner(growth) == "lower right"
 
+    # The REAL parameter block, not a short stand-in: its width is set by the
+    # longest line, and a tidy synthetic note hides the whole problem.
+    full = ("biexp  (+/- = 1 SD)\nA = 0.1286 +/- 5.2e-05\nB1 = 0.2239 +/- 0.0017\n"
+            "tau1 = 0.4705 +/- 0.0059 s\nB2 = 0.08511 +/- 0.0017\n"
+            "tau2 = 2.672 +/- 0.042 s\n"
+            "y(0) = 0.4376   (A + sum of prefactors)  vs data 0.443\n"
+            "mean tau = 1.077 +/- 0.011 s (95% CI)\n599 pts\n"
+            "resid: noise 0.00034, model-miss 0.0011 (0.3% of swing)")
+
     for trace in (decay, growth):
-        for size in ((13.0, 4.0), (6.5, 4.5), (5.0, 3.0), (19.0, 6.0)):
+        for size in ((19.0, 3.0), (13.0, 4.0), (9.0, 3.0), (6.5, 4.5), (5.0, 3.0)):
             canvas = MplCanvas(xlabel="Time (s)", ylabel="Absorbance")
             canvas.fig.set_size_inches(*size)
-            canvas.plot_fit(t, trace, trace, "Time (s)", "Absorbance", note=note)
+            canvas.plot_fit(t, trace, trace, "Time (s)", "Absorbance", note=full)
             canvas.fig.canvas.draw()
             box = (canvas.ax.get_legend().get_window_extent()
                    .transformed(canvas.ax.transAxes.inverted()))
-            assert box.x0 > 0.5, (
+            # Either clear of the transient inside the axes, or moved outside them
+            # entirely. Covering the rise is what must not happen.
+            assert box.x0 > 0.35, (
                 f"legend reaches x={box.x0:.2f} at {size} — over the transient")
+
+
+def test_a_legend_too_wide_to_fit_moves_outside_the_axes(app):
+    """Eleven lines will not fit beside the data on a laptop-sized panel. No corner
+    helps and shrinking only reaches 5 pt, so it goes outside instead."""
+    t = np.linspace(0.0, 61.0, 300)
+    decay = 0.13 + 0.22 * np.exp(-t / 0.47)
+    full = ("biexp  (+/- = 1 SD)\nA = 0.1286 +/- 5.2e-05\nB1 = 0.2239 +/- 0.0017\n"
+            "tau1 = 0.4705 +/- 0.0059 s\nB2 = 0.08511 +/- 0.0017\n"
+            "tau2 = 2.672 +/- 0.042 s\n"
+            "y(0) = 0.4376   (A + sum of prefactors)  vs data 0.443\n"
+            "mean tau = 1.077 +/- 0.011 s (95% CI)\n599 pts\n"
+            "resid: noise 0.00034, model-miss 0.0011 (0.3% of swing)")
+
+    narrow = MplCanvas(xlabel="Time (s)", ylabel="Absorbance")
+    narrow.fig.set_size_inches(5.0, 3.0)
+    narrow.plot_fit(t, decay, decay, "Time (s)", "Absorbance", note=full)
+    narrow.fig.canvas.draw()
+    box = (narrow.ax.get_legend().get_window_extent()
+           .transformed(narrow.ax.transAxes.inverted()))
+    assert box.x0 > 1.0, "a legend that cannot fit should move outside the axes"
+
+    # ...and a panel with room keeps it inside, so nothing changes on a big window
+    # or in the 6.5 x 4.5 export preset.
+    wide = MplCanvas(xlabel="Time (s)", ylabel="Absorbance")
+    wide.fig.set_size_inches(13.0, 4.0)
+    wide.plot_fit(t, decay, decay, "Time (s)", "Absorbance", note=full)
+    wide.fig.canvas.draw()
+    box = (wide.ax.get_legend().get_window_extent()
+           .transformed(wide.ax.transAxes.inverted()))
+    assert 0.35 < box.x0 < 1.0, "it should still sit inside when there is room"
 
 
 def test_a_flat_or_tiny_trace_still_places_the_legend(app):
