@@ -863,3 +863,61 @@ def test_a_stretched_curve_before_its_window_raises_no_warning():
         curve = fit.curve(t)
     assert not [w for w in caught if "power" in str(w.message)]
     assert np.all(np.isnan(curve[t < 2.0])), "no claim before the window"
+
+
+# 2026-10-01, reported from the bench: on a dedoping ladder the +0.40 V rung came
+# back with tau1 = 2.1 s against tau2 = 0.25 s while every other rung had
+# tau1 < tau2. model_biexp is SYMMETRIC under exchanging (B1, tau1) with (B2, tau2)
+# -- the same curve, two valid parameter vectors -- so curve_fit is free to return
+# either, and does for about 3% of fits. Nothing is wrong with those fits; the
+# LABELS are swapped, which silently mixes the two components wherever tau1 and tau2
+# are compared across segments.
+
+def test_order_biexp_puts_the_fast_component_first():
+    from spec_echem.analysis import order_biexp
+
+    # (A, B1, tau1, B2, tau2) with the SLOW one first — what curve_fit sometimes
+    # hands back.
+    popt = np.array([0.1, 0.3, 4.0, 0.2, 0.5])
+    cov = np.diag([1.0, 2.0, 3.0, 4.0, 5.0])
+    out, out_cov = order_biexp("biexp", popt, cov)
+
+    np.testing.assert_allclose(out, [0.1, 0.2, 0.5, 0.3, 4.0])
+    # The uncertainties travel with their parameters, or they describe the wrong one.
+    np.testing.assert_allclose(np.diag(out_cov), [1.0, 4.0, 5.0, 2.0, 3.0])
+
+
+def test_order_biexp_leaves_an_ordered_fit_and_other_models_alone():
+    from spec_echem.analysis import order_biexp
+
+    ordered = np.array([0.1, 0.2, 0.5, 0.3, 4.0])
+    out, _ = order_biexp("biexp", ordered, np.eye(5))
+    np.testing.assert_allclose(out, ordered)
+
+    exp_params = np.array([0.1, 0.2, 4.0])
+    out, _ = order_biexp("exp", exp_params, np.eye(3))
+    np.testing.assert_allclose(out, exp_params)
+
+
+def test_a_fitted_biexp_always_reports_tau1_faster_than_tau2():
+    """The property that matters: whatever the optimizer does internally, tau1 is
+    the fast component by the time anyone reads it."""
+    from spec_echem.analysis import fit_transient
+
+    rng = np.random.default_rng(0)
+    t = np.linspace(0.0, 61.0, 600)
+    checked = 0
+    for _ in range(40):
+        tau_fast = 10 ** rng.uniform(-1.0, 0.3)
+        tau_slow = tau_fast * 10 ** rng.uniform(0.3, 1.2)
+        y = (0.1
+             + rng.uniform(0.02, 0.4) * np.exp(-t / tau_fast)
+             + rng.uniform(0.02, 0.4) * np.exp(-t / tau_slow)
+             + rng.normal(0, 5e-4, t.size))
+        result = fit_transient(t, y, "biexp")
+        if result.params is None:
+            continue
+        checked += 1
+        assert result.params[2] <= result.params[4], (
+            f"tau1={result.params[2]:.3g} > tau2={result.params[4]:.3g}")
+    assert checked > 20, "too few fits converged for this to prove anything"
