@@ -112,17 +112,29 @@ class MplCanvas(FigureCanvasQTAgg):
                 else:
                     setattr(self, name, value)
 
-    def render_to_figure(self, draw, figsize=(6.5, 4.5), dpi=300):
+    def render_to_figure(self, draw, figsize=(6.5, 4.5), dpi=300, footnote=None):
         """Draw a plot into a FRESH figure of exactly `figsize`, and return it.
 
         `draw` is a zero-argument callable that invokes one of this canvas's draw
         methods, e.g. `lambda: canvas.show_absorbance(df, title=t)`. It renders at
         the given size rather than the widget's, so the result does not depend on
         the window -- which is the whole point.
+
+        `footnote` is APPENDED to whatever the plot drew for itself rather than
+        replacing it: the ladder already uses its footnote to say what it excluded,
+        and provenance must not silently delete that.
         """
         fig = Figure(figsize=figsize, dpi=dpi, tight_layout=True)
         with self._retarget(fig):
             draw()
+            if footnote:
+                existing = self._footnote
+                if existing is not None:
+                    # One artist, not two overprinted: take the text, drop the old.
+                    footnote = f"{existing[1]}\n{footnote}"
+                    existing[0].remove()
+                    self._footnote = None
+                self._draw_footnote(footnote)
         return fig
 
     def draw_idle(self, *args, **kwargs):
