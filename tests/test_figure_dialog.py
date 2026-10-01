@@ -311,3 +311,66 @@ def test_save_all_restores_the_trace_that_was_on_screen(app, tmp_path, monkeypat
 
     tab.on_save_all_figures()
     assert tab.table.currentRow() == 1
+
+
+# --- a figure must record the conditions it was taken at ----------------------
+
+def test_a_wavelength_specific_view_names_its_wavelength(app, tmp_path):
+    """Reported 2026-10-01: the kinetics and modulation views are taken at ONE
+    wavelength, and neither the title nor the filename said which. The same trace at
+    800 nm and at 520 nm are different measurements, and a figure that cannot say
+    which is not evidence.
+    """
+    from gui.main_window import MainWindow
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    win = MainWindow()
+    wl = np.linspace(400.0, 1100.0, 60)
+    t = np.linspace(0.0, 20.0, 40)
+    frame = pd.DataFrame(np.outer(np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2),
+                                  1.0 - np.exp(-t / 4.0)), index=wl, columns=t)
+    win.results = {"Doping 0": frame}
+    win.segments_by_label = {
+        "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 40, 0.1, True)}
+    win.run_folder = tmp_path / "run"
+    tab = win.results_tab
+    tab.refresh_segments()
+
+    tab.wl_auto.setChecked(False)
+    tab.analysis_wl.setValue(800.0)
+    tab.view_combo.setCurrentIndex(tab.view_combo.findData("kinetics"))
+
+    title = tab.canvas._last_draw[2]["title"]
+    assert "nm" in title, f"kinetics title names no wavelength: {title!r}"
+    assert "80" in title
+    assert "nm" in tab._figure_basename("absorbance")
+
+    # ...and a view with no single wavelength must not inherit the last one.
+    tab.view_combo.setCurrentIndex(tab.view_combo.findData("spectra"))
+    assert tab._plotted_wl is None
+    assert "nm" not in tab._figure_basename("absorbance")
+
+
+def test_an_automatic_probe_says_so_in_the_title(app, tmp_path):
+    """An auto-chosen probe MOVES between segments, so two figures from one run can
+    be at different wavelengths. The title has to admit that."""
+    from gui.main_window import MainWindow
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    win = MainWindow()
+    wl = np.linspace(400.0, 1100.0, 60)
+    t = np.linspace(0.0, 20.0, 40)
+    win.results = {"Doping 0": pd.DataFrame(
+        np.outer(np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2), 1.0 - np.exp(-t / 4.0)),
+        index=wl, columns=t)}
+    win.segments_by_label = {
+        "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 40, 0.1, True)}
+    win.run_folder = tmp_path / "run"
+    tab = win.results_tab
+    tab.refresh_segments()
+    tab.wl_auto.setChecked(True)
+    tab.view_combo.setCurrentIndex(tab.view_combo.findData("kinetics"))
+
+    assert "(auto)" in tab.canvas._last_draw[2]["title"]
