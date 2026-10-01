@@ -127,6 +127,24 @@ for?** Raised 2026-09-29: it does not depend on which segment is selected, so si
 behind a per-segment selector is misleading. Either it belongs elsewhere in the UI, or
 the selector should visibly not apply while it is showing.
 
+## macOS console: "has active key-value observers (KVO)" — WATCHING, not fixed
+
+Seen on the Mac 2026-10-01, naming `QPushButtonClassWindow`. Qt's Cocoa backend
+reporting that it recreated a widget's native NSWindow; no frame of ours is in it,
+and it does not appear on Win11.
+
+**Hypothesis, unverified:** native-sibling promotion. A matplotlib FigureCanvas is a
+native widget and Qt promotes its siblings to native too, which recreates their
+window. The counts fit — 2 messages on a tab 4 launch, which has exactly 2
+`Save figure…` buttons beside canvases; 1 on the Band Fits tab, which has 1.
+
+**Not acted on, deliberately.** The warning is benign in practice, and the offscreen
+Qt platform falls back to Fusion with no Cocoa, so neither the symptom nor a fix can
+be reproduced in a test. The plausible mitigation is to wrap each save row in its own
+container widget so the button is not a direct sibling of the canvas — about five
+lines, and one launch would show whether the messages stop. Dean is gathering more
+evidence first.
+
 ## Next up — 2026-09-28
 
 - [ ] **Wednesday 2026-09-30: confirm the ladder on a Reference 610+ and an Interface
