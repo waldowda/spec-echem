@@ -220,3 +220,94 @@ def test_every_wired_canvas_opens_the_same_dialog(app, monkeypatch):
         assert dialog is not None
         assert tuple(dialog._fig.get_size_inches()) == PRESETS[0][1]
     assert len(opened) == len(canvases)
+
+
+def test_an_empty_state_message_discards_the_previous_plot(app):
+    """A message is not a figure, and it must not leave the PREVIOUS figure
+    saveable: a save made then would write that plot under this one's name."""
+    canvas = MplCanvas()
+    canvas.show_spectrum(np.arange(5.0), np.arange(5.0), title="real plot")
+    assert canvas.last_draw() is not None
+
+    canvas.show_message("No current data for Doping 3.")
+    assert canvas.last_draw() is None
+    assert canvas.last_data() is None
+
+
+# --- step 6: tab 5's bounded save-all ----------------------------------------
+
+def test_save_all_writes_the_traces_and_the_ladder_with_their_data(app, tmp_path,
+                                                                   monkeypatch):
+    """Three fits of the segment on screen plus the ladder, each with its CSV."""
+    import gui.tabs.analysis_tab as at
+    from gui.main_window import MainWindow
+    from spec_echem.data import (DATA_TYPE_DOPING, write_echem_file, EchemData)
+    from spec_echem.experiment import Segment
+
+    win = MainWindow()
+    run = tmp_path / "20250710_run"
+    t = np.linspace(0.0, 20.0, 60)
+    wl = np.linspace(400.0, 1100.0, 40)
+    frac = 1.0 - np.exp(-t / 4.0)
+    a = 0.02 + np.outer(np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2), 0.5 * frac)
+    win.results = {"Doping 0": pd.DataFrame(a, index=wl, columns=t)}
+    win.segments_by_label = {
+        "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 60, 0.1, True)}
+    write_echem_file(EchemData(time=t, potential=np.full(60, 0.3),
+                               current=3.0e-5 * np.exp(-t / 4.0)),
+                     DATA_TYPE_DOPING, 0, tmp_path, "20250710_run")
+    win.run_folder = run
+    tab = win.analysis_tab
+    tab.refresh_segments()
+    tab.on_fit_all()
+
+    shown = []
+    monkeypatch.setattr(at.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: shown.append(a[-1])))
+    monkeypatch.setattr(at.QMessageBox, "warning",
+                        staticmethod(lambda *a, **k: shown.append(a[-1])))
+    tab.on_save_all_figures()
+
+    figures = sorted(p.name for p in (run / "figures").glob("*.png"))
+    assert "ladder.png" in figures
+    assert any("absorbance" in f for f in figures)
+    # Every figure has its numbers beside it, under the same stem.
+    for png in (run / "figures").glob("*.png"):
+        assert png.with_suffix(".csv").exists(), f"{png.name} has no CSV"
+
+    # The message names the FOLDER, not just basenames.
+    assert str(run / "figures") in shown[0]
+
+    # The CSV carries provenance and reads back.
+    csv = next((run / "figures").glob("*absorbance.csv"))
+    assert csv.read_text().startswith("# run: 20250710_run")
+    assert not pd.read_csv(csv, comment="#").empty
+
+
+def test_save_all_restores_the_trace_that_was_on_screen(app, tmp_path, monkeypatch):
+    """It drives the real plotting path, so it must put the view back."""
+    import gui.tabs.analysis_tab as at
+    from gui.main_window import MainWindow
+
+    # Every QMessageBox here is MODAL: left unpatched it blocks the suite forever.
+    monkeypatch.setattr(at.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(at.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    win = MainWindow()
+    t = np.linspace(0.0, 20.0, 40)
+    wl = np.linspace(400.0, 1100.0, 30)
+    win.results = {"Doping 0": pd.DataFrame(
+        np.outer(np.ones_like(wl), 1.0 - np.exp(-t / 4.0)), index=wl, columns=t)}
+    win.segments_by_label = {
+        "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 40, 0.1, True)}
+    win.run_folder = tmp_path / "run"
+    tab = win.analysis_tab
+    tab.refresh_segments()
+    tab.on_fit_segment()
+    tab.table.selectRow(1)
+
+    tab.on_save_all_figures()
+    assert tab.table.currentRow() == 1
