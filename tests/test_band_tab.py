@@ -513,3 +513,39 @@ def test_the_saved_name_says_which_plot_it_is(window):
     # number, and the file is often all that is left.
     model = tab.model_combo.currentData()
     assert model in ladder_name and model in single_name
+
+
+# 2026-10-01, reported from use: "in the plot I don't see the WL range". A tau
+# ladder means nothing without the wavelengths it was fitted over, and the ladder
+# plot said only the direction and the model.
+
+def test_the_ladder_names_the_band_it_was_fitted_over(window):
+    _ladder(window)
+    tab = window.band_tab
+    tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
+    tab.start_spin.setValue(480.0); tab.stop_spin.setValue(540.0)
+    tab.on_fit_all()
+
+    titles = [a.get_title() for a in tab.canvas.fig.axes if a.get_title()]
+    assert titles
+    for title in titles:
+        assert "nm" in title, title
+        assert "480" in title and "540" in title, title
+
+
+def test_the_band_in_the_title_comes_from_the_fit_not_the_controls(window):
+    """The spin boxes can be moved after a fit. A title built from them would then
+    describe a band nobody fitted."""
+    _ladder(window)
+    tab = window.band_tab
+    tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
+    tab.start_spin.setValue(480.0); tab.stop_spin.setValue(540.0)
+    tab.on_fit_all()
+
+    tab.start_spin.setValue(300.0)
+    tab.stop_spin.setValue(360.0)
+    tab._draw_ladder()
+
+    for ax in tab.canvas.fig.axes:
+        if ax.get_title():
+            assert "480" in ax.get_title() and "300" not in ax.get_title()
