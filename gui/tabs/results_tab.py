@@ -30,7 +30,8 @@ from spec_echem.experiment import Segment
 from spec_echem.gamry_data import (read_cv, read_chrono, POTENTIAL_COL,
                                    CURRENT_COL)
 from gui.widgets.plot_canvas import MplCanvas
-from gui.segment_labels import prepare_segment_combo, segment_display
+from gui.segment_labels import (prepare_segment_combo, segment_display,
+                                DROPDOWN_DECIMALS)
 
 
 
@@ -258,7 +259,8 @@ class ResultsTab(QWidget):
         # Shown with its potential, as on the Analysis tab -- requested: the bare
         # "Dedoping 4" said nothing about which step it was.
         for label in self.win.results:
-            self.segment_combo.addItem(self._segment_title(label), label)
+            self.segment_combo.addItem(
+                self._segment_title(label, decimals=DROPDOWN_DECIMALS), label)
         i = self.segment_combo.findData(current) if current else -1
         if i >= 0:
             self.segment_combo.setCurrentIndex(i)
@@ -269,10 +271,14 @@ class ResultsTab(QWidget):
         """The segment's real label -- the key into win.results, not the text shown."""
         return self.segment_combo.currentData()
 
-    def _segment_title(self, label):
+    def _segment_title(self, label, decimals=3):
         """'Doping 4' -> 'Doping 4  (+0.600 V)'. Shared with the Analysis and Band
-        Fits tabs so the same segment reads the same way on all three."""
-        return segment_display(self.win, label)
+        Fits tabs so the same segment reads the same way on all three.
+
+        This one serves the plot titles as well as the dropdown, so it keeps 3
+        decimals by default and the dropdown asks for fewer.
+        """
+        return segment_display(self.win, label, decimals=decimals)
 
     def _sync_view_controls(self):
         """Show only the controls the selected view uses.

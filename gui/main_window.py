@@ -160,38 +160,47 @@ class MainWindow(QMainWindow):
                     return self.segment_potential(other)
         return None
 
-    def _cv_range_text(self, seg):
+    def _cv_range_text(self, seg, decimals=3):
         """'-0.499 to +0.699 V' -- the range the CV actually swept, measured from
         its file, else the nominal range for this run. Cached like the step
-        potentials: the file is read once, not on every redraw."""
+        potentials: the file is read once, not on every redraw.
+
+        The SPAN is cached, not the formatted string, so the dropdowns can ask for
+        2 decimals and the titles for 3 off the same single read.
+        """
         key = (str(self.run_folder), seg.data_type, seg.run_number)
         if key not in self._potential_cache:
             span = None
             if self.run_folder is not None:
                 span = measured_sweep_range(
                     echem_txt_path(self.run_folder, seg.data_type, seg.run_number))
-            self._potential_cache[key] = (
-                f"{span[0]:+.3f} to {span[1]:+.3f} V" if span is not None
-                else nominal_potential_text(self.label_settings(), seg.data_type,
-                                            seg.run_number))
-        return self._potential_cache[key]
+            self._potential_cache[key] = span
+        span = self._potential_cache[key]
+        if span is None:
+            return nominal_potential_text(self.label_settings(), seg.data_type,
+                                          seg.run_number, decimals=decimals)
+        return f"{span[0]:+.{decimals}f} to {span[1]:+.{decimals}f} V"
 
-    def segment_potential_text(self, seg):
+    def segment_potential_text(self, seg, decimals=3):
         """'+0.700 V' for a graph title, or '' when nothing can vouch for a value.
 
         Dedoping reads '-0.500 V after +0.600 V'. Requested: the dedoping steps
         were indistinguishable, all showing the one potential they share.
+
+        `decimals` is 2 only in the segment dropdowns -- see the note on
+        data.segment_potential_text. The value itself is never rounded here; only
+        its rendering changes, so titles, tables and exports still carry 3.
         """
         if seg is not None and seg.data_type == DATA_TYPE_CV:
-            return self._cv_range_text(seg)
+            return self._cv_range_text(seg, decimals=decimals)
         v = self.segment_potential(seg)
         if v is None:
             return ""
-        text = f"{v:+.3f} V"
+        text = f"{v:+.{decimals}f} V"
         if seg.data_type == DATA_TYPE_DEDOPING:
             before = self.doped_to(seg)
             if before is not None:
-                text += f" after {before:+.3f} V"
+                text += f" after {before:+.{decimals}f} V"
         return text
 
     def apply_settings(self, settings):

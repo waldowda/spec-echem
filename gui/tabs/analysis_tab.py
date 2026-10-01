@@ -29,7 +29,8 @@ from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
                              DATA_TYPE_PREDEDOPING)
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
-from gui.segment_labels import prepare_segment_combo, segment_display
+from gui.segment_labels import (prepare_segment_combo, segment_display,
+                                DROPDOWN_DECIMALS)
 
 # How far a measured rung potential may sit outside the potential-range boxes and
 # still count as inside. Measured potentials differ from the nominal step by a
@@ -432,11 +433,11 @@ class AnalysisTab(QWidget):
         if hasattr(self, "table") and not self._fits.get(self._current_label()):
             self._set_table_columns(self.model_combo.currentData())
 
-    def _segment_display(self, label):
+    def _segment_display(self, label, decimals=3):
         """'Doping 5  (+0.700 V)'. The ladder plots against potential, so the segment
         that produced a point has to name one too -- otherwise the only place a
         potential appears is an axis you cannot map back to a selection."""
-        return segment_display(self.win, label)
+        return segment_display(self.win, label, decimals=decimals)
 
     def _current_label(self):
         """The segment's REAL label. The combo displays the potential alongside it,
@@ -472,7 +473,8 @@ class AnalysisTab(QWidget):
             # CV is a sweep, not a step — there is no transient to fit.
             if seg is not None and seg.data_type == DATA_TYPE_CV:
                 continue
-            self.segment_combo.addItem(self._segment_display(label), label)
+            self.segment_combo.addItem(
+                self._segment_display(label, decimals=DROPDOWN_DECIMALS), label)
         if previous:
             i = self.segment_combo.findData(previous)
             if i >= 0:
