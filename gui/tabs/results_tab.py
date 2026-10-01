@@ -30,6 +30,7 @@ from spec_echem.experiment import Segment
 from spec_echem.gamry_data import (read_cv, read_chrono, POTENTIAL_COL,
                                    CURRENT_COL)
 from gui.widgets.plot_canvas import MplCanvas
+from gui.widgets.figure_dialog import open_figure_dialog
 from gui.segment_labels import (prepare_segment_combo, segment_display,
                                 DROPDOWN_DECIMALS)
 
@@ -181,12 +182,16 @@ class ResultsTab(QWidget):
             "The red line marks the wavelength the Kinetics and\n"
             "Modulation views are sampling.")
         abs_layout.addWidget(self.canvas)
+        abs_layout.addLayout(self._save_row(
+            self.canvas, "absorbance", "Save absorbance figure"))
         plots.addWidget(abs_box)
 
         echem_box = QGroupBox("Electrochemistry")
         echem_layout = QVBoxLayout(echem_box)
         self.echem_canvas = MplCanvas(xlabel="Potential (V)", ylabel="Current (A)")
         echem_layout.addWidget(self.echem_canvas)
+        echem_layout.addLayout(self._save_row(
+            self.echem_canvas, "echem", "Save echem figure"))
         plots.addWidget(echem_box)
 
         plots.setStretchFactor(0, 1)
@@ -199,8 +204,6 @@ class ResultsTab(QWidget):
         self.load_run_btn.setToolTip(
             "Open a previously saved run folder and view its spectra + echem here.")
         self.load_run_btn.clicked.connect(self.on_load_run)
-        self.save_plot_btn = QPushButton("Save Plots")
-        self.save_plot_btn.clicked.connect(self.on_save_plot)
         self.open_folder_btn = QPushButton("Open Data Folder")
         self.open_folder_btn.clicked.connect(self.on_open_folder)
         self.to_h5_btn = QPushButton("Convert to HDF5")
@@ -221,12 +224,34 @@ class ResultsTab(QWidget):
             "any provenance. The complete data stays in the run's own .h5 files.")
         self.export_oect_btn.clicked.connect(self.on_export_oect)
         btn_row.addWidget(self.load_run_btn)
-        btn_row.addWidget(self.save_plot_btn)
         btn_row.addWidget(self.open_folder_btn)
         btn_row.addWidget(self.to_h5_btn)
         btn_row.addWidget(self.export_oect_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
+
+    def _save_row(self, canvas, basename, title):
+        """A save button under a figure. Right-aligned and flat so it reads as
+        belonging to the plot above it rather than as a tab-level action."""
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addStretch()
+        button = QPushButton("Save figure…")
+        button.setToolTip(
+            "Preview this plot at a fixed publication size and save it,\n"
+            "with the numbers behind it as a CSV.")
+        button.clicked.connect(
+            lambda: open_figure_dialog(self, canvas, self.win,
+                                       self._figure_basename(basename), title))
+        row.addWidget(button)
+        return row
+
+    def _figure_basename(self, suffix):
+        """run_segment_view, so a folder of saved figures is readable."""
+        label = (self._current_label() or "plot").replace(" ", "")
+        view = self.view_combo.currentData() if hasattr(self, "view_combo") else ""
+        parts = [p for p in (label, view, suffix) if p]
+        return "_".join(parts)
 
     # --- segment selection / plotting ---
 
@@ -630,27 +655,6 @@ class ResultsTab(QWidget):
             self._has_echem = True
         except Exception as exc:  # noqa: BLE001 — surface a bad/short file as a note, not a crash
             self.echem_canvas.show_message(f"Could not read echem file:\n{exc}")
-
-    def on_save_plot(self):
-        """Save the absorbance and (when present) echem plots as two files, named
-        from the chosen base with _absorbance / _echem suffixes so both segments'
-        views are captured, not just the optical one."""
-        label = self._current_label() or "plot"
-        start = str(self.win.run_folder / label) if self.win.run_folder else label
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save Plots (absorbance + echem)", start + ".png",
-            "PNG (*.png);;PDF (*.pdf)")
-        if not path:
-            return
-        p = Path(path)
-        abs_path = p.with_name(f"{p.stem}_absorbance{p.suffix}")
-        self.canvas.fig.savefig(abs_path, dpi=150)
-        saved = [abs_path.name]
-        if getattr(self, "_has_echem", False):
-            echem_path = p.with_name(f"{p.stem}_echem{p.suffix}")
-            self.echem_canvas.fig.savefig(echem_path, dpi=150)
-            saved.append(echem_path.name)
-        QMessageBox.information(self, "Saved", "Saved:\n" + "\n".join(saved))
 
     def on_open_folder(self):
         """Open the run folder in the OS file browser (Explorer / Finder)."""
