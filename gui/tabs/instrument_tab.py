@@ -63,6 +63,7 @@ from spec_echem.acquisition import (SPECTRUM_OVERHEAD_S, potentiostat_poll_secon
 from spec_echem.experiment import build_segments
 from spec_echem.spectral_range import recommend_wavelength_range
 from gui.widgets.plot_canvas import MplCanvas
+from gui.forms import form_layout
 
 # Under the spec_echem package logger so setup actions — which all happen before any
 # run exists — land in the app log rather than vanishing.
@@ -130,7 +131,7 @@ class InstrumentTab(QWidget):
 
         # --- Spectrometer settings (incl. timing test, which depends on these) ---
         settings_group = QGroupBox("Spectrometer Settings")
-        form = QFormLayout(settings_group)
+        form = form_layout(settings_group)
         self.integration_spin = QDoubleSpinBox()
         self.integration_spin.setRange(0.00001, 10000.0)
         # 5 decimals: working times are ~0.02-0.11 ms, and the fast detector's floor

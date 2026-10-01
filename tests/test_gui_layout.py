@@ -3036,3 +3036,41 @@ def _biexp_band(window):
         "Doping 7", DATA_TYPE_DOPING, 7, num_points=300, delta_time=0.1, trigger=False)
     window.analysis_tab.refresh_segments()
     return df, wl
+
+
+# 2026-10-01, from Mac/Win11 screenshots side by side: the same tab looked like two
+# different programs. QFormLayout takes BOTH its label alignment and its field-growth
+# policy from the STYLE, and macintosh says (Right, FieldsStayAtSizeHint) while
+# Windows and Fusion say (Left, AllNonFixedFieldsGrow). A "0.050 V" spin box was
+# ~110 px on one and the full width of the group on the other.
+
+def test_every_form_lays_out_the_same_way_on_every_platform(window):
+    from qtpy.QtCore import Qt
+    from qtpy.QtWidgets import QFormLayout
+
+    forms = window.findChildren(QFormLayout)
+    assert len(forms) >= 9, f"only {len(forms)} forms found — did one stop using form_layout()?"
+    for form in forms:
+        assert form.fieldGrowthPolicy() == QFormLayout.ExpandingFieldsGrow
+        assert int(form.labelAlignment()) == int(Qt.AlignRight | Qt.AlignVCenter)
+
+
+def test_a_numeric_field_stays_the_width_of_its_number(window, qapp_style=None):
+    """A potential should be as wide as a potential, not as wide as the group it is
+    in. Line edits still fill, because a sample name or a path wants the room."""
+    from qtpy.QtWidgets import QApplication
+
+    window.resize(1400, 900)
+    window.show()
+    window.tabs.setCurrentWidget(window.parameters_tab)
+    for _ in range(3):
+        QApplication.processEvents()
+
+    tab = window.parameters_tab
+    for key in ("cv_initial_v", "cv_scan_rate", "doping_potential_start"):
+        spin = tab._widgets[key]
+        assert spin.width() == spin.sizeHint().width(), (
+            f"{key} is {spin.width()} px for a {spin.sizeHint().width()} px number")
+
+    name = tab._widgets["sample_name"]
+    assert name.width() > name.sizeHint().width(), "a text field should still fill"
