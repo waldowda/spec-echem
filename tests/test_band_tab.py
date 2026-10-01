@@ -549,3 +549,59 @@ def test_the_band_in_the_title_comes_from_the_fit_not_the_controls(window):
     for ax in tab.canvas.fig.axes:
         if ax.get_title():
             assert "480" in ax.get_title() and "300" not in ax.get_title()
+
+
+# 2026-10-01, reported from use: "if you fit all segments before fitting a plotted
+# data set, the fit is not plotted." It was not -- the single-segment plot and the
+# ladder were mutually exclusive, so selecting a segment after Fit all left the
+# ladder up and the only way to see that segment's band was to fit it AGAIN, even
+# though Fit all had already computed and kept it.
+
+def _fitted_ladder(window):
+    _ladder(window)
+    tab = window.band_tab
+    tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
+    tab.start_spin.setValue(480.0); tab.stop_spin.setValue(540.0)
+    tab.on_fit_all()
+    return tab
+
+
+def test_selecting_a_segment_shows_the_fit_fit_all_already_made(window):
+    tab = _fitted_ladder(window)
+    assert tab._showing == "ladder"
+
+    i = tab.segment_combo.findData("Doping 1")
+    assert i >= 0
+    tab.segment_combo.setCurrentIndex(i)
+
+    assert tab._showing == "one"
+    assert tab._band is not None
+    titles = [a.get_title() for a in tab.canvas.fig.axes if a.get_title()]
+    assert any("Doping 1" in t for t in titles), titles
+    # ...without refitting: it is the object Fit all built.
+    stored = next(e[3] for e in tab._ladder if e[0] == "Doping 1")
+    assert tab._band is stored
+
+
+def test_the_ladder_can_be_returned_to_without_refitting(window):
+    tab = _fitted_ladder(window)
+    ladder_before = tab._ladder
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 1"))
+    assert tab.ladder_btn.isEnabled()
+
+    tab.on_show_ladder()
+    assert tab._showing == "ladder"
+    assert tab._ladder is ladder_before          # the same fits, not new ones
+    titles = [a.get_title() for a in tab.canvas.fig.axes if a.get_title()]
+    assert any("doping —" in t for t in titles), titles
+
+
+def test_fitting_one_segment_keeps_the_ladder_available(window):
+    """Fitting a segment used to discard every other segment's fit."""
+    tab = _fitted_ladder(window)
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 2"))
+    tab.on_fit_segment()
+
+    assert tab._showing == "one"
+    assert tab._ladder, "the ladder was thrown away by fitting one segment"
+    assert tab.ladder_btn.isEnabled()
