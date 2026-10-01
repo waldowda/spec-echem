@@ -58,6 +58,9 @@ class BandTab(QWidget):
         self._ladder = None        # [(label, potential, direction, BandFit)]
         self._frame = None         # the table currently shown
         self._seeded = False
+        # The segment the USER chose, kept outside the combo so that
+        # rebuilding it cannot forget. See _remember_segment.
+        self._wanted_label = None
         self._build()
 
     # --- layout ---------------------------------------------------------
@@ -70,6 +73,7 @@ class BandTab(QWidget):
 
         self.segment_combo = QComboBox()
         prepare_segment_combo(self.segment_combo)
+        self.segment_combo.currentIndexChanged.connect(self._remember_segment)
         form.addRow("Segment:", self.segment_combo)
 
         wl_row = QHBoxLayout()
@@ -235,24 +239,48 @@ class BandTab(QWidget):
         basename = f"{label}_band" if self._band is not None else "ladder_band"
         open_figure_dialog(self, self.canvas, self.win, basename, "Save band figure")
 
+    def _remember_segment(self, *_):
+        """Hold the chosen segment OUTSIDE the widget.
+
+        Reading it back off the combo at refresh time is not enough: run_tab clears
+        win.results at the start of a run, and showEvent refreshes on every show, so
+        a single refresh against an empty result set wiped the only record of what
+        was selected and every refresh afterwards landed on the first segment. The
+        selection is the user's, and it should outlive the widget being rebuilt.
+        """
+        label = self.segment_combo.currentData()
+        if label:
+            self._wanted_label = label
+
     def refresh_segments(self):
-        previous = self._current_label()
+        # A CV is excluded, not merely skipped on the ladder. Its spectra are taken
+        # DURING a sweep, so "absorbance against time" there is a sweep response,
+        # not a relaxation, and a tau fitted to it would be a number with no
+        # meaning. Pre-dedoping stays: it is a genuine hold, and only its place on
+        # the ladder is undefined.
+        labels = [label for label in self.win.results
+                  if not (self.win.segments_by_label.get(label) is not None
+                          and self.win.segments_by_label[label].data_type
+                          == DATA_TYPE_CV)]
+        current = [self.segment_combo.itemData(i)
+                   for i in range(self.segment_combo.count())]
+        if labels == current:
+            # Nothing changed, so do not rebuild. showEvent calls this on EVERY
+            # show, and each rebuild re-reads every segment's echem file to label
+            # it -- and gives one more chance to lose the selection.
+            return
+
+        previous = self._current_label() or self._wanted_label
         self.segment_combo.blockSignals(True)
         self.segment_combo.clear()
-        for label in self.win.results:
-            # A CV is excluded, not merely skipped on the ladder. Its spectra are
-            # taken DURING a sweep, so "absorbance against time" there is a sweep
-            # response, not a relaxation, and a tau fitted to it would be a number
-            # with no meaning. Pre-dedoping stays: it is a genuine hold, and only
-            # its place on the ladder is undefined.
-            seg = self.win.segments_by_label.get(label)
-            if seg is not None and seg.data_type == DATA_TYPE_CV:
-                continue
+        for label in labels:
             self.segment_combo.addItem(segment_display(self.win, label), label)
         if previous:
             i = self.segment_combo.findData(previous)
             if i >= 0:
                 self.segment_combo.setCurrentIndex(i)
+            # Kept even when it is not there: a run in progress has not written
+            # that segment YET, and it should come back when it does.
         self.segment_combo.blockSignals(False)
 
     def _current_label(self):

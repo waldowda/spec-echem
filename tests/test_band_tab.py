@@ -362,3 +362,70 @@ def test_the_log_axis_scales_to_the_data_not_to_zero(window):
     assert lo <= ys.min() and ys.max() <= hi
     # and the range must be snug, not decades of empty space
     assert hi / lo < 1e4
+
+
+# 2026-10-01, reported from use: "sometimes in tab 6 after a fit the segment choice
+# goes back to the first segment". refresh_segments read the previous selection off
+# the combo it was about to rebuild, so one refresh against an empty result set --
+# run_tab assigns win.results = {} at the start of every run, and showEvent refreshes
+# on EVERY show -- wiped the only record of it, and every refresh afterwards landed
+# on the first segment.
+
+def _loaded_band_tab(window):
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING, DATA_TYPE_DEDOPING
+    from spec_echem.experiment import Segment
+
+    wl = np.linspace(400.0, 1100.0, 40)
+    t = np.linspace(0.0, 20.0, 30)
+    block = np.outer(np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2), 1 - np.exp(-t / 4.0))
+    results, segments = {}, {}
+    for n in range(3):
+        for name, dtype in (("Doping", DATA_TYPE_DOPING),
+                            ("Dedoping", DATA_TYPE_DEDOPING)):
+            label = f"{name} {n}"
+            results[label] = pd.DataFrame(block, index=wl, columns=t)
+            segments[label] = Segment(label, dtype, n, 30, 0.1, True)
+    window.results, window.segments_by_label = results, segments
+    window.band_tab.refresh_segments()
+    return window.band_tab, results
+
+
+def test_the_chosen_segment_survives_the_results_being_cleared(window):
+    tab, results = _loaded_band_tab(window)
+    tab.segment_combo.setCurrentIndex(4)
+    chosen = tab._current_label()
+    assert chosen != tab.segment_combo.itemData(0)      # not already the first
+
+    window.results = {}                                 # what run_tab does
+    tab.refresh_segments()
+    assert tab.segment_combo.count() == 0
+
+    window.results = results                            # and they come back
+    tab.refresh_segments()
+    assert tab._current_label() == chosen
+
+
+def test_an_unchanged_segment_list_is_not_rebuilt(window):
+    """showEvent refreshes on every show, and each rebuild re-reads every segment's
+    echem file to label it -- and gives one more chance to lose the selection."""
+    tab, _results = _loaded_band_tab(window)
+    tab.segment_combo.setCurrentIndex(3)
+    chosen = tab._current_label()
+    before = [tab.segment_combo.itemText(i) for i in range(tab.segment_combo.count())]
+
+    calls = []
+    original = window.segment_potential_text
+    window.segment_potential_text = lambda *a, **k: (calls.append(1),
+                                                     original(*a, **k))[1]
+    try:
+        for _ in range(3):
+            tab.refresh_segments()
+    finally:
+        window.segment_potential_text = original
+
+    assert calls == [], "the combo was rebuilt although nothing changed"
+    assert tab._current_label() == chosen
+    assert [tab.segment_combo.itemText(i)
+            for i in range(tab.segment_combo.count())] == before
