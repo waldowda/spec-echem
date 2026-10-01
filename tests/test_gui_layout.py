@@ -3135,3 +3135,70 @@ def test_an_explanatory_note_uses_the_whole_row_not_the_field_column(window):
         assert note.width() > combo.width() * 1.5, (
             f"{name} is {note.width()} px against a {combo.width()} px combo — "
             "it is still wrapping to the field column")
+
+
+# 2026-10-01: "Now they don't wrap with the window width." The gray hints beside a
+# field ran on in one line and were clipped at the edge of the tab, so the end of the
+# longest one -- "Check the depth each run" -- was never readable at any width.
+
+def _hint_beside(tab, key, needle):
+    from qtpy.QtWidgets import QLabel
+    field = tab._widgets[key]
+    return field, [l for l in field.parent().findChildren(QLabel)
+                   if needle in l.text()][0]
+
+
+def test_a_long_hint_rewraps_with_the_window(window):
+    from qtpy.QtWidgets import QApplication
+
+    window.show()
+    window.tabs.setCurrentWidget(window.parameters_tab)
+    widths = {}
+    for size in (1600, 900):
+        window.resize(size, 950)
+        for _ in range(4):
+            QApplication.processEvents()
+        _field, hint = _hint_beside(window.parameters_tab, "film_area_cm2",
+                                    "coated area")
+        widths[size] = hint.width()
+
+    assert widths[1600] > widths[900], (
+        f"hint is {widths[1600]} px wide at 1600 and {widths[900]} at 900 — "
+        "it is not following the window")
+    # ...and it never runs past the group it sits in.
+    assert widths[1600] < 1600
+
+
+def test_a_short_hint_does_not_claim_the_whole_row(window):
+    """Capped at its one-line width, so it neither wraps needlessly nor squeezes
+    the field beside it -- an uncapped stretch collapsed sample name to 142 px."""
+    from qtpy.QtWidgets import QApplication
+
+    window.resize(1600, 950)
+    window.show()
+    window.tabs.setCurrentWidget(window.parameters_tab)
+    for _ in range(4):
+        QApplication.processEvents()
+
+    field, hint = _hint_beside(window.parameters_tab, "sample_name", "P3HT")
+    needed = hint.fontMetrics().boundingRect(hint.text()).width()
+    assert hint.width() < needed * 2, "a short hint took far more room than its text"
+    assert field.width() > 300, f"the field beside it collapsed to {field.width()} px"
+
+
+def test_a_spin_box_beside_a_hint_keeps_its_size(window):
+    """The hint row has its own layout, and dropping its trailing stretch let the
+    spin box absorb the leftover -- a 150 nm field came out 1042 px wide."""
+    from qtpy.QtWidgets import QApplication
+
+    window.resize(1600, 950)
+    window.show()
+    window.tabs.setCurrentWidget(window.parameters_tab)
+    for _ in range(4):
+        QApplication.processEvents()
+
+    for key, needle in (("film_thickness_nm", "spin-coated"),
+                        ("film_area_cm2", "coated area")):
+        spin, _hint = _hint_beside(window.parameters_tab, key, needle)
+        assert spin.width() == spin.sizeHint().width(), (
+            f"{key} is {spin.width()} px for a {spin.sizeHint().width()} px number")

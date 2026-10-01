@@ -77,16 +77,34 @@ class ParametersTab(QWidget):
         return w
 
     def _hint(self, widget, text):
-        """Wrap a field with a gray example/format hint to its right."""
+        """Wrap a field with a gray example/format hint to its right.
+
+        The hint WRAPS and takes the leftover width, rather than running on in one
+        line and being clipped at the edge of the tab -- which is what the longer
+        ones did, so "Check the depth each run" was never readable (2026-10-01).
+        The stretch that used to sit after it is what the label now does itself.
+        """
         box = QWidget()
         row = QHBoxLayout(box)
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(widget)
         label = QLabel(text)
         label.setStyleSheet("color: #888;")
-        row.addWidget(label)
+        # Capped at the width it would take on ONE line, measured before wrapping is
+        # switched on. It therefore wraps only when the window is too narrow for the
+        # hint, and never claims space it has no text to put in -- without the cap
+        # the stretch below handed a short hint half the row and collapsed the field
+        # beside it from 606 px to 142.
+        label.setMaximumWidth(label.sizeHint().width() + 4)   # +4: never wrap a hint that fits
+        label.setWordWrap(True)
+        row.addWidget(label, 1)
+        # The trailing stretch stays. Without it the leftover width goes to the
+        # FIELD -- a QDoubleSpinBox has a Minimum policy, so it grows when nothing
+        # else will, and a 150 nm spin box came out 1042 px wide. The stretch is an
+        # expanding spacer, so it takes that space instead and the spin box keeps
+        # its size hint, while a QLineEdit still grows because it asks to.
         row.addStretch()
-        return box
+        return fill_width(box)
 
     def _build(self):
         outer = QVBoxLayout(self)
