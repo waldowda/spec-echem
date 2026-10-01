@@ -609,6 +609,53 @@ def test_pre_dedoping_is_named_not_counted_as_a_dedoping_step(analysis_window):
     assert "Pre-dedoping" in stored[1], stored[1]
 
 
+# 2026-09-30: "Fit all segments" on tab 6 counted the PRE-DEDOPE in its progress
+# dialog -- "1 of 17" on a run with 16 rungs -- then skipped it without fitting, so
+# the bar also lost a tick doing nothing. It is correctly excluded (no rung), but
+# the count has to describe the work.
+
+def test_fit_all_counts_only_the_segments_it_will_actually_fit(analysis_window,
+                                                              monkeypatch):
+    import numpy as np
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_PREDEDOPING, DATA_TYPE_DEDOPING
+    from spec_echem.experiment import Segment
+
+    w = analysis_window
+    doping = w.results["Doping 0"]
+    for label, dtype in (("Dedoping 0", DATA_TYPE_DEDOPING),
+                         ("Pre-dedoping", DATA_TYPE_PREDEDOPING)):
+        w.results[label] = pd.DataFrame(doping.values, index=doping.index,
+                                        columns=doping.columns)
+        w.segments_by_label[label] = Segment(label, dtype, 0, 120, 0.1, True)
+    band = w.band_tab
+    band.refresh_segments()
+    assert band.segment_combo.count() == 3          # pre-dedope IS offered singly
+
+    # Capture what the progress dialog is told, without opening one.
+    maxima = []
+
+    class _FakeProgress:
+        def __init__(self, _text, _cancel, _lo, hi, _parent):
+            maxima.append(hi)
+
+        def setWindowModality(self, _m): pass
+        def setMinimumDuration(self, _d): pass
+        def setLabelText(self, _t): pass
+        def setValue(self, _v): pass
+        def wasCanceled(self): return False
+        def close(self): pass
+
+    monkeypatch.setattr("gui.tabs.band_tab.QProgressDialog", _FakeProgress)
+    band.start_spin.setValue(850.0)
+    band.stop_spin.setValue(950.0)
+    band.on_fit_all()
+
+    # Two rungs, not three: the pre-dedope has no ladder potential.
+    assert maxima == [2], maxima
+    assert "Pre-dedoping" in band.status.text()      # and it is still named
+
+
 def test_the_cv_is_not_offered_for_transient_fitting(analysis_window):
     """A CV is a sweep, not a step — there is no transient to fit, so offering it
     would only produce a confident-looking meaningless number."""
