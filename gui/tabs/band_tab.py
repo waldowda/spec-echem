@@ -625,7 +625,10 @@ class BandTab(QWidget):
             ax.set_ylabel("tau (s)")
             ax.grid(alpha=0.3)
             if col == 0 and len(self._curves_for(model)) > 1:
-                ax.legend(fontsize=7, loc="best", framealpha=0.9)
+                # Only when something was actually labelled: every fit in the
+                # panel can fail, and asking then is just a warning on the console.
+                if ax.get_legend_handles_labels()[1]:
+                    ax.legend(fontsize=7, loc="best", framealpha=0.9)
 
             if beta_row:
                 bax = axes[1][col]
@@ -680,6 +683,12 @@ class BandTab(QWidget):
         columns = ([(column, column)] if column
                    else self._curves_for(model))
         offscreen = 0
+        # Which series have had their label used. It used to be "the first segment
+        # carries the labels", which puts nothing in the legend when that segment
+        # happens to have no passing fits -- matplotlib then warns "No artists with
+        # labels found to put in legend" and the panel comes out unlabelled, which
+        # is worse than the warning (2026-10-01).
+        labelled = set()
         for k, (name, label) in enumerate(columns):
             for j, (_lbl, _pot, _dir, band) in enumerate(entries):
                 frame = band.table()
@@ -692,7 +701,8 @@ class BandTab(QWidget):
                 if np.any(good):
                     ax.plot(np.full(good.sum(), x), y[good], "o", markersize=2.5,
                             alpha=0.45, color=f"C{k}",
-                            label=label if j == 0 else None)
+                            label=None if name in labelled else label)
+                    labelled.add(name)
                     mean, sd = float(np.mean(y[good])), float(np.std(y[good]))
                     lower = sd
                     if self.log_check.isChecked() and mean - sd <= 0:
