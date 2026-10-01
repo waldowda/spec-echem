@@ -46,10 +46,13 @@ BAND_PRIMARY = {"exp": "tau", "biexp": "tau2", "stretched": "tau"}
 # A starting point the user immediately adjusts, not a claim.
 DEFAULT_SPAN_NM = 100.0
 
-# Sideways offset between the components at one potential, as a fraction of the
-# category spacing. The x axis is CATEGORICAL, so this is presentation only — the
-# tick carries the true potential.
-DODGE = 0.16
+# The components at one potential are NOT offset sideways. A dodge was tried and
+# removed (2026-10-01): shifting tau1 and tau2 off their position made the axis read
+# as a continuous potential axis, so a point drawn at +0.42 looked like a
+# measurement at +0.42. The axis IS continuous now, which makes a dodge a plain
+# falsehood rather than a presentational liberty. Overlap between components is the
+# cheaper problem -- they are drawn in different colours, and every point is at the
+# potential it was measured at.
 
 
 class BandTab(QWidget):
@@ -486,8 +489,15 @@ class BandTab(QWidget):
     def _draw_ladder(self):
         """Every tau in the band, at each potential, doping and dedoping separately.
 
-        CATEGORICAL x: the potentials are rungs, not a continuum, and equal spacing
-        keeps the dodged components readable. The tick carries the true potential.
+        LINEAR x, in volts. It was categorical at first -- evenly spaced rungs with
+        the potential on the tick -- which reads well for an even ladder but says
+        something false about an uneven one, and is not how the downstream analysis
+        plots tau against Vg. Points therefore sit at their actual potential, and a
+        0.05 V step looks like half a 0.1 V step because it is one.
+
+        Ticks are still placed AT the measured potentials rather than left to
+        matplotlib: every rung is then labelled with the value it was held at, which
+        is the one thing the categorical version did better.
 
         The whisker is mean +/- SD over the PASSED fits only. Rejected ones are drawn
         hollow so they are visible but do not move the statistic, and the axis is
@@ -521,8 +531,8 @@ class BandTab(QWidget):
         for col, direction in enumerate(directions):
             entries = sorted((r for r in shown if r[2] == direction),
                              key=lambda r: r[1])
-            xs = np.arange(len(entries), dtype=float)
-            labels = [f"{p:+.2f}" for _l, p, _d, _b in entries]
+            xs = np.array([p for _l, p, _d, _b in entries], dtype=float)
+            labels = [f"{p:+.2f}" for p in xs]
 
             ax = axes[0][col]
             # BEFORE _strip, which sets the limits: a log axis cannot take a lower
@@ -533,6 +543,11 @@ class BandTab(QWidget):
             offscreen += self._strip(ax, entries, xs, model)
             ax.set_xticks(xs)
             ax.set_xticklabels(labels)
+            # A real axis puts the end rungs on the frame, where half of each strip
+            # would be clipped. One tenth of the span, or 50 mV for a single rung.
+            span = float(xs.max() - xs.min())
+            pad = span * 0.1 if span > 0 else 0.05
+            ax.set_xlim(float(xs.min()) - pad, float(xs.max()) + pad)
             ax.set_title(f"{direction} — {model}")
             ax.set_ylabel("tau (s)")
             ax.grid(alpha=0.3)
@@ -553,8 +568,8 @@ class BandTab(QWidget):
 
         fig.tight_layout()
         self.canvas.draw_idle()
-        # This plot is composed on the figure directly -- its own subplots, dodged
-        # strips and whiskers -- so no draw method recorded it and Save figure wrote
+        # This plot is composed on the figure directly -- its own subplots, strips
+        # and whiskers -- so no draw method recorded it and Save figure wrote
         # the SINGLE-segment plot that came before it, under the ladder's name
         # (reported 2026-10-01). Registering the composition fixes both halves.
         self.canvas.record_draw(self._draw_ladder, self._ladder_frame)
@@ -591,10 +606,8 @@ class BandTab(QWidget):
         Returns how many rejected points fell outside the drawn range."""
         columns = ([(column, column)] if column
                    else self._curves_for(model))
-        n = len(columns)
         offscreen = 0
         for k, (name, label) in enumerate(columns):
-            dodge = (k - (n - 1) / 2) * DODGE
             for j, (_lbl, _pot, _dir, band) in enumerate(entries):
                 frame = band.table()
                 if name not in frame:
@@ -602,7 +615,7 @@ class BandTab(QWidget):
                 ok = frame["ok"].to_numpy(dtype=bool)
                 y = frame[name].to_numpy(dtype=float)
                 good = ok & np.isfinite(y)
-                x = xs[j] + dodge
+                x = xs[j]
                 if np.any(good):
                     ax.plot(np.full(good.sum(), x), y[good], "o", markersize=2.5,
                             alpha=0.45, color=f"C{k}",
