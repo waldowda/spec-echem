@@ -99,3 +99,43 @@ def test_the_footnote_wraps_to_the_output_width_not_the_widgets(canvas):
     assert lines(narrow) > lines(wide), (
         f"narrow wrapped to {lines(narrow)} lines, wide to {lines(wide)} — the "
         "footnote is not following the output width")
+
+
+def test_a_stamped_fit_figure_collides_with_neither_its_title_nor_its_footnote(app):
+    """plot_fit builds a shared-x gridspec under CONSTRAINED layout, which
+    tight_layout cannot handle: it warns and does nothing, so the footnote band was
+    never reserved and provenance landed on top of the x-axis label. Reserving it
+    through the engine then exposed the other end -- the engine does not treat a
+    suptitle as part of the rect, so the residual panel climbed over the title.
+    Both ends are checked here because fixing one is what revealed the other.
+    """
+    import warnings
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    canvas = MplCanvas(xlabel="Time (s)", ylabel="Absorbance")
+    t = np.linspace(0.0, 20.0, 60)
+    y = 0.5 * (1.0 - np.exp(-t / 4.0))
+
+    fig = Figure(figsize=(6.5, 4.5), dpi=100, tight_layout=True)
+    # RECORDED, not raised: turning the warning into an error makes tight_layout
+    # abort instead of running, which hides the bug -- in production it runs, warns,
+    # and repositions the axes anyway. An earlier version of this test did that and
+    # passed against the broken code.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with canvas._retarget(fig):
+            canvas.plot_fit(t, y, y, "Time (s)", "Absorbance", title="A title")
+            canvas._draw_footnote("20250710 · spec-echem 0.3.1")
+    assert not [w for w in caught if "tight_layout" in str(w.message)], \
+        "tight_layout was applied to a constrained gridspec"
+    FigureCanvasAgg(fig)
+    fig.canvas.draw()
+
+    tops = [ax.get_position().y1 for ax in fig.axes]
+    bottoms = [ax.get_position().y0 for ax in fig.axes]
+    suptitle_y = max(tx.get_position()[1] for tx in fig.texts)
+    footnote_y = min(tx.get_position()[1] for tx in fig.texts)
+
+    assert max(tops) < suptitle_y - 0.01, "the panel climbed over the title"
+    assert min(bottoms) > footnote_y + 0.01, "provenance landed on the x-axis label"
