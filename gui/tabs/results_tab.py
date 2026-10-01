@@ -349,6 +349,7 @@ class ResultsTab(QWidget):
         if not label or label not in self.win.results:
             return
         absorb_df = self.win.results[label]
+        self._sync_wavelength_range(absorb_df)
         # Cleared here, set again by whichever view actually has one: a stale
         # wavelength would name a figure after a condition it was not taken at.
         self._plotted_wl = None
@@ -402,6 +403,24 @@ class ResultsTab(QWidget):
         if chosen is None:
             return ""
         return f" @ {chosen:.1f} nm" + (" (auto)" if self.wl_auto.isChecked() else "")
+
+    def _sync_wavelength_range(self, absorb_df):
+        """Hold the analysis-wavelength box to what this run actually measured.
+
+        Same trap as the Analysis tab's: the box was 0-5000 nm whatever the data,
+        and the nearest PIXEL is what gets used, so a number outside the detector's
+        span quietly resolved to its last pixel.
+        """
+        wl = np.asarray(absorb_df.index.values, dtype=float)
+        if not wl.size:
+            return
+        # blockSignals: setRange CLAMPS the current value, which emits valueChanged,
+        # which is wired to "the user chose a wavelength" -- so simply narrowing the
+        # range looked like a deliberate pick and cascaded into clearing fits. A
+        # programmatic range change is not the user typing.
+        self.analysis_wl.blockSignals(True)
+        self.analysis_wl.setRange(float(wl.min()), float(wl.max()))
+        self.analysis_wl.blockSignals(False)
 
     def _chosen_wavelength(self, absorb_df, label):
         """The wavelength to follow: the user's, or the polaron band.
