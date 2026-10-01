@@ -31,7 +31,7 @@ chosen on its merits rather than inherited:
                      changes width, which reads as a layout bug rather than a style.
 """
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QFormLayout
+from qtpy.QtWidgets import QFormLayout, QSizePolicy
 
 
 def form_layout(parent=None):
@@ -41,3 +41,20 @@ def form_layout(parent=None):
     layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
     layout.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
     return layout
+
+
+def fill_width(widget):
+    """Let a field use the whole row rather than the field column's width.
+
+    A wrapping QLabel asks for no width of its own, so under ExpandingFieldsGrow it
+    sits at whatever the widest OTHER field in the form happens to be -- a combo box,
+    usually -- and an explanatory note then wraps to that width with the rest of the
+    row left empty beside it. Reported 2026-10-01: "the text below the input field is
+    only as wide as the input field. Wastes space?"
+
+    Returns the widget, so it can wrap a constructor call.
+    """
+    policy = widget.sizePolicy()
+    policy.setHorizontalPolicy(QSizePolicy.Expanding)
+    widget.setSizePolicy(policy)
+    return widget
