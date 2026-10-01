@@ -285,25 +285,33 @@ class BandTab(QWidget):
         model = self.model_combo.currentData()
         start, stop = self._window()
 
-        progress = QProgressDialog("Fitting bands…", "Cancel", 0, len(labels), self)
+        # Partitioned BEFORE the dialog opens, not skipped inside the loop. A
+        # pre-dedope has no rung so it is never fitted here, and counting it made
+        # the dialog promise "1 of 17" while doing 16 -- and consume a tick of the
+        # bar doing nothing. The count now describes the work.
+        fittable, skipped = [], []
+        for label in labels:
+            seg = self.win.segments_by_label.get(label)
+            potential = self.win.doped_to(seg) if seg is not None else None
+            # No potential means no place on the ladder -- a CV sweeps and
+            # pre-dedoping is a single baseline, not a rung.
+            if self._frame_for(label) is None or seg is None or potential is None:
+                skipped.append(label)
+            else:
+                fittable.append((label, seg, float(potential)))
+
+        progress = QProgressDialog("Fitting bands…", "Cancel", 0, len(fittable), self)
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
 
-        results, skipped = [], []
-        for i, label in enumerate(labels):
-            progress.setLabelText(f"Fitting {label} ({i + 1} of {len(labels)})…")
+        results = []
+        for i, (label, seg, potential) in enumerate(fittable):
+            progress.setLabelText(f"Fitting {label} ({i + 1} of {len(fittable)})…")
             progress.setValue(i)
             QApplication.processEvents()
             if progress.wasCanceled():
                 break
             df = self._frame_for(label)
-            seg = self.win.segments_by_label.get(label)
-            potential = self.win.doped_to(seg) if seg is not None else None
-            # No potential means no place on the ladder -- a CV sweeps and
-            # pre-dedoping is a single baseline, not a rung.
-            if df is None or seg is None or potential is None:
-                skipped.append(label)
-                continue
             try:
                 band = fit_band(df.values, np.asarray(df.index.values, dtype=float),
                                 np.asarray(df.columns.values, dtype=float),
@@ -314,8 +322,8 @@ class BandTab(QWidget):
                 progress.close()
                 return
             direction = "doping" if seg.data_type == DATA_TYPE_DOPING else "dedoping"
-            results.append((label, float(potential), direction, band))
-        progress.setValue(len(labels))
+            results.append((label, potential, direction, band))
+        progress.setValue(len(fittable))
 
         if not results:
             self.status.setText(
