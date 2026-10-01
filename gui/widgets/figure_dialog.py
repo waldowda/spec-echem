@@ -48,6 +48,27 @@ PRESETS = [
 ]
 DEFAULT_PRESET = 0
 
+
+def preset_rc(pt):
+    """The full font set for a preset, from its base size.
+
+    matplotlib defaults axes.titlesize to 'large' = 1.2x the base, which makes the
+    TITLE the heaviest thing on a small figure -- at 7 pt base it renders at 8.4 pt
+    and dominates (observed 2026-09-30). Here the title only names the segment, so
+    it is set equal to the axis labels rather than above them; journals usually drop
+    figure titles altogether. Ticks go one point below, which is the usual house
+    style and keeps the numbers from competing with the data.
+    """
+    return {
+        "font.size": pt,
+        "axes.titlesize": pt,
+        "axes.labelsize": pt,
+        "xtick.labelsize": pt - 1,
+        "ytick.labelsize": pt - 1,
+        "legend.fontsize": pt - 1,
+        "figure.titlesize": pt,
+    }
+
 # The preview is drawn at screen resolution and SAVED at the chosen dpi. Same
 # figure, same inches, same point sizes -- only the pixel count differs, so what is
 # on screen is what lands in the file.
@@ -158,7 +179,7 @@ class FigureDialog(QDialog):
         size, pt = self.preset_combo.currentData()
         # rc_context, not a global rcParams write: the main window's live canvases
         # are drawn from the same defaults and must not inherit this.
-        with matplotlib.rc_context({"font.size": pt}):
+        with matplotlib.rc_context(preset_rc(pt)):
             self._fig = self._canvas.render_to_figure(
                 self._draw, figsize=size, dpi=DISPLAY_DPI,
                 footnote=self.provenance_text())
