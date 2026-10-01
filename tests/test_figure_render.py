@@ -139,3 +139,43 @@ def test_a_stamped_fit_figure_collides_with_neither_its_title_nor_its_footnote(a
 
     assert max(tops) < suptitle_y - 0.01, "the panel climbed over the title"
     assert min(bottoms) > footnote_y + 0.01, "provenance landed on the x-axis label"
+
+
+# 2026-10-01, reported from the rig: the fit legend sat on top of the transient. It
+# used loc="best", which for a legend carrying the whole parameter block has no good
+# option -- and then resolves DIFFERENTLY per machine and window size. It landed
+# upper-right on the Mac and upper-left, over the data, on Win11, for the same fit.
+
+def test_the_fit_legend_never_covers_the_transient(app):
+    """The transient is always at t = 0, so the legend belongs on the right --
+    whatever the window size, which is what makes it reproducible."""
+    from gui.widgets.plot_canvas import _legend_corner
+
+    t = np.linspace(0.0, 61.0, 400)
+    decay = 0.13 + 0.22 * np.exp(-t / 0.47) + 0.085 * np.exp(-t / 2.67)
+    growth = 0.50 - 0.35 * np.exp(-t / 2.0)
+    note = "\n".join(["biexp  (+/- = 1 SD)"] + [f"parameter {i}" for i in range(9)])
+
+    assert _legend_corner(decay) == "upper right"
+    assert _legend_corner(growth) == "lower right"
+
+    for trace in (decay, growth):
+        for size in ((13.0, 4.0), (6.5, 4.5), (5.0, 3.0), (19.0, 6.0)):
+            canvas = MplCanvas(xlabel="Time (s)", ylabel="Absorbance")
+            canvas.fig.set_size_inches(*size)
+            canvas.plot_fit(t, trace, trace, "Time (s)", "Absorbance", note=note)
+            canvas.fig.canvas.draw()
+            box = (canvas.ax.get_legend().get_window_extent()
+                   .transformed(canvas.ax.transAxes.inverted()))
+            assert box.x0 > 0.5, (
+                f"legend reaches x={box.x0:.2f} at {size} — over the transient")
+
+
+def test_a_flat_or_tiny_trace_still_places_the_legend(app):
+    """A degenerate trace must not raise or return something matplotlib rejects."""
+    from gui.widgets.plot_canvas import _legend_corner
+
+    assert _legend_corner(np.array([])) == "upper right"
+    assert _legend_corner(np.array([1.0, 2.0])) == "upper right"
+    assert _legend_corner(np.full(50, 0.4)) in ("upper right", "lower right")
+    assert _legend_corner(np.array([np.nan] * 10)) == "upper right"
