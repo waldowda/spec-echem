@@ -33,6 +33,7 @@ from gui.widgets.plot_canvas import MplCanvas
 from gui.widgets.figure_dialog import open_figure_dialog
 from gui.segment_labels import (prepare_segment_combo, segment_display,
                                 DROPDOWN_DECIMALS)
+from gui.forms import form_layout
 
 
 
@@ -53,7 +54,7 @@ class ResultsTab(QWidget):
 
         # --- selector / range controls ---
         ctrl_group = QGroupBox("View")
-        ctrl_form = QFormLayout(ctrl_group)
+        ctrl_form = form_layout(ctrl_group)
         self.segment_combo = QComboBox()
         prepare_segment_combo(self.segment_combo)
         # Index, not text: the visible text carries the potential, so it is not the

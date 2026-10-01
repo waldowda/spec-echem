@@ -33,6 +33,7 @@ from gui.widgets.plot_canvas import MplCanvas
 from gui.widgets.figure_dialog import open_figure_dialog, save_figure
 from gui.segment_labels import (prepare_segment_combo, segment_display,
                                 DROPDOWN_DECIMALS)
+from gui.forms import form_layout
 
 # How far a measured rung potential may sit outside the potential-range boxes and
 # still count as inside. Measured potentials differ from the nominal step by a
@@ -142,7 +143,7 @@ class AnalysisTab(QWidget):
         layout = QVBoxLayout(self)
 
         controls = QGroupBox("Fit")
-        form = QFormLayout(controls)
+        form = form_layout(controls)
 
         self.segment_combo = QComboBox()
         prepare_segment_combo(self.segment_combo)

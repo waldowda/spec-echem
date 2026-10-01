@@ -12,6 +12,7 @@ from pathlib import Path
 
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
+    QSizePolicy,
     QPushButton, QLabel, QLineEdit, QPlainTextEdit, QCheckBox,
     QDoubleSpinBox, QSpinBox, QFileDialog, QComboBox,
 )
@@ -22,6 +23,7 @@ from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES, GAMRY_CURRENT_RANGE
 from spec_echem.acquisition import spectrum_cost_seconds
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import _next_serial_path
+from gui.forms import form_layout
 
 POTENTIAL_NOTE = "  (Python mode drives these; External = reference)"
 
@@ -120,7 +122,7 @@ class ParametersTab(QWidget):
 
         # --- Sample info ---
         sample_group = QGroupBox("Sample Info")
-        sform = QFormLayout(sample_group)
+        sform = form_layout(sample_group)
         sform.addRow("Sample name:", self._hint(self._line("sample_name"), "e.g. P3HT 95:05"))
         sform.addRow("Electrolyte:", self._hint(self._line("electrolyte"), "e.g. 0.1 M KPF6 / MeCN"))
 
@@ -174,6 +176,14 @@ class ParametersTab(QWidget):
         self.full_path_label = QLabel()
         self.full_path_label.setStyleSheet("color: #555;")
         self.full_path_label.setWordWrap(True)
+        # A wrapping QLabel asks for no width of its own, so it stays at its size
+        # hint and a long path can wrap into a second line that overlaps the row
+        # below -- visible on macOS 2026-10-01. It is the one label here that
+        # genuinely wants the room.
+        #
+        # UNVERIFIED: the offscreen Qt platform falls back to the Fusion style, so
+        # the macOS wrap cannot be reproduced in a test. Check it on the Mac.
+        self.full_path_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         sform.addRow("Full path:", self.full_path_label)
         self._widgets["data_folder"].textChanged.connect(self._update_full_path)
         self.data_root_edit.textChanged.connect(self._update_full_path)
@@ -206,7 +216,7 @@ class ParametersTab(QWidget):
         # which ranges itself), so the SCOPE lives in each row's label rather than
         # being implied by position, and stays honest in both modes.
         shared_group = QGroupBox("Applies to more than one step")
-        shared_form = QFormLayout(shared_group)
+        shared_form = form_layout(shared_group)
 
         # Per SAMPLE, not per rig, which is why it belongs here rather than only in
         # bench.ini: one film draws µA and the next draws mA. It applies to the
@@ -308,7 +318,7 @@ class ParametersTab(QWidget):
 
         # --- Cyclic voltammetry ---
         cv_group = QGroupBox("Cyclic Voltammetry")
-        cv_form = QFormLayout(cv_group)
+        cv_form = form_layout(cv_group)
         cv_form.addRow(self._check("cv_enabled", "Include CV"))
         cv_form.addRow("Initial E:", self._dspin("cv_initial_v", -10.0, 10.0, 3, 0.05, " V"))
         cv_form.addRow("Scan Limit 1:", self._dspin("cv_limit1_v", -10.0, 10.0, 3, 0.05, " V"))
@@ -321,7 +331,7 @@ class ParametersTab(QWidget):
 
         # --- Pre-dedoping ---
         pre_group = QGroupBox("Pre-dedoping Baseline" + POTENTIAL_NOTE)
-        pre_form = QFormLayout(pre_group)
+        pre_form = form_layout(pre_group)
         include_pre = self._check("prededoping_enabled", "Include pre-dedoping")
         pre_form.addRow(include_pre)
         discard = self._check("prededoping_discard", "Run it, but discard the data")
@@ -345,7 +355,7 @@ class ParametersTab(QWidget):
 
         # --- Doping / dedoping ---
         dope_group = QGroupBox("Doping / Dedoping Cycles" + POTENTIAL_NOTE)
-        dope_form = QFormLayout(dope_group)
+        dope_form = form_layout(dope_group)
         dope_form.addRow(self._check("doping_enabled", "Include doping/dedoping"))
         dope_form.addRow("Doping start (vs Vref):",
                          self._dspin("doping_potential_start", -10.0, 10.0, 3, 0.05, " V"))
