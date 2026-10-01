@@ -4,6 +4,15 @@ Running list of planned work and deferred cleanups. (Active design/status notes 
 
 ## Figure output, thought through properly — deferred 2026-09-29, NOT now
 
+**DESIGN AGREED 2026-09-30 — see `private-notes/figure-export-design.md`.** It moves
+to `docs/figure-export.md` in the commit that lands the work. Headline: separate
+"draw into these axes" from "the widget that shows it", so a save renders into a
+fresh Figure at a FIXED size and a Mac-saved figure matches a Win11-saved one. A
+reusable preview popup carries the toolbar (its save is the only save affordance),
+size/dpi/provenance options and a CSV button. Tabs 4 and 6 individual-only; tab 5
+also gets a bounded save-all (3 traces + ladder, current segment). Files land in
+`{run_folder}/figures/`. Tab 4's "Save Plots" becomes the per-figure save.
+
 Requested: deal with graph output in a more thoughtful manner, Results AND Analysis
 (tab 5), rather than patching the current button.
 
