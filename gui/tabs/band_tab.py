@@ -16,6 +16,7 @@ import numpy as np
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, QComboBox,
+    QScrollArea,
     QCheckBox, QDoubleSpinBox, QPushButton, QTableWidget, QTableWidgetItem,
     QSplitter, QMessageBox, QFileDialog, QProgressDialog, QApplication,
 )
@@ -67,7 +68,15 @@ class BandTab(QWidget):
     # --- layout ---------------------------------------------------------
 
     def _build(self):
-        layout = QVBoxLayout(self)
+        # Scrollable body: the canvases have a minimum height, so without somewhere
+        # to overflow to the WINDOW could not get shorter -- it would simply refuse.
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        scroll.setWidget(page)
+        outer.addWidget(scroll)
 
         controls = QGroupBox("Band")
         form = form_layout(controls)

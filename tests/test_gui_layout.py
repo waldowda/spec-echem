@@ -3212,3 +3212,42 @@ def test_a_spin_box_beside_a_hint_keeps_its_size(window):
         spin, _hint = _hint_beside(window.parameters_tab, key, needle)
         assert spin.width() == spin.sizeHint().width(), (
             f"{key} is {spin.width()} px for a {spin.sizeHint().width()} px number")
+
+
+# 2026-10-01, reported from use: "the figures have no minimum size and get TOO
+# vertically narrow". A FigureCanvas reports a minimumSizeHint of 10 px, so a layout
+# short of room squeezed the PLOTS to nothing rather than squeezing anything else --
+# two stacked canvases came out ~150 px each with the axes unreadable.
+
+def test_a_plot_never_shrinks_below_a_readable_height(window):
+    from qtpy.QtWidgets import QApplication
+    from gui.widgets.plot_canvas import MIN_CANVAS_HEIGHT
+
+    # Against a LITERAL, not against the constant: comparing the measured height to
+    # MIN_CANVAS_HEIGHT alone passes happily when that constant is zero, which is
+    # exactly the regression this guards against.
+    assert MIN_CANVAS_HEIGHT >= 200, "the floor is too low for the axes to be read"
+
+    window.show()
+    window.tabs.setCurrentWidget(window.results_tab)
+    tab = window.results_tab
+
+    for height in (1500, 900, 650):
+        window.resize(1600, height)
+        for _ in range(4):
+            QApplication.processEvents()
+        for name in ("canvas", "echem_canvas"):
+            canvas = getattr(tab, name)
+            assert canvas.height() >= 200, (
+                f"{name} is {canvas.height()} px at a {height} px window")
+
+
+def test_the_plot_tabs_scroll_rather_than_blocking_the_window(window):
+    """The floor has to overflow SOMEWHERE. Without a scroll area the window simply
+    refuses to get shorter -- tab 5's minimum went to 886 px the moment the canvases
+    stopped collapsing, which would have set the floor for the whole application.
+    """
+    for name in ("results_tab", "analysis_tab", "band_tab"):
+        tab = getattr(window, name)
+        assert tab.minimumSizeHint().height() < 400, (
+            f"{name} demands {tab.minimumSizeHint().height()} px — it does not scroll")
