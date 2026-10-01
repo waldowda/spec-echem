@@ -25,6 +25,7 @@ from spec_echem.data import DATA_TYPE_CV, DATA_TYPE_DOPING
 from gui.segment_labels import prepare_segment_combo, segment_display
 from gui.widgets.plot_canvas import MplCanvas
 from gui.widgets.figure_dialog import open_figure_dialog, PlotToolbar
+from gui.forms import form_layout
 
 # Which tau quantities each model actually has. A single generic "tau" curve hid the
 # difference: FitResult.tau is the SLOWER component for biexp, while the single-fit
@@ -69,7 +70,7 @@ class BandTab(QWidget):
         layout = QVBoxLayout(self)
 
         controls = QGroupBox("Band")
-        form = QFormLayout(controls)
+        form = form_layout(controls)
 
         self.segment_combo = QComboBox()
         prepare_segment_combo(self.segment_combo)
