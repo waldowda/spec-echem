@@ -139,7 +139,12 @@ def test_all_segments_splits_doping_from_dedoping(window):
     assert len(tab.canvas.fig.axes) == 2                 # doping | dedoping
 
 
-def test_the_x_axis_is_categorical_with_the_true_potential_on_the_tick(window):
+def test_the_x_axis_is_volts_not_categories(window):
+    """Changed 2026-10-01. It was categorical -- evenly spaced rungs with the
+    potential on the tick -- which reads well for an even ladder but says something
+    false about an uneven one, and is not how the downstream analysis plots tau
+    against Vg. A point now sits at the potential it was measured at.
+    """
     _ladder(window)
     tab = window.band_tab
     tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
@@ -147,12 +152,37 @@ def test_the_x_axis_is_categorical_with_the_true_potential_on_the_tick(window):
     tab.on_fit_all()
 
     ax = tab.canvas.fig.axes[0]
-    np.testing.assert_allclose(ax.get_xticks(), [0, 1, 2])     # categorical
+    # Ticks AT the measured potentials, so every rung is still labelled...
+    np.testing.assert_allclose(ax.get_xticks(), [0.3, 0.5, 0.7], atol=1e-9)
     assert [t.get_text() for t in ax.get_xticklabels()] == ["+0.30", "+0.50", "+0.70"]
+    # ...and the DATA is there too, not at 0, 1, 2.
+    drawn = sorted({round(float(x), 3)
+                    for line in ax.lines for x in line.get_xdata()})
+    assert drawn and min(drawn) >= 0.3 and max(drawn) <= 0.7, drawn
+    # The end rungs are not on the frame, or half of each strip would be clipped.
+    assert ax.get_xlim()[0] < 0.3 and ax.get_xlim()[1] > 0.7
+
+
+def test_an_uneven_ladder_is_spaced_by_its_potentials(window):
+    """The point of a real axis: a 0.05 V step must look like half a 0.1 V step."""
+    window.settings.update(doping_potential_start=0.30, doping_potential_step=0.05,
+                           dedoping_potential=-0.5)
+    window.loaded_run_settings = dict(window.settings)
+    for run in range(3):
+        _segment(window, f"Doping {run}", DATA_TYPE_DOPING, run,
+                 [2.0 + 0.3 * run, 2.4 + 0.3 * run, 2.8 + 0.3 * run])
+    window.band_tab.refresh_segments()
+    tab = window.band_tab
+    tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
+    tab.start_spin.setValue(480.0); tab.stop_spin.setValue(540.0)
+    tab.on_fit_all()
+
+    ticks = tab.canvas.fig.axes[0].get_xticks()
+    np.testing.assert_allclose(ticks, [0.30, 0.35, 0.40], atol=1e-9)
 
 
 def test_a_stretched_ladder_gets_a_beta_row(window):
-    """beta is dimensionless and 0-1: its own row, sharing the categorical x, so it
+    """beta is dimensionless and 0-1: its own row, sharing the potential axis, so it
     reads straight down from tau at the same potential."""
     _ladder(window)
     tab = window.band_tab
