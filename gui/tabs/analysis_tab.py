@@ -16,6 +16,7 @@ from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, QComboBox,
     QDoubleSpinBox, QPushButton, QCheckBox, QTableWidget, QTableWidgetItem,
     QSplitter, QMessageBox, QHeaderView, QDialog, QApplication,
+    QScrollArea,
     QFileDialog, QAbstractItemView, QToolTip,
 )
 from qtpy.QtCore import Qt, QEvent
@@ -140,7 +141,15 @@ class AnalysisTab(QWidget):
     # --- layout ---------------------------------------------------------
 
     def _build(self):
-        layout = QVBoxLayout(self)
+        # Scrollable body: the canvases have a minimum height, so without somewhere
+        # to overflow to the WINDOW could not get shorter -- it would simply refuse.
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        scroll.setWidget(page)
+        outer.addWidget(scroll)
 
         controls = QGroupBox("Fit")
         form = form_layout(controls)

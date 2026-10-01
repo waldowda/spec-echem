@@ -21,6 +21,10 @@ from spec_echem.gamry_data import POTENTIAL_COL, CURRENT_COL
 
 logger = logging.getLogger(__name__)
 
+# Below this a plot is not readable: the axis labels and the colorbar
+# take a fixed number of pixels whatever the data does.
+MIN_CANVAS_HEIGHT = 240
+
 
 
 class _HandlerPairWithComma:
@@ -106,6 +110,12 @@ class MplCanvas(FigureCanvasQTAgg):
         # through one draw method -- see record_draw.
         self._custom_draw = None
         self.ax = self.fig.add_subplot(111)
+        # A FigureCanvas reports a minimumSizeHint of 10 px, so a layout that is
+        # short of room squeezes the plot to nothing rather than squeezing anything
+        # else -- two stacked canvases on the Results tab came out ~150 px each with
+        # the axes unreadable (2026-10-01). This is the height below which a
+        # spectrum stops being worth looking at; the tab scrolls instead.
+        self.setMinimumHeight(MIN_CANVAS_HEIGHT)
         self._decorate()
         self.mpl_connect("resize_event", self._on_resize)
 
