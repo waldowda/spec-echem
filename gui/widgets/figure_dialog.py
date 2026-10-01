@@ -75,14 +75,15 @@ def preset_rc(pt):
 DISPLAY_DPI = 100
 
 
-class _PlotToolbar(NavigationToolbar2QT):
-    """Home / pan / zoom only.
+class PlotToolbar(NavigationToolbar2QT):
+    """Home / pan / zoom only -- used BOTH in this dialog and on the live tabs.
 
     The save button is removed rather than kept alongside ours: two save buttons on
-    one figure is worse than one ambiguous one, and the toolbar's writes at the
-    figure's own dpi with no provenance, which is not what this dialog promises.
-    'Subplots' goes too -- the layout is managed here, and nudging it by hand
-    produces something no preset can reproduce.
+    one figure is worse than one ambiguous one, and the toolbar's writes at whatever
+    size the widget happens to be, at the figure's own dpi, with no provenance --
+    which is the entire failure this work exists to remove. 'Subplots' goes too: the
+    layout is managed, and nudging it by hand produces something no preset can
+    reproduce.
     """
     toolitems = [t for t in NavigationToolbar2QT.toolitems
                  if t[0] not in ("Save", "Subplots", "Customize")]
@@ -194,7 +195,7 @@ class FigureDialog(QDialog):
             old = holder.takeAt(0).widget()
             if old is not None:
                 old.deleteLater()
-        holder.addWidget(_PlotToolbar(preview, self._toolbar_holder))
+        holder.addWidget(PlotToolbar(preview, self._toolbar_holder))
         self._scroll.setMinimumSize(
             min(1100, preview.width() + 24), min(700, preview.height() + 24))
 
