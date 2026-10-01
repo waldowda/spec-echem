@@ -3053,6 +3053,9 @@ def test_every_form_lays_out_the_same_way_on_every_platform(window):
     for form in forms:
         assert form.fieldGrowthPolicy() == QFormLayout.ExpandingFieldsGrow
         assert int(form.labelAlignment()) == int(Qt.AlignRight | Qt.AlignVCenter)
+        # macOS centres the whole block, which leaves a gap down the left of every
+        # group and shifts the labels when an unrelated row changes width.
+        assert int(form.formAlignment()) == int(Qt.AlignLeft | Qt.AlignTop)
 
 
 def test_a_numeric_field_stays_the_width_of_its_number(window, qapp_style=None):
