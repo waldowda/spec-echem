@@ -61,7 +61,10 @@ class ResultsTab(QWidget):
         body = QWidget()
         layout = QVBoxLayout(body)
         scroll.setWidget(body)
-        outer.addWidget(scroll)
+        # stretch=1: the scrolling body takes every spare pixel, so the pinned
+        # header stays at its natural height instead of the View group growing to
+        # fill it -- it stretched to 669 px for three short rows.
+        outer.addWidget(scroll, 1)
 
         # --- selector / range controls ---
         ctrl_group = QGroupBox("View")
@@ -183,7 +186,7 @@ class ResultsTab(QWidget):
         ctrl_form.addRow("Optical view:", view_row)
         self._sync_view_controls()
 
-        layout.addWidget(ctrl_group)
+        self._ctrl_group = ctrl_group        # paired with the actions, below
 
         # --- plots: absorbance (optical) above electrochemistry, stacked ---
         # Vertical here (not side by side): with only two plots and the absorbance
@@ -245,7 +248,27 @@ class ResultsTab(QWidget):
         btn_row.addWidget(self.to_h5_btn)
         btn_row.addWidget(self.export_oect_btn)
         btn_row.addStretch()
-        layout.addLayout(btn_row)
+
+        # The View controls and the tab's actions sit SIDE BY SIDE, pinned above
+        # the scrolling body.
+        #
+        # Two things fixed at once (both reported 2026-10-01). A row of actions at
+        # the bottom of a scrolling body spends most of its life below the fold now
+        # that the plots have a minimum height; and the View group is three short
+        # rows in a full-width box, so its right half was empty while the actions
+        # queued up underneath it. The actions go in that empty half, as a column,
+        # which also costs no extra height: four buttons stack shorter than the
+        # three form rows beside them.
+        header = QHBoxLayout()
+        header.addWidget(ctrl_group, 1)
+        actions = QVBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        for button in (self.load_run_btn, self.open_folder_btn,
+                       self.to_h5_btn, self.export_oect_btn):
+            actions.addWidget(button)
+        actions.addStretch()
+        header.addLayout(actions)
+        outer.insertLayout(0, header)
 
     def _save_row(self, canvas, basename, title):
         """A save button under a figure. Right-aligned and flat so it reads as
