@@ -39,9 +39,15 @@ verification that only the two machines can give.**
 
 - [ ] **5. Verify the CSV round-trip on a real all-segment ladder.** Unit-tested
       against synthetic data only.
-- [ ] **RIG VERIFICATION — the whole point of the work.** A figure saved on the Mac
-      and the same figure saved on Win11 must be identical. Nothing in the test suite
-      can show this.
+- [x] ~~**Win11 smoke test**~~ — run on the rig 2026-10-01, no problems noticed
+      relative to macOS.
+- [ ] **RIG VERIFICATION — the whole point of the work.** "No problems noticed" is
+      not the same claim as "the two files are identical", which is what the work
+      was for. Save the same segment at the same preset on each machine and run
+      `examples/compare_figures.py a.png b.png`. A size mismatch means the preset
+      did not take; scattered differing pixels usually mean a font substitution;
+      differences spanning the image mean the layout moved, which is the thing that
+      must not happen. Nothing in the test suite can show this.
 - [ ] **Then move `private-notes/figure-export-design.md` to `docs/figure-export.md`**
       (a move, not a copy) and drop this section to a one-line pointer.
 
@@ -57,9 +63,9 @@ verification that only the two machines can give.**
    not clipped at the rig's canvas size, which is where three legend fixes died in
    September.
 4. **The comparison that matters:** save the SAME segment's absorbance figure here
-   and on the Mac at the same preset, and compare the files. They should be pixel
-   identical. That is the whole point of the work, and nothing in the test suite can
-   show it.
+   and on the Mac at the same preset, then `python examples/compare_figures.py
+   mac.png win11.png`. They should be pixel identical. That is the whole point of
+   the work, and nothing in the test suite can show it.
 5. **Save all figures… on tab 5**, with a segment fitted. Expect the three traces
    plus the ladder in `{run_folder}/figures`, each with a `.csv` of the same stem,
    and a confirmation naming the folder.
