@@ -49,6 +49,22 @@ class _HandlerPairWithComma:
             handlebox.add_artist(artist)
         return dash
 
+def _legend_corner(y):
+    """'upper right' for a trace that decays, 'lower right' for one that grows.
+
+    Compared over the first and last twentieth rather than single endpoints, so one
+    noisy sample at either end cannot flip the whole layout.
+    """
+    y = np.asarray(y, dtype=float)
+    finite = y[np.isfinite(y)]
+    if finite.size < 4:
+        return "upper right"
+    edge = max(2, finite.size // 20)
+    return ("upper right"
+            if np.nanmedian(finite[-edge:]) < np.nanmedian(finite[:edge])
+            else "lower right")
+
+
 def _records(method):
     """Remember the call, so the same plot can be re-drawn at a different size.
 
@@ -554,7 +570,18 @@ class MplCanvas(FigureCanvasQTAgg):
             self.resid_ax.plot(t, resid, "o", ms=2.0, color="#1f77b4", alpha=0.6)
             self.resid_ax.axhline(0.0, ls="-", lw=0.8, color=color, alpha=0.8)
 
-            legend = self.ax.legend(fontsize=7, loc="best")
+            # NOT loc="best". This legend carries the whole parameter block, so it
+            # is large enough that "best" has no good option -- and it then resolves
+            # DIFFERENTLY on different machines and window sizes, which is how it
+            # came to sit on top of the transient on the Win11 rig while landing
+            # upper-right on the Mac for the same data (2026-10-01).
+            #
+            # The transient is always at t = 0, so the right half is always the
+            # emptier one. A decay leaves the top-right free; a growth leaves the
+            # bottom-right free. That is a property of the measurement, not of the
+            # window, so the same fit is laid out the same way everywhere.
+            legend = self.ax.legend(fontsize=7, loc=_legend_corner(y),
+                                    framealpha=0.9)
             if not fit_ok:
                 legend.get_frame().set_edgecolor("#e07b00")
                 legend.get_frame().set_linewidth(1.4)
