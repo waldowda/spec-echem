@@ -582,6 +582,7 @@ class MplCanvas(FigureCanvasQTAgg):
             # window, so the same fit is laid out the same way everywhere.
             legend = self.ax.legend(fontsize=7, loc=_legend_corner(y),
                                     framealpha=0.9)
+            legend = self._keep_legend_clear(legend, _legend_corner(y))
             if not fit_ok:
                 legend.get_frame().set_edgecolor("#e07b00")
                 legend.get_frame().set_linewidth(1.4)
@@ -667,6 +668,44 @@ class MplCanvas(FigureCanvasQTAgg):
             # long provenance line on the VERTICAL axis, where it is clipped.
             self._draw_footnote(footnote, footnote_warn)
         self.draw_idle()
+
+    def _keep_legend_clear(self, legend, corner):
+        """Move the parameter legend OUTSIDE the axes when it cannot fit inside.
+
+        The block runs to eleven lines, and on a laptop-sized panel it is simply
+        wider than half the axes -- no corner helps, and shrinking the font only
+        reaches 5 pt, which is unreadable. Reported 2026-10-01: fine on an external
+        monitor, covering the data on the laptop, which is exactly this.
+
+        Inside stays the default while it fits, so nothing changes on a large
+        window. Below ~6 in there is no room outside either -- the axes would be
+        crushed to a quarter of the figure -- so it stays inside and overlapping,
+        which is the least bad of three bad options at that size.
+        """
+        renderer = getattr(self.fig.canvas, "get_renderer", lambda: None)()
+        if renderer is None:
+            return legend
+        try:
+            legend_w = legend.get_window_extent(renderer).width
+            axes_w = self.ax.get_window_extent(renderer).width
+            # 0.65 of the width, i.e. the legend reaching left of x = 0.35, is
+            # the point at which it starts covering the TRANSIENT -- the first few
+            # seconds, which is the whole reason the plot is being looked at. A
+            # legend occupying the right half is not a problem; one reaching the
+            # rise is.
+            if not axes_w or legend_w / axes_w <= 0.65:
+                return legend
+            # Below this there is no room outside either: the axes would end up
+            # narrower than the legend beside it, which helps nobody.
+            if self.fig.get_size_inches()[0] < 4.5:
+                return legend
+            handles, labels = self.ax.get_legend_handles_labels()
+            legend.remove()
+            return self.ax.legend(handles, labels, fontsize=7, loc="upper left",
+                                  bbox_to_anchor=(1.01, 1.0), framealpha=0.9)
+        except Exception:  # noqa: BLE001 — placement is cosmetic, never fatal
+            logger.debug("could not reposition the fit legend", exc_info=True)
+            return legend
 
     def _draw_footnote(self, footnote, warn=False):
         """Provenance under the axes, wrapped to the canvas and given its own band.
