@@ -2,21 +2,60 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
-## Figure output, thought through properly — deferred 2026-09-29, NOT now
+## Figure output — IN PROGRESS, steps 1-4 of 6 done (2026-09-30)
 
-**DESIGN AGREED 2026-09-30 — see `private-notes/figure-export-design.md`.** It moves
-to `docs/figure-export.md` in the commit that lands the work. Headline: separate
-"draw into these axes" from "the widget that shows it", so a save renders into a
-fresh Figure at a FIXED size and a Mac-saved figure matches a Win11-saved one. A
-reusable preview popup carries the toolbar (its save is the only save affordance),
-size/dpi/provenance options and a CSV button. Tabs 4 and 6 individual-only; tab 5
-also gets a bounded save-all (3 traces + ladder, current segment). Files land in
-`{run_folder}/figures/`. Tab 4's "Save Plots" becomes the per-figure save.
+**Design: `private-notes/figure-export-design.md`.** It moves to
+`docs/figure-export.md` in the commit that finishes the work — which has NOT
+happened: steps 5-6 and rig verification are outstanding, so it stays in
+private-notes for now.
 
-Requested: deal with graph output in a more thoughtful manner, Results AND Analysis
-(tab 5), rather than patching the current button.
+**Done (`gui-dev` `d966e07`, 689 tests):**
 
-**What "Save Plots" on the Results tab does today, and why it is ambiguous:**
+- [x] **1-2. Fixed-size rendering.** `MplCanvas._retarget()` + `render_to_figure()`.
+      The seam is the FIGURE the canvas points at, not an `ax=` argument: every draw
+      method already rebuilds its own figure, and `_layout_footnote` needs the
+      FIGURE's width, which an axes parameter would not give it. Verified from a
+      widget set to 13.0x3.2 in: 6.5x4.5 @ 300 dpi gives exactly 1950x1350 px.
+- [x] **3. The preview dialog** (`gui/widgets/figure_dialog.py`). One reusable modal:
+      4 size presets, dpi, optional provenance stamp, CSV. `PlotToolbar` keeps
+      pan/zoom/home and loses Save and Subplots — used in the dialog AND on tab 6, so
+      no plot anywhere offers two saves.
+- [x] **4. Wired to all five canvases** — tab 4 absorbance + echem, tab 5 fit +
+      ladder, tab 6 band. The canvas records its own last draw (`@_records`,
+      `last_draw()`, `last_data()`), so no tab keeps bookkeeping that could fall out
+      of step with the figure, and the CSV is derived from the same recorded call.
+      **Tab 4's "Save Plots" is deleted** — per-figure only, no save-all there.
+
+**Left:**
+
+- [ ] **5. Verify the CSV round-trip on real ladder data.** The code is written and
+      unit-tested; it has not been run against a real all-segment ladder.
+- [ ] **6. Tab 5's save-all** — the three traces of the current segment plus the
+      ladder, 4 files. Bounded and per-segment, which is why it is safe to define
+      where tab 4's is not.
+- [ ] **RIG VERIFICATION — the whole point.** A figure saved on the Mac and the same
+      figure saved on Win11 must be identical. Nothing in the test suite can show
+      this; it needs both machines.
+
+**Typography, settled 2026-09-30 — do not "fix" these:**
+
+- matplotlib defaults `axes.titlesize` to `'large'` = **1.2x** the base, which made
+  the TITLE the heaviest thing on a small figure. Presets now carry a full font set
+  (`preset_rc()`) with the title AT label size — it only names the segment, and
+  journals usually drop figure titles entirely.
+- `_draw_footnote` hardcoded 7 pt, so provenance became the LARGEST text on a
+  single-column figure. It now scales from the ambient font; the factors reproduce
+  the on-screen 7/8 exactly at matplotlib's default 10 pt, so the GUI is unchanged.
+- **Single column (3.25x2.25 @ 7 pt) is exactly half of double (6.5x4.5 @ 10 pt) and
+  still looks label-heavy. That is a FLOOR, not something untuned:** matching the
+  double's proportions needs 5 pt, below what journals accept. Both were spotted by
+  eye on the rendered output while every test passed.
+
+Original request: deal with graph output in a more thoughtful manner, Results AND
+Analysis (tab 5), rather than patching the current button.
+
+**Why "Save Plots" was deleted rather than renamed** (kept as the record of what
+was wrong with it — the button is gone as of `3ced0fe`):
 
 - It saves the two on-screen canvases for the CURRENTLY SELECTED segment as two
   files, `<base>_absorbance` and `<base>_echem`.
@@ -37,11 +76,10 @@ Requested: deal with graph output in a more thoughtful manner, Results AND Analy
 **Tab 5 (Analysis) has no export at all**, so fits and their plots cannot leave the
 GUI except by screenshot.
 
-**Overlaps the existing roadmap item** for figure export via `NavigationToolbar2QT`
-(pan/zoom/save for free, SVG/PDF) — do these together rather than twice.
-**PARTLY DONE 2026-09-30:** tab 6 (Band Fits) now carries that toolbar, so it has
-pan/zoom/home and Save Figure. It is the model for the other tabs — the same three
-lines would give Results and Analysis the same, and would supersede "Save Plots".
+**Superseded the old `NavigationToolbar2QT` roadmap item** (see below). The toolbar
+alone turned out to be the wrong answer: its save writes at whatever size the widget
+happens to be, which is the bug this work removes. Tab 6 keeps the toolbar for
+pan/zoom/home, with its save button taken out.
 
 Worth deciding at the same time: **what is the Modulation (across the ladder) view
 for?** Raised 2026-09-29: it does not depend on which segment is selected, so sitting
@@ -302,9 +340,11 @@ where editing stops:
       parameter with its SD (columns built from `MODELS`, so they follow the model),
       plus y(0), ⟨τ⟩, 95% CI, point count and the residual split. **Copy as CSV** and
       **Save CSV…** on the dialog.
-- [ ] **2. Figure export via `NavigationToolbar2QT`.** ~5 lines per canvas and it brings
-      pan/zoom/save for free. **Prefer SVG or PDF** — vector, so it drops into
-      Illustrator or Igor without resampling.
+- [x] ~~**2. Figure export via `NavigationToolbar2QT`.**~~ — **superseded 2026-09-30**
+      by the figure-export work at the top of this file. The toolbar alone was the
+      wrong answer: its save writes at whatever size the widget happens to be, which
+      is the bug, not the feature. Pan/zoom/home are kept; SVG and PDF are offered by
+      the preview's save dialog alongside PNG.
 - [ ] **3. HDF5**, settled WITH Raj first (see the questions in `private-notes/`). The
       vendor-neutral layout serves his Jupyter analysis, and an Igor loader can read it
       directly — which stops the Igor work becoming a third independent format.
