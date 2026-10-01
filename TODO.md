@@ -2,14 +2,15 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
-## Figure output — IN PROGRESS, steps 1-4 of 6 done (2026-09-30)
+## Figure output — code COMPLETE, awaiting rig verification (2026-10-01)
 
 **Design: `private-notes/figure-export-design.md`.** It moves to
 `docs/figure-export.md` in the commit that finishes the work — which has NOT
 happened: steps 5-6 and rig verification are outstanding, so it stays in
 private-notes for now.
 
-**Done (`gui-dev` `d966e07`, 689 tests):**
+**Done (`gui-dev` `8eea502`, 693 tests). All six steps are written; what is left is
+verification that only the two machines can give.**
 
 - [x] **1-2. Fixed-size rendering.** `MplCanvas._retarget()` + `render_to_figure()`.
       The seam is the FIGURE the canvas points at, not an `ax=` argument: every draw
@@ -26,16 +27,46 @@ private-notes for now.
       of step with the figure, and the CSV is derived from the same recorded call.
       **Tab 4's "Save Plots" is deleted** — per-figure only, no save-all there.
 
-**Left:**
+- [x] **6. Tab 5's save-all** — three traces of the current segment plus the ladder,
+      each with its CSV, provenance stamped. Bounded and per-segment, which is why it
+      is safe to define where tab 4's is not. Found three bugs: `show_message` left
+      the PREVIOUS plot saveable under the new name; provenance landed on top of the
+      x-axis label on fit figures (constrained gridspec, which `tight_layout` cannot
+      reserve a band in); and reserving it through the layout engine let the residual
+      panel climb over the suptitle. All three fixed and asserted.
 
-- [ ] **5. Verify the CSV round-trip on real ladder data.** The code is written and
-      unit-tested; it has not been run against a real all-segment ladder.
-- [ ] **6. Tab 5's save-all** — the three traces of the current segment plus the
-      ladder, 4 files. Bounded and per-segment, which is why it is safe to define
-      where tab 4's is not.
-- [ ] **RIG VERIFICATION — the whole point.** A figure saved on the Mac and the same
-      figure saved on Win11 must be identical. Nothing in the test suite can show
-      this; it needs both machines.
+**Left — needs the instruments, not the editor:**
+
+- [ ] **5. Verify the CSV round-trip on a real all-segment ladder.** Unit-tested
+      against synthetic data only.
+- [ ] **RIG VERIFICATION — the whole point of the work.** A figure saved on the Mac
+      and the same figure saved on Win11 must be identical. Nothing in the test suite
+      can show this.
+- [ ] **Then move `private-notes/figure-export-design.md` to `docs/figure-export.md`**
+      (a move, not a copy) and drop this section to a one-line pointer.
+
+**Rig checklist — Win11, 2026-10-01:**
+
+1. **Check the launch banner first.** `{data_root}/logs/spec-echem.log` should say
+   `drivers avaspec: yes | toolkitpy: yes | h5py: yes`. **If h5py says `no` the run
+   writes ascii and NO .h5, silently** — that is exactly what happened on 2026-09-29.
+   `SpecEchem32` needs `h5py==2.10.0`; win32 cp37 wheels stop there.
+2. **Both file sets.** A run writes the ascii AND the per-type `.h5` with no setting
+   to change — gzip is off by default (it bought only 21%).
+3. **Save figure… under any plot.** Preview opens at 6.5 x 4.5; check the fonts are
+   not clipped at the rig's canvas size, which is where three legend fixes died in
+   September.
+4. **The comparison that matters:** save the SAME segment's absorbance figure here
+   and on the Mac at the same preset, and compare the files. They should be pixel
+   identical. That is the whole point of the work, and nothing in the test suite can
+   show it.
+5. **Save all figures… on tab 5**, with a segment fitted. Expect the three traces
+   plus the ladder in `{run_folder}/figures`, each with a `.csv` of the same stem,
+   and a confirmation naming the folder.
+6. **Open one of those CSVs** — `pd.read_csv(path, comment="#")` — and check it
+   matches the plot. This is step 5, and it has only been done against synthetic data.
+7. While there: `examples/probe_gamry_ladder.py` on the Reference 610+ / Interface
+   1010 if either is to hand (read-only, cell-safe, no spectrometer needed).
 
 **Typography, settled 2026-09-30 — do not "fix" these:**
 
@@ -46,6 +77,10 @@ private-notes for now.
 - `_draw_footnote` hardcoded 7 pt, so provenance became the LARGEST text on a
   single-column figure. It now scales from the ambient font; the factors reproduce
   the on-screen 7/8 exactly at matplotlib's default 10 pt, so the GUI is unchanged.
+- **A footnote on a `plot_fit` figure needs BOTH ends of the rect reserved.**
+  `tight_layout` cannot lay out its constrained gridspec, and the layout engine does
+  not count a suptitle as part of the rect it is given. Reserve the footnote band
+  and the suptitle band, or one of them gets overprinted.
 - **Single column (3.25x2.25 @ 7 pt) is exactly half of double (6.5x4.5 @ 10 pt) and
   still looks label-heavy. That is a FLOOR, not something untuned:** matching the
   double's proportions needs 5 pt, below what journals accept. Both were spotted by
