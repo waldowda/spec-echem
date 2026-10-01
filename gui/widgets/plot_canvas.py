@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Below this a plot is not readable: the axis labels and the colorbar
 # take a fixed number of pixels whatever the data does.
-MIN_CANVAS_HEIGHT = 240
+MIN_CANVAS_HEIGHT = 300
 
 
 
