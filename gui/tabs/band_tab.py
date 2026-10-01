@@ -235,9 +235,17 @@ class BandTab(QWidget):
     def on_save_figure(self):
         """Preview and save whatever this tab last plotted -- a single segment's
         band or the all-segment ladder, whichever is on screen."""
+        open_figure_dialog(self, self.canvas, self.win, self._figure_basename(),
+                           "Save band figure")
+
+    def _figure_basename(self):
+        """Names WHICH plot it is. The two look nothing alike and answer different
+        questions, so a folder holding both must not call them the same thing."""
+        model = self.model_combo.currentData()
+        if self._ladder is not None:
+            return f"band_ladder_{model}"
         label = (self._current_label() or "band").replace(" ", "")
-        basename = f"{label}_band" if self._band is not None else "ladder_band"
-        open_figure_dialog(self, self.canvas, self.win, basename, "Save band figure")
+        return f"{label}_band_{model}"
 
     def _remember_segment(self, *_):
         """Hold the chosen segment OUTSIDE the widget.
@@ -445,6 +453,10 @@ class BandTab(QWidget):
             title=f"{label} — tau vs wavelength  ({model}, {self._window_text()})")
         if model == "stretched" and "beta" in frame:
             self._beta_twin(wl, frame["beta"].to_numpy(dtype=float), ok)
+        # Registered as ONE composition: the beta axis is added after the recorded
+        # call, so exporting the recorded call alone would drop it.
+        self.canvas.record_draw(lambda: self._draw_one(label),
+                                lambda: self._band.table() if self._band else None)
 
     def _beta_twin(self, x, beta, ok):
         """beta on its own right axis: dimensionless and 0-1, so sharing the tau
@@ -531,6 +543,11 @@ class BandTab(QWidget):
 
         fig.tight_layout()
         self.canvas.draw_idle()
+        # This plot is composed on the figure directly -- its own subplots, dodged
+        # strips and whiskers -- so no draw method recorded it and Save figure wrote
+        # the SINGLE-segment plot that came before it, under the ladder's name
+        # (reported 2026-10-01). Registering the composition fixes both halves.
+        self.canvas.record_draw(self._draw_ladder, self._ladder_frame)
         self._offscreen = offscreen
         self._note_plot_limits()
 
