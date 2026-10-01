@@ -66,13 +66,21 @@ def segment_potential(settings, data_type, run_number):
     return None
 
 
-def segment_potential_text(settings, data_type, run_number):
-    """A short potential for a graph title: '+0.600 V', or a CV's swept range."""
+def segment_potential_text(settings, data_type, run_number, decimals=3):
+    """A short potential for a graph title: '+0.600 V', or a CV's swept range.
+
+    `decimals` exists for the segment dropdowns, which ask for 2. The measured
+    potential runs a few tenths of a millivolt below setpoint on every rung, so at 3
+    decimals whichever rung lands just under the half-millivolt boundary reads one
+    millivolt low -- +0.699 beside +0.600, from 0.699498. True, but in a SELECTOR it
+    reads as a different rung. Titles, tables and exports keep 3.
+    """
     if data_type == DATA_TYPE_CV:
-        return (f"{settings['cv_limit1_v']:+.3f} to {settings['cv_limit2_v']:+.3f} V"
+        return (f"{settings['cv_limit1_v']:+.{decimals}f} to "
+                f"{settings['cv_limit2_v']:+.{decimals}f} V"
                 if "cv_limit1_v" in settings else "")
     v = segment_potential(settings, data_type, run_number)
-    return "" if v is None else f"{v:+.3f} V"
+    return "" if v is None else f"{v:+.{decimals}f} V"
 
 
 

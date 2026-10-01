@@ -2122,7 +2122,13 @@ def test_the_results_tab_lists_segments_with_their_potentials(window, tmp_path):
     r = window.results_tab
     r.refresh_segments()
     shown = [r.segment_combo.itemText(i) for i in range(r.segment_combo.count())]
-    assert "Dedoping 1  (-0.500 V after +0.600 V)" in shown
+    # 2 decimals in the DROPDOWN: the measured potential runs a few tenths of a
+    # millivolt under setpoint on every rung, so at 3 the one that lands just below
+    # the half-millivolt boundary reads +0.699 beside its neighbours' +0.600 -- in a
+    # selector that reads as a different rung. 20250710 doping 5 is the real case.
+    assert "Dedoping 1  (-0.50 V after +0.60 V)" in shown
+    # ...and 3 in the plot title, where the precise value is the point.
+    assert r._segment_title("Dedoping 1") == "Dedoping 1  (-0.500 V after +0.600 V)"
     r.segment_combo.setCurrentIndex(r.segment_combo.findData("Dedoping 1"))
     assert r._current_label() == "Dedoping 1"
 

@@ -24,8 +24,18 @@ SEGMENT_COMBO_VISIBLE = 26
 SEGMENT_COMBO_MIN_WIDTH = 300
 
 
-def segment_display(win, label):
-    """'Doping 4' -> 'Doping 4  (+0.600 V)'.
+# 2 decimals in a dropdown, 3 everywhere else. The measured potential runs a few
+# tenths of a millivolt below setpoint on EVERY rung (0.26-0.50 mV across a 0.2-0.7 V
+# ladder, measured 20250710), so at 3 decimals whichever rung happens to land just
+# under the half-millivolt boundary reads one millivolt low: 0.699498 shows as
+# +0.699 beside its neighbours' +0.600 and +0.800. The number is true, but in a
+# SELECTOR it reads as a different rung, which is the opposite of what the list is
+# for. Nothing is rounded in the data -- only this rendering.
+DROPDOWN_DECIMALS = 2
+
+
+def segment_display(win, label, decimals=DROPDOWN_DECIMALS):
+    """'Doping 4' -> 'Doping 4  (+0.60 V)'.
 
     Falls back to the bare label when the segment is not in this run's map -- a
     folder loaded from another session, say -- rather than guessing a potential from
@@ -34,7 +44,7 @@ def segment_display(win, label):
     seg = win.segments_by_label.get(label)
     if seg is None:
         return label
-    text = win.segment_potential_text(seg)
+    text = win.segment_potential_text(seg, decimals=decimals)
     return f"{label}  ({text})" if text else label
 
 
