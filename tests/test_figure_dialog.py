@@ -16,7 +16,7 @@ pytest.importorskip("qtpy")
 from qtpy.QtWidgets import QApplication                       # noqa: E402
 from gui.widgets.plot_canvas import MplCanvas                 # noqa: E402
 from gui.widgets.figure_dialog import (FigureDialog, PRESETS, # noqa: E402
-                                       preset_rc, write_csv, _PlotToolbar)
+                                       preset_rc, write_csv, PlotToolbar)
 
 
 @pytest.fixture(scope="module")
@@ -59,11 +59,21 @@ def test_the_preview_does_not_inherit_the_window(dialog):
 
 
 def test_the_toolbar_has_no_save_button_of_its_own(dialog):
-    """One save affordance. The toolbar's writes at the figure's own dpi with no
-    provenance, which is not what this dialog promises."""
-    names = [t[0] for t in _PlotToolbar.toolitems if t[0]]
+    """One save affordance, in the dialog AND on the live tabs. The toolbar's save
+    writes at whatever size the widget happens to be, with no provenance -- which is
+    the entire failure this work exists to remove."""
+    names = [t[0] for t in PlotToolbar.toolitems if t[0]]
     assert "Save" not in names
     assert "Zoom" in names and "Pan" in names
+
+
+def test_the_live_band_tab_toolbar_also_has_no_save(app):
+    """Tab 6 carries a toolbar of its own; it must not offer a second save."""
+    from gui.main_window import MainWindow
+    from gui.widgets.figure_dialog import PlotToolbar as _T
+    win = MainWindow()
+    assert isinstance(win.band_tab.toolbar, _T)
+    assert "Save" not in [t[0] for t in win.band_tab.toolbar.toolitems if t[0]]
 
 
 def test_the_saved_file_has_the_requested_pixel_size(dialog, tmp_path, monkeypatch):
