@@ -603,6 +603,32 @@ class AnalysisTab(QWidget):
         self.segment_combo.blockSignals(False)
         self.on_segment_changed()
 
+    def _sync_wavelength_range(self):
+        """Hold the wavelength box to what this run actually measured.
+
+        It was 0-5000 nm regardless of the data, and _absorbance_trace takes the
+        NEAREST pixel -- so 2000 nm silently gave the trace at the last pixel the
+        detector has, which on this rig is ~1100 nm. The number typed and the
+        measurement made were different things and nothing said so.
+
+        Qt clamps the current value into the new range, which is the wanted
+        behaviour: an out-of-range entry becomes the nearest real wavelength, and
+        the box then shows the wavelength that will be used.
+        """
+        df = self.win.results.get(self._current_label())
+        if df is None or df.empty:
+            return
+        wl = np.asarray(df.index.values, dtype=float)
+        if not wl.size:
+            return
+        # blockSignals: setRange CLAMPS the current value, which emits valueChanged,
+        # which is wired to "the user chose a wavelength" -- so simply narrowing the
+        # range looked like a deliberate pick and cascaded into clearing fits. A
+        # programmatic range change is not the user typing.
+        self.wavelength_spin.blockSignals(True)
+        self.wavelength_spin.setRange(float(wl.min()), float(wl.max()))
+        self.wavelength_spin.blockSignals(False)
+
     def _absorbance_trace(self, label):
         """(time, absorbance) at the chosen wavelength, or (None, None)."""
         df = self.win.results.get(label)
@@ -671,6 +697,7 @@ class AnalysisTab(QWidget):
         label = self._current_label()
         if not label:
             return
+        self._sync_wavelength_range()
         self._seed_stop(label)
         self._show_fits(self._fits.get(label))
         self._draw_fit()
@@ -964,7 +991,12 @@ class AnalysisTab(QWidget):
 
         title = f"{self._segment_display(label)} - {trace}"
         if trace == "absorbance" and not self.wl_auto.isChecked():
-            title += f" @ {self.wavelength_spin.value():.1f} nm"
+            # self._wavelength, not the spin's value: the trace is taken at the
+            # nearest PIXEL, and a title naming the number that was typed would
+            # describe a measurement that was not made.
+            shown = (self._wavelength if self._wavelength is not None
+                     else self.wavelength_spin.value())
+            title += f" @ {shown:.1f} nm"
         elif trace == "absorbance" and self._wavelength is not None:
             title += f" @ {self._wavelength:.1f} nm (auto)"
 

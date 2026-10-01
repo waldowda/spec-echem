@@ -3251,3 +3251,47 @@ def test_the_plot_tabs_scroll_rather_than_blocking_the_window(window):
         tab = getattr(window, name)
         assert tab.minimumSizeHint().height() < 400, (
             f"{name} demands {tab.minimumSizeHint().height()} px — it does not scroll")
+
+
+# 2026-10-01, reported from use: "the WL in tab 5 is allowed to be set outside the
+# actual WLs available". It was 0-5000 nm whatever the data, and the trace is taken
+# at the NEAREST pixel -- so 2000 nm silently gave the last pixel the detector has,
+# and the title then named 2000 nm for a measurement made at ~1100.
+
+def test_the_wavelength_box_is_held_to_what_was_measured(analysis_window):
+    tab = analysis_window.analysis_tab
+    import numpy as np
+
+    frame = analysis_window.results["Doping 0"]
+    wl = np.asarray(frame.index.values, dtype=float)
+    tab.on_segment_changed()
+
+    assert tab.wavelength_spin.minimum() == pytest.approx(float(wl.min()))
+    assert tab.wavelength_spin.maximum() == pytest.approx(float(wl.max()))
+
+    # ...and an out-of-range entry becomes the nearest REAL wavelength.
+    tab.wavelength_spin.setValue(5000.0)
+    assert tab.wavelength_spin.value() == pytest.approx(float(wl.max()))
+
+
+def test_a_manual_wavelength_title_names_the_pixel_used(analysis_window):
+    """The trace is taken at the nearest pixel, so a title naming the number that
+    was typed would describe a measurement that was not made."""
+    import numpy as np
+
+    tab = analysis_window.analysis_tab
+    frame = analysis_window.results["Doping 0"]
+    wl = np.asarray(frame.index.values, dtype=float)
+
+    tab.wl_auto.setChecked(False)
+    tab.on_segment_changed()
+    # A value BETWEEN two pixels: the title must report the pixel, not the request.
+    between = float((wl[5] + wl[6]) / 2.0) + 0.001
+    tab.wavelength_spin.setValue(between)
+    tab.on_fit_segment()
+
+    title = tab.fit_canvas._last_draw[2].get("title", "")
+    assert "nm" in title
+    named = float(title.split("@")[1].split("nm")[0])
+    assert any(abs(named - float(p)) < 0.05 for p in wl), (
+        f"title names {named} nm, which is not a measured wavelength")
