@@ -16,7 +16,7 @@ pytest.importorskip("qtpy")
 from qtpy.QtWidgets import QApplication                       # noqa: E402
 from gui.widgets.plot_canvas import MplCanvas                 # noqa: E402
 from gui.widgets.figure_dialog import (FigureDialog, PRESETS, # noqa: E402
-                                       write_csv, _PlotToolbar)
+                                       preset_rc, write_csv, _PlotToolbar)
 
 
 @pytest.fixture(scope="module")
@@ -110,3 +110,30 @@ def test_write_csv_round_trips_without_a_dialog(tmp_path):
     write_csv(frame, path, ["run: 20250710", "produced by: spec-echem 0.3.1"])
     back = pd.read_csv(path, comment="#")
     pd.testing.assert_frame_equal(back, frame)
+
+
+def test_the_title_does_not_outweigh_the_axis_labels():
+    """matplotlib defaults axes.titlesize to 'large' = 1.2x the base, which on a
+    3.25 in figure makes the title the heaviest thing on the plot. Here the title
+    only names the segment, so it sits at label size."""
+    for _label, _size, pt in PRESETS:
+        rc = preset_rc(pt)
+        assert rc["axes.titlesize"] == rc["axes.labelsize"] == pt
+        assert rc["xtick.labelsize"] < pt       # ticks step back from the labels
+
+
+def test_the_footnote_scales_with_the_preset_and_never_leads(app):
+    """A footnote fixed at 7 pt becomes the LARGEST text on a 7 pt figure."""
+    import matplotlib
+    canvas = MplCanvas()
+    sizes = {}
+    for pt in (10, 7):
+        with matplotlib.rc_context(preset_rc(pt)):
+            fig = canvas.render_to_figure(
+                lambda: canvas.show_spectrum(np.arange(5.0), np.arange(5.0)),
+                figsize=(3.25, 2.25), dpi=100, footnote="20250710 · spec-echem")
+        sizes[pt] = fig.texts[-1].get_fontsize()
+
+    assert sizes[10] == 7, "the on-screen footnote size must be unchanged"
+    assert sizes[7] < sizes[10]
+    assert sizes[7] < preset_rc(7)["xtick.labelsize"], "footnote outweighs the ticks"
