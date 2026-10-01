@@ -31,9 +31,18 @@ logger = logging.getLogger(__name__)
 # is the usual way a good-looking draft figure dies in proof -- confirmed by eye on
 # 2026-09-30, where the scaled-down version was "overpowered by the size of the
 # axis". The single-column preset draws at 8 pt from the start instead.
+# Single column is EXACTLY half of double column, so the only thing that differs
+# between them is scale and font -- which is what makes comparing the two honest.
+# An earlier 3.25 x 2.4 was a slightly different shape for no reason.
+#
+# Its text is still proportionally larger than the double's, and that is not a bug
+# to tune away: matching the double's proportions at half the width needs 5 pt,
+# which is below what journals accept (typically 6-8 pt at final size). Legibility
+# at print size sets a floor, so a single-column figure always looks label-heavy on
+# screen and correct on paper. Use double column unless a journal demands 3.25 in.
 PRESETS = [
     ("Double column — 6.5 × 4.5 in", (6.5, 4.5), 10),
-    ("Single column — 3.25 × 2.4 in", (3.25, 2.4), 8),
+    ("Single column — 3.25 × 2.25 in", (3.25, 2.25), 7),
     ("Wide — 9.0 × 4.5 in", (9.0, 4.5), 10),
     ("Slide — 10 × 7.5 in", (10.0, 7.5), 14),
 ]
