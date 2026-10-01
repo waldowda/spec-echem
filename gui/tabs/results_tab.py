@@ -41,6 +41,11 @@ class ResultsTab(QWidget):
         super().__init__()
         self.win = main_window
         self._stale = False      # results changed while hidden; see request_refresh
+        # The wavelength the plot on screen was taken AT, or None for a view that
+        # has no single one. It names the figure and is stated in its title: a
+        # kinetics trace at 800 nm and the same trace at 520 nm are different
+        # measurements, and a saved figure that does not say which is not evidence.
+        self._plotted_wl = None
         self._build()
 
     def _build(self):
@@ -247,10 +252,13 @@ class ResultsTab(QWidget):
         return row
 
     def _figure_basename(self, suffix):
-        """run_segment_view, so a folder of saved figures is readable."""
+        """segment_view_wavelength_suffix, so a folder of saved figures is readable
+        AND a kinetics trace at 800 nm cannot be mistaken for one at 520 nm."""
         label = (self._current_label() or "plot").replace(" ", "")
         view = self.view_combo.currentData() if hasattr(self, "view_combo") else ""
-        parts = [p for p in (label, view, suffix) if p]
+        wl = (f"{self._plotted_wl:.0f}nm"
+              if suffix == "absorbance" and self._plotted_wl is not None else "")
+        parts = [p for p in (label, view, wl, suffix) if p]
         return "_".join(parts)
 
     # --- segment selection / plotting ---
@@ -329,6 +337,9 @@ class ResultsTab(QWidget):
         if not label or label not in self.win.results:
             return
         absorb_df = self.win.results[label]
+        # Cleared here, set again by whichever view actually has one: a stale
+        # wavelength would name a figure after a condition it was not taken at.
+        self._plotted_wl = None
         if view == "kinetics":
             self._plot_kinetics(label, absorb_df)
         elif view == "modulation":
@@ -367,6 +378,18 @@ class ResultsTab(QWidget):
         # somewhere else. Typing in the box is NOT propagated -- that is often just
         # reading a value off the spectrum.
         self.win.analysis_tab.wavelength_spin.setValue(wavelength)
+
+    def _probe_text(self, chosen):
+        """' @ 800.3 nm' / ' @ 800.3 nm (auto)' for a title.
+
+        Stated as the PIXEL actually used, not the value asked for -- the detector
+        grid is ~0.57 nm and the nearest pixel is what was plotted. '(auto)' matters
+        because an automatically chosen probe moves between segments, so two figures
+        from one run can be at different wavelengths.
+        """
+        if chosen is None:
+            return ""
+        return f" @ {chosen:.1f} nm" + (" (auto)" if self.wl_auto.isChecked() else "")
 
     def _chosen_wavelength(self, absorb_df, label):
         """The wavelength to follow: the user's, or the polaron band.
@@ -422,10 +445,12 @@ class ResultsTab(QWidget):
         wl = np.asarray(absorb_df.index.values, dtype=float)
         row = int(np.abs(wl - chosen).argmin())
         t = np.asarray(absorb_df.columns.values, dtype=float)
+        self._plotted_wl = chosen
         self.canvas.plot_series(
             t, {f"{chosen:.0f} nm": absorb_df.values[row, :]},
             "Time (s)", "Absorbance",
-            title=f"{self._segment_title(label)} — kinetics")
+            title=f"{self._segment_title(label)} — kinetics"
+                  f"{self._probe_text(chosen)}")
 
     def _plot_modulation(self):
         """Absorbance at the END of each DOPING step, against potential — one point
@@ -465,10 +490,12 @@ class ResultsTab(QWidget):
                 "The modulation curve builds one point per doping step.")
             return
         order = np.argsort(xs)
+        self._plotted_wl = chosen
         self.canvas.plot_series(
             np.asarray(xs)[order], {f"{chosen:.0f} nm": np.asarray(ys)[order]},
             "Potential (V)", "Absorbance at end of step",
-            title="Modulation across the doping ladder")
+            title="Modulation across the doping ladder"
+                  f"{self._probe_text(chosen)}")
 
     def _plot_dos(self, label, absorb_df=None):
         """Density of states from the CV — g(E) = i / (v·e·V_film).
