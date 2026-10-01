@@ -61,6 +61,11 @@ class BandTab(QWidget):
         self.win = main_window
         self._band = None          # one segment
         self._ladder = None        # [(label, potential, direction, BandFit)]
+        # Which of the two is ON SCREEN. They used to be mutually exclusive --
+        # fitting one segment threw the ladder away and vice versa -- so selecting a
+        # segment after "Fit all segments" showed nothing new and the only way to
+        # see its band was to fit it AGAIN, although Fit all had already done it.
+        self._showing = None       # None | "one" | "ladder"
         self._frame = None         # the table currently shown
         self._seeded = False
         # The segment the USER chose, kept outside the combo so that
@@ -87,6 +92,7 @@ class BandTab(QWidget):
         self.segment_combo = QComboBox()
         prepare_segment_combo(self.segment_combo)
         self.segment_combo.currentIndexChanged.connect(self._remember_segment)
+        self.segment_combo.currentIndexChanged.connect(self.on_segment_changed)
         form.addRow("Segment:", self.segment_combo)
 
         wl_row = QHBoxLayout()
@@ -158,11 +164,17 @@ class BandTab(QWidget):
             "The SAME wavelength range on every segment, plotted against the\n"
             "potential the film was doped to — doping and dedoping separately.")
         self.fit_all_btn.clicked.connect(self.on_fit_all)
+        self.ladder_btn = QPushButton("Show all segments")
+        self.ladder_btn.setToolTip(
+            "Back to the tau-against-potential plot, without refitting.")
+        self.ladder_btn.setEnabled(False)
+        self.ladder_btn.clicked.connect(self.on_show_ladder)
         self.save_btn = QPushButton("Save CSV…")
         self.save_btn.clicked.connect(self.on_save_csv)
         self.save_btn.setEnabled(False)
         buttons.addWidget(self.fit_btn)
         buttons.addWidget(self.fit_all_btn)
+        buttons.addWidget(self.ladder_btn)
         buttons.addWidget(self.save_btn)
         buttons.addStretch()
         form.addRow("", buttons)
@@ -255,7 +267,7 @@ class BandTab(QWidget):
         """Names WHICH plot it is. The two look nothing alike and answer different
         questions, so a folder holding both must not call them the same thing."""
         model = self.model_combo.currentData()
-        if self._ladder is not None:
+        if self._showing == "ladder":
             return f"band_ladder_{model}"
         label = (self._current_label() or "band").replace(" ", "")
         return f"{label}_band_{model}"
@@ -319,6 +331,46 @@ class BandTab(QWidget):
 
     # --- fitting --------------------------------------------------------
 
+    def on_segment_changed(self, *_):
+        """Show the newly chosen segment's band if it has already been fitted.
+
+        After "Fit all segments" every segment HAS a fit -- they are all in
+        self._ladder -- so selecting one should show it rather than leaving the
+        ladder up and asking for a refit that would repeat work already done.
+        """
+        label = self._current_label()
+        if not label or not self._ladder:
+            return
+        if not self._show_stored(label):
+            # Fitted segments are on screen one at a time; a segment with no fit of
+            # its own leaves the ladder up rather than blanking the plot.
+            return
+
+    def _show_stored(self, label):
+        """Draw a segment's band from the ladder, without refitting. True if shown."""
+        entry = next((e for e in (self._ladder or []) if e[0] == label), None)
+        if entry is None:
+            return False
+        self._band = entry[3]
+        self._showing = "one"
+        self._draw_one(label)
+        self._fill_table(self._band.table())
+        self.status.setText(
+            f"{label}:  " + self._summary_text(self._band.summary())
+            + "   — from Fit all segments; Show all segments goes back")
+        self.ladder_btn.setEnabled(True)
+        self.save_btn.setEnabled(True)
+        return True
+
+    def on_show_ladder(self):
+        """Back to the ladder, from fits already in hand."""
+        if not self._ladder:
+            return
+        self._band = None
+        self._showing = "ladder"
+        self._fill_table(self._ladder_frame())
+        self._draw_ladder()
+
     def on_fit_segment(self):
         label = self._current_label()
         df = self._frame_for(label)
@@ -337,7 +389,7 @@ class BandTab(QWidget):
         except ValueError as exc:
             self.status.setText(str(exc))
             return
-        self._ladder = None
+        self._showing = "one"
         self._draw_one(label)
         self._fill_table(self._band.table())
         self.status.setText(f"{label}:  " + self._summary_text(self._band.summary()))
@@ -400,6 +452,8 @@ class BandTab(QWidget):
             return
         self._ladder = results
         self._band = None
+        self._showing = "ladder"
+        self.ladder_btn.setEnabled(True)
         self._fill_table(self._ladder_frame())
         cancelled = progress.wasCanceled()
         parts = [f"{len(results)} segment(s) fitted"]
