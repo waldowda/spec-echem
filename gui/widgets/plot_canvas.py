@@ -2,6 +2,7 @@
 Embedded matplotlib canvas, shared by the Instrument preview, the Run cockpit,
 and the Results review tab. Static plots only (drawn on demand / post-segment).
 """
+import functools
 import logging
 import textwrap
 from contextlib import contextmanager
@@ -48,6 +49,25 @@ class _HandlerPairWithComma:
             handlebox.add_artist(artist)
         return dash
 
+def _records(method):
+    """Remember the call, so the same plot can be re-drawn at a different size.
+
+    Figure export needs to render what is on screen into a figure of its own, which
+    means re-invoking the draw method with the same arguments. Recording it here
+    rather than in each tab keeps the five save buttons from needing five pieces of
+    bookkeeping that could each fall out of step with what was actually drawn.
+
+    Calls made while rendering offscreen are NOT recorded: the export itself must not
+    become the thing the canvas remembers.
+    """
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if not self._rendering:
+            self._last_draw = (method, args, kwargs)
+        return method(self, *args, **kwargs)
+    return wrapper
+
+
 class MplCanvas(FigureCanvasQTAgg):
     def __init__(self, parent=None, xlabel="Wavelength (nm)", ylabel="Intensity (counts)"):
         self.fig = Figure(figsize=(5, 3), tight_layout=True)
@@ -63,6 +83,8 @@ class MplCanvas(FigureCanvasQTAgg):
         # True only while render_to_figure() has this canvas pointed at an offscreen
         # figure, which suppresses the widget repaint at the end of every draw method.
         self._rendering = False
+        # (method, args, kwargs) of the last plot drawn on screen; see _records.
+        self._last_draw = None
         self.ax = self.fig.add_subplot(111)
         self._decorate()
         self.mpl_connect("resize_event", self._on_resize)
@@ -137,6 +159,64 @@ class MplCanvas(FigureCanvasQTAgg):
                 self._draw_footnote(footnote)
         return fig
 
+    def last_draw(self):
+        """A zero-argument callable that re-draws the last plot, or None."""
+        if self._last_draw is None:
+            return None
+        method, args, kwargs = self._last_draw
+        return lambda: method(self, *args, **kwargs)
+
+    def last_data(self):
+        """The last plot's data as a tidy DataFrame, or None where there is none.
+
+        Derived from the recorded call, so a plot gets a CSV without its tab having
+        to describe its own contents a second time -- a second description is a
+        second thing that can disagree with the figure.
+
+        None is the right answer for the 2-D views (absorbance against wavelength
+        AND time): that is a matrix already archived as .h5 and .txt, so a CSV of it
+        would be a worse copy of something on disk.
+        """
+        if self._last_draw is None:
+            return None
+        import pandas as pd
+
+        method, args, kwargs = self._last_draw
+        name = method.__name__
+        try:
+            if name in ("show_cv", "show_chrono"):
+                return args[0].copy()
+            if name == "show_spectrum":
+                return pd.DataFrame({self._xlabel: np.asarray(args[0], dtype=float),
+                                     self._ylabel: np.asarray(args[1], dtype=float)})
+            if name == "plot_fit":
+                t, y, fit_y = args[0], args[1], args[2]
+                frame = pd.DataFrame({"x": np.asarray(t, dtype=float),
+                                      "y": np.asarray(y, dtype=float)})
+                if fit_y is not None and len(np.asarray(fit_y)) == len(frame):
+                    frame["fit"] = np.asarray(fit_y, dtype=float)
+                    frame["residual"] = frame["y"] - frame["fit"]
+                return frame
+            if name == "plot_series":
+                x, series = args[0], args[1]
+                frame = pd.DataFrame({"x": np.asarray(x, dtype=float)})
+                for key, values in series.items():
+                    frame[str(key)] = np.asarray(values, dtype=float)
+                return frame
+            if name == "plot_multi_xy":
+                # Long format: these curves do NOT share an x, so one column each
+                # would be a lie about which y belongs to which x.
+                rows = []
+                for curve in args[0]:
+                    cx, cy, label = curve[0], curve[1], curve[2]
+                    for xi, yi in zip(np.asarray(cx, dtype=float),
+                                      np.asarray(cy, dtype=float)):
+                        rows.append({"series": str(label), "x": xi, "y": yi})
+                return pd.DataFrame(rows)
+        except Exception:  # noqa: BLE001 — a CSV that cannot be built is not an error
+            logger.debug("no tabular form for %s", name, exc_info=True)
+        return None
+
     def draw_idle(self, *args, **kwargs):
         # Nothing to repaint while pointed at an offscreen figure: the widget is not
         # what is being drawn. Every draw method ends with this call.
@@ -200,6 +280,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate()
         self.draw_idle()
 
+    @_records
     def show_spectrum(self, wavelengths, values, title=None, ylabel="Intensity (counts)",
                       mark_max=False):
         """Single intensity/absorbance trace vs wavelength. mark_max annotates the
@@ -218,6 +299,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
+    @_records
     def show_cv(self, df, title=None):
         """Cyclic voltammogram: current vs potential (I vs E). Cycles concatenated."""
         self._xlabel, self._ylabel = "Potential (V)", "Current (A)"
@@ -226,6 +308,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
+    @_records
     def show_chrono(self, df, title=None):
         """Chronoamperometry: current vs corrected time (I vs t)."""
         self._xlabel, self._ylabel = "Time (s)", "Current (A)"
@@ -263,6 +346,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax.autoscale_view()
         self.draw_idle()
 
+    @_records
     def show_linearity(self, times, counts, result, full_scale=65535, title=None):
         """
         Detector response vs integration time: measured points, the fitted linear
@@ -344,6 +428,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
+    @_records
     def plot_series(self, x, series, xlabel, ylabel, title=None, styles=None,
                     yerr=None, flags=None, logy=False, footnote=""):
         """Several named y-series against one x, as markers joined by lines.
@@ -396,6 +481,7 @@ class MplCanvas(FigureCanvasQTAgg):
             self._draw_footnote(footnote)
         self.draw_idle()
 
+    @_records
     def plot_fit(self, t, y, fit_y, xlabel, ylabel, title=None, window=None,
                  note=None, fit_ok=True, caution=None):
         """Data with the fitted curve over it, plus a residual strip.
@@ -488,6 +574,7 @@ class MplCanvas(FigureCanvasQTAgg):
             self.fig.suptitle(title, fontsize="medium")
         self.draw_idle()
 
+    @_records
     def plot_multi_xy(self, curves, xlabel, ylabel, title=None, logy=False,
                       swap_axes=False, footnote="", footnote_warn=False):
         """Several (x, y, label) curves that do NOT share an x axis.
@@ -595,6 +682,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax.set_yticks([])
         self.draw_idle()
 
+    @_records
     def show_absorbance(self, absorb_df, title=None, wl_min=None, wl_max=None,
                         mark_wl=None):
         """

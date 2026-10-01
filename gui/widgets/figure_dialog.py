@@ -260,3 +260,29 @@ def write_csv(frame, path, header_lines=()):
         for line in header_lines:
             fh.write(f"# {line}\n")
         frame.to_csv(fh, index=False)
+
+
+def open_figure_dialog(parent, canvas, win, basename, title="Save figure"):
+    """Open the preview for whatever `canvas` last drew.
+
+    The one entry point the tabs use, so the five save buttons cannot drift apart.
+    Files default to {run_folder}/figures -- the same reasoning as the per-run log:
+    a figure found a year later says which run produced it by where it sits.
+    """
+    draw = canvas.last_draw()
+    if draw is None:
+        QMessageBox.information(parent, "Nothing to save",
+                                "There is no plot here yet.")
+        return None
+    run_folder = getattr(win, "run_folder", None)
+    frame = canvas.last_data()
+    dialog = FigureDialog(
+        parent, canvas, draw, title=title,
+        # Re-read at save time rather than capturing the frame now: the plot can be
+        # redrawn while the dialog is open on a non-modal day.
+        csv=(lambda: canvas.last_data()) if frame is not None else None,
+        basename=basename,
+        out_dir=(run_folder / "figures") if run_folder is not None else None,
+        run_id=run_folder.name if run_folder is not None else None)
+    dialog.exec_() if hasattr(dialog, "exec_") else dialog.exec()
+    return dialog

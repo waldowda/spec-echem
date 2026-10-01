@@ -29,6 +29,7 @@ from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
                              DATA_TYPE_PREDEDOPING)
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
+from gui.widgets.figure_dialog import open_figure_dialog
 from gui.segment_labels import (prepare_segment_combo, segment_display,
                                 DROPDOWN_DECIMALS)
 
@@ -328,7 +329,12 @@ class AnalysisTab(QWidget):
         # is no second control that can disagree with it about what is shown.
         self.table.currentCellChanged.connect(lambda *_: self._draw_fit())
         self.table.selectRow(0)
-        split.addWidget(self.fit_canvas)
+        fit_box = QWidget()
+        fit_layout = QVBoxLayout(fit_box)
+        fit_layout.setContentsMargins(0, 0, 0, 0)
+        fit_layout.addWidget(self.fit_canvas)
+        fit_layout.addLayout(self._save_row(self.fit_canvas, "fit", "Save fit figure"))
+        split.addWidget(fit_box)
 
         plot_box = QWidget()
         plot_layout = QVBoxLayout(plot_box)
@@ -415,6 +421,8 @@ class AnalysisTab(QWidget):
         self.ladder_canvas = MplCanvas(self, xlabel="Potential (V)",
                                        ylabel="mean relaxation time (s)")
         plot_layout.addWidget(self.ladder_canvas)
+        plot_layout.addLayout(
+            self._save_row(self.ladder_canvas, "ladder", "Save ladder figure"))
         split.addWidget(plot_box)
 
         layout.addWidget(split, stretch=1)
@@ -432,6 +440,25 @@ class AnalysisTab(QWidget):
         # Before the table exists (first call from _build) there is nothing to sync.
         if hasattr(self, "table") and not self._fits.get(self._current_label()):
             self._set_table_columns(self.model_combo.currentData())
+
+    def _save_row(self, canvas, basename, title):
+        """A save button under a figure -- the same control on every tab."""
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addStretch()
+        button = QPushButton("Save figure…")
+        button.setToolTip(
+            "Preview this plot at a fixed publication size and save it,\n"
+            "with the numbers behind it as a CSV.")
+        button.clicked.connect(
+            lambda: open_figure_dialog(self, canvas, self.win,
+                                       self._figure_basename(basename), title))
+        row.addWidget(button)
+        return row
+
+    def _figure_basename(self, suffix):
+        label = (self._current_label() or "plot").replace(" ", "")
+        return f"{label}_{suffix}"
 
     def _segment_display(self, label, decimals=3):
         """'Doping 5  (+0.700 V)'. The ladder plots against potential, so the segment

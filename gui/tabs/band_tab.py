@@ -25,6 +25,7 @@ from spec_echem.analysis import MODELS, fit_band
 from spec_echem.data import DATA_TYPE_CV, DATA_TYPE_DOPING
 from gui.segment_labels import prepare_segment_combo, segment_display
 from gui.widgets.plot_canvas import MplCanvas
+from gui.widgets.figure_dialog import open_figure_dialog
 
 # Which tau quantities each model actually has. A single generic "tau" curve hid the
 # difference: FitResult.tau is the SLOWER component for biexp, while the single-fit
@@ -161,12 +162,24 @@ class BandTab(QWidget):
         plot_layout = QVBoxLayout(plot_box)
         plot_layout.setContentsMargins(0, 0, 0, 0)
         self.canvas = MplCanvas(self, xlabel="Wavelength (nm)", ylabel="tau (s)")
-        # Pan, zoom, HOME (unzoom) and save-figure, for three lines. Zoom covers the
-        # ad-hoc looking that neither the potential range nor a log axis can: those
-        # are standing decisions, this is "what is going on just there".
+        # Pan, zoom, HOME (unzoom), for three lines. Zoom covers the ad-hoc looking
+        # that neither the potential range nor a log axis can: those are standing
+        # decisions, this is "what is going on just there". Saving is NOT done from
+        # here -- it goes through the preview, which renders at a chosen size rather
+        # than at whatever this widget happens to be.
         self.toolbar = NavigationToolbar2QT(self.canvas, plot_box)
+        self.save_fig_btn = QPushButton("Save figure…")
+        self.save_fig_btn.setToolTip(
+            "Preview this plot at a fixed publication size and save it,\n"
+            "with the numbers behind it as a CSV.")
+        self.save_fig_btn.clicked.connect(self.on_save_figure)
         plot_layout.addWidget(self.toolbar)
         plot_layout.addWidget(self.canvas)
+        save_row = QHBoxLayout()
+        save_row.setContentsMargins(0, 0, 0, 0)
+        save_row.addStretch()
+        save_row.addWidget(self.save_fig_btn)
+        plot_layout.addLayout(save_row)
         split.addWidget(plot_box)
         self.table = QTableWidget(0, 0, self)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -215,6 +228,13 @@ class BandTab(QWidget):
         self.stop_spin.setRange(float(wl.min()), float(wl.max()))
         self.start_spin.setValue(max(float(wl.min()), centre - DEFAULT_SPAN_NM / 2))
         self.stop_spin.setValue(min(float(wl.max()), centre + DEFAULT_SPAN_NM / 2))
+
+    def on_save_figure(self):
+        """Preview and save whatever this tab last plotted -- a single segment's
+        band or the all-segment ladder, whichever is on screen."""
+        label = (self._current_label() or "band").replace(" ", "")
+        basename = f"{label}_band" if self._band is not None else "ladder_band"
+        open_figure_dialog(self, self.canvas, self.win, basename, "Save band figure")
 
     def refresh_segments(self):
         previous = self._current_label()
