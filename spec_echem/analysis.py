@@ -34,6 +34,27 @@ FIT_MAX_TAU_SPANS = 10.0
 # Same three Raj's banded_fits offers, so a fit done here and one done in Jupyter
 # mean the same thing.
 
+def order_biexp(model, popt, pcov=None):
+    """Put the FAST component first: (A, B1, tau1, B2, tau2) with tau1 <= tau2.
+
+    model_biexp is SYMMETRIC under exchanging (B1, tau1) with (B2, tau2) -- the same
+    curve, two valid parameter vectors -- so curve_fit is free to return either, and
+    does. Reported from the bench 2026-10-01: on a dedoping ladder the +0.40 V rung
+    came back with tau1 = 2.1 s against tau2 = 0.25 s while every other rung had
+    tau1 < tau2. Nothing was wrong with those fits; the LABELS were swapped, which
+    silently mixes the two components wherever tau1 and tau2 are compared across
+    segments -- a band plot against potential being exactly that.
+
+    The same permutation is applied to the covariance, or the uncertainties stay
+    attached to the parameters they no longer describe.
+    """
+    if model != "biexp" or popt is None or len(popt) != 5 or popt[2] <= popt[4]:
+        return popt, pcov
+    order = np.array([0, 3, 4, 1, 2])
+    return (np.asarray(popt)[order],
+            None if pcov is None else np.asarray(pcov)[np.ix_(order, order)])
+
+
 def model_exp(t, a, b, tau):
     """A + B·exp(−t/τ)"""
     return a + b * np.exp(-t / tau)
@@ -609,6 +630,10 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
                                    bounds=(lower, upper), maxfev=10000)
     except Exception as exc:  # noqa: BLE001 — a failed fit is a normal outcome
         return FitResult(model, reason=str(exc), n=len(t))
+
+    # Before anything reads params[2] or params[4] as "the fast one" / "the slow
+    # one" -- including sd, which is taken from the diagonal below.
+    popt, pcov = order_biexp(model, popt, pcov)
 
     sd = np.sqrt(np.abs(np.diag(pcov)))
     if not np.all(np.isfinite(sd)):
