@@ -602,11 +602,22 @@ def test_pre_dedoping_is_named_not_counted_as_a_dedoping_step(analysis_window):
               for i in range(w.analysis_tab.segment_combo.count())]
     assert "Pre-dedoping" in labels
 
-    # ...and the exclusion is stated on the plot rather than left invisible.
+    # "Fit all segments" leaves it alone entirely -- it has no rung, so fitting it
+    # only put a row in the table that no plot could show (requested 2026-09-30).
     w.analysis_tab.on_fit_all()
+    assert "Pre-dedoping" not in w.analysis_tab._fits
+    assert "Doping 0" in w.analysis_tab._fits          # ...but the rungs are fitted
+
+    # ...and the exclusion is stated on the plot rather than left invisible.
     stored = w.analysis_tab.ladder_canvas._footnote
     assert stored is not None, "the ladder drew no footnote"
     assert "Pre-dedoping" in stored[1], stored[1]
+
+    # Fitting it DELIBERATELY, on its own, still works.
+    w.analysis_tab.segment_combo.setCurrentIndex(
+        w.analysis_tab.segment_combo.findData("Pre-dedoping"))
+    w.analysis_tab.on_fit_segment()
+    assert "Pre-dedoping" in w.analysis_tab._fits
 
 
 # 2026-09-30: "Fit all segments" on tab 6 counted the PRE-DEDOPE in its progress

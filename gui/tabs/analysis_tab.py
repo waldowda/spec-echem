@@ -569,9 +569,19 @@ class AnalysisTab(QWidget):
         self._draw_ladder()
 
     def on_fit_all(self):
+        """Every segment that has a place on the ladder.
+
+        The pre-dedope is deliberately NOT included (requested 2026-09-30, matching
+        the Band Fits tab): it has no rung, so fitting it here only put a row in the
+        table that no plot could show. It remains available on its own -- select it
+        and fit it -- which is the case where its tau is actually being asked for.
+        """
         fitted = 0
         for i in range(self.segment_combo.count()):
             label = self.segment_combo.itemData(i)
+            seg = self.win.segments_by_label.get(label)
+            if seg is not None and self._ladder_potential(seg) is None:
+                continue
             result = self._fit_one(label)
             if result is not None:
                 self._fits[label] = result
@@ -927,16 +937,19 @@ class AnalysisTab(QWidget):
             label = self.segment_combo.itemData(i)
             seg = self.win.segments_by_label.get(label)
             fits = self._fits.get(label)
-            if seg is None or not fits:
+            if seg is None:
                 continue
             x = self._ladder_potential(seg)
             if x is None:
-                # Fitted, in the table, but it has no potential to sit at: a
-                # pre-dedope is a baseline, not a rung. Named below rather than
-                # dropped -- "Fit all segments" fits it, so its absence from the
-                # plot has to be visible somewhere.
+                # No potential to sit at: a pre-dedope is a baseline, not a rung.
+                # Named below WHETHER OR NOT it was fitted -- "why is my pre-dedope
+                # not on here?" deserves an answer either way, and an exclusion the
+                # reader cannot see is the one that turns a plot into a claim it
+                # cannot support.
                 no_rung.append(label)
                 continue
+            if not fits:
+                continue        # simply not fitted yet; nothing to say about it
             rows.append((x, self._direction_for(seg), label, fits))
 
         if not rows:
