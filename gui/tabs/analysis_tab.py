@@ -27,9 +27,10 @@ from spec_echem.analysis import (
 from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
                              DATA_TYPE_DOPING, DATA_TYPE_DEDOPING,
                              DATA_TYPE_PREDEDOPING)
+from spec_echem.build_info import build_id
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
-from gui.widgets.figure_dialog import open_figure_dialog
+from gui.widgets.figure_dialog import open_figure_dialog, save_figure
 from gui.segment_labels import (prepare_segment_combo, segment_display,
                                 DROPDOWN_DECIMALS)
 
@@ -263,6 +264,15 @@ class AnalysisTab(QWidget):
             "species relaxing — which a single probe wavelength cannot show.")
         self.band_btn.clicked.connect(self.on_fit_band)
         buttons.addWidget(self.band_btn)
+        # The ONE save-all in the application, and it is bounded: the three traces of
+        # the segment on screen plus the ladder. Tab 4 deliberately has none, because
+        # 4 views x N segments has no obviously right definition of "all".
+        self.save_all_btn = QPushButton("Save all figures…")
+        self.save_all_btn.setToolTip(
+            "Write this segment's three fits and the ladder to the run's\n"
+            "figures folder, each with its data as a CSV.")
+        self.save_all_btn.clicked.connect(self.on_save_all_figures)
+        buttons.addWidget(self.save_all_btn)
         buttons.addStretch()
         form.addRow("", buttons)
 
@@ -440,6 +450,80 @@ class AnalysisTab(QWidget):
         # Before the table exists (first call from _build) there is nothing to sync.
         if hasattr(self, "table") and not self._fits.get(self._current_label()):
             self._set_table_columns(self.model_combo.currentData())
+
+    def on_save_all_figures(self):
+        """This segment's three fits plus the ladder, written without four trips
+        through the preview.
+
+        Provenance is stamped here and optional on a single save: a batch lands in a
+        folder and gets looked at months later, where "which run was this?" is the
+        first question; a deliberate single save is usually headed for a manuscript,
+        where the stamp is unwanted.
+        """
+        label = self._current_label()
+        if not label:
+            QMessageBox.information(self, "Nothing to save", "No segment selected.")
+            return
+        if self.win.run_folder is None:
+            QMessageBox.information(
+                self, "No run folder",
+                "Figures are written beside the data, so there has to be a run.\n"
+                "Run a sequence or Load Run… first.")
+            return
+
+        out_dir = pathlib.Path(self.win.run_folder) / "figures"
+        run_id = pathlib.Path(self.win.run_folder).name
+        stamp = f"{run_id} · spec-echem {build_id()}"
+        header = [f"run: {run_id}", f"produced by: spec-echem {build_id()}"]
+        stem = label.replace(" ", "")
+
+        written, skipped = [], []
+        previous_row = self.table.currentRow()
+        try:
+            for i, trace in enumerate(TRACES):
+                # Drive the real plotting path rather than a parallel one: what gets
+                # saved must be what the tab would show for that trace.
+                self.table.blockSignals(True)
+                self.table.selectRow(i)
+                self.table.blockSignals(False)
+                self._draw_fit()
+                draw = self.fit_canvas.last_draw()
+                if draw is None:
+                    # show_message cleared the record: there is no such trace here.
+                    skipped.append(trace)
+                    continue
+                written += save_figure(
+                    self.fit_canvas, draw, out_dir / f"{stem}_{trace}.png",
+                    provenance=stamp, csv_frame=self.fit_canvas.last_data(),
+                    csv_header=header + [f"segment: {label}", f"trace: {trace}"])
+        finally:
+            self.table.blockSignals(True)
+            if 0 <= previous_row < self.table.rowCount():
+                self.table.selectRow(previous_row)
+            self.table.blockSignals(False)
+            self._draw_fit()
+
+        self._draw_ladder()
+        ladder_draw = self.ladder_canvas.last_draw()
+        if ladder_draw is None:
+            skipped.append("ladder")
+        else:
+            written += save_figure(
+                self.ladder_canvas, ladder_draw, out_dir / "ladder.png",
+                provenance=stamp, csv_frame=self.ladder_canvas.last_data(),
+                csv_header=header + ["plot: ladder across all fitted segments"])
+
+        if not written:
+            QMessageBox.warning(self, "Nothing saved",
+                                "No trace on this segment had a plot to save.")
+            return
+        # Names the FOLDER, not just basenames: the OECT export shipped without one
+        # and it cost a hunt on 2026-09-29.
+        message = f"Wrote {len(written)} file(s) to:\n{out_dir}\n\n" + "\n".join(
+            p.name for p in written)
+        if skipped:
+            message += "\n\nNo data for: " + ", ".join(skipped)
+        QMessageBox.information(self, "Saved", message)
 
     def _save_row(self, canvas, basename, title):
         """A save button under a figure -- the same control on every tab."""

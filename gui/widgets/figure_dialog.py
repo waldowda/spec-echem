@@ -10,6 +10,7 @@ the plot. If axis-label or title fields ever appear here the design has failed, 
 the CSV is the answer to whatever prompted them.
 """
 import logging
+from pathlib import Path
 
 import matplotlib
 from matplotlib.backends.backend_qtagg import (FigureCanvasQTAgg,
@@ -261,6 +262,31 @@ def write_csv(frame, path, header_lines=()):
         for line in header_lines:
             fh.write(f"# {line}\n")
         frame.to_csv(fh, index=False)
+
+
+def save_figure(canvas, draw, path, preset=DEFAULT_PRESET, dpi=300,
+                provenance=None, csv_frame=None, csv_header=()):
+    """Render and write one figure without opening the preview.
+
+    The save-all path: same geometry, same fonts and the same provenance rules as a
+    single save, so a batch cannot quietly differ from what the preview showed.
+    Returns the paths written.
+    """
+    _label, size, pt = PRESETS[preset]
+    with matplotlib.rc_context(preset_rc(pt)):
+        fig = canvas.render_to_figure(draw, figsize=size, dpi=DISPLAY_DPI,
+                                      footnote=provenance)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=dpi)
+    written = [path]
+    # The figure and its numbers share a basename so the pair cannot separate once
+    # they are in a folder together.
+    if csv_frame is not None and not csv_frame.empty:
+        csv_path = path.with_suffix(".csv")
+        write_csv(csv_frame, csv_path, csv_header)
+        written.append(csv_path)
+    return written
 
 
 def open_figure_dialog(parent, canvas, win, basename, title="Save figure"):

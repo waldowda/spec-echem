@@ -653,11 +653,46 @@ class MplCanvas(FigureCanvasQTAgg):
         band = min(0.45, (len(lines) * size * 1.6 / 72) / height_in + 0.015)
         artist.set_text("\n".join(lines))
         artist.set_position((0.5, band / 2.0))
+
+        # plot_fit builds a shared-x gridspec under CONSTRAINED layout, which
+        # tight_layout cannot handle -- it warns and does nothing, so the band is
+        # never reserved and the footnote lands on top of the x-axis label. Seen as
+        # soon as provenance was stamped on a fit figure (2026-10-01); it had never
+        # shown up before because plot_fit draws no footnote of its own on screen.
+        # A constrained engine reserves the band through its own rect instead.
+        engine = (self.fig.get_layout_engine()
+                  if hasattr(self.fig, "get_layout_engine") else None)
+        if engine is not None and "constrained" in type(engine).__name__.lower():
+            try:
+                # The rect must reserve the SUPTITLE's band too. Left at 1.0 the
+                # engine lays the axes right up to the top of the figure and the
+                # panel climbs over the title -- it does not treat a suptitle as
+                # part of the rect it was handed.
+                engine.set(rect=(0.0, band, 1.0, 1.0 - self._suptitle_band(artist)))
+                return
+            except Exception:  # noqa: BLE001 — cosmetic, and version-dependent
+                logger.debug("constrained engine rect= unsupported")
+
         self._set_layout("none")
         try:
             self.fig.tight_layout(rect=(0.0, band, 1.0, 1.0))
         except Exception:  # noqa: BLE001 — cosmetic, and version-dependent
             logger.debug("tight_layout(rect=) unsupported by this matplotlib")
+
+    def _suptitle_band(self, footnote_artist):
+        """Fraction of the figure height a suptitle needs, or 0 when there is none.
+
+        Measured the same way as the footnote's band: a line of text plus leading,
+        over the figure height. Any figure text above the midline that is not the
+        footnote is the suptitle -- plot_fit is the only plot that sets one, and it
+        uses fig.suptitle because the title belongs to neither of its two panels.
+        """
+        _width_in, height_in = self.fig.get_size_inches()
+        for text in self.fig.texts:
+            if text is footnote_artist or text.get_position()[1] <= 0.5:
+                continue
+            return min(0.2, (text.get_fontsize() * 2.0 / 72) / height_in)
+        return 0.0
 
     def _on_resize(self, _event):
         # Only if the footnote still belongs to the figure on screen: any later plot
@@ -673,6 +708,13 @@ class MplCanvas(FigureCanvasQTAgg):
         stay inside the axes instead of running off both edges of a small canvas.
         """
         self._new_axes()
+        # An empty-state message is NOT a figure, and it must also DISCARD whatever
+        # was recorded before it: otherwise last_draw() still returns the previous
+        # plot, and a save made now would write that plot under this one's name --
+        # a filename asserting what the contents contradict, which is the exact
+        # class of error that got "Save Plots" deleted.
+        if not self._rendering:
+            self._last_draw = None
         wrapped = "\n".join(textwrap.fill(line, 48)
                             for line in (text.splitlines() or [""]))
         self.ax.text(0.5, 0.5, wrapped, ha="center", va="center",
