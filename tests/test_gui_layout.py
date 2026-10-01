@@ -3077,3 +3077,38 @@ def test_a_numeric_field_stays_the_width_of_its_number(window, qapp_style=None):
 
     name = tab._widgets["sample_name"]
     assert name.width() > name.sizeHint().width(), "a text field should still fill"
+
+
+def test_form_layout_overrides_the_style_rather_than_inheriting_it(app):
+    """The real test of gui/forms.py: under a style whose defaults DIFFER, the
+    layout must still come out the same.
+
+    The suite normally runs under the offscreen platform, which falls back to
+    Fusion -- whose defaults already match two of the three settings, so asserting
+    them against the running style cannot tell "set deliberately" from "inherited by
+    luck". macOS disagrees on all three, so it is the one that proves anything.
+    """
+    from qtpy.QtCore import Qt
+    from qtpy.QtWidgets import QApplication, QFormLayout, QStyleFactory, QWidget
+    from gui.forms import form_layout
+
+    if "macintosh" not in QStyleFactory.keys():
+        pytest.skip("the macOS style is not available on this platform")
+
+    previous = QApplication.instance().style().objectName()
+    QApplication.instance().setStyle("macintosh")
+    try:
+        # Hold the parents: a QWidget that goes out of scope takes its layout with
+        # it, and the next call raises "wrapped C/C++ object has been deleted".
+        host_a, host_b = QWidget(), QWidget()
+        bare = QFormLayout(host_a)
+        # Guard the premise: if these ever stop differing, this test proves nothing.
+        assert int(bare.formAlignment()) != int(Qt.AlignLeft | Qt.AlignTop)
+        assert bare.fieldGrowthPolicy() != QFormLayout.ExpandingFieldsGrow
+
+        ours = form_layout(host_b)
+        assert ours.fieldGrowthPolicy() == QFormLayout.ExpandingFieldsGrow
+        assert int(ours.labelAlignment()) == int(Qt.AlignRight | Qt.AlignVCenter)
+        assert int(ours.formAlignment()) == int(Qt.AlignLeft | Qt.AlignTop)
+    finally:
+        QApplication.instance().setStyle(previous)
