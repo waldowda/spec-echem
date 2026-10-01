@@ -3112,3 +3112,26 @@ def test_form_layout_overrides_the_style_rather_than_inheriting_it(app):
         assert int(ours.formAlignment()) == int(Qt.AlignLeft | Qt.AlignTop)
     finally:
         QApplication.instance().setStyle(previous)
+
+
+# 2026-10-01: "the text below the input field is only as wide as the input field.
+# Wastes space?" A wrapping QLabel asks for no width of its own, so under
+# ExpandingFieldsGrow it sat at whatever the widest OTHER field was -- a combo box --
+# and wrapped to that, leaving the rest of the row empty beside it.
+
+def test_an_explanatory_note_uses_the_whole_row_not_the_field_column(window):
+    from qtpy.QtWidgets import QApplication
+
+    window.resize(1500, 950)
+    window.show()
+    window.tabs.setCurrentWidget(window.parameters_tab)
+    for _ in range(4):
+        QApplication.processEvents()
+
+    tab = window.parameters_tab
+    combo = tab.gamry_range_combo
+    for name in ("range_external_note", "ladder_source", "delta_cost_hint"):
+        note = getattr(tab, name)
+        assert note.width() > combo.width() * 1.5, (
+            f"{name} is {note.width()} px against a {combo.width()} px combo — "
+            "it is still wrapping to the field column")

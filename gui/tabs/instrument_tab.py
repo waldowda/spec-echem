@@ -63,7 +63,7 @@ from spec_echem.acquisition import (SPECTRUM_OVERHEAD_S, potentiostat_poll_secon
 from spec_echem.experiment import build_segments
 from spec_echem.spectral_range import recommend_wavelength_range
 from gui.widgets.plot_canvas import MplCanvas
-from gui.forms import form_layout
+from gui.forms import form_layout, fill_width
 
 # Under the spec_echem package logger so setup actions — which all happen before any
 # run exists — land in the app log rather than vanishing.
@@ -153,6 +153,7 @@ class InstrumentTab(QWidget):
         # through it is wrapped: a broken advisory must never break the tab.
         self.cadence_note = QLabel("—")
         self.cadence_note.setWordWrap(True)
+        fill_width(self.cadence_note)
         form.addRow("Per spectrum:", self.cadence_note)
         self.integration_spin.valueChanged.connect(self._update_cadence_note)
         self.averages_spin.valueChanged.connect(self._update_cadence_note)
@@ -205,6 +206,7 @@ class InstrumentTab(QWidget):
         self.wl_status = QLabel("Full range.")
         self.wl_status.setStyleSheet("color: #888;")
         self.wl_status.setWordWrap(True)
+        fill_width(self.wl_status)
         form.addRow("", self.wl_status)
 
         # --- Potentiostat control mode ---

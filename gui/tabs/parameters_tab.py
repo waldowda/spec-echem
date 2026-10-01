@@ -23,7 +23,7 @@ from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES, GAMRY_CURRENT_RANGE
 from spec_echem.acquisition import spectrum_cost_seconds
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
 from gui.tabs.instrument_tab import _next_serial_path
-from gui.forms import form_layout
+from gui.forms import form_layout, fill_width
 
 POTENTIAL_NOTE = "  (Python mode drives these; External = reference)"
 
@@ -176,14 +176,7 @@ class ParametersTab(QWidget):
         self.full_path_label = QLabel()
         self.full_path_label.setStyleSheet("color: #555;")
         self.full_path_label.setWordWrap(True)
-        # A wrapping QLabel asks for no width of its own, so it stays at its size
-        # hint and a long path can wrap into a second line that overlaps the row
-        # below -- visible on macOS 2026-10-01. It is the one label here that
-        # genuinely wants the room.
-        #
-        # UNVERIFIED: the offscreen Qt platform falls back to the Fusion style, so
-        # the macOS wrap cannot be reproduced in a test. Check it on the Mac.
-        self.full_path_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        fill_width(self.full_path_label)
         sform.addRow("Full path:", self.full_path_label)
         self._widgets["data_folder"].textChanged.connect(self._update_full_path)
         self.data_root_edit.textChanged.connect(self._update_full_path)
@@ -293,12 +286,14 @@ class ParametersTab(QWidget):
             "either rig.")
         self.range_external_note.setStyleSheet("color: #888;")
         self.range_external_note.setWordWrap(True)
+        fill_width(self.range_external_note)
         shared_form.addRow("", self.range_external_note)
         # Where the ladder came from. The documented table is a Reference 600's;
         # say so until an instrument has confirmed its own.
         self.ladder_source = QLabel()
         self.ladder_source.setStyleSheet("color: #888;")
         self.ladder_source.setWordWrap(True)
+        fill_width(self.ladder_source)
         shared_form.addRow("", self.ladder_source)
 
         self.delta_label = QLabel("Time between spectra (all chrono steps):")
@@ -312,6 +307,7 @@ class ParametersTab(QWidget):
         self.delta_cost_hint = QLabel()
         self.delta_cost_hint.setStyleSheet("color: #888;")
         self.delta_cost_hint.setWordWrap(True)
+        fill_width(self.delta_cost_hint)
         shared_form.addRow("", self.delta_cost_hint)
         layout.addWidget(shared_group)
 
