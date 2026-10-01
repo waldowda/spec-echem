@@ -539,7 +539,13 @@ class MplCanvas(FigureCanvasQTAgg):
         enough to drop the text at the bottom -- without reserving the band first it
         overprints the x-axis label.
         """
-        size = 8 if warn else 7
+        # Scaled from the ambient font rather than fixed at 7/8 pt: a figure
+        # rendered for a 3.25 in column sets 7 pt labels, and a fixed 7 pt footnote
+        # then becomes the LARGEST text on the plot. The factors reproduce today's
+        # on-screen 7 and 8 exactly at matplotlib's default 10 pt, so nothing in the
+        # GUI changes; the floor keeps it legible on the smallest preset.
+        base = matplotlib.rcParams["font.size"]
+        size = max(6, round(base * 0.8)) if warn else max(5, round(base * 0.7))
         # "bold", not "semibold": Windows' default DejaVu has no semibold face, and
         # matplotlib logged a findfont warning at every launch on the Win11 rig.
         artist = self.fig.text(0.5, 0.0, "", ha="center", va="center",
