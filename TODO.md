@@ -440,18 +440,20 @@ where editing stops:
       wrong answer: its save writes at whatever size the widget happens to be, which
       is the bug, not the feature. Pan/zoom/home are kept; SVG and PDF are offered by
       the preview's save dialog alongside PNG.
-- [ ] **3. HDF5**, settled WITH Raj first (see the questions in `private-notes/`). The
-      vendor-neutral layout serves his Jupyter analysis, and an Igor loader can read it
-      directly — which stops the Igor work becoming a third independent format.
-- [ ] **4. Igor Text (`.itx`), not `.pxp`.** `.itx` is plain text and documented, and
-      carries both waves AND `X` command lines Igor executes on load, so one file can
-      create the waves and `Display` them. `.pxp` is an undocumented binary container,
-      not worth reverse-engineering. Testable without Igor, since it is text.
+- [x] ~~**3. HDF5**~~ — written, read, and now what Load Run opens. See the HDF5
+      section below and the `data_format` setting on the Parameters tab.
+- [x] ~~**4. Igor Text (`.itx`), not `.pxp`.**~~ — **done 2026-10-02**.
+      `Save Igor (.itx)…` beside `Save data (CSV)…` in the figure preview, writing
+      the same numbers as the CSV: waves, a `Display`, and nothing else. Styling is
+      left to Igor, which is the point of exporting to it.
 
-      **Emit well-named, correctly-scaled waves plus a minimal `Display`, and let the user
-      style it in Igor.** Generating `ModifyGraph` calls means guessing at formatting
-      conventions he already has, and he would end up fighting the generated styling
-      rather than using Igor's strengths. Roughly a day's work for the wave export.
+      `spec_echem/igor_export.py`, tested without Igor on the machine because .itx
+      is plain text — the tests parse it the way Igor's loader reads it.
+
+      **Still open, if wanted:** a whole-segment export (one segment's full
+      absorbance matrix as a 2-D wave with `SetScale` for wavelength and time, so
+      plots can be built in Igor rather than reproduced). About 7 MB of text per
+      segment, which is tolerable; not built because the ask was "the graphs".
 
 ## In-GUI analysis — open items (2026-09-14)
 
@@ -1240,6 +1242,15 @@ screenshot shows the mechanism is a mismatch rather than staleness anyway.
       bench time on its own.
 
 ## HDF5 output alongside the ascii files (the user, 2026-09-11)
+
+**STATUS 2026-10-02: written, read, and selectable.** `data_format` on the
+Parameters tab chooses `h5+ascii` (default, today's behaviour) / `h5` / `ascii`,
+for WRITING and for which Load Run prefers. Reading always falls back to whatever
+is in the folder. Verified on the 20250710 run: all 13 segments load identically
+from either source — wavelengths and times exact, absorbance differing by 2.98e-08
+(the float32 compromise) — in 0.01 s against 2.20 s, from 81 MB against 904 MB.
+**Retiring the ascii is now a decision, not a blocked task:** switch to `h5` once
+real data has gone through, and tell Raj, whose reader takes the text files.
 
 **Why:** disk. A single long run already writes ~1.6 M rows per spectra file, and the
 8-column tab-separated format stores every wavelength value again for every time point.
