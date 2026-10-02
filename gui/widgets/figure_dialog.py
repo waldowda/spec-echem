@@ -21,6 +21,7 @@ from qtpy.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLay
                             QSpinBox, QVBoxLayout, QWidget)
 
 from spec_echem.build_info import build_id
+from spec_echem.igor_export import frame_to_itx
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,17 @@ class FigureDialog(QDialog):
         # .txt, so a CSV there would be a worse copy of something on disk.
         self.csv_btn.setVisible(self._csv is not None)
         buttons.addWidget(self.csv_btn)
+        # Igor gets the SAME numbers as the CSV, so the two cannot disagree about
+        # what the figure showed. Waves plus a Display and nothing else: Igor's
+        # formatting is the reason for exporting to it, and generated ModifyGraph
+        # calls would be guesses at conventions the user already has.
+        self.itx_btn = QPushButton("Save Igor (.itx)…")
+        self.itx_btn.setToolTip(
+            "The data behind this plot as Igor waves, with a Display command so it\n"
+            "opens as a graph. Styling is left to Igor.")
+        self.itx_btn.clicked.connect(self.on_save_itx)
+        self.itx_btn.setVisible(self._csv is not None)
+        buttons.addWidget(self.itx_btn)
         buttons.addStretch()
         self.close_btn = QPushButton("Close")
         self.close_btn.clicked.connect(self.reject)
@@ -249,6 +261,24 @@ class FigureDialog(QDialog):
             QMessageBox.warning(self, "Could not save", str(exc))
             return
         self.csv_btn.setText("Saved ✓")
+
+    def on_save_itx(self):
+        path = self._ask_path(".itx", "Igor Text (*.itx)")
+        if not path:
+            return
+        try:
+            frame = self._csv()
+            if frame is None or frame.empty:
+                QMessageBox.information(self, "Nothing to write",
+                                        "This plot has no tabular data.")
+                return
+            frame_to_itx(frame=frame, path=path, title=self._basename,
+                         notes=self._header_lines(),
+                         prefix=self._basename)
+        except Exception as exc:        # noqa: BLE001
+            QMessageBox.warning(self, "Could not save", str(exc))
+            return
+        self.itx_btn.setText("Saved ✓")
 
     def _header_lines(self):
         """Provenance for the CSV. ALWAYS written, unlike the figure's stamp: a data
