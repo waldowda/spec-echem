@@ -757,3 +757,35 @@ def test_contiguous_sign_runs_are_grouped(window):
     assert len(runs) == 2
     assert runs[0][0] < 801.0 and runs[0][1] > 802.0
     assert runs[1][0] < 804.0 and runs[1][1] > 804.0
+
+
+# 2026-10-01: nothing cleared the Band Fits tab -- not loading a run, not starting
+# one -- so a band or a ladder outlived the data it was fitted to. Segment labels
+# repeat between runs, so that is not merely stale: it is the PREVIOUS run's result
+# drawn under this run's segment name.
+
+def test_a_new_run_does_not_inherit_the_previous_bands(window):
+    tab = _overshoot_ladder(window)
+    tab.on_fit_all()
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 5"))
+    assert tab._ladder and tab._band is not None and tab._showing == "one"
+
+    window.results_tab._release_loaded_run()
+
+    assert not tab._ladder, "the ladder survived the run being released"
+    assert tab._band is None
+    assert tab._showing is None
+    assert not tab.ladder_btn.isEnabled()
+    assert tab.table.rowCount() == 0
+
+
+def test_a_new_run_does_not_inherit_the_previous_fits(window):
+    tab = _overshoot_ladder(window)
+    analysis = window.analysis_tab
+    analysis.refresh_segments()
+    analysis.on_fit_all()
+    assert analysis._fits
+
+    window.results_tab._release_loaded_run()
+    assert not analysis._fits, "tab 5 kept fits from the released run"
+    assert not analysis._fit_wl

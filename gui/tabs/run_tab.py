@@ -380,8 +380,14 @@ class RunTab(QWidget):
         # ONLY this run. Segment labels repeat between runs, so a longer prior run
         # would otherwise leave stale extra segments (e.g. "Doping 6") mixed in.
         self.win.results = {}
+        # ...and everything derived from them. Clearing win.results alone left both
+        # analysis tabs holding the PREVIOUS run's fits, under segment labels this
+        # run is about to reuse.
+        self.win.analysis_tab.reset_for_new_run()
+        self.win.band_tab.reset_for_new_run()
         self.win.results_tab.refresh_segments()
         self.win.analysis_tab.refresh_segments()
+        self.win.band_tab.refresh_segments()
 
         # Build the progress list, from the same frozen settings the run uses
         self.seq_group.setTitle("Sequence Progress")

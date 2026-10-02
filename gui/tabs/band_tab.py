@@ -331,6 +331,28 @@ class BandTab(QWidget):
 
     # --- fitting --------------------------------------------------------
 
+    def reset_for_new_run(self):
+        """Forget everything the PREVIOUS run put here.
+
+        Nothing cleared this tab -- not loading a run, not starting one -- so a band
+        or a ladder outlived the data it was fitted to. Latent until selecting a
+        segment began showing its stored fit, which turned it into the previous
+        run's result appearing under this run's segment name.
+        """
+        self._band = None
+        self._ladder = None
+        self._showing = None
+        self._wanted_label = None
+        self._excluded = 0
+        self._offscreen = 0
+        self._clipped = 0
+        self.ladder_btn.setEnabled(False)
+        self.save_btn.setEnabled(False)
+        self.table.setRowCount(0)
+        self.table.setColumnCount(0)
+        self.status.setText("Choose a segment and a wavelength range.")
+        self.canvas.show_message("Fit a segment to see tau across the band.")
+
     def on_segment_changed(self, *_):
         """Show the newly chosen segment's band if it has already been fitted.
 

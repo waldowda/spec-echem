@@ -693,6 +693,21 @@ class AnalysisTab(QWidget):
 
     # --- actions ---------------------------------------------------------
 
+    def reset_for_new_run(self):
+        """Forget everything the PREVIOUS run put here.
+
+        Segment labels repeat between runs -- every run has a "Doping 7" -- so a fit
+        left behind is not merely stale, it is a fit from other data drawn on top of
+        this run's trace under the right name. Called both when a loaded run is
+        released and when a new run STARTS, which used to clear win.results and
+        nothing else.
+        """
+        self._fits.clear()
+        self._fit_wl.clear()
+        self._wavelength = None
+        self.fit_canvas.show_message("Fit a segment to see the data and its fit.")
+        self.ladder_canvas.show_message("Fit a segment to build this plot.")
+
     def on_segment_changed(self, *_):
         label = self._current_label()
         if not label:
