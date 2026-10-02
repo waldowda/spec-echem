@@ -702,52 +702,59 @@ def test_the_band_table_records_where_the_prefactors_differ_in_sign(window):
     assert flipped["Doping 5"] > 0.5, flipped
 
 
-def test_the_ladder_shades_only_the_rungs_that_flip(window):
+def test_the_ladder_reports_sign_flips_below_the_graph_not_on_it(window):
+    """Shading reads as spatial. On a plot whose x is potential it was only a
+    distracting backdrop, so the ladder states the counts below the graph instead --
+    a prompt to go and look, not a caption the figure should carry."""
     tab = _overshoot_ladder(window)
     tab.on_fit_all()
 
     ax = tab.canvas.fig.axes[0]
-    shaded = [p for p in ax.patches if getattr(p, "get_alpha", lambda: None)()
-              == tab.SIGN_ALPHA]
-    assert shaded, "nothing was shaded although two rungs overshoot"
-    # The shaded spans cover the high rungs (+0.70, +0.80) and not the low ones.
-    covered = [(p.get_x(), p.get_x() + p.get_width()) for p in shaded]
-    def inside(v):
-        return any(lo <= v <= hi for lo, hi in covered)
-    assert inside(0.70) and inside(0.80)
-    assert not inside(0.30) and not inside(0.40)
-    # The MINORITY rung (+0.50 V, a quarter of its wavelengths) is NOT shaded --
-    # a handful of marginal wavelengths flip almost everywhere, and shading those
-    # would tint the whole plot and say nothing.
-    assert not inside(0.50)
+    shaded = [p for p in ax.patches
+              if getattr(p, "get_alpha", lambda: None)() == tab.SIGN_ALPHA]
+    assert not shaded, "the ladder is shaded again"
+    assert tab.canvas._footnote is None, "the note was drawn on the figure"
 
-    # ...but it IS counted in the footnote, so the threshold cannot hide a rung.
-    note = tab.canvas._footnote
-    assert note is not None and "SIGN" in note[1]
-    assert "+0.70 V" in note[1]
-    assert "+0.50 V" in note[1], "a rung with some flips went unmentioned"
+    status = tab.status.text()
+    assert "SIGN" in status
+    assert "+0.70 V" in status
+    # ...and the rung where only a MINORITY flip is reported too, so nothing that
+    # has any goes unmentioned.
+    assert "+0.50 V" in status, status
 
 
-def test_the_sign_footnote_clears_the_x_axis_label(window):
-    """_layout_footnote reserves a band; a tight_layout() after it throws that away
-    and drops the text on the axis label."""
+def test_the_single_segment_plot_keeps_its_shading(window):
+    """There the shading IS spatial: it shows WHERE in the band the competition is,
+    which is the question that plot answers."""
     tab = _overshoot_ladder(window)
     tab.on_fit_all()
-    tab.canvas.fig.canvas.draw()
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 5"))
 
-    artist, _text, _size = tab.canvas._footnote
-    renderer = tab.canvas.fig.canvas.get_renderer()
-    note_box = artist.get_window_extent(renderer)
-    # Against the x-axis LABEL, not the axes box: tight_layout leaves a bottom
-    # margin that clears the axes anyway, so comparing to those passes against
-    # broken code. The label is what the text landed on.
-    labels = [a.xaxis.label for a in tab.canvas.fig.axes
-              if a.get_xlabel()]
-    assert labels, "no x-axis label to collide with"
-    for label in labels:
-        label_box = label.get_window_extent(renderer)
-        assert not note_box.overlaps(label_box), (
-            "the footnote is drawn on top of the x-axis label")
+    ax = tab.canvas.fig.axes[0]
+    shaded = [p for p in ax.patches
+              if getattr(p, "get_alpha", lambda: None)() == tab.SIGN_ALPHA]
+    assert shaded, "the band plot lost its shading"
+    assert tab.canvas._footnote is None, "the note was drawn on the figure"
+    assert "SIGN" in tab.status.text()
+
+
+def test_the_saved_figure_carries_the_note_only_when_stamped(window):
+    """Asked for: include it when the provenance checkbox is checked, like the
+    other prose. Shading with no caption is fine on screen, where the status line
+    explains it; a figure that will be stamped should explain itself."""
+    from gui.widgets.figure_dialog import FigureDialog
+
+    tab = _overshoot_ladder(window)
+    tab.on_fit_all()
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 5"))
+    assert tab._sign_note
+
+    dialog = FigureDialog(None, tab.canvas, tab.canvas.last_draw(),
+                          run_id="20250710", note=tab._sign_note)
+    assert dialog.provenance_text() is None            # unchecked: nothing at all
+    dialog.provenance_check.setChecked(True)
+    stamped = dialog.provenance_text()
+    assert "20250710" in stamped and "SIGN" in stamped
 
 
 def test_contiguous_sign_runs_are_grouped(window):
