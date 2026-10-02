@@ -488,6 +488,33 @@ class BandTab(QWidget):
     def _curves_for(self, model):
         return BAND_CURVES.get(model, BAND_CURVES["exp"])
 
+    # Amber, as the "needs review" edge and text already are elsewhere, at a tint
+    # that reads as a region rather than competing with the markers on top of it.
+    SIGN_SHADE = "#e07b00"
+    SIGN_ALPHA = 0.12
+
+    @staticmethod
+    def _sign_runs(wl, flagged):
+        """Contiguous [lo, hi] wavelength runs where the prefactors differ in sign.
+
+        Runs rather than per-point marks: a competing process occupies a BAND, and
+        100 individual glyphs would say the same thing less clearly.
+        """
+        runs, start = [], None
+        for i, bad in enumerate(list(flagged) + [False]):
+            if bad and start is None:
+                start = i
+            elif not bad and start is not None:
+                lo, hi = wl[start], wl[i - 1]
+                half = (wl[1] - wl[0]) / 2.0 if len(wl) > 1 else 0.5
+                runs.append((lo - half, hi + half))
+                start = None
+        return runs
+
+    SIGN_NOTE = ("shaded: the two prefactors differ in SIGN there — competing "
+                 "processes (e.g. a bipolaron taking absorbance from the polaron), "
+                 "or a poor fit")
+
     def _draw_one(self, label):
         """tau against wavelength for a single segment."""
         frame = self._band.table()
@@ -515,9 +542,21 @@ class BandTab(QWidget):
         if not series:
             self.canvas.show_message("No wavelength in this band produced a fit.")
             return
+        flagged = (frame["mixed_signs"].to_numpy(dtype=bool)
+                   if "mixed_signs" in frame else np.zeros(len(frame), dtype=bool))
+        runs = self._sign_runs(wl, ok & flagged)
+        note = ""
+        if runs:
+            spans = ", ".join(f"{lo:.0f}-{hi:.0f} nm" for lo, hi in runs)
+            note = f"{self.SIGN_NOTE}.  {int((ok & flagged).sum())} of " \
+                   f"{int(ok.sum())} fitted wavelengths: {spans}"
         self.canvas.plot_multi_xy(
             series, "Wavelength (nm)", "tau (s)",
-            title=f"{label} — tau vs wavelength  ({model}, {self._window_text()})")
+            title=f"{label} — tau vs wavelength  ({model}, {self._window_text()})",
+            footnote=note)
+        for lo, hi in runs:
+            self.canvas.ax.axvspan(lo, hi, color=self.SIGN_SHADE,
+                                   alpha=self.SIGN_ALPHA, zorder=0, lw=0)
         if model == "stretched" and "beta" in frame:
             self._beta_twin(wl, frame["beta"].to_numpy(dtype=float), ok)
         # Registered as ONE composition: the beta axis is added after the recorded
@@ -597,6 +636,7 @@ class BandTab(QWidget):
 
         offscreen = 0
         self._clipped = 0
+        sign_notes = []
         for col, direction in enumerate(directions):
             entries = sorted((r for r in shown if r[2] == direction),
                              key=lambda r: r[1])
@@ -610,6 +650,7 @@ class BandTab(QWidget):
             if self.log_check.isChecked():
                 ax.set_yscale("log")
             offscreen += self._strip(ax, entries, xs, model)
+            sign_notes += self._shade_sign_flips(ax, entries, xs, direction)
             ax.set_xticks(xs)
             ax.set_xticklabels(labels)
             # A real axis puts the end rungs on the frame, where half of each strip
@@ -643,6 +684,15 @@ class BandTab(QWidget):
                 ax.set_xlabel("potential the film was doped to (V)")
 
         fig.tight_layout()
+        if sign_notes:
+            # On the figure, not only in the status line: the status does not travel
+            # with an exported figure, and this is the plot's own caveat.
+            #
+            # AFTER tight_layout, not before: _layout_footnote reserves a band at the
+            # bottom, and a tight_layout() afterwards discards that reservation and
+            # drops the text on top of the x-axis label.
+            self.canvas._draw_footnote(
+                f"{self.SIGN_NOTE}.  " + ";  ".join(sign_notes))
         self.canvas.draw_idle()
         # This plot is composed on the figure directly -- its own subplots, strips
         # and whiskers -- so no draw method recorded it and Save figure wrote
@@ -676,6 +726,35 @@ class BandTab(QWidget):
             # whatever is there, so resetting afterwards would erase them.
             self.status.setText(getattr(self, "_base_status", ""))
             self._draw_ladder()
+
+    def _shade_sign_flips(self, ax, entries, xs, direction):
+        """Shade the rungs where most fitted wavelengths have opposite-sign
+        prefactors, and return a note per shaded rung.
+
+        Majority, not "any": a handful of marginal wavelengths flip at almost every
+        potential, and shading those would tint the whole plot and say nothing. The
+        COUNT goes in the footnote at every rung that has any, so the threshold
+        cannot hide a number.
+        """
+        notes = []
+        if len(xs) > 1:
+            half = float(np.min(np.diff(np.sort(xs)))) / 2.0
+        else:
+            half = 0.05
+        for j, (_lbl, _pot, _dir, band) in enumerate(entries):
+            frame = band.table()
+            if "mixed_signs" not in frame:
+                continue
+            ok = frame["ok"].to_numpy(dtype=bool)
+            flagged = frame["mixed_signs"].to_numpy(dtype=bool) & ok
+            if not ok.any() or not flagged.any():
+                continue
+            notes.append(f"{direction} {xs[j]:+.2f} V: {int(flagged.sum())}/"
+                         f"{int(ok.sum())}")
+            if flagged.sum() * 2 > ok.sum():
+                ax.axvspan(xs[j] - half, xs[j] + half, color=self.SIGN_SHADE,
+                           alpha=self.SIGN_ALPHA, zorder=0, lw=0)
+        return notes
 
     def _strip(self, ax, entries, xs, model, column=None):
         """One potential's worth of taus as a vertical strip, with mean +/- SD.
