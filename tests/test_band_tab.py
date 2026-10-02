@@ -641,3 +641,119 @@ def test_the_legend_survives_a_first_segment_with_no_usable_fits(window):
     ax = tab.canvas.fig.axes[0]
     assert ax.get_legend() is not None, "the panel lost its legend"
     assert [t.get_text() for t in ax.get_legend().get_texts()]
+
+
+# 2026-10-01, requested: "I wonder about highlighting the taus somehow when the
+# prefactor switches sign in biexp". The flag already existed on every FitResult and
+# was printed in the single-fit legend, but never reached the band -- so neither the
+# table, the CSV nor either plot could show where a biexp had found two COMPETING
+# processes, which on a doping ladder is where the bipolaron starts taking
+# absorbance from the polaron.
+
+def _overshoot_ladder(window, flip_from=4, rungs=6, minority_rung=2):
+    """Rungs below flip_from grow monotonically; at and above it the trace
+    overshoots, which a biexp reports as prefactors of opposite sign.
+
+    `minority_rung` overshoots at only a QUARTER of its wavelengths. Without such a
+    rung "shade where any flip" and "shade where most flip" behave identically, and
+    a test cannot tell the two apart."""
+    import pandas as pd
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+
+    wl = np.linspace(764.0, 864.0, 24)
+    t = np.arange(0.0, 61.0, 0.1)
+    rng = np.random.default_rng(4)
+    window.settings.update(doping_potential_start=0.3, doping_potential_step=0.1,
+                           dedoping_potential=-0.5)
+    window.loaded_run_settings = dict(window.settings)
+    for n in range(rungs):
+        rows = []
+        fast = 1.1 - 0.12 * n
+        for k, w in enumerate(wl):
+            # Always TWO components; only the SECOND one's SIGN changes. That is
+            # the physics being detected -- a bipolaron takes absorbance back while
+            # the polaron is still growing -- and it keeps every wavelength equally
+            # well conditioned, so a rejected fit cannot masquerade as a flip.
+            overshoot = (n >= flip_from) or (n == minority_rung and k < len(wl) // 4)
+            slow_amp = (0.05 + 0.0002 * (w - 764.0)) * (1 if overshoot else -1)
+            y = (0.25 - 0.30 * np.exp(-t / fast)
+                 + slow_amp * np.exp(-t / 4.0))
+            rows.append(y + rng.normal(0, 3e-4, t.size))
+        label = f"Doping {n}"
+        window.results[label] = pd.DataFrame(np.array(rows), index=wl, columns=t)
+        window.segments_by_label[label] = Segment(
+            label, DATA_TYPE_DOPING, n, t.size, 0.1, True)
+    tab = window.band_tab
+    tab.refresh_segments()
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("biexp"))
+    tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
+    tab.start_spin.setValue(764.0); tab.stop_spin.setValue(864.0)
+    return tab
+
+
+def test_the_band_table_records_where_the_prefactors_differ_in_sign(window):
+    tab = _overshoot_ladder(window)
+    tab.on_fit_all()
+
+    flipped = {e[0]: e[3].table()["mixed_signs"].to_numpy(dtype=bool).mean()
+               for e in tab._ladder}
+    assert flipped["Doping 0"] < 0.5, flipped
+    assert flipped["Doping 5"] > 0.5, flipped
+
+
+def test_the_ladder_shades_only_the_rungs_that_flip(window):
+    tab = _overshoot_ladder(window)
+    tab.on_fit_all()
+
+    ax = tab.canvas.fig.axes[0]
+    shaded = [p for p in ax.patches if getattr(p, "get_alpha", lambda: None)()
+              == tab.SIGN_ALPHA]
+    assert shaded, "nothing was shaded although two rungs overshoot"
+    # The shaded spans cover the high rungs (+0.70, +0.80) and not the low ones.
+    covered = [(p.get_x(), p.get_x() + p.get_width()) for p in shaded]
+    def inside(v):
+        return any(lo <= v <= hi for lo, hi in covered)
+    assert inside(0.70) and inside(0.80)
+    assert not inside(0.30) and not inside(0.40)
+    # The MINORITY rung (+0.50 V, a quarter of its wavelengths) is NOT shaded --
+    # a handful of marginal wavelengths flip almost everywhere, and shading those
+    # would tint the whole plot and say nothing.
+    assert not inside(0.50)
+
+    # ...but it IS counted in the footnote, so the threshold cannot hide a rung.
+    note = tab.canvas._footnote
+    assert note is not None and "SIGN" in note[1]
+    assert "+0.70 V" in note[1]
+    assert "+0.50 V" in note[1], "a rung with some flips went unmentioned"
+
+
+def test_the_sign_footnote_clears_the_x_axis_label(window):
+    """_layout_footnote reserves a band; a tight_layout() after it throws that away
+    and drops the text on the axis label."""
+    tab = _overshoot_ladder(window)
+    tab.on_fit_all()
+    tab.canvas.fig.canvas.draw()
+
+    artist, _text, _size = tab.canvas._footnote
+    renderer = tab.canvas.fig.canvas.get_renderer()
+    note_box = artist.get_window_extent(renderer)
+    # Against the x-axis LABEL, not the axes box: tight_layout leaves a bottom
+    # margin that clears the axes anyway, so comparing to those passes against
+    # broken code. The label is what the text landed on.
+    labels = [a.xaxis.label for a in tab.canvas.fig.axes
+              if a.get_xlabel()]
+    assert labels, "no x-axis label to collide with"
+    for label in labels:
+        label_box = label.get_window_extent(renderer)
+        assert not note_box.overlaps(label_box), (
+            "the footnote is drawn on top of the x-axis label")
+
+
+def test_contiguous_sign_runs_are_grouped(window):
+    tab = window.band_tab
+    wl = np.array([800.0, 801.0, 802.0, 803.0, 804.0, 805.0])
+    runs = tab._sign_runs(wl, [False, True, True, False, True, False])
+    assert len(runs) == 2
+    assert runs[0][0] < 801.0 and runs[0][1] > 802.0
+    assert runs[1][0] < 804.0 and runs[1][1] > 804.0

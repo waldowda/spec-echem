@@ -789,6 +789,12 @@ class BandFit:
             row["tau_mean"] = (mean_relaxation_time(self.model, r.params)
                                if r.params is not None else np.nan)
             row["low_snr"] = bool(np.any(np.isclose(self.low_snr, wl)))
+            # Already on every FitResult and already printed in the single-fit
+            # legend, but it never reached the band: neither the table, the CSV nor
+            # the plots could see where a biexp had found two COMPETING processes.
+            # On a doping ladder that is where the bipolaron starts taking
+            # absorbance from the polaron, which is the thing being looked for.
+            row["mixed_signs"] = bool(r.mixed_amplitude_signs)
             rows.append(row)
         return pd.DataFrame(rows)
 
