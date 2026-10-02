@@ -163,6 +163,41 @@ the selector should visibly not apply while it is showing.
   worry about applying appropriate models". What it owes instead is making the
   choice visible, which is why every fit plot now states its model and window.
 
+## Igor .itx export — WORKS, still rough in places (2026-10-02)
+
+Built and loaded in Igor the same day; `spec_echem/igor_export.py`, offered beside
+Save CSV in the figure preview. Waves + a Display, styling otherwise left to Igor.
+
+**Settled by iterating against real loads:** wave names are GLOBAL so every wave is
+prefixed with the figure name (two segments would otherwise overwrite each other);
+names sanitised to Igor 6 rules AND uniqued; NaN written as NaN so a failed fit draws
+as a gap; quotes escaped; a COLOUR per trace (without one Igor draws them all alike
+and the fit vanished into the data); the title on the WINDOW, not a TextBox inside
+the axes; the residual on its own panel above, `freePos={0,kwFraction}` because a
+bare 0 means x=0 in DATA units; mirrored axes and matplotlib-matched symbol sizes.
+The spectra view exports a FAN of 25 traces, not an image -- an image is correct but
+answers a different question than the plot being exported.
+
+**Still rough / open:**
+
+- [ ] **The `resid.` axis label sits on the trace**, rotated, instead of beside the
+      axis. Visible in every fit export. Probably `lblPos(resid)` or a margin.
+- [ ] **Legend contents undecided.** It reads `data` / `fit`. The matplotlib legend
+      carries the whole parameter block (A, B1, tau1, the sign warning, the residual
+      split). Asked, not yet answered — and it is the thing most likely to be
+      restyled in Igor anyway.
+- [ ] **Never verified: two segments loaded into ONE Igor experiment.** That is what
+      the wave prefixing exists for and it has not been tried.
+- [ ] **A 2-D wave export existed and was removed** (`53c526b`, removed in
+      `b64cd09`) -- the full block with SetScale on both dimensions, 7.6 MB a
+      segment, for an image or waterfall. Worth bringing back as a SEPARATE option
+      if Igor's image tools get used; git has it.
+
+**Note for whoever continues:** the Igor commands here come from the documentation,
+not from experience with Igor. Four rounds of bench feedback were needed to get this
+far, each one catching something that looked right in the file and wrong on screen.
+Expect the same of any addition, and check it in Igor rather than by reading.
+
 ## macOS console: "has active key-value observers (KVO)" — WATCHING, not fixed
 
 Seen on the Mac 2026-10-01, naming `QPushButtonClassWindow`. Qt's Cocoa backend
