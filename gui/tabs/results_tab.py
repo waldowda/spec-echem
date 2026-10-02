@@ -24,7 +24,8 @@ from spec_echem.analysis import (cv_probe_wavelength, probe_wavelength, density_
                                  scan_rate_from_sweep, fit_gaussian_dos,
                                  fit_exponential_tail, dos_equilibrium_check)
 from spec_echem.data import (
-    echem_txt_path, read_spectra_absorbance, discover_run_segments, DATA_TYPE_CV,
+    echem_txt_path, read_spectra_absorbance, discover_run_segments,
+    discover_run_h5, read_segment_h5, DATA_TYPE_CV,
     DATA_TYPE_DOPING, segment_potential_text, segment_potential,
 )
 from spec_echem.experiment import Segment
@@ -854,7 +855,7 @@ class ResultsTab(QWidget):
         if not folder:
             return
 
-        segs = discover_run_segments(folder)
+        segs, source = self._discover(folder)
         if not segs:
             QMessageBox.warning(self, "No run data",
                 "No spectra files found there.\n\n"
@@ -916,6 +917,9 @@ class ResultsTab(QWidget):
         # A NOTE, not a skip: nothing failed to load. Filing it under "Skipped:"
         # made a complete 13-of-13 load look like something had gone wrong.
         notes = []
+        if source == "HDF5":
+            notes.append("read from the .h5 files (smaller and faster; the text "
+                         "files are unchanged)")
         if not self.win.loaded_run_settings:
             notes.append("no run metadata — potentials come from the echem files "
                          "where present, and are otherwise unlabeled")
@@ -966,6 +970,24 @@ class ResultsTab(QWidget):
         self.win.analysis_tab.refresh_segments()
         gc.collect()
 
+    def _discover(self, folder):
+        """([(label, type, run, path)], "HDF5" | "text") for a run folder.
+
+        Prefers whichever the data_format setting asks for, but ALWAYS falls back to
+        what is actually there: a 2025 run has no .h5 whatever the setting says, and
+        a folder written under "HDF5 only" has no text. A preference that could stop
+        a folder opening would be a worse bug than the one it prevents.
+        """
+        prefer_h5 = self.win.settings.get("data_format", "h5+ascii") != "ascii"
+        by_h5 = discover_run_h5(folder)
+        by_text = discover_run_segments(folder)
+        if prefer_h5 and by_h5:
+            return by_h5, "HDF5"
+        if by_text:
+            return by_text, "text"
+        # Asked for text, and there is none -- take the .h5 rather than refuse.
+        return (by_h5, "HDF5") if by_h5 else ([], "text")
+
     def _read_segments(self, segs, on_progress=None):
         """Read every segment's absorbance, reporting progress.
 
@@ -979,7 +1001,11 @@ class ResultsTab(QWidget):
             if on_progress is not None and not on_progress(i, total, path.name):
                 return results, segments_by_label, errors, True
             try:
-                results[label] = read_spectra_absorbance(path)
+                # One .h5 holds every cycle of its type, so the run number picks the
+                # group; an ascii file IS one segment and ignores it.
+                results[label] = (read_segment_h5(path, run_number)
+                                  if path.suffix == ".h5"
+                                  else read_spectra_absorbance(path))
             except Exception as exc:  # noqa: BLE001 — skip a bad file, report it, keep the rest
                 errors.append(f"{path.name}: {exc}")
                 continue

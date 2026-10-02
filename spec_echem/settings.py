@@ -141,6 +141,18 @@ DEFAULT_SETTINGS = {
     # over 4. It is an archiving option, not something to pay for routinely once
     # the format has already won an order of magnitude.
     "hdf5_compression": 0,
+    # Which file formats a run WRITES, and which Load Run prefers to read.
+    #
+    #   "h5+ascii"  both, and read the .h5 (the default, and today's behaviour)
+    #   "h5"        .h5 only -- no text backup
+    #   "ascii"     text only, as before HDF5 existed
+    #
+    # Default stays "h5+ascii" until real data has gone through the H5 path: the
+    # ascii is what every downstream tool and every past analysis rests on, and the
+    # cost of keeping it is disk, which is cheap next to a format nobody has yet
+    # relied on. Reading always FALLS BACK to whatever is actually there, so a 2025
+    # run with no .h5 still opens whatever this says.
+    "data_format": "h5+ascii",
     "autolab_pulse_delay_s": None,  # None = FHWait + the template's setup lag
     "autolab_setup_lag_cv_s": None,  # None = AUTOLAB_SETUP_LAG_CV_S (measured)
     "autolab_setup_lag_ca_s": None,  # None = AUTOLAB_SETUP_LAG_CA_S (measured)
