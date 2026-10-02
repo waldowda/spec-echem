@@ -402,6 +402,7 @@ class RunTab(QWidget):
         self._worker = AcquisitionWorker(
             self.win.spec, segments, self.win.dark, self.win.ref, self.win.wavelengths,
             settings["data_root"], settings["data_folder"], potentiostat,
+            settings=settings,
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)

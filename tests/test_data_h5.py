@@ -11,7 +11,6 @@ import pandas as pd
 import pytest
 
 h5py = pytest.importorskip("h5py")
-
 from spec_echem.data import (                                        # noqa: E402
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, EchemData,
     H5_SCHEMA_VERSION, compute_absorbance, counts_dtype, h5_path,
@@ -481,3 +480,35 @@ def test_the_backfill_can_write_somewhere_else(tmp_path):
     assert result["destination"] == str(elsewhere / "20260929_run")
     assert (elsewhere / "20260929_run" / "20260929_run_doping.h5").exists()
     assert not list(folder.glob("*.h5"))            # the run is untouched
+
+
+# --- which formats a run writes, and which Load Run reads -------------------
+# 2026-10-02: HDF5 is ~11x smaller and far faster to open, but the ascii is what
+# every downstream tool and every past analysis rests on. One setting chooses, and
+# the default keeps writing both until the H5 path has carried real data.
+
+@pytest.mark.parametrize("fmt, text_expected, h5_expected", [
+    ("h5+ascii", True, True),
+    ("h5", False, True),
+    ("ascii", True, False),
+])
+def test_the_data_format_setting_decides_what_is_written(tmp_path, fmt,
+                                                         text_expected, h5_expected):
+    import numpy as np
+    from spec_echem.experiment import run_one_segment, Segment
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.fakes import FakeSpectrometer
+
+    spec = FakeSpectrometer()
+    spec.init()
+    _, wl = spec.wavelengths()
+    wl = np.asarray(wl, dtype=float)
+    segment = Segment("Doping 0", DATA_TYPE_DOPING, 0, 5, 0.2, False)
+    run_one_segment(spec, segment, np.zeros(wl.size), np.full(wl.size, 5000.0),
+                    wl, tmp_path, "20261002_fmt",
+                    settings={"data_format": fmt})
+
+    folder = tmp_path / "20261002_fmt"
+    names = {p.name for p in folder.iterdir()}
+    assert ("spectra(0).txt" in names) is text_expected, names
+    assert ("20261002_fmt_doping.h5" in names) is h5_expected, names

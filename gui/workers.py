@@ -48,9 +48,13 @@ class AcquisitionWorker(QObject):
     finished = Signal(str)                    # 'done' | 'stopped' | 'aborted' | 'error'
 
     def __init__(self, spec, segments, dark, ref, wavelengths, data_root, added_path,
-                 potentiostat=None):
+                 potentiostat=None, settings=None):
         super().__init__()
         self.spec = spec
+        # The run's own settings, for anything run_one_segment needs that is not a
+        # segment property -- which formats to write, in particular. External mode
+        # has no potentiostat to carry them.
+        self.settings = settings or {}
         self.segments = segments
         self.dark = dark
         self.ref = ref
@@ -140,7 +144,7 @@ class AcquisitionWorker(QObject):
                 result = run_one_segment(
                     self.spec, seg, self.dark, self.ref, self.wavelengths,
                     self.data_root, self.added_path, self.abort_event,
-                    self.potentiostat,
+                    self.potentiostat, settings=self.settings,
                 )
                 if result is None:
                     reason = "aborted"

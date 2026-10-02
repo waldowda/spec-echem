@@ -3328,3 +3328,60 @@ def test_the_results_actions_stay_on_screen_at_any_window_height(window):
     assert button_x >= group_right - 1, "the actions are not beside the controls"
     assert group.height() < 260, (
         f"the View group stretched to {group.height()} px for three rows")
+
+
+# 2026-10-02: Load Run prefers HDF5, but a preference that could stop a folder
+# opening would be a worse bug than the one it prevents -- a 2025 run has no .h5
+# whatever the setting says, and a folder written under "HDF5 only" has no text.
+
+def test_load_run_falls_back_to_whatever_is_actually_there(window, tmp_path):
+    import numpy as np
+    pytest.importorskip("h5py")
+    from spec_echem.experiment import run_one_segment, Segment
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.fakes import FakeSpectrometer
+
+    spec = FakeSpectrometer()
+    spec.init()
+    _, wl = spec.wavelengths()
+    wl = np.asarray(wl, dtype=float)
+    segment = Segment("Doping 0", DATA_TYPE_DOPING, 0, 5, 0.2, False)
+    dark, ref = np.zeros(wl.size), np.full(wl.size, 5000.0)
+
+    # Written HDF5-only, then asked for text.
+    run_one_segment(spec, segment, dark, ref, wl, tmp_path, "h5run",
+                    settings={"data_format": "h5"})
+    window.settings = dict(window.settings, data_format="ascii")
+    segs, source = window.results_tab._discover(tmp_path / "h5run")
+    assert segs and source == "HDF5"
+
+    # Written text-only, then asked for HDF5.
+    run_one_segment(spec, segment, dark, ref, wl, tmp_path, "textrun",
+                    settings={"data_format": "ascii"})
+    window.settings = dict(window.settings, data_format="h5+ascii")
+    segs, source = window.results_tab._discover(tmp_path / "textrun")
+    assert segs and source == "text"
+
+
+def test_load_run_prefers_hdf5_when_both_are_present(window, tmp_path):
+    import numpy as np
+    pytest.importorskip("h5py")
+    from spec_echem.experiment import run_one_segment, Segment
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.fakes import FakeSpectrometer
+
+    spec = FakeSpectrometer()
+    spec.init()
+    _, wl = spec.wavelengths()
+    wl = np.asarray(wl, dtype=float)
+    run_one_segment(spec, Segment("Doping 0", DATA_TYPE_DOPING, 0, 5, 0.2, False),
+                    np.zeros(wl.size), np.full(wl.size, 5000.0), wl,
+                    tmp_path, "both", settings={"data_format": "h5+ascii"})
+
+    window.settings = dict(window.settings, data_format="h5+ascii")
+    segs, source = window.results_tab._discover(tmp_path / "both")
+    assert source == "HDF5" and segs[0][3].suffix == ".h5"
+
+    window.settings = dict(window.settings, data_format="ascii")
+    segs, source = window.results_tab._discover(tmp_path / "both")
+    assert source == "text" and segs[0][3].suffix == ".txt"

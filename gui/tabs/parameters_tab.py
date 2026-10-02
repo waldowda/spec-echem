@@ -196,6 +196,31 @@ class ParametersTab(QWidget):
         self.full_path_label.setWordWrap(True)
         fill_width(self.full_path_label)
         sform.addRow("Full path:", self.full_path_label)
+
+        # Which formats a run writes, and which Load Run prefers to read.
+        #
+        # Default stays "both" until real data has gone through the H5 path. The
+        # ascii is what every downstream tool and every past analysis rests on, and
+        # keeping it costs disk, which is cheap beside a format nothing has yet
+        # relied on. "HDF5 only" is the switch to throw once it has earned it --
+        # measured on a 13-segment run, 904 MB of text against 81 MB, and 2.20 s to
+        # load against 0.01 s.
+        self.data_format_combo = QComboBox()
+        for value, text in (
+                ("h5+ascii", "HDF5 + text  (both; reads the HDF5)"),
+                ("h5", "HDF5 only  (no text backup)"),
+                ("ascii", "Text only  (as before HDF5)")):
+            self.data_format_combo.addItem(text, value)
+        self.data_format_combo.setToolTip(
+            "What a run writes, and what Load Run opens.\n\n"
+            "HDF5 is about 11x smaller and far faster to load, and carries the raw\n"
+            "counts, dark and reference that the text files do not. The text files\n"
+            "are what the downstream analysis currently reads, so both are written\n"
+            "until the HDF5 path has been used on real data.\n\n"
+            "Load Run always falls back to whatever is actually in the folder, so a\n"
+            "run saved before HDF5 existed still opens whatever this says.")
+        self._widgets["data_format"] = self.data_format_combo
+        sform.addRow("Data files:", self.data_format_combo)
         self._widgets["data_folder"].textChanged.connect(self._update_full_path)
         self.data_root_edit.textChanged.connect(self._update_full_path)
 
