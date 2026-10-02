@@ -26,6 +26,12 @@ MAX_NAME = 31
 # Igor takes 16-bit colour components. Blue for data and red for the fit, matching
 # the matplotlib figure these numbers came from.
 RGB_FIT = "65535,0,0"
+
+# Matched to the matplotlib figure these numbers come from, so the Igor graph and
+# the saved PNG are recognisably the same plot: markers at 2.5 pt, the fit line at
+# 1.4 pt, and a full box -- matplotlib draws all four spines, Igor draws two.
+MARKER_SIZE = 2.5
+FIT_WIDTH = 1.4
 RGB_SERIES = ("0,0,65535", "0,39168,0", "65535,32768,0", "39168,0,39168")
 
 
@@ -124,11 +130,14 @@ def write_itx(path, waves, display=None, title=None, notes=(),
                 # these numbers came from so the two are recognisably the same plot.
                 rgb = RGB_FIT if is_fit else RGB_SERIES[i % len(RGB_SERIES)]
                 parts = [f"mode({name})={mode}", f"rgb({name})=({rgb})"]
-                if not is_fit:
-                    parts += [f"marker({name})=19", f"msize({name})=2"]
+                if is_fit:
+                    parts.append(f"lsize({name})={FIT_WIDTH}")
+                else:
+                    parts += [f"marker({name})=19", f"msize({name})={MARKER_SIZE}"]
                 lines.append("X ModifyGraph " + ",".join(parts))
             # Axis labels are DATA, not decoration: a bare number axis makes the
             # reader guess at seconds versus nanometres.
+            lines.append("X ModifyGraph mirror(bottom)=1,mirror(left)=1")
             if xlabel:
                 lines.append(f'X Label bottom "{_escape(xlabel)}"')
             if ylabel:
@@ -139,9 +148,14 @@ def write_itx(path, waves, display=None, title=None, notes=(),
                              f"{{{DATA_SPAN[0]},{DATA_SPAN[1]}}}")
                 lines.append(f"X ModifyGraph axisEnab({RESID_AXIS})="
                              f"{{{RESID_SPAN[0]},{RESID_SPAN[1]}}},"
-                             f"freePos({RESID_AXIS})=0")
+                             # {0,kwFraction}: at the LEFT EDGE of the plot area.
+                             # A bare 0 means x=0 in DATA units, which put the axis
+                             # and its label on top of the trace (Igor, 2026-10-02).
+                             f"freePos({RESID_AXIS})={{0,kwFraction}}")
                 lines.append(f"X ModifyGraph mode({resid})=3,marker({resid})=19,"
-                             f"msize({resid})=1.5,rgb({resid})=({RGB_SERIES[0]})")
+                             f"msize({resid})={MARKER_SIZE},"
+                             f"rgb({resid})=({RGB_SERIES[0]})")
+                lines.append(f"X ModifyGraph mirror({RESID_AXIS})=1")
                 lines.append(f'X Label {RESID_AXIS} "resid."')
                 lines.append(f"X ModifyGraph nticks({RESID_AXIS})=3")
             # Named from the DATA, not from the wave names: Igor's automatic legend
@@ -229,53 +243,73 @@ def frame_to_itx(path, frame, title=None, notes=(), prefix=None,
                      xlabel=xlabel, ylabel=ylabel, resid=resid, prefix_stem=stem)
 
 
-def matrix_to_itx(path, frame, name, title=None, notes=(),
-                  xlabel=None, ylabel=None, row_unit="", col_unit=""):
-    """A wavelength x time block as a 2-D Igor wave, scaled on both dimensions.
+# How many spectra a fan gets. All 721 of a CV would make a 14 KB Display command
+# -- past Igor's line limit -- and a graph too dense to pick a trace out of. 25 is
+# enough to see a band grow and still be able to click one.
+SPECTRA_TRACES = 25
 
-    This is the one place Igor is better served than a CSV. A matrix in a CSV is a
-    worse copy of what the .h5 already holds, which is why the spectra view offers
-    no CSV -- but a 2-D wave is a first-class Igor object, and an image or waterfall
-    of a doping step is exactly what it is good at.
 
-    The axis waves are written as well as the scaling. SetScale assumes a UNIFORM
-    grid, and the detector's wavelengths are only nearly uniform -- about 0.57 nm a
-    pixel but not exactly -- so the scaling is for display and the waves are the
-    actual numbers.
+def _ramp(i, n):
+    """Dark blue -> green -> yellow across the series, so TIME reads as colour the
+    way it does in the figure these numbers come from."""
+    f = 0.0 if n < 2 else i / (n - 1.0)
+    if f < 0.5:
+        g = 2 * f
+        return f"{int(4000 * (1 - g))},{int(26000 * g)},{int(30000 + 25000 * (1 - g))}"
+    g = 2 * (f - 0.5)
+    return f"{int(60000 * g)},{int(26000 + 30000 * g)},{int(20000 * (1 - g))}"
+
+
+def spectra_to_itx(path, frame, name, title=None, notes=(),
+                   xlabel=None, ylabel=None, traces=SPECTRA_TRACES):
+    """A wavelength x time block as a FAN of spectra: one wave per time, one graph.
+
+    An image of the same block is correct and was the first attempt, but it is not
+    what this view is -- the figure draws absorbance against wavelength, one line
+    per time, and that is the plot being exported. Igor renders an image fine; it
+    just answers a different question (2026-10-02).
+
+    The times are evenly spaced through the segment and ALWAYS include the first and
+    last, so the ends of the transient are in the file whatever `traces` is.
     """
     values = np.asarray(frame.values, dtype=float)
-    rows = np.asarray(frame.index.values, dtype=float)
-    cols = np.asarray(frame.columns.values, dtype=float)
+    wl = np.asarray(frame.index.values, dtype=float)
+    times = np.asarray(frame.columns.values, dtype=float)
     if values.ndim != 2:
         raise ValueError(f"expected a 2-D block; got {values.shape}")
 
+    count = max(2, min(int(traces), times.size))
+    picks = np.unique(np.linspace(0, times.size - 1, count).round().astype(int))
+
     stem = wave_name(name)[:MAX_PREFIX].rstrip("_")
-    block, row_wave, col_wave = f"{stem}_A", f"{stem}_wl", f"{stem}_t"
+    wl_wave = f"{stem}_wl"
 
     lines = ["IGOR"]
     for line in notes:
         lines.append(f"X // {line}")
-    lines.append(f"WAVES/D/N=({values.shape[0]},{values.shape[1]})\t{block}")
+    lines.append(f"X // {picks.size} of {times.size} spectra, evenly spaced "
+                 f"from {times[0]:g} to {times[-1]:g} s")
+    lines.append(f"WAVES/D/N=({wl.size})\t{wl_wave}")
     lines.append("BEGIN")
-    for row in values:
-        lines.append("\t" + "\t".join(
-            "NaN" if not np.isfinite(v) else MATRIX_FORMAT % v for v in row))
+    lines.extend("\t" + _format(v) for v in wl)
     lines.append("END")
-    for wave, data in ((row_wave, rows), (col_wave, cols)):
-        lines.append(f"WAVES/D/N=({data.size})\t{wave}")
-        lines.append("BEGIN")
-        lines.extend("\t" + _format(v) for v in data)
-        lines.append("END")
 
-    # float(), not repr of the numpy scalar: numpy renders as "np.float64(380.88)",
-    # which Igor cannot parse and which fails the whole load.
-    if rows.size > 1:
-        lines.append(f'X SetScale/I x, {float(rows[0])!r}, {float(rows[-1])!r}, '
-                     f'"{_escape(row_unit)}", {block}')
-    if cols.size > 1:
-        lines.append(f'X SetScale/I y, {float(cols[0])!r}, {float(cols[-1])!r}, '
-                     f'"{_escape(col_unit)}", {block}')
-    lines.append(f"X NewImage {block}")
+    trace_names = []
+    for k, column in enumerate(picks):
+        trace = f"{stem}_s{k:02d}"
+        trace_names.append(trace)
+        lines.append(f"WAVES/D/N=({wl.size})\t{trace}")
+        lines.append("BEGIN")
+        lines.extend("\t" + ("NaN" if not np.isfinite(v) else MATRIX_FORMAT % v)
+                     for v in values[:, column])
+        lines.append("END")
+        # The time is IN the file, on the wave, or the traces are anonymous.
+        lines.append(f'X Note {trace}, "t = {float(times[column]):g} s"')
+
+    lines.append("X Display " + ",".join(trace_names) + f" vs {wl_wave}")
+    for k, trace in enumerate(trace_names):
+        lines.append(f"X ModifyGraph rgb({trace})=({_ramp(k, len(trace_names))})")
+    lines.append("X ModifyGraph mirror(bottom)=1,mirror(left)=1")
     if xlabel:
         lines.append(f'X Label bottom "{_escape(xlabel)}"')
     if ylabel:
@@ -285,4 +319,4 @@ def matrix_to_itx(path, frame, name, title=None, notes=(),
 
     with open(path, "w", encoding="ascii", errors="replace", newline="\r\n") as fh:
         fh.write("\n".join(lines) + "\n")
-    return [block, row_wave, col_wave]
+    return [wl_wave] + trace_names

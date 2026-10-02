@@ -21,7 +21,7 @@ from qtpy.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLay
                             QSpinBox, QVBoxLayout, QWidget)
 
 from spec_echem.build_info import build_id
-from spec_echem.igor_export import frame_to_itx, matrix_to_itx
+from spec_echem.igor_export import frame_to_itx, spectra_to_itx
 
 logger = logging.getLogger(__name__)
 
@@ -273,11 +273,14 @@ class FigureDialog(QDialog):
         try:
             axes = self._fig.axes[0] if self._fig.axes else None
             if self._csv is None and self._matrix is not None:
-                matrix_to_itx(
+                # A FAN of spectra, not an image. An image of the same block is
+                # correct and was the first attempt, but it answers a different
+                # question than the plot being exported.
+                spectra_to_itx(
                     path=path, frame=self._matrix, name=self._basename,
                     title=self._figure_title() or self._basename,
                     xlabel=axes.get_xlabel() if axes else None,
-                    ylabel="Time (s)", row_unit="nm", col_unit="s",
+                    ylabel=axes.get_ylabel() if axes else "Absorbance",
                     notes=self._header_lines())
                 self.itx_btn.setText("Saved ✓")
                 return
