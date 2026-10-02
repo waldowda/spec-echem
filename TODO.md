@@ -193,6 +193,18 @@ answers a different question than the plot being exported.
       segment, for an image or waterfall. Worth bringing back as a SEPARATE option
       if Igor's image tools get used; git has it.
 
+**THE EFFICIENT NEXT STEP, offered 2026-10-02:** Dean formats one graph in Igor the
+way he would want it and hands over the COMMAND HISTORY. That is worth more than any
+amount of reading: it gives the exact commands, in his conventions, for the plot that
+matters -- and would settle the resid. label, the legend and anything else in one
+pass. Ask for it rather than guessing again.
+
+Along with it: **populate the legend as matplotlib's does** -- the whole parameter
+block (A, B1, tau1 and their SDs, y(0), the sign warning, mean tau with its CI, the
+point count, the residual split). Decided 2026-10-02; the text already exists, it is
+what FitResult builds for the figure legend, so this is plumbing rather than new
+formatting.
+
 **Note for whoever continues:** the Igor commands here come from the documentation,
 not from experience with Igor. Four rounds of bench feedback were needed to get this
 far, each one catching something that looked right in the file and wrong on screen.
