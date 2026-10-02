@@ -1045,3 +1045,65 @@ def test_the_band_fit_and_the_single_fit_agree_wavelength_by_wavelength():
                 np.testing.assert_allclose(
                     single.params, paired.params, rtol=0, atol=0,
                     err_msg=f"{model} @ {wl[i]:.1f} nm")
+
+
+# 2026-10-01, reported from the bench: the automatic probe resolved to 1100.9 nm on
+# Doping 7 (+0.80 V) -- the last pixel of the crop, past the optics' specified
+# 1100 nm, with ten times the noise of the real band. auto_wavelengths guarded the
+# BLUE edge (ANALYSIS_WL_MIN, explicitly to stop the noisy edge winning) and left the
+# red edge unguarded, so where the NIR tail grows hardest a plain argmax walks to it.
+
+def _band_plus_tail():
+    """A polaron band at 800 nm, plus a monotonic NIR tail that OVERTAKES it and is
+    far noisier -- the shape of a doping step at high potential."""
+    wl = np.linspace(380.0, 1101.0, 1265)
+    t = np.linspace(0.0, 60.0, 200)
+    rng = np.random.default_rng(0)
+    frac = 1 - np.exp(-t / 3.0)
+    band = np.exp(-0.5 * ((wl - 800.0) / 70.0) ** 2)
+    tail = np.clip((wl - 900.0) / 200.0, 0, None) ** 2
+    noise = np.where(wl > 1050.0, 12e-3, 6e-4)
+    a = (0.05 + np.outer(0.26 * band, frac) + np.outer(0.34 * tail, frac)
+         + rng.normal(0.0, 1.0, (wl.size, t.size)) * noise[:, None])
+    return a, wl
+
+
+def test_the_probe_takes_the_band_not_the_rising_tail():
+    from spec_echem.analysis import probe_wavelength
+
+    a, wl = _band_plus_tail()
+    delta = a[:, -1] - a[:, 0]
+    # Premise: the tail really does exceed the band, so an argmax MUST get this
+    # wrong. Without this the test could pass on data where the band simply wins.
+    assert delta[-1] > delta[np.abs(wl - 800.0).argmin()]
+
+    assert probe_wavelength(a, wl, doping=True) == pytest.approx(800.0, abs=15.0)
+
+
+def test_a_tail_running_into_the_window_edge_is_not_a_peak():
+    """Excluded pixels are floored, so a tail rising into the mask goes up then
+    falls off a cliff -- which manufactures a maximum exactly at the boundary. The
+    rule would then select the thing it exists to avoid; measured at 1094 nm, one
+    smoothing window inside the 1100 nm cap."""
+    from spec_echem.analysis import ANALYSIS_WL_MAX, probe_wavelength
+
+    a, wl = _band_plus_tail()
+    chosen = probe_wavelength(a, wl, doping=True)
+    assert chosen < ANALYSIS_WL_MAX - 50.0, (
+        f"probe chose {chosen:.1f} nm, up against the {ANALYSIS_WL_MAX:g} nm cap")
+
+
+def test_the_probe_is_unchanged_where_the_band_simply_wins():
+    """One broad feature and no tail: the new rule must return what argmax did, or
+    every previously analysed run silently moves."""
+    from spec_echem.analysis import probe_wavelength
+
+    wl = np.linspace(380.0, 1101.0, 600)
+    t = np.linspace(0.0, 60.0, 100)
+    rng = np.random.default_rng(1)
+    frac = 1 - np.exp(-t / 3.0)
+    a = (0.05 + np.outer(0.3 * np.exp(-0.5 * ((wl - 800.0) / 70.0) ** 2), frac)
+         + rng.normal(0.0, 3e-4, (wl.size, t.size)))
+    delta = a[:, -1] - a[:, 0]
+    assert probe_wavelength(a, wl, doping=True) == pytest.approx(
+        float(wl[int(np.argmax(delta))]), abs=5.0)
