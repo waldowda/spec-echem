@@ -13,6 +13,8 @@ import logging
 from pathlib import Path
 
 import matplotlib
+import numpy as np
+import pandas as pd
 from matplotlib.backends.backend_qtagg import (FigureCanvasQTAgg,
                                                NavigationToolbar2QT)
 from qtpy.QtCore import Qt
@@ -114,8 +116,9 @@ class FigureDialog(QDialog):
         # with the provenance stamp rather than being its own control: both are
         # prose about the figure, and both are unwanted in a journal submission.
         self._note = note
-        # A 2-D block, for the views that have one. Igor takes it as a scaled wave;
-        # CSV does not get one, which is why these two are offered separately.
+        # A 2-D block, for the views that have one. Igor takes it as a 2-D wave; CSV
+        # gets it widened by _table(). Both are the SAME numbers, so they cannot
+        # disagree about what the figure showed.
         self._matrix = matrix
         self._fig = None
         self._preview = None
@@ -167,9 +170,12 @@ class FigureDialog(QDialog):
         self.csv_btn = QPushButton("Save data (CSV)…")
         self.csv_btn.clicked.connect(self.on_save_csv)
         # Hidden, not disabled: a dead control invites a click and explains nothing.
-        # A spectra view is a wavelength x time matrix already archived as .h5 and
-        # .txt, so a CSV there would be a worse copy of something on disk.
-        self.csv_btn.setVisible(self._csv is not None)
+        # A spectra view gets one too. It was masked on the grounds that the block is
+        # already on disk as .h5 and .txt, but that is not the same numbers: this is
+        # what the FIGURE shows, after any wavelength window. Big -- a 721-spectrum CV
+        # is ~12 MB -- and that is the user's call at save time, not ours at build
+        # time (2026-10-02).
+        self.csv_btn.setVisible(self._csv is not None or self._matrix is not None)
         buttons.addWidget(self.csv_btn)
         # Igor gets the SAME numbers as the CSV, so the two cannot disagree about
         # what the figure showed. Waves plus a Display and nothing else: Igor's
@@ -255,12 +261,12 @@ class FigureDialog(QDialog):
         if not path:
             return
         try:
-            frame = self._csv()
+            frame = self._table()
             if frame is None or frame.empty:
                 QMessageBox.information(self, "Nothing to write",
                                         "This plot has no tabular data.")
                 return
-            write_csv(frame, path, self._header_lines())
+            write_csv(frame, path, self._header_lines(matrix=self._csv is None))
         except Exception as exc:        # noqa: BLE001
             QMessageBox.warning(self, "Could not save", str(exc))
             return
@@ -318,7 +324,26 @@ class FigureDialog(QDialog):
                 return text.get_text()
         return ""
 
-    def _header_lines(self):
+    def _table(self):
+        """The numbers behind the figure, as one frame ready for CSV.
+
+        A spectra view has no per-trace `csv` callable -- it is a wavelength x time
+        block -- so it is widened here instead: wavelength down the first column, one
+        column per time. Same numbers the Igor export writes, just laid out the way a
+        spreadsheet wants them rather than the way Igor does.
+        """
+        if self._csv is not None:
+            return self._csv()
+        if self._matrix is None or self._matrix.empty:
+            return None
+        block = self._matrix
+        out = pd.DataFrame(np.asarray(block.values, dtype=float),
+                           columns=[f"{float(t):g} s" for t in block.columns])
+        out.insert(0, "Wavelength (nm)",
+                   np.asarray(block.index.values, dtype=float))
+        return out
+
+    def _header_lines(self, matrix=False):
         """Provenance for the CSV. ALWAYS written, unlike the figure's stamp: a data
         file outlives the context that produced it, and a figure at least shows its
         own axes."""
@@ -327,6 +352,11 @@ class FigureDialog(QDialog):
             lines.append(f"run: {self._run_id}")
         lines.append(f"produced by: spec-echem {build_id()}")
         lines.append(f"figure: {self._basename}")
+        if matrix:
+            # Without this the column headers are bare numbers and nothing says what
+            # they are -- a wide table is not self-describing the way a tall one is.
+            lines.append("column 1: wavelength (nm); "
+                         "remaining columns: absorbance at that elapsed time")
         return lines
 
 

@@ -182,20 +182,68 @@ def test_a_draw_issued_while_rendering_is_not_recorded(app):
     assert canvas._last_draw[2].get("title") == "on screen"
 
 
-def test_a_two_dimensional_view_offers_no_csv(app):
-    """Absorbance against wavelength AND time is a matrix already archived as .h5
-    and .txt, so a CSV of it would be a worse copy of something on disk."""
+def test_a_two_dimensional_view_has_no_per_trace_csv_but_still_offers_one(app):
+    """It has no `csv` callable -- it is a wavelength x time block, not a set of
+    named series -- so the dialog widens the block instead. It was masked on the
+    grounds that the block is already on disk, but that is not these numbers: this
+    is what the FIGURE shows, after any wavelength window (2026-10-02)."""
     canvas = MplCanvas()
-    frame = pd.DataFrame(np.zeros((4, 3)), index=[400.0, 500.0, 600.0, 700.0],
-                         columns=[0.0, 1.0, 2.0])
+    frame = pd.DataFrame(np.arange(12.0).reshape(4, 3),
+                         index=[400.0, 500.0, 600.0, 700.0],
+                         columns=[0.0, 1.0, 2.5])
     canvas.show_absorbance(frame)
-    assert canvas.last_data() is None
+    assert canvas.last_data() is None                 # no per-trace csv
+    assert canvas.last_matrix() is not None           # but a block
 
-    # ...while a series plot does.
+    dlg = FigureDialog(None, canvas, draw=lambda: canvas.show_absorbance(frame),
+                       csv=None, matrix=frame, basename="cv_spectra")
+    assert dlg.csv_btn.isVisible() or not dlg.isVisible()   # shown, not masked
+    assert dlg.csv_btn.isVisibleTo(dlg)
+
+    out = dlg._table()
+    assert list(out.columns) == ["Wavelength (nm)", "0 s", "1 s", "2.5 s"]
+    assert np.allclose(out["Wavelength (nm)"], frame.index.values)
+    assert np.allclose(out.to_numpy()[:, 1:], frame.to_numpy())
+
+    # ...while a series plot keeps its own csv and is untouched by this.
     canvas.plot_series(np.arange(3.0), {"tau": np.arange(3.0)}, "Potential (V)",
                        "tau (s)")
-    out = canvas.last_data()
-    assert list(out.columns) == ["x", "tau"] and len(out) == 3
+    series = canvas.last_data()
+    assert list(series.columns) == ["x", "tau"] and len(series) == 3
+
+
+def test_the_spectra_csv_says_what_its_columns_are(app, tmp_path, monkeypatch):
+    """A wide table is not self-describing the way a tall one is: without this the
+    headers are bare numbers and nothing says they are times."""
+    from qtpy.QtWidgets import QFileDialog
+    canvas = MplCanvas()
+    frame = pd.DataFrame(np.arange(6.0).reshape(3, 2), index=[400.0, 500.0, 600.0],
+                         columns=[0.0, 0.5])
+    canvas.show_absorbance(frame)
+    dlg = FigureDialog(None, canvas, draw=lambda: canvas.show_absorbance(frame),
+                       csv=None, matrix=frame, basename="cv_spectra",
+                       run_id="20260925_test10")
+    out = tmp_path / "cv.csv"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(out), "")))
+    dlg.on_save_csv()
+
+    text = out.read_text()
+    assert "# run: 20260925_test10" in text
+    assert "column 1: wavelength (nm)" in text
+    back = pd.read_csv(out, comment="#")
+    assert list(back.columns) == ["Wavelength (nm)", "0 s", "0.5 s"]
+    assert np.allclose(back.to_numpy()[:, 1:], frame.to_numpy())
+
+
+def test_a_plot_with_neither_series_nor_block_still_offers_nothing(app):
+    """The guard that kept a dead control off the dialog has to survive the unmask."""
+    canvas = MplCanvas()
+    dlg = FigureDialog(None, canvas, draw=lambda: canvas.show_message("no data"),
+                       csv=None, matrix=None, basename="empty")
+    assert not dlg.csv_btn.isVisibleTo(dlg)
+    assert not dlg.itx_btn.isVisibleTo(dlg)
+    assert dlg._table() is None
 
 
 def test_every_wired_canvas_opens_the_same_dialog(app, monkeypatch):
