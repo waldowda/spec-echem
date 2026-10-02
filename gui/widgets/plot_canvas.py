@@ -54,19 +54,38 @@ class _HandlerPairWithComma:
         return dash
 
 def _legend_corner(y):
-    """'upper right' for a trace that decays, 'lower right' for one that grows.
+    """Whichever RIGHT-hand corner the data is not in.
 
-    Compared over the first and last twentieth rather than single endpoints, so one
-    noisy sample at either end cannot flip the whole layout.
+    The transient is always at t = 0, so the right half is always the emptier half
+    and only the vertical choice is open. It is decided by counting where the
+    right-hand data actually SITS, not by comparing the start and end levels.
+
+    That comparison was the first attempt and it fails on the commonest shape here:
+    a trace that overshoots and settles starts low, peaks, and comes back down, so
+    end < start reads as "a decay" and sends the legend to the top -- where the data
+    has been sitting the whole time. Reported 2026-10-02 on a +0.80 V doping step,
+    which rises to 0.267 in a second and settles at 0.246, filling the top of the
+    axes from end to end.
+
+    Counting handles all three shapes with one rule: a decay leaves the top free, a
+    growth leaves the bottom free, and an overshoot leaves the bottom free too.
     """
     y = np.asarray(y, dtype=float)
     finite = y[np.isfinite(y)]
     if finite.size < 4:
         return "upper right"
-    edge = max(2, finite.size // 20)
-    return ("upper right"
-            if np.nanmedian(finite[-edge:]) < np.nanmedian(finite[:edge])
-            else "lower right")
+    lo, hi = float(np.nanmin(finite)), float(np.nanmax(finite))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return "upper right"
+    mid = (lo + hi) / 2.0
+
+    right = y[len(y) // 2:]
+    right = right[np.isfinite(right)]
+    if right.size == 0:
+        return "upper right"
+    above = int(np.count_nonzero(right > mid))
+    # Ties go upward, which is the conventional corner.
+    return "lower right" if above > right.size - above else "upper right"
 
 
 def _records(method):
