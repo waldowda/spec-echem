@@ -53,6 +53,12 @@ def wave_name(text, used=None):
     return candidate
 
 
+# A 2-D absorbance block is ~760k numbers. repr() spends 17 characters on each,
+# which is 13 MB of text for digits that are not there: the stored absorbance is
+# float32, so about 7 significant figures is everything it knows.
+MATRIX_FORMAT = "%.7g"
+
+
 def _format(value):
     """A number Igor will parse. NaN is written as NaN, which Igor understands and
     plots as a gap -- the same thing the fits mean by it."""
@@ -68,7 +74,7 @@ def _escape(text):
 
 
 def write_itx(path, waves, display=None, title=None, notes=(),
-              xlabel=None, ylabel=None):
+              xlabel=None, ylabel=None, resid=None, prefix_stem=""):
     """Write `waves` to an Igor Text file.
 
     waves   -- ordered {name: 1-D sequence}. Names are sanitised; the caller's
@@ -127,6 +133,27 @@ def write_itx(path, waves, display=None, title=None, notes=(),
                 lines.append(f'X Label bottom "{_escape(xlabel)}"')
             if ylabel:
                 lines.append(f'X Label left "{_escape(ylabel)}"')
+            if resid:
+                lines.append(f"X AppendToGraph/L={RESID_AXIS} {resid} vs {x}")
+                lines.append(f"X ModifyGraph axisEnab(left)="
+                             f"{{{DATA_SPAN[0]},{DATA_SPAN[1]}}}")
+                lines.append(f"X ModifyGraph axisEnab({RESID_AXIS})="
+                             f"{{{RESID_SPAN[0]},{RESID_SPAN[1]}}},"
+                             f"freePos({RESID_AXIS})=0")
+                lines.append(f"X ModifyGraph mode({resid})=3,marker({resid})=19,"
+                             f"msize({resid})=1.5,rgb({resid})=({RGB_SERIES[0]})")
+                lines.append(f'X Label {RESID_AXIS} "resid."')
+                lines.append(f"X ModifyGraph nticks({RESID_AXIS})=3")
+            # Named from the DATA, not from the wave names: Igor's automatic legend
+            # would read "Doping6_fit_biexp_y", which is the file's business and not
+            # the reader's. \\s(trace) draws that trace's own symbol.
+            entries = []
+            for name in ys:
+                plain = name[len(prefix_stem) + 1:] if prefix_stem else name
+                entries.append(f"\\\\s({name}) "
+                               + LEGEND_LABELS.get(plain.lower(), plain))
+            if entries:
+                lines.append('X Legend/C/N=leg/A=RB "' + "\\r".join(entries) + '"')
             if title:
                 # The WINDOW's title, not a TextBox in the plot area. A TextBox
                 # anchored middle-top is drawn INSIDE the axes and landed on the
@@ -150,6 +177,19 @@ MAX_PREFIX = 18
 # axis and nothing else: plotted beside the data it is a flat line at zero that
 # squashes everything, which is why the matplotlib version gives it its own panel.
 NOT_DISPLAYED = ("residual",)
+
+# The residual gets its OWN panel above the data, as it does in the figure these
+# numbers come from -- that is the convention in the spectroscopy this sits beside
+# (XPS, NMR, IR). On the same axes it is a flat line at zero that squashes
+# everything; left out entirely it is the one thing that says whether the fit is
+# any good. These fractions leave a gap between the two panels.
+RESID_AXIS = "resid"
+
+# What the generic frame columns are called on a graph. "y" is what the column is
+# named in the file; "data" is what it IS.
+LEGEND_LABELS = {"y": "data", "fit": "fit"}
+DATA_SPAN = (0.0, 0.72)
+RESID_SPAN = (0.80, 1.0)
 
 
 def frame_to_itx(path, frame, title=None, notes=(), prefix=None,
@@ -175,11 +215,74 @@ def frame_to_itx(path, frame, title=None, notes=(), prefix=None,
         raise ValueError("nothing to export: no numeric columns")
     x = numeric[0]
     ys = [c for c in numeric[1:] if str(c).lower() not in NOT_DISPLAYED]
+    resid_col = next((c for c in numeric if str(c).lower() == "residual"), None)
+    stem = ""
     if prefix:
         stem = wave_name(prefix)[:MAX_PREFIX].rstrip("_")
         waves = {f"{stem}_{c}": frame[c].to_numpy() for c in numeric}
         x, ys = f"{stem}_{x}", [f"{stem}_{y}" for y in ys]
+        resid = f"{stem}_{resid_col}" if resid_col is not None else None
     else:
         waves = {c: frame[c].to_numpy() for c in numeric}
+        resid = resid_col
     return write_itx(path, waves, display=(x, ys), title=title, notes=notes,
-                     xlabel=xlabel, ylabel=ylabel)
+                     xlabel=xlabel, ylabel=ylabel, resid=resid, prefix_stem=stem)
+
+
+def matrix_to_itx(path, frame, name, title=None, notes=(),
+                  xlabel=None, ylabel=None, row_unit="", col_unit=""):
+    """A wavelength x time block as a 2-D Igor wave, scaled on both dimensions.
+
+    This is the one place Igor is better served than a CSV. A matrix in a CSV is a
+    worse copy of what the .h5 already holds, which is why the spectra view offers
+    no CSV -- but a 2-D wave is a first-class Igor object, and an image or waterfall
+    of a doping step is exactly what it is good at.
+
+    The axis waves are written as well as the scaling. SetScale assumes a UNIFORM
+    grid, and the detector's wavelengths are only nearly uniform -- about 0.57 nm a
+    pixel but not exactly -- so the scaling is for display and the waves are the
+    actual numbers.
+    """
+    values = np.asarray(frame.values, dtype=float)
+    rows = np.asarray(frame.index.values, dtype=float)
+    cols = np.asarray(frame.columns.values, dtype=float)
+    if values.ndim != 2:
+        raise ValueError(f"expected a 2-D block; got {values.shape}")
+
+    stem = wave_name(name)[:MAX_PREFIX].rstrip("_")
+    block, row_wave, col_wave = f"{stem}_A", f"{stem}_wl", f"{stem}_t"
+
+    lines = ["IGOR"]
+    for line in notes:
+        lines.append(f"X // {line}")
+    lines.append(f"WAVES/D/N=({values.shape[0]},{values.shape[1]})\t{block}")
+    lines.append("BEGIN")
+    for row in values:
+        lines.append("\t" + "\t".join(
+            "NaN" if not np.isfinite(v) else MATRIX_FORMAT % v for v in row))
+    lines.append("END")
+    for wave, data in ((row_wave, rows), (col_wave, cols)):
+        lines.append(f"WAVES/D/N=({data.size})\t{wave}")
+        lines.append("BEGIN")
+        lines.extend("\t" + _format(v) for v in data)
+        lines.append("END")
+
+    # float(), not repr of the numpy scalar: numpy renders as "np.float64(380.88)",
+    # which Igor cannot parse and which fails the whole load.
+    if rows.size > 1:
+        lines.append(f'X SetScale/I x, {float(rows[0])!r}, {float(rows[-1])!r}, '
+                     f'"{_escape(row_unit)}", {block}')
+    if cols.size > 1:
+        lines.append(f'X SetScale/I y, {float(cols[0])!r}, {float(cols[-1])!r}, '
+                     f'"{_escape(col_unit)}", {block}')
+    lines.append(f"X NewImage {block}")
+    if xlabel:
+        lines.append(f'X Label bottom "{_escape(xlabel)}"')
+    if ylabel:
+        lines.append(f'X Label left "{_escape(ylabel)}"')
+    if title:
+        lines.append(f'X DoWindow/T kwTopWin, "{_escape(title)}"')
+
+    with open(path, "w", encoding="ascii", errors="replace", newline="\r\n") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return [block, row_wave, col_wave]

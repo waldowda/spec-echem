@@ -285,6 +285,22 @@ class MplCanvas(FigureCanvasQTAgg):
             logger.debug("no tabular form for %s", name, exc_info=True)
         return None
 
+    def last_matrix(self):
+        """The 2-D block the last plot drew, or None.
+
+        last_data() returns None for these on purpose -- a matrix in a CSV is a
+        worse copy of what the .h5 already holds. Igor is the exception: a 2-D wave
+        is a first-class object there, and an image or waterfall of a doping step is
+        what it is good at.
+        """
+        if self._last_draw is None:
+            return None
+        method, args, _kwargs = self._last_draw
+        if method.__name__ == "show_absorbance" and args:
+            frame = args[0]
+            return frame if getattr(frame, "ndim", 0) == 2 else None
+        return None
+
     def draw_idle(self, *args, **kwargs):
         # Nothing to repaint while pointed at an offscreen figure: the widget is not
         # what is being drawn. Every draw method ends with this call.

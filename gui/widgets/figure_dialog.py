@@ -21,7 +21,7 @@ from qtpy.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLay
                             QSpinBox, QVBoxLayout, QWidget)
 
 from spec_echem.build_info import build_id
-from spec_echem.igor_export import frame_to_itx
+from spec_echem.igor_export import frame_to_itx, matrix_to_itx
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ class FigureDialog(QDialog):
 
     def __init__(self, parent, canvas, draw, title="Save figure",
                  csv=None, basename="figure", out_dir=None, run_id=None,
-                 note=None):
+                 note=None, matrix=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
@@ -114,6 +114,9 @@ class FigureDialog(QDialog):
         # with the provenance stamp rather than being its own control: both are
         # prose about the figure, and both are unwanted in a journal submission.
         self._note = note
+        # A 2-D block, for the views that have one. Igor takes it as a scaled wave;
+        # CSV does not get one, which is why these two are offered separately.
+        self._matrix = matrix
         self._fig = None
         self._preview = None
         self._build()
@@ -177,7 +180,8 @@ class FigureDialog(QDialog):
             "The data behind this plot as Igor waves, with a Display command so it\n"
             "opens as a graph. Styling is left to Igor.")
         self.itx_btn.clicked.connect(self.on_save_itx)
-        self.itx_btn.setVisible(self._csv is not None)
+        self.itx_btn.setVisible(self._csv is not None
+                                or self._matrix is not None)
         buttons.addWidget(self.itx_btn)
         buttons.addStretch()
         self.close_btn = QPushButton("Close")
@@ -267,6 +271,16 @@ class FigureDialog(QDialog):
         if not path:
             return
         try:
+            axes = self._fig.axes[0] if self._fig.axes else None
+            if self._csv is None and self._matrix is not None:
+                matrix_to_itx(
+                    path=path, frame=self._matrix, name=self._basename,
+                    title=self._figure_title() or self._basename,
+                    xlabel=axes.get_xlabel() if axes else None,
+                    ylabel="Time (s)", row_unit="nm", col_unit="s",
+                    notes=self._header_lines())
+                self.itx_btn.setText("Saved ✓")
+                return
             frame = self._csv()
             if frame is None or frame.empty:
                 QMessageBox.information(self, "Nothing to write",
@@ -275,7 +289,6 @@ class FigureDialog(QDialog):
             # The figure's OWN title and axis labels, not the filename. The
             # title carries the segment, its potential, the wavelength and the
             # model; the filename carries a sanitised stub of that.
-            axes = self._fig.axes[0] if self._fig.axes else None
             frame_to_itx(frame=frame, path=path,
                          title=self._figure_title() or self._basename,
                          xlabel=axes.get_xlabel() if axes else None,
@@ -367,6 +380,7 @@ def open_figure_dialog(parent, canvas, win, basename, title="Save figure",
         # Re-read at save time rather than capturing the frame now: the plot can be
         # redrawn while the dialog is open on a non-modal day.
         csv=(lambda: canvas.last_data()) if frame is not None else None,
+        matrix=canvas.last_matrix(),
         basename=basename,
         out_dir=(run_folder / "figures") if run_folder is not None else None,
         run_id=run_folder.name if run_folder is not None else None,
