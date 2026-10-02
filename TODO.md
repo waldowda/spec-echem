@@ -209,6 +209,31 @@ one column per time, with a header line saying so because a wide table is not
 self-describing. A real CV is 1261 x 722 and 18.1 MB; that size is the user's call at
 save time, not ours at build time.
 
+**Igor bogs down on the spectra graph (reported 2026-10-02).** Worth being precise
+about where: the data is ALREADY one 2-D wave, so the file is not the problem. What
+is slow is 721 TRACES on one graph -- 721 `AppendToGraph` plus 721 `ModifyGraph rgb`,
+and then Igor redrawing all of them. Dean notes this is unusual for Igor, so it is
+the trace count specifically, not the volume.
+
+So the fix is on the DISPLAY side, not the data side. The thinning that was just
+removed was aimed at the right problem in the wrong place -- it threw away data to
+make the graph cheap. Options, in the order they look promising:
+
+1. **Write every column, display a subset.** All 721 in the matrix wave; `Display`
+   only ~25 of them, with a comment giving the one-line loop that appends the rest.
+   Keeps the file complete and the graph fast, and the full block is a click away.
+2. **`NewImage`/`AppendImage` on the matrix** as the default view, with the fan as
+   the opt-in. Fast at any size, and an image of absorbance(wavelength, time) is a
+   legitimate view -- just not the one the figure draws.
+3. **HDF5 directly.** Igor talks HDF5 (Dean: via a plugin; built in from Igor 7/9,
+   CONFIRM which before relying on it). We already write .h5, so this could be no new
+   export at all -- just a documented "open the .h5 in Igor" path. Best long-term
+   answer if the loader handles our layout; check how it names groups and datasets as
+   waves, and whether the 2-D orientation survives.
+
+Not decided. Pairs with the plot-modification history below -- how Dean actually
+styles a spectra graph may well settle which of these is wanted.
+
 **THE EFFICIENT NEXT STEP, offered 2026-10-02:** Dean formats one graph in Igor the
 way he would want it and hands over the COMMAND HISTORY. That is worth more than any
 amount of reading: it gives the exact commands, in his conventions, for the plot that
