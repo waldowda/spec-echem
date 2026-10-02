@@ -56,7 +56,14 @@ def _format(value):
     return repr(float(value))
 
 
-def write_itx(path, waves, display=None, title=None, notes=()):
+def _escape(text):
+    """Igor string literal contents. An unescaped quote ends the string early and
+    the whole file fails to load."""
+    return str(text).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def write_itx(path, waves, display=None, title=None, notes=(),
+              xlabel=None, ylabel=None):
     """Write `waves` to an Igor Text file.
 
     waves   -- ordered {name: 1-D sequence}. Names are sanitised; the caller's
@@ -90,12 +97,26 @@ def write_itx(path, waves, display=None, title=None, notes=()):
         ys = [by_raw[y] for y in y_raws if y in by_raw]
         if x and ys:
             lines.append("X Display " + ",".join(ys) + f" vs {x}")
+            # Per TRACE, not the whole graph. A bare ModifyGraph sets every trace at
+            # once, which drew the fit as red markers on top of the data it was
+            # meant to be a line through (seen in Igor, 2026-10-02).
+            #
+            # This is the one styling liberty taken, and only because points-for-data
+            # and a line-for-fit is not a convention anyone has to be asked about.
+            # Everything else is left to Igor on purpose.
+            for name in ys:
+                is_fit = name.lower().endswith("_fit") or name.lower() == "fit"
+                lines.append(f"X ModifyGraph mode({name})={0 if is_fit else 3}"
+                             + ("" if is_fit else f",marker({name})=19,msize({name})=2"))
+            # Axis labels are DATA, not decoration: a bare number axis makes the
+            # reader guess at seconds versus nanometres.
+            if xlabel:
+                lines.append(f'X Label bottom "{_escape(xlabel)}"')
+            if ylabel:
+                lines.append(f'X Label left "{_escape(ylabel)}"')
             if title:
-                # Escaped: a quote or backslash in a segment label would otherwise
-                # end the string early and leave Igor with a syntax error on load.
-                safe = str(title).replace("\\", "\\\\").replace('"', '\\"')
-                lines.append(f'X ModifyGraph mode=3,marker=19,msize=2; '
-                             f'TextBox/C/N=title/F=0/A=MT "{safe}"')
+                lines.append(
+                    f'X TextBox/C/N=title/F=0/A=MT "{_escape(title)}"')
 
     text = "\n".join(lines) + "\n"
     # \r\n: Igor on Windows is the common case and tolerates it on macOS, where a
@@ -109,7 +130,14 @@ def write_itx(path, waves, display=None, title=None, notes=()):
 MAX_PREFIX = 18
 
 
-def frame_to_itx(path, frame, title=None, notes=(), prefix=None):
+# Columns that belong in the FILE but not on the graph. A residual shares the x
+# axis and nothing else: plotted beside the data it is a flat line at zero that
+# squashes everything, which is why the matplotlib version gives it its own panel.
+NOT_DISPLAYED = ("residual",)
+
+
+def frame_to_itx(path, frame, title=None, notes=(), prefix=None,
+                 xlabel=None, ylabel=None):
     """Write a tidy DataFrame: first column is x, the rest are plotted against it.
 
     This is the shape MplCanvas.last_data() returns, which is the same data the CSV
@@ -130,11 +158,12 @@ def frame_to_itx(path, frame, title=None, notes=(), prefix=None):
     if not numeric:
         raise ValueError("nothing to export: no numeric columns")
     x = numeric[0]
-    ys = [c for c in numeric[1:]]
+    ys = [c for c in numeric[1:] if str(c).lower() not in NOT_DISPLAYED]
     if prefix:
         stem = wave_name(prefix)[:MAX_PREFIX].rstrip("_")
         waves = {f"{stem}_{c}": frame[c].to_numpy() for c in numeric}
         x, ys = f"{stem}_{x}", [f"{stem}_{y}" for y in ys]
     else:
         waves = {c: frame[c].to_numpy() for c in numeric}
-    return write_itx(path, waves, display=(x, ys), title=title, notes=notes)
+    return write_itx(path, waves, display=(x, ys), title=title, notes=notes,
+                     xlabel=xlabel, ylabel=ylabel)

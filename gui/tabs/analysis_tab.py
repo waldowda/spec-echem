@@ -503,7 +503,8 @@ class AnalysisTab(QWidget):
                     skipped.append(trace)
                     continue
                 written += save_figure(
-                    self.fit_canvas, draw, out_dir / f"{stem}_{trace}.png",
+                    self.fit_canvas, draw,
+                    out_dir / f"{self._figure_basename(trace)}.png",
                     provenance=stamp, csv_frame=self.fit_canvas.last_data(),
                     csv_header=header + [f"segment: {label}", f"trace: {trace}"])
         finally:
@@ -519,7 +520,8 @@ class AnalysisTab(QWidget):
             skipped.append("ladder")
         else:
             written += save_figure(
-                self.ladder_canvas, ladder_draw, out_dir / "ladder.png",
+                self.ladder_canvas, ladder_draw,
+                out_dir / f"{self._figure_basename('ladder')}.png",
                 provenance=stamp, csv_frame=self.ladder_canvas.last_data(),
                 csv_header=header + ["plot: ladder across all fitted segments"])
 
@@ -551,8 +553,22 @@ class AnalysisTab(QWidget):
         return row
 
     def _figure_basename(self, suffix):
+        """The name a saved figure gets. ONE definition, used by the per-figure
+        save and by Save all figures.
+
+        The ladder is NOT named after a segment. It plots every fitted segment
+        against potential, so naming it after whichever one happens to be selected
+        in the dropdown is simply false -- reported 2026-10-02 as a
+        "Pre-dedoping0_ladder.png" that was a ladder of the whole run.
+
+        Both carry the MODEL, because a tau from exp and a tau from biexp are not
+        the same number and the two files would otherwise overwrite each other.
+        """
+        model = self.model_combo.currentData()
+        if suffix == "ladder":
+            return f"ladder_{model}"
         label = (self._current_label() or "plot").replace(" ", "")
-        return f"{label}_{suffix}"
+        return f"{label}_{suffix}_{model}"
 
     def _segment_display(self, label, decimals=3):
         """'Doping 5  (+0.700 V)'. The ladder plots against potential, so the segment

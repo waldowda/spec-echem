@@ -272,13 +272,35 @@ class FigureDialog(QDialog):
                 QMessageBox.information(self, "Nothing to write",
                                         "This plot has no tabular data.")
                 return
-            frame_to_itx(frame=frame, path=path, title=self._basename,
+            # The figure's OWN title and axis labels, not the filename. The
+            # title carries the segment, its potential, the wavelength and the
+            # model; the filename carries a sanitised stub of that.
+            axes = self._fig.axes[0] if self._fig.axes else None
+            frame_to_itx(frame=frame, path=path,
+                         title=self._figure_title() or self._basename,
+                         xlabel=axes.get_xlabel() if axes else None,
+                         ylabel=axes.get_ylabel() if axes else None,
                          notes=self._header_lines(),
                          prefix=self._basename)
         except Exception as exc:        # noqa: BLE001
             QMessageBox.warning(self, "Could not save", str(exc))
             return
         self.itx_btn.setText("Saved ✓")
+
+    def _figure_title(self):
+        """The title as drawn, wherever the plot put it.
+
+        plot_fit uses fig.suptitle -- the title belongs to neither of its two panels
+        -- so reading only the axes title returned nothing and the Igor file fell
+        back to the filename, which is a sanitised stub of the real thing.
+        """
+        for axes in self._fig.axes:
+            if axes.get_title():
+                return axes.get_title()
+        for text in self._fig.texts:
+            if text.get_position()[1] > 0.5 and text.get_text():
+                return text.get_text()
+        return ""
 
     def _header_lines(self):
         """Provenance for the CSV. ALWAYS written, unlike the figure's stamp: a data

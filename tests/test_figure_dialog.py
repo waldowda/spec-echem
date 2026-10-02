@@ -269,7 +269,11 @@ def test_save_all_writes_the_traces_and_the_ladder_with_their_data(app, tmp_path
     tab.on_save_all_figures()
 
     figures = sorted(p.name for p in (run / "figures").glob("*.png"))
-    assert "ladder.png" in figures
+    # The ladder is across EVERY segment, so its name carries no segment -- naming
+    # it after whichever one was selected produced "Pre-dedoping0_ladder.png" for a
+    # ladder of the whole run (reported 2026-10-02).
+    assert any(f.startswith("ladder_") for f in figures), figures
+    assert not any("Doping" in f and "ladder" in f for f in figures), figures
     assert any("absorbance" in f for f in figures)
     # Every figure has its numbers beside it, under the same stem.
     for png in (run / "figures").glob("*.png"):
@@ -279,7 +283,7 @@ def test_save_all_writes_the_traces_and_the_ladder_with_their_data(app, tmp_path
     assert str(run / "figures") in shown[0]
 
     # The CSV carries provenance and reads back.
-    csv = next((run / "figures").glob("*absorbance.csv"))
+    csv = next((run / "figures").glob("*absorbance*.csv"))
     assert csv.read_text().startswith("# run: 20250710_run")
     assert not pd.read_csv(csv, comment="#").empty
 
