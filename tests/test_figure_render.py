@@ -221,3 +221,35 @@ def test_a_flat_or_tiny_trace_still_places_the_legend(app):
     assert _legend_corner(np.array([1.0, 2.0])) == "upper right"
     assert _legend_corner(np.full(50, 0.4)) in ("upper right", "lower right")
     assert _legend_corner(np.array([np.nan] * 10)) == "upper right"
+
+
+def test_an_overshooting_trace_puts_the_legend_below_the_data(app):
+    """Reported 2026-10-02 from a saved tab 5 figure. The first rule compared the
+    START and END levels: a trace that overshoots and settles ends below where it
+    peaked, so "end < start" read as a decay and sent the legend to the TOP -- where
+    that trace sits from end to end. Counting where the data actually is handles all
+    three shapes with one rule.
+    """
+    from gui.widgets.plot_canvas import _legend_corner
+
+    t = np.linspace(0.0, 61.0, 601)
+    # The reported fit: rises to 0.267 in about a second, settles at 0.246.
+    overshoot = 0.246 - 0.296 * np.exp(-t / 0.418) + 0.0388 * np.exp(-t / 4.35)
+    assert overshoot[-1] < overshoot.max()          # it really does overshoot
+    assert overshoot[-1] > overshoot[0]             # ...and ends ABOVE where it began
+
+    assert _legend_corner(overshoot) == "lower right"
+
+    # The two simple shapes are unchanged.
+    assert _legend_corner(0.13 + 0.22 * np.exp(-t / 0.47)) == "upper right"
+    assert _legend_corner(0.50 - 0.35 * np.exp(-t / 2.0)) == "lower right"
+
+    # ...and the drawn legend clears the data it would otherwise sit on.
+    note = "\n".join(["biexp  (+/- = 1 SD)"] + [f"parameter {i}" for i in range(9)])
+    canvas = MplCanvas(xlabel="Time (s)", ylabel="Absorbance")
+    canvas.fig.set_size_inches(13.0, 4.0)
+    canvas.plot_fit(t, overshoot, overshoot, "Time (s)", "Absorbance", note=note)
+    canvas.fig.canvas.draw()
+    box = (canvas.ax.get_legend().get_window_extent()
+           .transformed(canvas.ax.transAxes.inverted()))
+    assert box.y1 < 0.6, f"legend top is at {box.y1:.2f} — still over the plateau"
