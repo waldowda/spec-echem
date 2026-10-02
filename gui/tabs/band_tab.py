@@ -71,6 +71,9 @@ class BandTab(QWidget):
         # The segment the USER chose, kept outside the combo so that
         # rebuilding it cannot forget. See _remember_segment.
         self._wanted_label = None
+        # Set by whichever plot was last drawn; appended to the status line
+        # by _append_sign_note. Never put on the figure.
+        self._sign_note = ""
         self._build()
 
     # --- layout ---------------------------------------------------------
@@ -260,8 +263,12 @@ class BandTab(QWidget):
     def on_save_figure(self):
         """Preview and save whatever this tab last plotted -- a single segment's
         band or the all-segment ladder, whichever is on screen."""
+        # The sign-flip note travels with the PROVENANCE stamp: on when that is on,
+        # absent when it is off. Shading with no caption is fine on screen, where
+        # the status line explains it, but a saved figure that will be stamped
+        # should carry its own explanation.
         open_figure_dialog(self, self.canvas, self.win, self._figure_basename(),
-                           "Save band figure")
+                           "Save band figure", note=self._sign_note or None)
 
     def _figure_basename(self):
         """Names WHICH plot it is. The two look nothing alike and answer different
@@ -343,6 +350,7 @@ class BandTab(QWidget):
         self._ladder = None
         self._showing = None
         self._wanted_label = None
+        self._sign_note = ""
         self._excluded = 0
         self._offscreen = 0
         self._clipped = 0
@@ -380,6 +388,7 @@ class BandTab(QWidget):
         self.status.setText(
             f"{label}:  " + self._summary_text(self._band.summary())
             + "   — from Fit all segments; Show all segments goes back")
+        self._append_sign_note()
         self.ladder_btn.setEnabled(True)
         self.save_btn.setEnabled(True)
         return True
@@ -415,6 +424,7 @@ class BandTab(QWidget):
         self._draw_one(label)
         self._fill_table(self._band.table())
         self.status.setText(f"{label}:  " + self._summary_text(self._band.summary()))
+        self._append_sign_note()
 
     def on_fit_all(self):
         """The SAME range on every segment. Cancellable: biexp across a hundred
@@ -567,15 +577,17 @@ class BandTab(QWidget):
         flagged = (frame["mixed_signs"].to_numpy(dtype=bool)
                    if "mixed_signs" in frame else np.zeros(len(frame), dtype=bool))
         runs = self._sign_runs(wl, ok & flagged)
-        note = ""
+        self._sign_note = ""
         if runs:
             spans = ", ".join(f"{lo:.0f}-{hi:.0f} nm" for lo, hi in runs)
-            note = f"{self.SIGN_NOTE}.  {int((ok & flagged).sum())} of " \
-                   f"{int(ok.sum())} fitted wavelengths: {spans}"
+            self._sign_note = (f"{self.SIGN_NOTE}: {int((ok & flagged).sum())} of "
+                               f"{int(ok.sum())} fitted wavelengths, {spans}")
         self.canvas.plot_multi_xy(
             series, "Wavelength (nm)", "tau (s)",
-            title=f"{label} — tau vs wavelength  ({model}, {self._window_text()})",
-            footnote=note)
+            title=f"{label} — tau vs wavelength  ({model}, {self._window_text()})")
+        # The shading STAYS here: on this plot it is spatial, showing WHERE in the
+        # band the competition is, which is the question the plot answers. Its
+        # explanation lives below the graph rather than on the figure.
         for lo, hi in runs:
             self.canvas.ax.axvspan(lo, hi, color=self.SIGN_SHADE,
                                    alpha=self.SIGN_ALPHA, zorder=0, lw=0)
@@ -706,15 +718,10 @@ class BandTab(QWidget):
                 ax.set_xlabel("potential the film was doped to (V)")
 
         fig.tight_layout()
-        if sign_notes:
-            # On the figure, not only in the status line: the status does not travel
-            # with an exported figure, and this is the plot's own caveat.
-            #
-            # AFTER tight_layout, not before: _layout_footnote reserves a band at the
-            # bottom, and a tight_layout() afterwards discards that reservation and
-            # drops the text on top of the x-axis label.
-            self.canvas._draw_footnote(
-                f"{self.SIGN_NOTE}.  " + ";  ".join(sign_notes))
+        # Below the graph, never ON it: this is a prompt to the scientist to go and
+        # look, not a caption the saved figure should carry (asked for directly).
+        self._sign_note = (f"{self.SIGN_NOTE}: " + ";  ".join(sign_notes)
+                           if sign_notes else "")
         self.canvas.draw_idle()
         # This plot is composed on the figure directly -- its own subplots, strips
         # and whiskers -- so no draw method recorded it and Save figure wrote
@@ -723,6 +730,16 @@ class BandTab(QWidget):
         self.canvas.record_draw(self._draw_ladder, self._ladder_frame)
         self._offscreen = offscreen
         self._note_plot_limits()
+
+    def _append_sign_note(self):
+        """Put the competing-processes note BELOW the graph.
+
+        Not on the figure: a saved plot should not carry it (asked for directly),
+        and this is a prompt to go and look rather than a caption.
+        """
+        if self._sign_note:
+            self.status.setText(self.status.text().rstrip(".")
+                                + ".  " + self._sign_note + ".")
 
     def _note_plot_limits(self):
         """Say what the plot is not showing. A point removed by a range or pushed
@@ -739,6 +756,7 @@ class BandTab(QWidget):
         if notes:
             self.status.setText(self.status.text().rstrip(".")
                                 + ".  Not shown: " + "; ".join(notes) + ".")
+        self._append_sign_note()
 
     def _redraw_ladder(self):
         """The range and the axis scale change the VIEW, so redraw without refitting.
@@ -750,19 +768,15 @@ class BandTab(QWidget):
             self._draw_ladder()
 
     def _shade_sign_flips(self, ax, entries, xs, direction):
-        """Shade the rungs where most fitted wavelengths have opposite-sign
-        prefactors, and return a note per shaded rung.
+        """Count, per rung, how many fitted wavelengths have opposite-sign
+        prefactors. Returns one note per rung that has any.
 
-        Majority, not "any": a handful of marginal wavelengths flip at almost every
-        potential, and shading those would tint the whole plot and say nothing. The
-        COUNT goes in the footnote at every rung that has any, so the threshold
-        cannot hide a number.
+        NOT shaded. Shading reads as spatial, and on a plot whose x is potential it
+        was only a distracting backdrop (2026-10-01) -- unlike the single-segment
+        plot, where it marks WHERE in the band the competition is. The counts go
+        below the graph instead, to prompt a look rather than decorate the figure.
         """
         notes = []
-        if len(xs) > 1:
-            half = float(np.min(np.diff(np.sort(xs)))) / 2.0
-        else:
-            half = 0.05
         for j, (_lbl, _pot, _dir, band) in enumerate(entries):
             frame = band.table()
             if "mixed_signs" not in frame:
@@ -773,9 +787,6 @@ class BandTab(QWidget):
                 continue
             notes.append(f"{direction} {xs[j]:+.2f} V: {int(flagged.sum())}/"
                          f"{int(ok.sum())}")
-            if flagged.sum() * 2 > ok.sum():
-                ax.axvspan(xs[j] - half, xs[j] + half, color=self.SIGN_SHADE,
-                           alpha=self.SIGN_ALPHA, zorder=0, lw=0)
         return notes
 
     def _strip(self, ax, entries, xs, model, column=None):
