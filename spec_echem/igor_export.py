@@ -23,6 +23,11 @@ import numpy as np
 # everywhere is worth more than a few characters of fidelity.
 MAX_NAME = 31
 
+# Igor takes 16-bit colour components. Blue for data and red for the fit, matching
+# the matplotlib figure these numbers came from.
+RGB_FIT = "65535,0,0"
+RGB_SERIES = ("0,0,65535", "0,39168,0", "65535,32768,0", "39168,0,39168")
+
 
 def wave_name(text, used=None):
     """A legal, unique Igor wave name from arbitrary column text.
@@ -104,10 +109,18 @@ def write_itx(path, waves, display=None, title=None, notes=(),
             # This is the one styling liberty taken, and only because points-for-data
             # and a line-for-fit is not a convention anyone has to be asked about.
             # Everything else is left to Igor on purpose.
-            for name in ys:
+            for i, name in enumerate(ys):
                 is_fit = name.lower().endswith("_fit") or name.lower() == "fit"
-                lines.append(f"X ModifyGraph mode({name})={0 if is_fit else 3}"
-                             + ("" if is_fit else f",marker({name})=19,msize({name})=2"))
+                mode = 0 if is_fit else 3
+                # A COLOUR per trace. Without one Igor draws them all the same and
+                # the fit is indistinguishable from the data it runs through --
+                # seen in Igor 2026-10-02. Blue data, red fit, matching the figure
+                # these numbers came from so the two are recognisably the same plot.
+                rgb = RGB_FIT if is_fit else RGB_SERIES[i % len(RGB_SERIES)]
+                parts = [f"mode({name})={mode}", f"rgb({name})=({rgb})"]
+                if not is_fit:
+                    parts += [f"marker({name})=19", f"msize({name})=2"]
+                lines.append("X ModifyGraph " + ",".join(parts))
             # Axis labels are DATA, not decoration: a bare number axis makes the
             # reader guess at seconds versus nanometres.
             if xlabel:
@@ -115,8 +128,11 @@ def write_itx(path, waves, display=None, title=None, notes=(),
             if ylabel:
                 lines.append(f'X Label left "{_escape(ylabel)}"')
             if title:
-                lines.append(
-                    f'X TextBox/C/N=title/F=0/A=MT "{_escape(title)}"')
+                # The WINDOW's title, not a TextBox in the plot area. A TextBox
+                # anchored middle-top is drawn INSIDE the axes and landed on the
+                # data (Igor, 2026-10-02); the window title cannot collide with
+                # anything, and Igor's own default there is just the wave names.
+                lines.append(f'X DoWindow/T kwTopWin, "{_escape(title)}"')
 
     text = "\n".join(lines) + "\n"
     # \r\n: Igor on Windows is the common case and tolerates it on macOS, where a
