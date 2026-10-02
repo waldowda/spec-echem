@@ -201,8 +201,13 @@ column (longest command 75 chars, against the 14 KB a single 721-trace `Display`
 would have been -- which is why it was thinned in the first place). Real CV: 12.1 MB,
 0.4 s. `SPECTRA_TRACES` survives as an escape-hatch cap, defaulting to None.
 
-**Still open there:** the spectra plot has no CSV (`_csv is None` in the figure
-dialog, so the button is hidden) -- the matrix could feed one, and probably should.
+**Also 2026-10-02:** the spectra plot's CSV button is no longer masked. It had been
+hidden on the grounds that the block is already on disk as .h5 and .txt, but that is
+not the same numbers -- the CSV is what the FIGURE shows, after any wavelength
+window. The block is widened by `FigureDialog._table()`: wavelength down column 1,
+one column per time, with a header line saying so because a wide table is not
+self-describing. A real CV is 1261 x 722 and 18.1 MB; that size is the user's call at
+save time, not ours at build time.
 
 **THE EFFICIENT NEXT STEP, offered 2026-10-02:** Dean formats one graph in Igor the
 way he would want it and hands over the COMMAND HISTORY. That is worth more than any
