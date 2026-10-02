@@ -102,12 +102,17 @@ class FigureDialog(QDialog):
     """
 
     def __init__(self, parent, canvas, draw, title="Save figure",
-                 csv=None, basename="figure", out_dir=None, run_id=None):
+                 csv=None, basename="figure", out_dir=None, run_id=None,
+                 note=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
         self._canvas, self._draw, self._csv = canvas, draw, csv
         self._basename, self._out_dir, self._run_id = basename, out_dir, run_id
+        # A caveat the PLOT wants to carry, e.g. what shading on it means. Rides
+        # with the provenance stamp rather than being its own control: both are
+        # prose about the figure, and both are unwanted in a journal submission.
+        self._note = note
         self._fig = None
         self._preview = None
         self._build()
@@ -175,7 +180,8 @@ class FigureDialog(QDialog):
         if not self.provenance_check.isChecked():
             return None
         parts = [p for p in (self._run_id, f"spec-echem {build_id()}") if p]
-        return " · ".join(parts)
+        stamp = " · ".join(parts)
+        return f"{stamp}\n{self._note}" if self._note else stamp
 
     def _render(self, *_):
         size, pt = self.preset_combo.currentData()
@@ -289,7 +295,8 @@ def save_figure(canvas, draw, path, preset=DEFAULT_PRESET, dpi=300,
     return written
 
 
-def open_figure_dialog(parent, canvas, win, basename, title="Save figure"):
+def open_figure_dialog(parent, canvas, win, basename, title="Save figure",
+                       note=None):
     """Open the preview for whatever `canvas` last drew.
 
     The one entry point the tabs use, so the five save buttons cannot drift apart.
@@ -310,6 +317,7 @@ def open_figure_dialog(parent, canvas, win, basename, title="Save figure"):
         csv=(lambda: canvas.last_data()) if frame is not None else None,
         basename=basename,
         out_dir=(run_folder / "figures") if run_folder is not None else None,
-        run_id=run_folder.name if run_folder is not None else None)
+        run_id=run_folder.name if run_folder is not None else None,
+        note=note)
     dialog.exec_() if hasattr(dialog, "exec_") else dialog.exec()
     return dialog
