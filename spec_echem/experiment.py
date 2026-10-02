@@ -95,7 +95,8 @@ def build_segments(settings):
 
 
 def run_one_segment(spec, segment, dark, ref, wavelengths,
-                    data_root, added_path, abort_event=None, potentiostat=None):
+                    data_root, added_path, abort_event=None, potentiostat=None,
+                    settings=None):
     """
     Acquire one segment, compute absorbance, and write the data file.
 
@@ -151,15 +152,25 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
                               segment.label)
         return absorb_df, None
 
-    path = write_spectra_file(
-        absorb_df, spectra, dark, ref, wavelengths, timestamps,
-        segment.data_type, segment.run_number, data_root, added_path,
-    )
+    # Which formats to write. Taken from the run's settings, falling back to the
+    # potentiostat's -- External mode has no potentiostat settings at all, and that
+    # is the mode most runs use, so the preference must not hang off it.
+    file_settings = settings or getattr(potentiostat, "settings", None) or {}
+    fmt = file_settings.get("data_format", "h5+ascii")
+    write_ascii = fmt in ("h5+ascii", "ascii")
+    write_h5 = fmt in ("h5+ascii", "h5")
+
+    path = None
+    if write_ascii:
+        path = write_spectra_file(
+            absorb_df, spectra, dark, ref, wavelengths, timestamps,
+            segment.data_type, segment.run_number, data_root, added_path,
+        )
 
     # Python mode: write the echem data (current/potential) captured during the
     # segment next to the spectra. External/None has no data — this is a no-op.
     echem = potentiostat.last_data() if potentiostat is not None else None
-    if echem is not None:
+    if echem is not None and write_ascii:
         write_echem_file(echem, segment.data_type, segment.run_number,
                          data_root, added_path)
 
@@ -175,6 +186,8 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
     # worker's potential log line uses. External mode has none -- the .GSequence sets
     # the potentials there -- so potential_set is simply absent, which is honest.
     pot_settings = getattr(potentiostat, "settings", None) or {}
+    if not write_h5:
+        return absorb_df, path
     try:
         write_segment_h5(
             absorb_df, spectra, dark, ref, wavelengths, timestamps, echem,
