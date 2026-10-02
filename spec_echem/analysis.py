@@ -183,7 +183,11 @@ def mean_relaxation_time(model, params):
 # at 381 nm on 20260709_P3HT_01, against 41250 at 780 nm. Requested: "there should be no
 # data below 410 nm or so." Pixels outside the window never win the selection.
 ANALYSIS_WL_MIN = 410.0
-ANALYSIS_WL_MAX = None
+# The optics are specified 300-1100 nm; the detector reports further, and the
+# crop keeps a pixel or two past the edge. Guarding only the BLUE end was an
+# asymmetry, not a decision: the comment on ANALYSIS_WL_MIN names exactly the
+# failure that then happened at the red end (2026-10-01).
+ANALYSIS_WL_MAX = 1100.0
 
 
 def auto_wavelengths(absorbance, wavelengths, early=0, late=-1,
@@ -246,7 +250,77 @@ def auto_wavelengths(absorbance, wavelengths, early=0, late=-1,
     # same sign -- 0.0 beats any positive value at argmin.
     grows = np.where(keep, delta, -np.inf)
     bleaches = np.where(keep, delta, np.inf)
-    return float(wl[int(np.argmax(grows))]), float(wl[int(np.argmin(bleaches))])
+    return (float(wl[_band_extremum(grows, keep)]),
+            float(wl[_band_extremum(-bleaches, keep)]))
+
+
+# A peak has to stand this far above its surroundings, as a fraction of the whole
+# spread of dA, before it counts as a band rather than a wiggle. dA is a single
+# difference of two spectra, so it carries the full single-shot noise.
+PEAK_PROMINENCE_FRACTION = 0.05
+
+
+def _band_extremum(signal, keep):
+    """Index of the strongest PEAK in `signal`, or its global argmax if it has none.
+
+    A band has a maximum; a tail does not. Reported from the bench 2026-10-01: at
+    +0.80 V the NIR rises monotonically to the edge of the detector, so a plain
+    argmax walked to the last pixel -- dA ~0.30 there against ~0.26 at the real
+    polaron band, with ten times the noise. Capping the window alone does not help,
+    because the argmax then simply sits at the cap; what separates a band from a
+    tail is having a peak at all.
+
+    Falls back to the global argmax when nothing is prominent enough, so data with
+    one broad feature and no structure behaves exactly as it did before.
+    """
+    from scipy.ndimage import uniform_filter1d
+    from scipy.signal import find_peaks
+
+    finite = signal[np.isfinite(signal)]
+    if finite.size < 3:
+        return int(np.argmax(signal))
+    spread = float(np.nanmax(finite) - np.nanmin(finite))
+    if spread <= 0:
+        return int(np.argmax(signal))
+
+    # -inf breaks find_peaks; park excluded pixels at the floor so they neither
+    # form a peak nor shoulder one.
+    y = np.where(np.isfinite(signal), signal, float(np.nanmin(finite)))
+
+    # SMOOTHED before peaks are looked for. dA is a difference of two single
+    # spectra, so it carries the full single-shot noise, and in the NIR -- where
+    # silicon is running out of quantum efficiency -- that noise makes peaks of its
+    # own that clear any prominence bar set against the overall spread. Measured:
+    # without this the rule still picked 1089 nm out of a rising tail. The window is
+    # a few nm, far narrower than any absorption band and far wider than the
+    # pixel-to-pixel noise it is there to remove.
+    window = max(5, len(y) // 64)
+    smooth = uniform_filter1d(y, size=window, mode="nearest")
+
+    peaks, _props = find_peaks(smooth,
+                               prominence=PEAK_PROMINENCE_FRACTION * spread)
+    # A peak needs real data on BOTH sides. Excluded pixels are floored, so a tail
+    # rising into the mask goes up, up, then falls off a cliff -- which manufactures
+    # a maximum exactly at the boundary, and the rule would then select the thing it
+    # exists to avoid. Measured: without this, a monotonic NIR tail "peaked" at
+    # 1094 nm, one smoothing window inside the 1100 nm cap.
+    edge = np.flatnonzero(keep)
+    if edge.size == 0:
+        return int(np.argmax(signal))
+    first, last = int(edge[0]), int(edge[-1])
+    guard = window
+    peaks = [i for i in peaks
+             if keep[i] and first + guard <= i <= last - guard]
+    if not peaks:
+        return int(np.argmax(signal))
+    # The smoothed peak locates the BAND; the reported wavelength is the best pixel
+    # within it, so the answer still lands on a measured maximum.
+    best = int(max(peaks, key=lambda i: smooth[i]))
+    lo, hi = max(0, best - window), min(len(y), best + window + 1)
+    local = np.where(keep[lo:hi], y[lo:hi], -np.inf)
+    if not np.any(np.isfinite(local)):
+        return best
+    return int(lo + np.argmax(local))
 
 
 # A pixel whose change is under this many times its own noise is not a measurement
