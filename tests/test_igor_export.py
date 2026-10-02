@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from spec_echem.igor_export import MAX_NAME, frame_to_itx, wave_name, write_itx
+from spec_echem.igor_export import (MAX_NAME, frame_to_itx, spectra_to_itx,
+                                    wave_name, write_itx)
 
 
 def parse_itx(text):
@@ -24,12 +25,18 @@ def parse_itx(text):
         line = lines[i]
         if line.startswith("WAVES"):
             name = line.split("\t")[-1]
+            # N=(rows) or N=(rows,cols) -- a 2-D wave writes one ROW per line, which
+            # is why this splits on tabs rather than calling float() on the line.
+            shape = tuple(int(n) for n in
+                          line[line.index("N=(") + 3:line.index(")")].split(","))
             assert lines[i + 1] == "BEGIN"
-            values, i = [], i + 2
+            rows, i = [], i + 2
             while lines[i] != "END":
-                values.append(float(lines[i].strip()))
+                rows.append([float(v) for v in lines[i].strip().split("\t")])
                 i += 1
-            waves[name] = np.array(values)
+            block = np.array(rows)
+            waves[name] = block.reshape(-1) if block.shape[1] == 1 else block
+            assert waves[name].shape == shape, f"{name} declared {shape}"
         elif line.startswith("X "):
             commands.append(line[2:])
         i += 1
@@ -303,3 +310,95 @@ def test_the_symbols_match_the_figure(tmp_path):
     _waves, commands = parse_itx(path.read_text())
     assert any(f"msize(seg_y)={MARKER_SIZE}" in c for c in commands), commands
     assert any(f"lsize(seg_fit)={FIT_WIDTH}" in c for c in commands), commands
+
+
+# ---------------------------------------------------------------------------
+# The spectra block: wavelength x time
+# ---------------------------------------------------------------------------
+
+def spectra_frame(n_wl=40, n_t=721):
+    """A block shaped like a real CV: many more times than a fan would show."""
+    wl = np.linspace(400.0, 1100.0, n_wl)
+    t = np.round(np.arange(n_t) * 0.1, 3)
+    # Absorbance that rises then falls, so the LAST spectrum resembles the first --
+    # as it does in a CV, where the sweep returns to where it started.
+    ramp = 1.0 - np.abs(np.linspace(-1.0, 1.0, n_t))
+    return pd.DataFrame(np.outer(np.exp(-((wl - 520.0) / 90.0) ** 2), ramp),
+                        index=wl, columns=t)
+
+
+def test_every_spectrum_is_exported_not_a_thinned_fan(tmp_path):
+    """The figure draws all 721 spectra as a dense band. An export that keeps 25 of
+    them is a different plot -- which is what it looked like in Igor (2026-10-02)."""
+    frame = spectra_frame()
+    path = tmp_path / "cv.itx"
+    spectra_to_itx(path, frame, "cv_spectra")
+    waves, _ = parse_itx(path.read_text())
+    assert waves["cv_spectra_a"].shape == frame.shape
+    assert waves["cv_spectra_t"].size == frame.shape[1] == 721
+
+
+def test_the_block_round_trips(tmp_path):
+    frame = spectra_frame(n_wl=12, n_t=30)
+    path = tmp_path / "cv.itx"
+    spectra_to_itx(path, frame, "cv_spectra")
+    waves, _ = parse_itx(path.read_text())
+    assert np.allclose(waves["cv_spectra_a"], frame.to_numpy(), rtol=1e-6)
+    assert np.allclose(waves["cv_spectra_wl"], frame.index.values)
+    assert np.allclose(waves["cv_spectra_t"], frame.columns.values)
+
+
+def test_every_column_reaches_the_graph_and_gets_its_own_colour(tmp_path):
+    frame = spectra_frame(n_wl=8, n_t=50)
+    path = tmp_path / "cv.itx"
+    spectra_to_itx(path, frame, "cv_spectra")
+    _, commands = parse_itx(path.read_text())
+    plotted = [c for c in commands
+               if c.startswith("Display ") or c.startswith("AppendToGraph ")]
+    assert len(plotted) == 50
+    # Igor names the first trace after the wave and the rest wave#1, wave#2, ...
+    coloured = [c for c in commands if c.startswith("ModifyGraph rgb(")]
+    targets = [c[len("ModifyGraph rgb("):c.index(")")] for c in coloured]
+    assert targets == ["cv_spectra_a"] + [f"cv_spectra_a#{j}" for j in range(1, 50)]
+
+
+def test_no_command_is_longer_than_igor_will_take(tmp_path):
+    """The reason the block is one 2-D wave: a single Display naming 721 traces is a
+    14 KB command line, past what Igor accepts. 400 is the most conservative limit."""
+    path = tmp_path / "cv.itx"
+    spectra_to_itx(path, spectra_frame(), "cv_spectra")
+    _, commands = parse_itx(path.read_text())
+    longest = max(commands, key=len)
+    assert len(longest) <= 400, longest
+
+
+def test_a_gap_in_the_block_survives(tmp_path):
+    frame = spectra_frame(n_wl=6, n_t=10)
+    frame.iloc[2, 3] = np.nan
+    path = tmp_path / "cv.itx"
+    spectra_to_itx(path, frame, "cv_spectra")
+    waves, _ = parse_itx(path.read_text())
+    assert np.isnan(waves["cv_spectra_a"][2, 3])
+    assert np.isfinite(waves["cv_spectra_a"]).sum() == frame.size - 1
+
+
+def test_the_cap_still_thins_and_keeps_both_ends(tmp_path):
+    frame = spectra_frame(n_wl=6, n_t=721)
+    path = tmp_path / "cv.itx"
+    spectra_to_itx(path, frame, "cv_spectra", traces=25)
+    waves, _ = parse_itx(path.read_text())
+    assert waves["cv_spectra_a"].shape == (6, 25)
+    assert waves["cv_spectra_t"][0] == frame.columns[0]
+    assert waves["cv_spectra_t"][-1] == frame.columns[-1]
+
+
+def test_the_axes_and_title_are_set(tmp_path):
+    path = tmp_path / "cv.itx"
+    spectra_to_itx(path, spectra_frame(n_wl=5, n_t=4), "cv_spectra",
+                   title='CV  (-0.499 to +0.699 V)',
+                   xlabel="Wavelength (nm)", ylabel="Absorbance")
+    _, commands = parse_itx(path.read_text())
+    assert 'Label bottom "Wavelength (nm)"' in commands
+    assert 'Label left "Absorbance"' in commands
+    assert any(c.startswith("DoWindow/T kwTopWin") and "+0.699 V" in c
+               for c in commands)

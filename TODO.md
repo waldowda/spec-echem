@@ -193,6 +193,17 @@ answers a different question than the plot being exported.
       segment, for an image or waterfall. Worth bringing back as a SEPARATE option
       if Igor's image tools get used; git has it.
 
+**Fixed 2026-10-02:** the spectra export wrote 25 evenly spaced curves, not all of
+them. On a 721-spectrum CV that is a sparse fan where the figure is a dense band --
+visibly a different plot. It now writes the whole block as ONE 2-D wave plus a
+wavelength and a time wave, and puts it on a graph with one `AppendToGraph` per
+column (longest command 75 chars, against the 14 KB a single 721-trace `Display`
+would have been -- which is why it was thinned in the first place). Real CV: 12.1 MB,
+0.4 s. `SPECTRA_TRACES` survives as an escape-hatch cap, defaulting to None.
+
+**Still open there:** the spectra plot has no CSV (`_csv is None` in the figure
+dialog, so the button is hidden) -- the matrix could feed one, and probably should.
+
 **THE EFFICIENT NEXT STEP, offered 2026-10-02:** Dean formats one graph in Igor the
 way he would want it and hands over the COMMAND HISTORY. That is worth more than any
 amount of reading: it gives the exact commands, in his conventions, for the plot that
