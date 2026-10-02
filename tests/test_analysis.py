@@ -921,3 +921,127 @@ def test_a_fitted_biexp_always_reports_tau1_faster_than_tau2():
         assert result.params[2] <= result.params[4], (
             f"tau1={result.params[2]:.3g} > tau2={result.params[4]:.3g}")
     assert checked > 20, "too few fits converged for this to prove anything"
+
+
+# 2026-10-01, reported from the bench: "for segment doping 7 (0.8 V), what is
+# happening around 813 nm" -- a stretched band fit collapsed to <tau> = 0 with
+# beta ~ 0.66 at three pixels while its neighbours 1 nm away were a smooth 0.31 s,
+# and the collapsed points were drawn as PASSING. There was a guard on tau being too
+# long for the window but none on it being shorter than the sampling interval, and a
+# tau at curve_fit's 1e-9 floor passes every other check: positive, far below the
+# window, and a tiny tau carries a tiny SD.
+
+def test_a_tau_below_the_sampling_interval_is_flagged_not_passed():
+    """Constructed to force the degenerate branch, which is what a single-component
+    model does when it cannot represent the data -- NOT a claim about the bench case,
+    where the data is real (a fast transition then a slow leak into the bipolaron)
+    and it is the stretched model that cannot hold two components."""
+    from spec_echem.analysis import fit_transient, mean_relaxation_time
+
+    rng = np.random.default_rng(0)
+    t = np.arange(0.0, 61.0, 0.1)                 # 100 ms, as the rig samples
+    y = np.full(t.size, 0.50) + rng.normal(0, 3e-4, t.size)
+    y[0] += 0.08
+
+    for model in ("exp", "stretched"):
+        result = fit_transient(t, y, model)
+        assert result.params is not None, "it converged; that is the problem"
+        assert result.tau < 0.1
+        assert not result.ok, f"{model}: a sub-sample tau was reported as a good fit"
+        assert "sampling interval" in result.reason
+        # Still reported, with its numbers -- flagged, not withheld.
+        assert np.isfinite(mean_relaxation_time(model, result.params))
+
+
+def test_a_decay_slower_than_the_sampling_is_untouched():
+    from spec_echem.analysis import fit_transient
+
+    rng = np.random.default_rng(1)
+    t = np.arange(0.0, 61.0, 0.1)
+    # Comfortably above the 0.1 s floor. Right AT it a fit is genuinely marginal --
+    # tau = 0.15 s leaves about two points on the decay, and the optimizer does
+    # sometimes take the degenerate branch there, which is the case the guard exists
+    # to catch rather than a shortcoming of it.
+    for tau in (0.5, 1.0, 5.0):
+        y = 0.1 + 0.3 * np.exp(-t / tau) + rng.normal(0, 3e-4, t.size)
+        result = fit_transient(t, y, "exp")
+        assert result.ok, f"tau={tau} s was flagged: {result.reason}"
+        assert result.tau == pytest.approx(tau, rel=0.05)
+
+
+def test_the_floor_follows_the_sampling_interval():
+    """The same tau is measurable at 10 ms sampling and not at 1 s."""
+    from spec_echem.analysis import fit_transient
+
+    rng = np.random.default_rng(2)
+    tau = 0.3
+    fine = np.arange(0.0, 61.0, 0.01)
+    coarse = np.arange(0.0, 61.0, 1.0)
+    for t, expected_ok in ((fine, True), (coarse, False)):
+        y = 0.1 + 0.3 * np.exp(-t / tau) + rng.normal(0, 3e-4, t.size)
+        result = fit_transient(t, y, "exp")
+        assert result.ok is expected_ok, (
+            f"dt={np.median(np.diff(t)):g} s, tau={tau} s: ok={result.ok} "
+            f"({result.reason})")
+
+
+
+def test_a_mean_relaxation_time_beyond_the_window_is_flagged():
+    """The window check was on the raw tau. For a stretched exponential the
+    quantity the band ladder PLOTS is <tau> = (tau/beta)*gamma(1/beta), which runs
+    far above tau as beta falls -- so a fit could report a mean relaxation time 50x
+    the measurement and pass every guard.
+
+    Two-component data is the case that provokes it, and is also the case the bench
+    hit: a single stretched exponential cannot represent a fast transition followed
+    by a slow leak, so it takes a degenerate branch.
+    """
+    from spec_echem.analysis import fit_transient, mean_relaxation_time
+
+    rng = np.random.default_rng(0)
+    t = np.arange(0.0, 61.0, 0.1)
+    y = (0.10
+         + 0.25 * (1 - np.exp(-t / 0.3))          # fast transition
+         + 0.12 * (1 - np.exp(-t / 20.0))         # slow leak
+         + rng.normal(0, 3e-4, t.size))
+
+    stretched = fit_transient(t, y, "stretched")
+    assert stretched.params is not None, "it converged; that is the problem"
+    assert mean_relaxation_time("stretched", stretched.params) > 10 * 61.0
+    assert not stretched.ok
+    assert "mean relaxation time" in stretched.reason
+
+    # The two-component model handles the same data without complaint, which is the
+    # point: the guard is steering toward the right model, not condemning the data.
+    biexp = fit_transient(t, y, "biexp")
+    assert biexp.ok, biexp.reason
+    assert mean_relaxation_time("biexp", biexp.params) < 61.0
+
+
+# 2026-10-01, reported from use: "there must be a difference in fitting for tab 5 vs
+# 6, as when I fit individual WLs it seems to fit well through that WL range." There
+# is not. This pins that, so if the two ever do diverge it is a test failure rather
+# than an afternoon of comparing plots.
+
+def test_the_band_fit_and_the_single_fit_agree_wavelength_by_wavelength():
+    from spec_echem.analysis import fit_band, fit_transient
+
+    rng = np.random.default_rng(0)
+    t = np.arange(0.0, 61.0, 0.1)
+    wl = np.linspace(780.0, 820.0, 41)
+    # A fast transition plus a slow leak, which is what the segment in question does.
+    band = np.array([0.10 + 0.25 * (1 - np.exp(-t / (0.25 + 0.002 * i)))
+                     + 0.12 * (1 - np.exp(-t / 20.0)) + rng.normal(0, 3e-4, t.size)
+                     for i in range(wl.size)])
+
+    for model in ("exp", "biexp", "stretched"):
+        banded = fit_band(band, wl, t, 780.0, 820.0, model=model)
+        for i in range(wl.size):
+            single = fit_transient(t, band[i, :], model)
+            paired = banded.results[i]
+            assert single.ok == paired.ok, f"{model} @ {wl[i]:.1f} nm: ok differs"
+            assert (single.params is None) == (paired.params is None)
+            if single.params is not None:
+                np.testing.assert_allclose(
+                    single.params, paired.params, rtol=0, atol=0,
+                    err_msg=f"{model} @ {wl[i]:.1f} nm")
