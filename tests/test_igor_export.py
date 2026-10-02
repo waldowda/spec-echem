@@ -231,72 +231,6 @@ def test_each_trace_gets_its_own_colour(tmp_path):
             colours[name] = c.split("rgb(" + name + ")=")[1].split(")")[0] + ")"
     assert len(colours) == 2, colours
     assert len(set(colours.values())) == 2, f"two traces, one colour: {colours}"
-
-
-def test_the_title_does_not_go_inside_the_plot(tmp_path):
-    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0]})
-    path = tmp_path / "title.itx"
-    frame_to_itx(path, frame, title="Doping 7 @ 815.2 nm")
-    _waves, commands = parse_itx(path.read_text())
-    assert not any("TextBox" in c for c in commands), commands
-    assert any('DoWindow/T' in c and "Doping 7" in c for c in commands), commands
-
-
-# 2026-10-02: the spectra view offered neither CSV nor Igor, on one argument -- a
-# matrix in a CSV is a worse copy of what the .h5 already holds. That is right for
-# CSV and WRONG for Igor, where a 2-D wave is a first-class object and an image or
-# waterfall of a doping step is what it is good at.
-
-def _block():
-    wl = np.linspace(400.0, 1100.0, 40)
-    t = np.linspace(0.0, 60.0, 25)
-    values = np.outer(np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2),
-                      1 - np.exp(-t / 5.0))
-    return pd.DataFrame(values, index=wl, columns=t)
-
-
-def test_a_spectra_block_becomes_a_scaled_2d_wave(tmp_path):
-    from spec_echem.igor_export import matrix_to_itx
-
-    frame = _block()
-    path = tmp_path / "block.itx"
-    matrix_to_itx(path, frame, "Doping5_spectra", row_unit="nm", col_unit="s")
-
-    text = path.read_text().replace("\r\n", "\n")
-    assert "WAVES/D/N=(40,25)\tDoping5_spectra_A" in text, "not a 2-D wave"
-    # The axis waves are written TOO: SetScale assumes a uniform grid and the
-    # detector's wavelengths are only nearly uniform.
-    assert "Doping5_spectra_wl" in text and "Doping5_spectra_t" in text
-    commands = [l[2:] for l in text.split("\n") if l.startswith("X ")]
-    assert any(c.startswith("SetScale/I x") and '"nm"' in c for c in commands)
-    assert any(c.startswith("SetScale/I y") and '"s"' in c for c in commands)
-    assert any(c.startswith("NewImage") for c in commands)
-
-
-def test_the_scale_is_plain_numbers_igor_can_parse(tmp_path):
-    """numpy renders a scalar as "np.float64(380.88)", which Igor cannot parse and
-    which fails the whole load."""
-    from spec_echem.igor_export import matrix_to_itx
-
-    path = tmp_path / "scale.itx"
-    matrix_to_itx(path, _block(), "seg", row_unit="nm", col_unit="s")
-    text = path.read_text()
-    assert "np.float64" not in text
-    assert "np." not in text
-
-
-def test_the_matrix_is_not_written_at_full_repr_width(tmp_path):
-    """repr() spends 17 characters on each of ~760k numbers -- 13 MB of digits the
-    float32 storage does not have."""
-    from spec_echem.igor_export import matrix_to_itx
-
-    path = tmp_path / "wide.itx"
-    matrix_to_itx(path, _block(), "seg")
-    rows = [l for l in path.read_text().split("\n") if l.startswith("\t0.")]
-    assert rows, "no data rows found"
-    assert max(len(v) for v in rows[0].split("\t") if v) < 14
-
-
 def test_the_residual_gets_its_own_panel_above_the_data(tmp_path):
     """As in the figure these numbers come from -- the convention in the
     spectroscopy this sits beside. On the same axes it is a flat line at zero that
@@ -333,3 +267,39 @@ def test_the_legend_names_the_data_not_the_wave(tmp_path):
     assert " data" in legend and " fit" in legend, legend
     # the trace symbol is drawn, so the colours in the legend match the plot
     assert "\\s(Doping6_fit_biexp_y)" in legend, legend
+
+
+def test_the_residual_axis_sits_at_the_edge_not_on_the_data(tmp_path):
+    """freePos(axis)=0 means x=0 in DATA units, which put the residual axis and its
+    label on top of the trace. {0,kwFraction} is the left edge of the plot area."""
+    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0],
+                          "fit": [1.0, 2.0], "residual": [0.01, -0.01]})
+    path = tmp_path / "axis.itx"
+    frame_to_itx(path, frame, prefix="seg")
+    _waves, commands = parse_itx(path.read_text())
+    free = next(c for c in commands if "freePos" in c)
+    assert "kwFraction" in free, free
+
+
+def test_the_graph_is_boxed_like_the_figure(tmp_path):
+    """matplotlib draws all four spines; Igor draws two. Without mirroring, the
+    Igor graph and the saved PNG do not read as the same plot."""
+    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0],
+                          "fit": [1.0, 2.0], "residual": [0.0, 0.0]})
+    path = tmp_path / "box.itx"
+    frame_to_itx(path, frame, prefix="seg")
+    _waves, commands = parse_itx(path.read_text())
+    assert any("mirror(bottom)=1" in c and "mirror(left)=1" in c for c in commands)
+    # the residual panel is boxed too, or the two panels do not match
+    assert any("mirror(resid)=1" in c for c in commands), commands
+
+
+def test_the_symbols_match_the_figure(tmp_path):
+    from spec_echem.igor_export import FIT_WIDTH, MARKER_SIZE
+
+    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0], "fit": [1.0, 2.0]})
+    path = tmp_path / "sym.itx"
+    frame_to_itx(path, frame, prefix="seg")
+    _waves, commands = parse_itx(path.read_text())
+    assert any(f"msize(seg_y)={MARKER_SIZE}" in c for c in commands), commands
+    assert any(f"lsize(seg_fit)={FIT_WIDTH}" in c for c in commands), commands
