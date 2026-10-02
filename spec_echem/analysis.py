@@ -29,6 +29,26 @@ FIT_SD_REJECT_FRACTION = 0.5
 # 10x the window is generous: a decay that slow is 5% complete by the end.
 FIT_MAX_TAU_SPANS = 10.0
 
+# ...and the same argument at the other end, which was missing. A tau SHORTER than
+# the interval between samples cannot be measured from those samples: at tau = dt a
+# decay is 63% finished before the second point exists. curve_fit will happily park
+# tau at its TAU_MIN floor of 1e-9 s, and such a fit passes every other check --
+# tau > 0, far below the window, and a tiny tau carries a tiny SD so the uncertainty
+# test is satisfied too.
+#
+# Seen on the bench 2026-10-01: a stretched fit of Doping 7 collapsed to <tau> = 0
+# with beta ~ 0.66 at three pixels around 813.5-814.8 nm and was drawn as a passing
+# point, while its neighbours 1 nm away were a smooth 0.31 s. The DATA there is
+# real -- a fast transition followed by a slow leak into the bipolaron -- and a
+# single stretched exponential cannot represent two components, so the optimizer
+# takes a degenerate branch. Which branch varies: tau to the floor at those pixels,
+# and tau to 1e14 on synthetic data of the same shape. Either way the number is not
+# a relaxation time, and the guards exist to say so rather than to judge the data.
+#
+# 1.0 is deliberately permissive: the job is to catch tau heading for zero, not to
+# police marginal fits. A flagged fit is still shown with its numbers.
+FIT_MIN_TAU_SAMPLES = 1.0
+
 
 # --- the models -------------------------------------------------------------
 # Same three Raj's banded_fits offers, so a fit done here and one done in Jupyter
@@ -651,6 +671,24 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
             result,
             f"tau ({tau:.3g} s) exceeds {FIT_MAX_TAU_SPANS:g}x the {span:.3g} s "
             f"window - not measurable from it")
+    dt = float(np.median(np.diff(t))) if len(t) > 1 else 0.0
+    if dt > 0 and tau < FIT_MIN_TAU_SAMPLES * dt:
+        return _rejected(
+            result,
+            f"tau ({tau:.3g} s) is below the {dt:.3g} s sampling interval - "
+            f"not measurable from it")
+    # The window check above is on the raw tau. For a stretched exponential the
+    # quantity that gets PLOTTED is <tau> = (tau/beta)*gamma(1/beta), which runs far
+    # above tau as beta falls -- measured 2026-10-01 on two-component synthetic data:
+    # tau = 15.9 s passed every check while <tau> came out 3152 s from a 61 s window,
+    # beta = 0.19. A mean relaxation time 50x the measurement is not a measurement.
+    mean_tau = mean_relaxation_time(model, result.params)
+    if (span > 0 and np.isfinite(mean_tau)
+            and mean_tau > FIT_MAX_TAU_SPANS * span):
+        return _rejected(
+            result,
+            f"mean relaxation time ({mean_tau:.3g} s) exceeds "
+            f"{FIT_MAX_TAU_SPANS:g}x the {span:.3g} s window - not measurable from it")
     if tau_sd > FIT_SD_REJECT_FRACTION * abs(tau):
         return _rejected(
             result, f"uncertainty too large (tau = {tau:.4g} +/- {tau_sd:.4g})")

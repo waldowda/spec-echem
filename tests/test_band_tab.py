@@ -61,13 +61,18 @@ def _mono_segment(window, label, data_type, run, taus):
     exp fit of it returns an effective tau near 0.4 s whatever is passed — which is
     no good for a test that needs a wide, controlled spread."""
     rng = np.random.default_rng(abs(hash(label)) % 2**32)
-    t = np.linspace(0.0, 400.0, 400)
+    # 0.1 s sampling, not the ~1 s this used to use. A tau SHORTER than the interval
+    # between samples is not measurable from them and fit_transient now says so, so
+    # a fixture asking for tau = 0.5 s at 1 s sampling was asking for something the
+    # data could not contain -- and its fits were silently flagged, which quietly
+    # changed what the tests around it were measuring.
+    t = np.linspace(0.0, 400.0, 4000)
     wl = np.linspace(480.0, 540.0, len(taus))
     absorb = np.array([0.05 + 0.4 * (1 - np.exp(-t / tau))
                        + rng.normal(0, 2e-5, t.size) for tau in taus])
     window.results[label] = pd.DataFrame(absorb, index=wl, columns=t)
     window.segments_by_label[label] = Segment(
-        label, data_type, run, num_points=400, delta_time=1.0, trigger=False)
+        label, data_type, run, num_points=4000, delta_time=0.1, trigger=False)
 
 
 def _ladder(window):

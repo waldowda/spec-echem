@@ -999,6 +999,23 @@ class AnalysisTab(QWidget):
             title += f" @ {shown:.1f} nm"
         elif trace == "absorbance" and self._wavelength is not None:
             title += f" @ {self._wavelength:.1f} nm (auto)"
+        # The MODEL and the window, as the Band Fits tab states them. The two tabs
+        # own these controls separately on purpose -- changing one there would
+        # silently invalidate a band fit sitting here -- so the same wavelength can
+        # legitimately be fitted differently on each, and the plots have to say which
+        # or the difference looks like the two tabs disagreeing (reported 2026-10-01;
+        # the fitting itself is bit-identical, it is the inputs that differ).
+        #
+        # No nested f-strings: the 32-bit SpecEchem32 environment is Python 3.7,
+        # where an f-string inside an f-string using the same quotes is a SyntaxError.
+        start, stop = self._window(traces)
+        if start is None and stop is None:
+            window = "whole segment"
+        else:
+            first = "start" if start is None else format(start, "g")
+            last = "end" if stop is None else format(stop, "g")
+            window = f"{first}-{last} s"
+        title += f"  ({self.model_combo.currentData()}, {window})"
 
         self.fit_canvas.plot_fit(t, y, fit_y, "Time (s)", TRACE_UNITS[trace],
                                  title=title, window=self._window(traces), note=note,
