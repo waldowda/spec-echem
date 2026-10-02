@@ -243,10 +243,11 @@ def frame_to_itx(path, frame, title=None, notes=(), prefix=None,
                      xlabel=xlabel, ylabel=ylabel, resid=resid, prefix_stem=stem)
 
 
-# How many spectra a fan gets. All 721 of a CV would make a 14 KB Display command
-# -- past Igor's line limit -- and a graph too dense to pick a trace out of. 25 is
-# enough to see a band grow and still be able to click one.
-SPECTRA_TRACES = 25
+# A cap on how many spectra get exported. None = every one, which is the default and
+# what the figure draws. The old default of 25 thinned a 721-spectrum CV into a sparse
+# fan -- a DIFFERENT plot from the dense band on screen, which is exactly how it looked
+# in Igor (2026-10-02). The cap stays only as an escape hatch.
+SPECTRA_TRACES = None
 
 
 def _ramp(i, n):
@@ -262,15 +263,20 @@ def _ramp(i, n):
 
 def spectra_to_itx(path, frame, name, title=None, notes=(),
                    xlabel=None, ylabel=None, traces=SPECTRA_TRACES):
-    """A wavelength x time block as a FAN of spectra: one wave per time, one graph.
+    """A wavelength x time block as ONE 2-D wave, displayed column by column.
 
-    An image of the same block is correct and was the first attempt, but it is not
-    what this view is -- the figure draws absorbance against wavelength, one line
-    per time, and that is the plot being exported. Igor renders an image fine; it
-    just answers a different question (2026-10-02).
+    EVERY spectrum goes in the file. An earlier version wrote 25 evenly spaced waves;
+    that is a different plot from the one being exported -- the figure draws all 721
+    spectra of a CV as a dense band, and the thinned version came out as a sparse fan
+    (2026-10-02).
 
-    The times are evenly spaced through the segment and ALWAYS include the first and
-    last, so the ends of the transient are in the file whatever `traces` is.
+    A 2-D wave rather than one wave per time because 721 separate `WAVES` blocks is
+    unreadable in Igor's data browser, and because the block can then be put on a graph
+    with one short command per column instead of one 14 KB `Display` line, which would
+    be past Igor's command-length limit.
+
+    `traces` caps the count if a block is ever big enough to need it (the times kept are
+    evenly spaced and always include the first and last). None means all.
     """
     values = np.asarray(frame.values, dtype=float)
     wl = np.asarray(frame.index.values, dtype=float)
@@ -278,37 +284,53 @@ def spectra_to_itx(path, frame, name, title=None, notes=(),
     if values.ndim != 2:
         raise ValueError(f"expected a 2-D block; got {values.shape}")
 
-    count = max(2, min(int(traces), times.size))
-    picks = np.unique(np.linspace(0, times.size - 1, count).round().astype(int))
+    if traces is None or int(traces) >= times.size:
+        picks = np.arange(times.size)
+    else:
+        count = max(2, int(traces))
+        picks = np.unique(np.linspace(0, times.size - 1, count).round().astype(int))
+    total = times.size
+    values = values[:, picks]
+    times = times[picks]
 
     stem = wave_name(name)[:MAX_PREFIX].rstrip("_")
-    wl_wave = f"{stem}_wl"
+    wl_wave, t_wave, mat = f"{stem}_wl", f"{stem}_t", f"{stem}_a"
 
     lines = ["IGOR"]
     for line in notes:
         lines.append(f"X // {line}")
-    lines.append(f"X // {picks.size} of {times.size} spectra, evenly spaced "
-                 f"from {times[0]:g} to {times[-1]:g} s")
+    lines.append(f"X // all {picks.size} spectra" if picks.size == total
+                 else f"X // {picks.size} of {total} spectra, evenly spaced")
+    lines.append(f"X // t = {times[0]:g} to {times[-1]:g} s, "
+                 f"colour runs dark blue -> green -> yellow with time")
+
     lines.append(f"WAVES/D/N=({wl.size})\t{wl_wave}")
     lines.append("BEGIN")
     lines.extend("\t" + _format(v) for v in wl)
     lines.append("END")
 
-    trace_names = []
-    for k, column in enumerate(picks):
-        trace = f"{stem}_s{k:02d}"
-        trace_names.append(trace)
-        lines.append(f"WAVES/D/N=({wl.size})\t{trace}")
-        lines.append("BEGIN")
-        lines.extend("\t" + ("NaN" if not np.isfinite(v) else MATRIX_FORMAT % v)
-                     for v in values[:, column])
-        lines.append("END")
-        # The time is IN the file, on the wave, or the traces are anonymous.
-        lines.append(f'X Note {trace}, "t = {float(times[column]):g} s"')
+    # The times get a wave of their own: with one 2-D wave there is nowhere else to put
+    # them, and without them the columns are anonymous.
+    lines.append(f"WAVES/D/N=({times.size})\t{t_wave}")
+    lines.append("BEGIN")
+    lines.extend("\t" + _format(v) for v in times)
+    lines.append("END")
 
-    lines.append("X Display " + ",".join(trace_names) + f" vs {wl_wave}")
-    for k, trace in enumerate(trace_names):
-        lines.append(f"X ModifyGraph rgb({trace})=({_ramp(k, len(trace_names))})")
+    lines.append(f"WAVES/D/N=({wl.size},{times.size})\t{mat}")
+    lines.append("BEGIN")
+    for row in values:
+        lines.append("\t" + "\t".join(
+            "NaN" if not np.isfinite(v) else MATRIX_FORMAT % v for v in row))
+    lines.append("END")
+
+    # One command per column. Igor names the first trace after the wave and the rest
+    # `wave#1`, `wave#2`, ..., which is what the colour commands below address.
+    lines.append(f"X Display {mat}[][0] vs {wl_wave}")
+    for j in range(1, times.size):
+        lines.append(f"X AppendToGraph {mat}[][{j}] vs {wl_wave}")
+    for j in range(times.size):
+        trace = mat if j == 0 else f"{mat}#{j}"
+        lines.append(f"X ModifyGraph rgb({trace})=({_ramp(j, times.size)})")
     lines.append("X ModifyGraph mirror(bottom)=1,mirror(left)=1")
     if xlabel:
         lines.append(f'X Label bottom "{_escape(xlabel)}"')
@@ -319,4 +341,4 @@ def spectra_to_itx(path, frame, name, title=None, notes=(),
 
     with open(path, "w", encoding="ascii", errors="replace", newline="\r\n") as fh:
         fh.write("\n".join(lines) + "\n")
-    return [wl_wave] + trace_names
+    return [wl_wave, t_wave, mat]
