@@ -240,3 +240,96 @@ def test_the_title_does_not_go_inside_the_plot(tmp_path):
     _waves, commands = parse_itx(path.read_text())
     assert not any("TextBox" in c for c in commands), commands
     assert any('DoWindow/T' in c and "Doping 7" in c for c in commands), commands
+
+
+# 2026-10-02: the spectra view offered neither CSV nor Igor, on one argument -- a
+# matrix in a CSV is a worse copy of what the .h5 already holds. That is right for
+# CSV and WRONG for Igor, where a 2-D wave is a first-class object and an image or
+# waterfall of a doping step is what it is good at.
+
+def _block():
+    wl = np.linspace(400.0, 1100.0, 40)
+    t = np.linspace(0.0, 60.0, 25)
+    values = np.outer(np.exp(-0.5 * ((wl - 800.0) / 60.0) ** 2),
+                      1 - np.exp(-t / 5.0))
+    return pd.DataFrame(values, index=wl, columns=t)
+
+
+def test_a_spectra_block_becomes_a_scaled_2d_wave(tmp_path):
+    from spec_echem.igor_export import matrix_to_itx
+
+    frame = _block()
+    path = tmp_path / "block.itx"
+    matrix_to_itx(path, frame, "Doping5_spectra", row_unit="nm", col_unit="s")
+
+    text = path.read_text().replace("\r\n", "\n")
+    assert "WAVES/D/N=(40,25)\tDoping5_spectra_A" in text, "not a 2-D wave"
+    # The axis waves are written TOO: SetScale assumes a uniform grid and the
+    # detector's wavelengths are only nearly uniform.
+    assert "Doping5_spectra_wl" in text and "Doping5_spectra_t" in text
+    commands = [l[2:] for l in text.split("\n") if l.startswith("X ")]
+    assert any(c.startswith("SetScale/I x") and '"nm"' in c for c in commands)
+    assert any(c.startswith("SetScale/I y") and '"s"' in c for c in commands)
+    assert any(c.startswith("NewImage") for c in commands)
+
+
+def test_the_scale_is_plain_numbers_igor_can_parse(tmp_path):
+    """numpy renders a scalar as "np.float64(380.88)", which Igor cannot parse and
+    which fails the whole load."""
+    from spec_echem.igor_export import matrix_to_itx
+
+    path = tmp_path / "scale.itx"
+    matrix_to_itx(path, _block(), "seg", row_unit="nm", col_unit="s")
+    text = path.read_text()
+    assert "np.float64" not in text
+    assert "np." not in text
+
+
+def test_the_matrix_is_not_written_at_full_repr_width(tmp_path):
+    """repr() spends 17 characters on each of ~760k numbers -- 13 MB of digits the
+    float32 storage does not have."""
+    from spec_echem.igor_export import matrix_to_itx
+
+    path = tmp_path / "wide.itx"
+    matrix_to_itx(path, _block(), "seg")
+    rows = [l for l in path.read_text().split("\n") if l.startswith("\t0.")]
+    assert rows, "no data rows found"
+    assert max(len(v) for v in rows[0].split("\t") if v) < 14
+
+
+def test_the_residual_gets_its_own_panel_above_the_data(tmp_path):
+    """As in the figure these numbers come from -- the convention in the
+    spectroscopy this sits beside. On the same axes it is a flat line at zero that
+    squashes everything; left out entirely it is the one thing that says whether
+    the fit is any good."""
+    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0],
+                          "fit": [1.0, 2.0], "residual": [0.01, -0.01]})
+    path = tmp_path / "resid.itx"
+    frame_to_itx(path, frame, prefix="seg")
+    _waves, commands = parse_itx(path.read_text())
+
+    assert any("AppendToGraph/L=resid" in c and "seg_residual" in c
+               for c in commands), commands
+    # ABOVE: its axis band starts higher than the data's ends.
+    data_span = next(c for c in commands if "axisEnab(left)" in c)
+    resid_span = next(c for c in commands if "axisEnab(resid)" in c)
+    data_top = float(data_span.split("{")[1].split("}")[0].split(",")[1])
+    resid_bottom = float(resid_span.split("{")[1].split("}")[0].split(",")[0])
+    assert resid_bottom > data_top, (data_span, resid_span)
+    # ...and the display still only puts data and fit on the main axes.
+    display = next(c for c in commands if c.startswith("Display"))
+    assert "seg_residual" not in display
+
+
+def test_the_legend_names_the_data_not_the_wave(tmp_path):
+    """Igor's automatic legend reads "Doping6_fit_biexp_y", which is the file's
+    business and not the reader's."""
+    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0], "fit": [1.0, 2.0]})
+    path = tmp_path / "leg.itx"
+    frame_to_itx(path, frame, prefix="Doping6_fit_biexp")
+    _waves, commands = parse_itx(path.read_text())
+
+    legend = next(c for c in commands if c.startswith("Legend"))
+    assert " data" in legend and " fit" in legend, legend
+    # the trace symbol is drawn, so the colours in the legend match the plot
+    assert "\\s(Doping6_fit_biexp_y)" in legend, legend
