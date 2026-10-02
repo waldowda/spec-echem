@@ -2,7 +2,7 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
-## Figure output — code COMPLETE, awaiting rig verification (2026-10-01)
+## Figure output — code COMPLETE and rig smoke-tested; one check left (2026-10-01)
 
 **Design: `private-notes/figure-export-design.md`.** It moves to
 `docs/figure-export.md` in the commit that finishes the work — which has NOT
@@ -27,6 +27,12 @@ verification that only the two machines can give.**
       of step with the figure, and the CSV is derived from the same recorded call.
       **Tab 4's "Save Plots" is deleted** — per-figure only, no save-all there.
 
+- [x] **Used on the bench all day 2026-10-01**, which found and fixed: the ladder
+      saving the single-segment plot (custom compositions were invisible to the
+      exporter — any new one MUST call `MplCanvas.record_draw`), figures not naming
+      the wavelength or band they were taken at, the fit legend landing on the
+      transient, plots collapsing to ~150 px, and the actions row scrolling off the
+      bottom. All fixed; see git log for 2026-10-01.
 - [x] **6. Tab 5's save-all** — three traces of the current segment plus the ladder,
       each with its CSV, provenance stamped. Bounded and per-segment, which is why it
       is safe to define where tab 4's is not. Found three bugs: `show_message` left
@@ -38,7 +44,8 @@ verification that only the two machines can give.**
 **Left — needs the instruments, not the editor:**
 
 - [ ] **5. Verify the CSV round-trip on a real all-segment ladder.** Unit-tested
-      against synthetic data only.
+      against synthetic data only. NOTE: band CSVs written before `17fff77` may have
+      tau1/tau2 mixed at some wavelengths — see the biexp ordering entry below.
 - [x] ~~**Win11 smoke test**~~ — run on the rig 2026-10-01, no problems noticed
       relative to macOS.
 - [ ] **RIG VERIFICATION — the whole point of the work.** "No problems noticed" is
@@ -126,6 +133,25 @@ Worth deciding at the same time: **what is the Modulation (across the ladder) vi
 for?** Raised 2026-09-29: it does not depend on which segment is selected, so sitting
 behind a per-segment selector is misleading. Either it belongs elsewhere in the UI, or
 the selector should visibly not apply while it is showing.
+
+## Analysis correctness — fixed 2026-10-01, worth knowing about old exports
+
+- **biexp tau1/tau2 were UNORDERED** until `17fff77`. The model is symmetric under
+  exchanging the two components, so curve_fit returned either labelling — about 3%
+  of fits. **Band ladders and CSVs exported before that commit may have tau1 and
+  tau2 mixed at some wavelengths.** The scalar `tau` and `mean tau` were always
+  safe. Re-run any band fit whose tau1/tau2 split matters.
+- **The automatic probe could pick the detector edge** (`2460817`): no red-edge cap,
+  and an argmax walks up a rising NIR tail. Capped at the optics' 1100 nm AND it now
+  requires a peak, since the cap alone only relocates the problem. Verified on the
+  bench: 1100.9 -> 815.2 nm.
+- **Two measurability guards added** (`738d67c`): tau below the sampling interval,
+  and `<tau>` beyond 10x the window (the old check was on raw tau, but a stretched
+  fit plots the mean). Both FLAG and keep the numbers.
+- **Where the line falls:** the software checks whether a number is MEASURABLE from
+  its data. It does NOT judge whether the model was appropriate — "let the user
+  worry about applying appropriate models". What it owes instead is making the
+  choice visible, which is why every fit plot now states its model and window.
 
 ## macOS console: "has active key-value observers (KVO)" — WATCHING, not fixed
 
