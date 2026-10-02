@@ -585,12 +585,11 @@ class BandTab(QWidget):
         self.canvas.plot_multi_xy(
             series, "Wavelength (nm)", "tau (s)",
             title=f"{label} — tau vs wavelength  ({model}, {self._window_text()})")
-        # The shading STAYS here: on this plot it is spatial, showing WHERE in the
-        # band the competition is, which is the question the plot answers. Its
-        # explanation lives below the graph rather than on the figure.
-        for lo, hi in runs:
-            self.canvas.ax.axvspan(lo, hi, color=self.SIGN_SHADE,
-                                   alpha=self.SIGN_ALPHA, zorder=0, lw=0)
+        # NOT shaded here (2026-10-02). On a single segment the wavelengths that
+        # flip are usually most of the band, so the tint covers the whole plot and
+        # says nothing; the count below the graph says it in words instead. The
+        # LADDER is where it earns its place -- there it marks which rungs, out of
+        # several, have crossed over.
         if model == "stretched" and "beta" in frame:
             self._beta_twin(wl, frame["beta"].to_numpy(dtype=float), ok)
         # Registered as ONE composition: the beta axis is added after the recorded
@@ -768,15 +767,17 @@ class BandTab(QWidget):
             self._draw_ladder()
 
     def _shade_sign_flips(self, ax, entries, xs, direction):
-        """Count, per rung, how many fitted wavelengths have opposite-sign
-        prefactors. Returns one note per rung that has any.
+        """Shade the rungs where most fitted wavelengths have opposite-sign
+        prefactors, and return a note per rung that has any.
 
-        NOT shaded. Shading reads as spatial, and on a plot whose x is potential it
-        was only a distracting backdrop (2026-10-01) -- unlike the single-segment
-        plot, where it marks WHERE in the band the competition is. The counts go
-        below the graph instead, to prompt a look rather than decorate the figure.
+        This is where the shading earns its place: several rungs side by side, and
+        the tint says which of them have crossed over. Majority, not "any" -- a
+        handful of marginal wavelengths flip at almost every potential, and shading
+        those would tint everything and say nothing. Every rung with any is still
+        COUNTED below the graph, so the threshold cannot hide one.
         """
         notes = []
+        half = (float(np.min(np.diff(np.sort(xs)))) / 2.0 if len(xs) > 1 else 0.05)
         for j, (_lbl, _pot, _dir, band) in enumerate(entries):
             frame = band.table()
             if "mixed_signs" not in frame:
@@ -787,6 +788,9 @@ class BandTab(QWidget):
                 continue
             notes.append(f"{direction} {xs[j]:+.2f} V: {int(flagged.sum())}/"
                          f"{int(ok.sum())}")
+            if flagged.sum() * 2 > ok.sum():
+                ax.axvspan(xs[j] - half, xs[j] + half, color=self.SIGN_SHADE,
+                           alpha=self.SIGN_ALPHA, zorder=0, lw=0)
         return notes
 
     def _strip(self, ax, entries, xs, model, column=None):

@@ -702,30 +702,39 @@ def test_the_band_table_records_where_the_prefactors_differ_in_sign(window):
     assert flipped["Doping 5"] > 0.5, flipped
 
 
-def test_the_ladder_reports_sign_flips_below_the_graph_not_on_it(window):
-    """Shading reads as spatial. On a plot whose x is potential it was only a
-    distracting backdrop, so the ladder states the counts below the graph instead --
-    a prompt to go and look, not a caption the figure should carry."""
+def test_the_ladder_shades_the_rungs_that_flipped(window):
+    """This is where shading earns its place: several rungs side by side, and the
+    tint says which have crossed over. Swapped 2026-10-02 -- it had been the other
+    way round, shading the single segment and not the ladder."""
     tab = _overshoot_ladder(window)
     tab.on_fit_all()
 
     ax = tab.canvas.fig.axes[0]
     shaded = [p for p in ax.patches
               if getattr(p, "get_alpha", lambda: None)() == tab.SIGN_ALPHA]
-    assert not shaded, "the ladder is shaded again"
+    assert shaded, "the ladder is not shaded"
+    covered = [(p.get_x(), p.get_x() + p.get_width()) for p in shaded]
+
+    def inside(v):
+        return any(lo <= v <= hi for lo, hi in covered)
+
+    assert inside(0.70) and inside(0.80)
+    assert not inside(0.30) and not inside(0.40)
+    # The MINORITY rung is not shaded -- a handful of marginal wavelengths flip
+    # almost everywhere, and shading those would tint everything and say nothing.
+    assert not inside(0.50)
+
+    # ...but it IS counted below the graph, so the threshold cannot hide a rung.
+    status = tab.status.text()
+    assert "SIGN" in status and "+0.70 V" in status
+    assert "+0.50 V" in status, status
     assert tab.canvas._footnote is None, "the note was drawn on the figure"
 
-    status = tab.status.text()
-    assert "SIGN" in status
-    assert "+0.70 V" in status
-    # ...and the rung where only a MINORITY flip is reported too, so nothing that
-    # has any goes unmentioned.
-    assert "+0.50 V" in status, status
 
-
-def test_the_single_segment_plot_keeps_its_shading(window):
-    """There the shading IS spatial: it shows WHERE in the band the competition is,
-    which is the question that plot answers."""
+def test_the_single_segment_plot_is_not_shaded(window):
+    """On one segment the wavelengths that flip are usually most of the band, so
+    the tint covers the whole plot and says nothing. The count below the graph says
+    it in words instead."""
     tab = _overshoot_ladder(window)
     tab.on_fit_all()
     tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 5"))
@@ -733,9 +742,9 @@ def test_the_single_segment_plot_keeps_its_shading(window):
     ax = tab.canvas.fig.axes[0]
     shaded = [p for p in ax.patches
               if getattr(p, "get_alpha", lambda: None)() == tab.SIGN_ALPHA]
-    assert shaded, "the band plot lost its shading"
-    assert tab.canvas._footnote is None, "the note was drawn on the figure"
+    assert not shaded, "the single-segment plot is shaded again"
     assert "SIGN" in tab.status.text()
+    assert tab.canvas._footnote is None, "the note was drawn on the figure"
 
 
 def test_the_saved_figure_carries_the_note_only_when_stamped(window):

@@ -167,3 +167,47 @@ def test_the_display_uses_the_prefixed_names(tmp_path):
     for name in waves:
         if name.endswith("_x") or name.endswith("_y"):
             assert name in display, display
+
+
+# Loaded in Igor for the first time 2026-10-02 and it came out "very very minimal":
+# every trace red markers (a bare ModifyGraph styles the WHOLE graph, so the fit was
+# drawn as points on top of the data it is a line through), the residual plotted
+# beside the data it belongs under, and no axis labels at all.
+
+def test_the_fit_is_a_line_and_the_data_is_points(tmp_path):
+    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0], "fit": [1.0, 2.0]})
+    path = tmp_path / "styled.itx"
+    frame_to_itx(path, frame, prefix="seg")
+    _waves, commands = parse_itx(path.read_text())
+
+    modify = [c for c in commands if c.startswith("ModifyGraph")]
+    assert modify, "no per-trace styling at all"
+    # Every ModifyGraph names ITS trace: a bare one sets the whole graph.
+    assert all("(" in c for c in modify), modify
+    assert any("mode(seg_fit)=0" in c for c in modify), modify      # line
+    assert any("mode(seg_y)=3" in c for c in modify), modify        # markers
+
+
+def test_the_residual_is_written_but_not_plotted(tmp_path):
+    """It shares the x axis and nothing else. Beside the data it is a flat line at
+    zero that squashes everything, which is why the figure gives it its own panel."""
+    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0],
+                          "fit": [1.0, 2.0], "residual": [0.01, -0.01]})
+    path = tmp_path / "resid.itx"
+    frame_to_itx(path, frame, prefix="seg")
+    waves, commands = parse_itx(path.read_text())
+
+    assert "seg_residual" in waves, "the residual should still be IN the file"
+    display = next(c for c in commands if c.startswith("Display"))
+    assert "seg_residual" not in display, display
+    assert "seg_y" in display and "seg_fit" in display
+
+
+def test_the_axes_are_labelled(tmp_path):
+    """A bare number axis makes the reader guess seconds versus nanometres."""
+    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0]})
+    path = tmp_path / "labels.itx"
+    frame_to_itx(path, frame, xlabel="Time (s)", ylabel="Absorbance")
+    _waves, commands = parse_itx(path.read_text())
+    assert any('Label bottom "Time (s)"' in c for c in commands), commands
+    assert any('Label left "Absorbance"' in c for c in commands), commands
