@@ -2,7 +2,12 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
-## Figure output — code COMPLETE and rig smoke-tested; one check left (2026-10-01)
+## Figure output — code COMPLETE, used on both platforms (2026-10-02)
+
+**NOTE on everything below: as of 2026-10-02 the system has only ever been used for
+TESTING. No real data has been taken or analysed with it.** Judgements recorded here
+about defaults, thresholds and formats are from test runs and synthetic data, and
+should be revisited once real measurements are going through.
 
 **Design: `private-notes/figure-export-design.md`.** It moves to
 `docs/figure-export.md` in the commit that finishes the work — which has NOT
@@ -43,18 +48,23 @@ verification that only the two machines can give.**
 
 **Left — needs the instruments, not the editor:**
 
-- [ ] **5. Verify the CSV round-trip on a real all-segment ladder.** Unit-tested
-      against synthetic data only. NOTE: band CSVs written before `17fff77` may have
-      tau1/tau2 mixed at some wavelengths — see the biexp ordering entry below.
+- [ ] **5. Open an exported CSV and check it against the plot it came from.**
+      ("round-trip" was jargon: it just means read the file back and confirm the
+      numbers are the ones on screen — same wavelengths, same taus, same rows.)
+      Only ever done against synthetic data. NOTE: band CSVs written before
+      `17fff77` may have tau1/tau2 mixed at some wavelengths — see below.
 - [x] ~~**Win11 smoke test**~~ — run on the rig 2026-10-01, no problems noticed
       relative to macOS.
-- [ ] **RIG VERIFICATION — the whole point of the work.** "No problems noticed" is
-      not the same claim as "the two files are identical", which is what the work
-      was for. Save the same segment at the same preset on each machine and run
-      `examples/compare_figures.py a.png b.png`. A size mismatch means the preset
-      did not take; scattered differing pixels usually mean a font substitution;
-      differences spanning the image mean the layout moved, which is the thing that
-      must not happen. Nothing in the test suite can show this.
+- [x] ~~**Cross-platform figures**~~ — used on both macOS and Win11 2026-10-01/02:
+      "the save figures all look good or at least the same between platforms". Good
+      enough for now. `examples/compare_figures.py` is there if a byte-level check is
+      ever wanted; it has not been run, and does not need to be unless something
+      looks off.
+- [ ] **Single-column preset — revisit after real use.** Its text is proportionally
+      larger than the double-column preset's and that is a floor, not a bug (matching
+      the proportions needs 5 pt, below journal minimums) — but 3.25 x 2.25 in at
+      7 pt has only been judged on screen, never in a manuscript. Review once figures
+      are being made from real data.
 - [ ] **Then move `private-notes/figure-export-design.md` to `docs/figure-export.md`**
       (a move, not a copy) and drop this section to a one-line pointer.
 
