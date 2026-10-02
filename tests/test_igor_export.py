@@ -104,7 +104,9 @@ def test_a_title_with_a_quote_does_not_break_the_file(tmp_path):
 
     text = path.read_text()
     _waves, commands = parse_itx(text)
-    title_cmd = next(c for c in commands if "TextBox" in c)
+    # The title is the WINDOW's: a TextBox anchored middle-top is drawn inside the
+    # axes and landed on the data (Igor, 2026-10-02).
+    title_cmd = next(c for c in commands if "DoWindow/T" in c)
     # Every quote inside the string is escaped; the only bare ones are the delimiters.
     body = title_cmd[title_cmd.index('"'):]
     assert body.count('"') - body.count('\\"') == 2, title_cmd
@@ -211,3 +213,30 @@ def test_the_axes_are_labelled(tmp_path):
     _waves, commands = parse_itx(path.read_text())
     assert any('Label bottom "Time (s)"' in c for c in commands), commands
     assert any('Label left "Absorbance"' in c for c in commands), commands
+
+
+
+def test_each_trace_gets_its_own_colour(tmp_path):
+    """Without one Igor draws every trace the same and the fit is indistinguishable
+    from the data it runs through -- seen in Igor, where both came out red."""
+    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0], "fit": [1.0, 2.0]})
+    path = tmp_path / "colour.itx"
+    frame_to_itx(path, frame, prefix="seg")
+    _waves, commands = parse_itx(path.read_text())
+
+    colours = {}
+    for c in commands:
+        if c.startswith("ModifyGraph") and "rgb(" in c:
+            name = c.split("rgb(")[1].split(")")[0]
+            colours[name] = c.split("rgb(" + name + ")=")[1].split(")")[0] + ")"
+    assert len(colours) == 2, colours
+    assert len(set(colours.values())) == 2, f"two traces, one colour: {colours}"
+
+
+def test_the_title_does_not_go_inside_the_plot(tmp_path):
+    frame = pd.DataFrame({"x": [1.0, 2.0], "y": [1.0, 2.0]})
+    path = tmp_path / "title.itx"
+    frame_to_itx(path, frame, title="Doping 7 @ 815.2 nm")
+    _waves, commands = parse_itx(path.read_text())
+    assert not any("TextBox" in c for c in commands), commands
+    assert any('DoWindow/T' in c and "Doping 7" in c for c in commands), commands
