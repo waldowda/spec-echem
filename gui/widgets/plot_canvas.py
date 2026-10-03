@@ -3,6 +3,7 @@ Embedded matplotlib canvas, shared by the Instrument preview, the Run cockpit,
 and the Results review tab. Static plots only (drawn on demand / post-segment).
 """
 import functools
+import inspect
 import logging
 import textwrap
 from contextlib import contextmanager
@@ -286,20 +287,31 @@ class MplCanvas(FigureCanvasQTAgg):
         return None
 
     def last_matrix(self):
-        """The 2-D block the last plot drew, or None.
+        """The 2-D block the last plot SHOWS, or None.
 
-        last_data() returns None for these on purpose -- a matrix in a CSV is a
-        worse copy of what the .h5 already holds. Igor is the exception: a 2-D wave
-        is a first-class object there, and an image or waterfall of a doping step is
-        what it is good at.
+        last_data() returns None for these because a block has no per-trace form;
+        the figure dialog widens this one into a CSV and writes it to Igor as a 2-D
+        wave instead.
+
+        Cut to the plot's wavelength window, exactly as show_absorbance applies it
+        (only when both ends are given). The whole frame was returned until
+        2026-10-03, so a plot windowed to 600-1000 nm exported every pixel from
+        ~144 to ~1308 nm -- data the figure saved beside it did not show.
         """
         if self._last_draw is None:
             return None
-        method, args, _kwargs = self._last_draw
-        if method.__name__ == "show_absorbance" and args:
-            frame = args[0]
-            return frame if getattr(frame, "ndim", 0) == 2 else None
-        return None
+        method, args, kwargs = self._last_draw
+        if method.__name__ != "show_absorbance" or not args:
+            return None
+        call = inspect.signature(method).bind(self, *args, **kwargs).arguments
+        frame = call.get("absorb_df")
+        if getattr(frame, "ndim", 0) != 2:
+            return None
+        lo, hi = call.get("wl_min"), call.get("wl_max")
+        if lo is not None and hi is not None:
+            wl = np.asarray(frame.index.values, dtype=float)
+            frame = frame[(wl >= lo) & (wl <= hi)]
+        return frame
 
     def draw_idle(self, *args, **kwargs):
         # Nothing to repaint while pointed at an offscreen figure: the widget is not
