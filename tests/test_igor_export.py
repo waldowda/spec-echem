@@ -402,3 +402,51 @@ def test_the_axes_and_title_are_set(tmp_path):
     assert 'Label left "Absorbance"' in commands
     assert any(c.startswith("DoWindow/T kwTopWin") and "+0.699 V" in c
                for c in commands)
+
+
+# 2026-10-03 review: Igor wave names are global, and cutting a long basename to fit
+# kept its start and dropped what told two exports apart -- so loading the second
+# silently overwrote the first.
+
+@pytest.mark.parametrize("a, b", [
+    ("Doping7_absorbance_exp", "Doping7_absorbance_biexp"),                  # the model
+    ("Doping10_kinetics_800nm_absorbance", "Doping10_kinetics_520nm_absorbance"),  # the wavelength
+])
+def test_two_exports_that_differ_late_in_their_names_do_not_share_waves(tmp_path, a, b):
+    frame = pd.DataFrame({"time": [0.0, 1.0], "y": [0.1, 0.2], "fit": [0.1, 0.2]})
+    names = []
+    for prefix in (a, b):
+        path = tmp_path / f"{prefix}.itx"
+        frame_to_itx(path=path, frame=frame, prefix=prefix)
+        names.append(set(parse_itx(path.read_text())[0]))
+    assert not names[0] & names[1], names[0] & names[1]
+    assert all(len(n) <= MAX_NAME for n in names[0] | names[1])
+
+
+def test_a_short_prefix_is_left_readable(tmp_path):
+    """The checksum is only for names that would otherwise be cut."""
+    path = tmp_path / "f.itx"
+    frame_to_itx(path=path, frame=pd.DataFrame({"t": [0.0, 1.0], "y": [1.0, 2.0]}),
+                 prefix="Doping7_tau")
+    assert set(parse_itx(path.read_text())[0]) == {"Doping7_tau_t", "Doping7_tau_y"}
+
+
+def test_the_same_basename_always_gets_the_same_waves(tmp_path):
+    """Deterministic, so re-exporting a figure REPLACES its own waves in Igor rather
+    than piling up copies -- which is what Python's salted hash() would have done."""
+    frame = pd.DataFrame({"t": [0.0, 1.0], "y": [1.0, 2.0]})
+    runs = []
+    for i in range(2):
+        path = tmp_path / f"{i}.itx"
+        frame_to_itx(path=path, frame=frame, prefix="Doping10_kinetics_800nm_absorbance")
+        runs.append(set(parse_itx(path.read_text())[0]))
+    assert runs[0] == runs[1]
+
+
+def test_spectra_exports_that_differ_late_do_not_share_waves(tmp_path):
+    names = []
+    for name in ("Doping10_spectra_window_a", "Doping10_spectra_window_b"):
+        path = tmp_path / f"{name}.itx"
+        spectra_to_itx(path, spectra_frame(n_wl=4, n_t=3), name)
+        names.append(set(parse_itx(path.read_text())[0]))
+    assert not names[0] & names[1]

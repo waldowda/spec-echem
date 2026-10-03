@@ -14,6 +14,7 @@ would be guesses at conventions the user already has, to be fought rather than u
 AND `X` command lines that Igor executes on load, and can therefore be tested here
 without Igor on the machine. `.pxp` is an undocumented binary container.
 """
+import hashlib
 import re
 
 import numpy as np
@@ -185,6 +186,26 @@ def write_itx(path, waves, display=None, title=None, notes=(),
 
 # Room for a prefix without the generic part of the name being truncated away.
 MAX_PREFIX = 18
+# A long prefix keeps this much of its start and ends in a checksum of the whole.
+PREFIX_CHECK = 4
+
+
+def _stem(text):
+    """The prefix every wave of one export carries, unique per basename.
+
+    Igor's wave names are GLOBAL, so this prefix is what stops a second export
+    overwriting the first in one experiment. Cutting a long basename to fit kept
+    its START -- 'Doping7_absorbance' -- and dropped what told exports apart (the
+    model, the wavelength), so the exp and biexp fits of one segment got the same
+    waves (2026-10-03 review). A long name now keeps a readable head and ends in a
+    checksum of the FULL name; the full name is in the window title and notes.
+    """
+    cleaned = wave_name(text)
+    if len(cleaned) <= MAX_PREFIX:
+        return cleaned.rstrip("_")
+    check = hashlib.sha1(cleaned.encode("ascii", "replace")).hexdigest()[:PREFIX_CHECK]
+    head = cleaned[:MAX_PREFIX - PREFIX_CHECK - 1].rstrip("_")
+    return f"{head}_{check}"
 
 
 # Columns that belong in the FILE but not on the graph. A residual shares the x
@@ -232,7 +253,7 @@ def frame_to_itx(path, frame, title=None, notes=(), prefix=None,
     resid_col = next((c for c in numeric if str(c).lower() == "residual"), None)
     stem = ""
     if prefix:
-        stem = wave_name(prefix)[:MAX_PREFIX].rstrip("_")
+        stem = _stem(prefix)
         waves = {f"{stem}_{c}": frame[c].to_numpy() for c in numeric}
         x, ys = f"{stem}_{x}", [f"{stem}_{y}" for y in ys]
         resid = f"{stem}_{resid_col}" if resid_col is not None else None
@@ -293,7 +314,7 @@ def spectra_to_itx(path, frame, name, title=None, notes=(),
     values = values[:, picks]
     times = times[picks]
 
-    stem = wave_name(name)[:MAX_PREFIX].rstrip("_")
+    stem = _stem(name)
     wl_wave, t_wave, mat = f"{stem}_wl", f"{stem}_t", f"{stem}_a"
 
     lines = ["IGOR"]
