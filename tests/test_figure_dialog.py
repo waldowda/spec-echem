@@ -426,3 +426,30 @@ def test_an_automatic_probe_says_so_in_the_title(app, tmp_path):
     tab.view_combo.setCurrentIndex(tab.view_combo.findData("kinetics"))
 
     assert "(auto)" in tab.canvas._last_draw[2]["title"]
+
+
+def test_the_spectra_export_is_cut_to_the_plotted_wavelength_window(app):
+    """2026-10-03 review. A spectra plot windowed to 600-1000 nm exported every
+    pixel, edges included -- data the figure saved beside it did not show. The window
+    can arrive by keyword or by position, and both must be honoured."""
+    canvas = MplCanvas()
+    wl = np.arange(400.0, 1101.0, 50.0)                  # 400 .. 1100
+    frame = pd.DataFrame(np.arange(wl.size * 3, dtype=float).reshape(wl.size, 3),
+                         index=wl, columns=[0.0, 1.0, 2.0])
+
+    canvas.show_absorbance(frame, wl_min=600.0, wl_max=1000.0)
+    shown = canvas.last_matrix()
+    assert shown.index.min() == 600.0 and shown.index.max() == 1000.0
+    assert np.allclose(shown.to_numpy(), frame.loc[600.0:1000.0].to_numpy())
+
+    canvas.show_absorbance(frame, "title", 700.0, 800.0)  # positional
+    assert list(canvas.last_matrix().index) == [700.0, 750.0, 800.0]
+
+    canvas.show_absorbance(frame)                          # no window: everything
+    assert canvas.last_matrix().shape == frame.shape
+
+    # And through the dialog, which is what a user actually saves from.
+    canvas.show_absorbance(frame, wl_min=600.0, wl_max=1000.0)
+    dlg = FigureDialog(None, canvas, canvas.last_draw(), csv=None,
+                       matrix=canvas.last_matrix(), basename="cv_spectra")
+    assert dlg._table()["Wavelength (nm)"].tolist() == list(np.arange(600.0, 1001.0, 50.0))
