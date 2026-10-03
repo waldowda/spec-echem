@@ -70,6 +70,24 @@ data.
       rejected alternatives) but carries ~21 personal and institution names. Probably
       leave it private now that `docs/data-format.md` §4 carries the spec — that file
       is a specification, not a design diary.
+- [ ] **biexp: check the FAST tau against the sampling interval too?** (review,
+      2026-10-03) The "tau below the sampling interval" guard tests `result.tau`,
+      which for biexp is the SLOWER component, so a fast component collapsed to the
+      1e-9 s floor is never flagged by it. Real in the code; NOT reproduced — 0 of
+      160 synthetic spiked fits passed with a sub-interval fast tau (the fits failed
+      other checks or converged elsewhere). Extending the check is consistent with
+      "the software checks whether a number is measurable", but it changes which
+      fits are flagged, so it is a decision rather than a fix.
+- [ ] **Auto probe: guard interior gaps in the significance mask?** (review,
+      2026-10-03) `_band_extremum` refuses peaks at the OUTER edges of the kept
+      pixels, where a floored mask manufactures a cliff. But `keep` also drops
+      insignificant pixels INSIDE the window, and the same cliff can form there.
+      Checked on every run on the Mac: 4 of 64 probe choices sat within one
+      smoothing window of an interior gap, all on the 20260709 run's first doping
+      rung and its dedope (342 and 130 masked pixels) — the low-signal rung, where
+      significant pixels are islands. The picks (797/745 nm doping, 740/667 nm
+      dedoping) are plausible band positions, so this is not shown to be wrong.
+      Changing it moves the auto probe.
 - [ ] **Single-column figure preset**, and moving the figure-export design doc to
       `docs/` — both after figures are being made from real data. See *Figure output*.
 
@@ -86,11 +104,25 @@ data.
 
 ### Code, no rig needed
 
-- [ ] **Code review of `v0.3.1..gui-dev`** — `/code-review high` started 2026-10-03,
-      scoped to `gui/`, `igor_export`, `analysis`. Findings to be recorded here.
-      This is the "cross-model review, soon rather than someday" item from 2026-09-24:
-      the July one found 10 verified issues, and far more `gui/` code has landed since.
-      `/code-review ultra` (cloud, user-triggered, billed) is the deeper option.
+- [x] **Code review of `v0.3.1..gui-dev` — DONE 2026-10-03** (`/code-review high`,
+      scoped to `gui/`, `igor_export`, `analysis`). 10 findings, each verified before
+      acting:
+      - **7 real, fixed, each with a test that fails on the old code:** a cancelled
+        Fit all reported as whole; a new run's dropdown kept the old run's potentials;
+        band figure/CSV names and titles from the live controls (plus a single
+        segment saved as `band_all_segments`); export renders appending status notes;
+        the Gamry ladder probe running with Connect live; the spectra export ignoring
+        the wavelength window; Igor prefixes colliding on long names. `7cc30d5`,
+        `b025698`, `2032dec`, `862b034`.
+      - **1 not a bug:** the delta-time hint is kept current by a side effect of the
+        cadence advisory. Code left alone; a test now guards the side effect.
+      - **2 left for the user** — see *Needs a decision*.
+      - **Declined:** the ladder rebuilding `BandFit.table()` per render. A cost on a
+        preview toggle, not a correctness problem.
+      - **Not done, needs the rig:** a Gamry connect is still two open/close sessions
+        (identity, then ladder). Merging them halves the cycles on a USB stack that
+        has failed under repeated open/close, but changes toolkitpy session handling.
+      `/code-review ultra` (cloud, user-triggered, billed) remains the deeper option.
 - [ ] **Then cut v0.4.0** — after the review and a first real-data run. 106 commits
       since v0.3.1; the v0.3.0 lesson is review BEFORE the merge.
 - [ ] macOS KVO console warnings — watching, see its section.
