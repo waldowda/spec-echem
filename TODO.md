@@ -70,24 +70,26 @@ data.
       rejected alternatives) but carries ~21 personal and institution names. Probably
       leave it private now that `docs/data-format.md` §4 carries the spec — that file
       is a specification, not a design diary.
-- [ ] **biexp: check the FAST tau against the sampling interval too?** (review,
-      2026-10-03) The "tau below the sampling interval" guard tests `result.tau`,
-      which for biexp is the SLOWER component, so a fast component collapsed to the
-      1e-9 s floor is never flagged by it. Real in the code; NOT reproduced — 0 of
-      160 synthetic spiked fits passed with a sub-interval fast tau (the fits failed
-      other checks or converged elsewhere). Extending the check is consistent with
-      "the software checks whether a number is measurable", but it changes which
-      fits are flagged, so it is a decision rather than a fix.
-- [ ] **Auto probe: guard interior gaps in the significance mask?** (review,
-      2026-10-03) `_band_extremum` refuses peaks at the OUTER edges of the kept
-      pixels, where a floored mask manufactures a cliff. But `keep` also drops
-      insignificant pixels INSIDE the window, and the same cliff can form there.
-      Checked on every run on the Mac: 4 of 64 probe choices sat within one
-      smoothing window of an interior gap, all on the 20260709 run's first doping
-      rung and its dedope (342 and 130 masked pixels) — the low-signal rung, where
-      significant pixels are islands. The picks (797/745 nm doping, 740/667 nm
-      dedoping) are plausible band positions, so this is not shown to be wrong.
-      Changing it moves the auto probe.
+- [ ] **biexp fast tau vs the sampling interval — the user said yes, then the data
+      disagreed with the premise.** Adopted 2026-10-03 on "not reproduced" (0 of 160
+      synthetic fits). On REAL data it flags **204 of 8119 converged biexp fits over
+      700-900 nm (2.5%)**, nearly all in the 20260710 run's first two doping/dedoping
+      steps: 51 points over 5 s at 102 ms, fast tau median 41 ms, slow tau ~2.9 s,
+      |B_fast|/|B_slow| ~1.0 -- a step finished between t=0 and the first spectrum.
+      The fast tau IS unmeasurable, but the check flags the WHOLE fit, and ladders
+      average passed fits only, so ~20% of those segments' wavelengths would leave the
+      tau statistics though their slow tau may be fine. **Built and tested on the local
+      branch `fast-tau-check` (`9daaee6`), NOT merged.** Options: merge as is; flag
+      only the fast component (needs a per-component flag); or drop it.
+- [x] ~~**Auto probe: guard interior gaps in the significance mask**~~ — DONE
+      2026-10-03 (`bae0d55`). A peak needs kept pixels for a full smoothing window on
+      both sides. Across 64 real segments, every film run with a real band is
+      unchanged, including the bench-verified +0.8 V doping 7 (815.2 nm); 3 picks
+      moved, all on segments with no band to find.
+- [ ] **Follow-up: the probe's fallback when no peak survives.** It is the global
+      argmax, which can still walk into the NIR -- a 'test' run went 808 -> 1042 nm
+      once the stricter rule left it no peak. Saying "no band found" may be more
+      honest than a number. Only reachable on data with no band; not urgent.
 - [ ] **Single-column figure preset**, and moving the figure-export design doc to
       `docs/` — both after figures are being made from real data. See *Figure output*.
 
