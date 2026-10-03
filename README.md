@@ -303,8 +303,8 @@ tab-separated. Per run folder (`‹Save location›\‹Data folder name›\`):
   files are also written to a `dta/` subfolder.
 
 The potential is recorded in the **step** files (not the spectra files). These names and the column
-layout are relied on by downstream analysis (the OECT_processing maintainer's
-[`OECT_processing`](https://github.com/rajgiriUW/OECT_processing)), so **do not change them without
+layout are relied on by downstream analysis
+([`rajgiriUW/OECT_processing`](https://github.com/rajgiriUW/OECT_processing)), so **do not change them without
 coordination.**
 
 ## Documentation
