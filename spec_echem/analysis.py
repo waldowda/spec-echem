@@ -309,8 +309,14 @@ def _band_extremum(signal, keep):
         return int(np.argmax(signal))
     first, last = int(edge[0]), int(edge[-1])
     guard = window
+    # And not only at the OUTER edges. The significance test also drops pixels
+    # INSIDE the window, and the floor makes the same cliff at every interior gap:
+    # a tail rising into one "peaks" at its edge (2026-10-03 review; a synthetic
+    # 780 nm band lost to a gap at 1000 nm, picked at 999). So a peak needs kept
+    # pixels on both sides for a full smoothing window, wherever the gap is.
     peaks = [i for i in peaks
-             if keep[i] and first + guard <= i <= last - guard]
+             if keep[i] and first + guard <= i <= last - guard
+             and keep[i - guard:i + guard + 1].all()]
     if not peaks:
         return int(np.argmax(signal))
     # The smoothed peak locates the BAND; the reported wavelength is the best pixel

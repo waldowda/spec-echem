@@ -1107,3 +1107,38 @@ def test_the_probe_is_unchanged_where_the_band_simply_wins():
     delta = a[:, -1] - a[:, 0]
     assert probe_wavelength(a, wl, doping=True) == pytest.approx(
         float(wl[int(np.argmax(delta))]), abs=5.0)
+
+
+# 2026-10-03, review finding, adopted by the user. _band_extremum refused peaks at
+# the OUTER edges of the kept pixels, where flooring the mask manufactures a cliff.
+# But the significance test also drops pixels INSIDE the window, and the same cliff
+# forms at every interior gap: a tail rising into one goes up, then falls off the
+# floor, and smoothing turns that into a prominent "peak".
+
+def _tail_into_a_gap():
+    wl = np.arange(400.0, 1101.0, 1.0)
+    band = 0.10 * np.exp(-0.5 * ((wl - 780.0) / 40.0) ** 2)       # the real polaron
+    tail = np.clip((wl - 900.0) / 100.0, 0, None) * 0.15           # rising NIR tail
+    delta = band + tail
+    keep = (wl >= 410.0) & (wl <= 1100.0)
+    keep &= ~((wl >= 1000.0) & (wl <= 1012.0))                     # insignificant patch
+    return wl, np.where(keep, delta, -np.inf), keep
+
+
+def test_a_tail_rising_into_an_interior_gap_is_not_a_band():
+    from spec_echem.analysis import _band_extremum
+    wl, signal, keep = _tail_into_a_gap()
+    chosen = wl[_band_extremum(signal, keep)]
+    assert abs(chosen - 780.0) < 5.0, f"picked {chosen} nm, the edge of the gap"
+
+
+def test_a_real_band_beside_a_small_gap_is_still_found():
+    """The guard must not throw away a genuine band just because noise masked a
+    pixel or two near it -- a REAL peak has data on both sides once smoothed."""
+    from spec_echem.analysis import _band_extremum
+    wl = np.arange(400.0, 1101.0, 1.0)
+    delta = 0.10 * np.exp(-0.5 * ((wl - 780.0) / 40.0) ** 2)
+    keep = (wl >= 410.0) & (wl <= 1100.0)
+    keep &= ~((wl >= 700.0) & (wl <= 701.0))                       # far side of the band
+    chosen = wl[_band_extremum(np.where(keep, delta, -np.inf), keep)]
+    assert abs(chosen - 780.0) < 5.0, chosen
