@@ -2,6 +2,115 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
+## Now — 2026-10-03
+
+**One list of what is open.** Replaces three dated "Next up" lists (2026-09-24, -25,
+-28) that had started to disagree — several of their items were already done
+(HDF5, figure export). Items whose detail lives in a section further down just point
+there; the ones that only ever lived in those lists carry their full text here.
+Closed sections are in **Archive** at the bottom, verbatim.
+
+**The caveat over all of it:** as of 2026-10-03 nothing has been used on a real
+experiment. Every default and threshold below was judged on test runs and synthetic
+data.
+
+### Needs the rig
+
+- [ ] **First real-sample run — the gold standard.** Real film, real dark (lamp
+      blocked) and reference (blank, lamp on), the full multi-cycle sequence in one
+      Start, then confirm it analyses cleanly downstream (`OECT_processing`). Gates
+      almost everything under *Needs a decision*.
+- [ ] **Confirm the current-range ladder on a Reference 610+ and an Interface 1010.**
+      Was planned for 2026-09-30; not recorded as done. `examples/probe_gamry_ladder.py`
+      — read-only, cell-safe, needs no spectrometer and no dummy cell. The 610+ should
+      match the documented Reference 600 column; the 1010 should report 10 nA..1 A in
+      1/10/100 decades, so ITS `IERange 8` is 100 uA rather than 600 uA. That is the
+      whole reason the ladder is read from the instrument, and it has only been
+      verified on one model.
+- [ ] **Write down how toolkitpy gets into the conda env.** Recorded NOWHERE — not
+      here, not in CLAUDE.md, not in docs/ — and installing Gamry Framework may not be
+      sufficient on its own. Capture it on a machine where it works
+      (`python -c "import toolkitpy; print(toolkitpy.__file__)"`, `pip show toolkitpy`)
+      beside the documented `avaspec.py` setup. Same category as the undocumented
+      trigger-cable build (below). Moot if the pip-installable 64-bit toolkit lands.
+- [ ] **Confirm the stray-Stop fix on hardware.** A run ended after its CV with "Stop
+      requested" logged and Stop untouched; diagnosed by reasoning, not reproduced —
+      Start is disabled at run start, Qt hands focus to Stop beside it, and a
+      Space/Return left over from the confirmation dialog lands on it. Stop and Abort
+      are ClickFocus now. **If a run stops on its own again, it is something else.**
+- [ ] **Decode the acq_data overload field.** Name and encoding undocumented; it fired
+      on 721 of 721 points at 1.24% of full scale, so the warning now requires the
+      current to corroborate it. The raw distinct values are logged at DEBUG on any run
+      where flags appear — read them from a real run, then decide whether an
+      uncorroborated warning is worth restoring.
+- [ ] **Figure export step 5: open an exported CSV beside its plot**, on real data.
+      Only ever done against synthetic. See *Figure output*.
+- [ ] **Document the trigger-cable build** — see its section. Needs the bench notes.
+
+### Needs a decision
+
+- [ ] **Move the current-range control to Tab 1, beside the potentiostat selection.**
+      Requested 2026-09-25. Two range dropdowns in the doping group — "Current range
+      (Ei mode):" (Autolab) and "Current range (Gamry):" — and on 2026-09-25 it was not
+      clear which had been set, costing two runs. Show ONE control next to the radio
+      buttons that pick the instrument, switching with the mode; none in External mode.
+      Listed under decisions only because it moves a control people have learned.
+- [ ] **A current range per segment TYPE?** `20260925_test10` wanted 600 uA for its CV
+      (71 uA peak) and 6 uA for its chrono hold (0.8 uA peak); one setting covers both,
+      so a run with both is a compromise. The per-segment advisory already names the
+      better range for each. Not a defect — a decision.
+- [ ] **Past Gamry data.** Settled currents from Python-mode runs before 2026-09-25 are
+      not quantitatively trustworthy (1-2 uA of noise on 1-26 uA signals). Does
+      anything need re-taking?
+- [ ] **When to stop writing the ascii.** HDF5 is written, read, and selectable; the
+      default stays `h5+ascii`. Retiring the text is a decision for after real data,
+      and the downstream reader takes the text files — tell its maintainer first.
+- [ ] **Where the HDF5 design narrative lives.** `private-notes/hdf5-design.md` holds
+      the reasoning (cycle keys not potentials, no `charge`, `time_spectrometer`, the
+      rejected alternatives) but carries ~21 personal and institution names. Probably
+      leave it private now that `docs/data-format.md` §4 carries the spec — that file
+      is a specification, not a design diary.
+- [ ] **Single-column figure preset**, and moving the figure-export design doc to
+      `docs/` — both after figures are being made from real data. See *Figure output*.
+
+### Needs the user's Igor history
+
+- [ ] Style one graph in Igor and hand over the command history — settles the
+      `resid.` label, the legend (decided: match matplotlib's parameter block), and
+      how the 721-trace spectra graph should be shown. See *Igor .itx export*.
+
+### With UW
+
+- [ ] DOS v2 (capacitive baseline), absolute energy axis, scan-rate series — see
+      *In-GUI analysis*.
+
+### Code, no rig needed
+
+- [ ] **Code review of `v0.3.1..gui-dev`** — `/code-review high` started 2026-10-03,
+      scoped to `gui/`, `igor_export`, `analysis`. Findings to be recorded here.
+      This is the "cross-model review, soon rather than someday" item from 2026-09-24:
+      the July one found 10 verified issues, and far more `gui/` code has landed since.
+      `/code-review ultra` (cloud, user-triggered, billed) is the deeper option.
+- [ ] **Then cut v0.4.0** — after the review and a first real-data run. 106 commits
+      since v0.3.1; the v0.3.0 lesson is review BEFORE the merge.
+- [ ] macOS KVO console warnings — watching, see its section.
+- [ ] GUI test targets still uncovered — see *Automated tests for the GUI layer*.
+
+### Backlog — wanted, not scheduled
+
+- [ ] Richer models (joint polaron/pi-pi* fit with shared tau FIRST), same-sign
+      prefactor option — see their sections.
+- [ ] Auto-verify the Gamry on selecting Python mode; student-facing folder guide;
+      AvaLight lamp control; `.nox` import — see their sections.
+- [ ] **Expose the other hard-coded `measconfig` fields (future, the user 2026-07-10).** Now that the window
+      is config-driven, `_create_measurement_config` could expose smoothing, **saturation detection**
+      (ties to the linearity-check item below), and the averaging model instead of hard-coding them.
+- [ ] **Linearity: per-source ramp defaults (the user, 2026-07-13).** Saturation depends strongly on the
+      light source — the user has a halogen+ND (saturates ~0.11 ms) and an Avantes **AvaLight**. Start/Stop are
+      manual and "Find saturation" auto-adapts, so switching sources already works; only the *default*
+      Stop (0.15 ms) is tuned to the halogen. If source-swapping becomes routine, remember the last-used
+      Start/Stop per source in settings rather than shipping one default.
+
 ## Figure output — code COMPLETE, used on both platforms (2026-10-02)
 
 **NOTE on everything below: as of 2026-10-02 the system has only ever been used for
@@ -175,23 +284,24 @@ as a gap; quotes escaped; a COLOUR per trace (without one Igor draws them all al
 and the fit vanished into the data); the title on the WINDOW, not a TextBox inside
 the axes; the residual on its own panel above, `freePos={0,kwFraction}` because a
 bare 0 means x=0 in DATA units; mirrored axes and matplotlib-matched symbol sizes.
-The spectra view exports a FAN of 25 traces, not an image -- an image is correct but
-answers a different question than the plot being exported.
+The spectra view exports EVERY spectrum as one 2-D wave drawn as a fan of traces (not
+an image -- an image is correct but answers a different question than the plot being
+exported); see *Fixed 2026-10-02* below. It was briefly 25 traces, which was wrong.
 
 **Still rough / open:**
 
 - [ ] **The `resid.` axis label sits on the trace**, rotated, instead of beside the
       axis. Visible in every fit export. Probably `lblPos(resid)` or a margin.
-- [ ] **Legend contents undecided.** It reads `data` / `fit`. The matplotlib legend
-      carries the whole parameter block (A, B1, tau1, the sign warning, the residual
-      split). Asked, not yet answered — and it is the thing most likely to be
-      restyled in Igor anyway.
+- [ ] **Legend: populate it as matplotlib's does** (decided 2026-10-02). It reads
+      `data` / `fit`; the matplotlib legend carries the whole parameter block (A, B1,
+      tau1, the sign warning, the residual split). Plumbing, not new formatting — see
+      the next-step note at the end of this section.
 - [ ] **Never verified: two segments loaded into ONE Igor experiment.** That is what
       the wave prefixing exists for and it has not been tried.
-- [ ] **A 2-D wave export existed and was removed** (`53c526b`, removed in
-      `b64cd09`) -- the full block with SetScale on both dimensions, 7.6 MB a
-      segment, for an image or waterfall. Worth bringing back as a SEPARATE option
-      if Igor's image tools get used; git has it.
+- [x] ~~**A 2-D wave export existed and was removed**~~ — superseded 2026-10-02: the
+      spectra export IS a 2-D wave again (`73f58cf`). What is still open is how it is
+      DISPLAYED — see *Igor bogs down* below. The `SetScale` version is in git
+      (`53c526b`) if an image view is wanted.
 
 **Fixed 2026-10-02:** the spectra export wrote 25 evenly spaced curves, not all of
 them. On a 721-spectrum CV that is a sparse fan where the figure is a dense band --
@@ -212,7 +322,7 @@ save time, not ours at build time.
 **Igor bogs down on the spectra graph (reported 2026-10-02).** Worth being precise
 about where: the data is ALREADY one 2-D wave, so the file is not the problem. What
 is slow is 721 TRACES on one graph -- 721 `AppendToGraph` plus 721 `ModifyGraph rgb`,
-and then Igor redrawing all of them. Dean notes this is unusual for Igor, so it is
+and then Igor redrawing all of them. the user notes this is unusual for Igor, so it is
 the trace count specifically, not the volume.
 
 So the fix is on the DISPLAY side, not the data side. The thinning that was just
@@ -225,16 +335,16 @@ make the graph cheap. Options, in the order they look promising:
 2. **`NewImage`/`AppendImage` on the matrix** as the default view, with the fan as
    the opt-in. Fast at any size, and an image of absorbance(wavelength, time) is a
    legitimate view -- just not the one the figure draws.
-3. **HDF5 directly.** Igor talks HDF5 (Dean: via a plugin; built in from Igor 7/9,
+3. **HDF5 directly.** Igor talks HDF5 (the user: via a plugin; built in from Igor 7/9,
    CONFIRM which before relying on it). We already write .h5, so this could be no new
    export at all -- just a documented "open the .h5 in Igor" path. Best long-term
    answer if the loader handles our layout; check how it names groups and datasets as
    waves, and whether the 2-D orientation survives.
 
-Not decided. Pairs with the plot-modification history below -- how Dean actually
+Not decided. Pairs with the plot-modification history below -- how the user actually
 styles a spectra graph may well settle which of these is wanted.
 
-**THE EFFICIENT NEXT STEP, offered 2026-10-02:** Dean formats one graph in Igor the
+**THE EFFICIENT NEXT STEP, offered 2026-10-02:** the user formats one graph in Igor the
 way he would want it and hands over the COMMAND HISTORY. That is worth more than any
 amount of reading: it gives the exact commands, in his conventions, for the plot that
 matters -- and would settle the resid. label, the legend and anything else in one
@@ -266,110 +376,8 @@ window. The counts fit — 2 messages on a tab 4 launch, which has exactly 2
 Qt platform falls back to Fusion with no Cocoa, so neither the symptom nor a fix can
 be reproduced in a test. The plausible mitigation is to wrap each save row in its own
 container widget so the button is not a direct sibling of the canvas — about five
-lines, and one launch would show whether the messages stop. Dean is gathering more
+lines, and one launch would show whether the messages stop. The user is gathering more
 evidence first.
-
-## Next up — 2026-09-28
-
-- [ ] **Wednesday 2026-09-30: confirm the ladder on a Reference 610+ and an Interface
-      1010.** `examples/probe_gamry_ladder.py` — read-only, cell-safe, needs no
-      spectrometer and no dummy cell. The 610+ should match the documented Reference 600
-      column; the 1010 should report 10 nA..1 A in 1/10/100 decades, so ITS `IERange 8`
-      is 100 uA rather than 600 uA. That is the whole reason the ladder is read from the
-      instrument, and it has only been verified on one model.
-- [ ] **Write down how toolkitpy gets into the conda env.** It is recorded NOWHERE —
-      not here, not in CLAUDE.md, not in docs/ — and installing Gamry Framework may not
-      be sufficient on its own. Capture it on a machine where it already works
-      (`python -c "import toolkitpy; print(toolkitpy.__file__)"` and
-      `pip show toolkitpy`) and add it beside the documented `avaspec.py` setup steps.
-      Same category as the undocumented trigger-cable build: it works on one machine and
-      nobody has written down why.
-- [x] **HDF5 — phases 1-3 BUILT 2026-09-29.** Writer, reader, round-trip, backfill,
-      benchmark, OECT export and its button. Format documented in
-      `docs/data-format.md` §4. Still deliberately NOT done: wiring the H5 reader into
-      the Results tab, which is the gate for ever making the ascii optional.
-- [ ] **Decide where the HDF5 DESIGN doc lives.** `private-notes/hdf5-design.md` holds
-      the reasoning — why cycle keys not potentials, why no `charge`, why
-      `time_spectrometer` rather than `time_abs`, the rejected alternatives. The plan
-      said it moves into `docs/` when phase 1 lands, but it carries ~21 personal and
-      institution names and the standing rule keeps those out of the public repo.
-      Either scrub it to roles ("the downstream maintainer", "Requested:") and move it,
-      or leave the narrative in `private-notes/` now that `docs/data-format.md` §4
-      carries the spec. The second is probably right: that file is a specification,
-      not a design diary.
-- [ ] **HDF5 — the plan is drafted and waiting on one conversation.** Design in
-      `private-notes/hdf5-design.md` (outside the repo until phase 1 lands). Doping and
-      dedoping stay in separate files matching the downstream repo; the merged
-      alternative is recorded for comparison. Five questions to settle first, the pivotal
-      one being whether that split is load-bearing or incidental.
-- [ ] **A range per segment TYPE** (carried over): `20260925_test10` wanted 600 uA for
-      its CV and 6 uA for its chrono hold, and one setting covers both.
-
-## Next up — 2026-09-25 evening (Gamry rig)
-
-Tonight's session fixed the Gamry current range end to end and confirmed it on the
-10 kOhm dummy (`docs/gamry-current-range-2026-09-25.md`). What is left:
-
-- [ ] **Move the current-range control to Tab 1, beside the potentiostat selection.**
-      Requested. There are now two range dropdowns in the doping group -- "Current
-      range (Ei mode):" (Autolab) and "Current range (Gamry):" -- and on 2026-09-25 it
-      was not clear which had been set, costing two runs. Show ONE control, next to the
-      potentiostat radio buttons that decide which instrument is driving, switching with
-      the selected mode. External mode shows none (the sequence file owns it).
-- [ ] **Consider a range per segment TYPE.** `20260925_test10` wanted 600 uA for its CV
-      (71 uA peak) and 6 uA for its chrono hold (0.8 uA peak); one setting covers both,
-      so a run with both is a compromise. The per-segment advisory already names the
-      better range for each. Not a defect -- a decision.
-- [ ] **Decode the acq_data overload field.** Its name and encoding are undocumented and
-      it fired on 721 of 721 points at 1.24% of full scale, so the warning now requires
-      the current to corroborate it. The raw distinct values are logged at DEBUG on any
-      run where flags appear; read them from a real run and then decide whether an
-      uncorroborated warning is worth restoring.
-- [ ] **Confirm the stray-Stop fix on hardware.** A run ended after its CV with "Stop
-      requested" logged and Stop untouched; the cause was diagnosed by reasoning, not
-      reproduced -- Start is disabled at run start, Qt hands focus to Stop beside it, and
-      a Space/Return left over from the new confirmation dialog lands on it. Stop and
-      Abort are ClickFocus now. **If a run stops on its own again, it is something else.**
-- [ ] **Past Gamry data.** Settled currents from Python-mode runs before 2026-09-25 are
-      not quantitatively trustworthy (1-2 uA of noise on 1-26 uA signals). Decide whether
-      anything needs re-taking.
-
-## Next up — sequencing, 2026-09-24
-
-What to do after the live-CV fixes are confirmed at the rig
-([`docs/live-cv-verify-2026-09-25.md`](docs/live-cv-verify-2026-09-25.md)).
-
-- [ ] **HDF5 — but the first step is a conversation, not code.** The two questions for Raj
-      are in the HDF5 section below, and the first one is a genuine fork: **is the H5 an
-      analysis convenience or the archival record?** His layout keeps absorbance and
-      current only — no raw counts, dark or reference, which our 8-column format carries.
-      Matching him exactly makes the H5 lossy and leaves the ascii as the archive; making
-      it a superset means it is no longer his format and his reader needs changes. That
-      answer drives the schema, the metadata question and whether the Results tab can
-      round-trip. **Building before it lands risks a third format nobody reads** — the
-      same trap the Igor item warns about. The rest is small: his writer is 101 lines, and
-      `compute_absorbance()` already returns data/index/columns in his shape.
-
-- [ ] **If Raj is slow, do figure export instead.** `NavigationToolbar2QT`, ~5 lines per
-      canvas, brings pan/zoom/save for free; prefer SVG or PDF. Unblocked, self-contained,
-      and useful whatever the H5 answer turns out to be.
-
-- [ ] **A cross-model (Fable) review — soon rather than someday.** The 2026-07-15 one found
-      10 verified issues in `gui/` + concurrency, headline being the Gamry running a
-      waveform blind on the sample after a spectrometer failure; all were bench-validated.
-      Since then the analysis tab, the Autolab backend, the DOS view and now the live-plot
-      path have all landed, and `gui/` still has the weakest coverage relative to its bug
-      history.
-      - **When:** after the rig confirms the live-CV fixes, so the review is not reading
-        code that is about to change.
-      - **Scope:** `gui/` plus the Autolab driver, NOT the whole repo. The July review
-        worked because it was focused, and the v0.3.0 merge was skipped for being too
-        large to review.
-      - **Why a different model:** it does not share this session's assumptions. The
-        straddle diagnosis is the case in point — wrong, reviewed by its own author, and
-        only killed by the bench.
-      - `/code-review ultra` is the deep multi-agent cloud review; it is user-triggered
-        and billed. `/code-review high` on a branch diff is the cheaper local first pass.
 
 ## Sanitising the repository history — the user, 2026-09-15, future
 
@@ -509,40 +517,6 @@ sub-floor requests are refused, not clamped.
       exposure the first half is impossible. Worth detecting that Start is already at the
       floor and saying only the half that can be acted on.
 
-## Getting data and figures OUT (2026-09-15) — the ask, not started
-
-Requested: *"eventually it would be good to get data out in a nice format such as the
-graphs... One other option I think might be nice is to export an Igorpro file I can open
-in Igor with all the data and graph info setup to print, since Igor has such amazing
-graphing and formatting capabilities."*
-
-Suggested order — **the numbers matter more than the pictures**, because a figure is
-where editing stops:
-
-- [x] ~~CSV of the fit results~~ — **done**. *All fits…* now carries every fitted
-      parameter with its SD (columns built from `MODELS`, so they follow the model),
-      plus y(0), ⟨τ⟩, 95% CI, point count and the residual split. **Copy as CSV** and
-      **Save CSV…** on the dialog.
-- [x] ~~**2. Figure export via `NavigationToolbar2QT`.**~~ — **superseded 2026-09-30**
-      by the figure-export work at the top of this file. The toolbar alone was the
-      wrong answer: its save writes at whatever size the widget happens to be, which
-      is the bug, not the feature. Pan/zoom/home are kept; SVG and PDF are offered by
-      the preview's save dialog alongside PNG.
-- [x] ~~**3. HDF5**~~ — written, read, and now what Load Run opens. See the HDF5
-      section below and the `data_format` setting on the Parameters tab.
-- [x] ~~**4. Igor Text (`.itx`), not `.pxp`.**~~ — **done 2026-10-02**.
-      `Save Igor (.itx)…` beside `Save data (CSV)…` in the figure preview, writing
-      the same numbers as the CSV: waves, a `Display`, and nothing else. Styling is
-      left to Igor, which is the point of exporting to it.
-
-      `spec_echem/igor_export.py`, tested without Igor on the machine because .itx
-      is plain text — the tests parse it the way Igor's loader reads it.
-
-      **Still open, if wanted:** a whole-segment export (one segment's full
-      absorbance matrix as a 2-D wave with `SetScale` for wavelength and time, so
-      plots can be built in Igor rather than reproduced). About 7 MB of text per
-      segment, which is tolerable; not built because the ask was "the graphs".
-
 ## In-GUI analysis — open items (2026-09-14)
 
 Tab 5 works and is validated on real data (see STATUS.md). What is left:
@@ -584,48 +558,6 @@ Tab 5 works and is validated on real data (see STATUS.md). What is left:
       Analysis tab. CSV export of the same rows is still item 1 under "Getting data
       and figures OUT".
 
-## Release gate for v0.3.0 — one bench run before merging `gui-dev` → `main` (the user, 2026-07-27)
-
-**PASSED 2026-09-18** on the Gamry Reference 600 rig, build `0.2.0+215.gc0ddfad`: 8 segments,
-`Run finished: done`, no false potentiostat-lost stop. Every cadence mean is exactly
-**100.0 ms**, not the July 101–102 — expected, because spectra moved onto an absolute
-grid on 2026-09-04 (`cd69030`), after this baseline was taken. The grid removes the drift
-(July's 301 spectra spanned ~30.5 s against 30.0 s of electrochemistry) at the cost of
-wider per-interval jitter (3.3–8.9 ms sd; min as low as 23.6 ms is a catch-up after a late
-spectrum). The table below is the pre-grid baseline — kept for the record, no longer the
-comparison. The same run exposed the ladder overshoot fixed in `0828fd3`.
-
-Almost everything since the v0.2.0 tag is additive (logging, provenance, docs). **One thing is not:**
-the lost-potentiostat handling can now *stop a run*, and it has only ever executed against fakes. A
-false positive would abort a good experiment mid-sample — worse than the bug it fixes. So the gate is
-a **normal** run, not a failure case.
-
-1. **No false positive (the actual gate).** A complete Python-mode run must still end
-   `Run finished: done.` with every segment ✓.
-2. **Timing unaffected.** Every segment logs its real cadence, so this is measurable rather than
-   assumed. Compare against the 2026-07-27 baseline from before these changes:
-
-   | Segment | mean (target 100 ms) | jitter (sd) | max |
-   |---|---|---|---|
-   | CV (41 pts) | 101.1 | 1.2 | 104.0 |
-   | Pre-dedoping (101) | 101.2 | 1.5 | 111.4 |
-   | Doping (301) | 102.0 | 4.5–5.6 | 149–170 |
-   | Dedoping (301) | 101.6–101.9 | 2.6–3.5 | 127–134 |
-
-   **Expectation: no change**, because nothing was added to the per-spectrum path. The only
-   per-spectrum call is `on_tick = potentiostat.pump` (`acquisition.py:62`), which was not touched.
-   `tkp.pstat_is_valid()` sits in the *Gamry* poll loop (20 Hz, its own thread) and predates this
-   work; `_note_early_exit()` runs once per segment after that loop; `device_lost()` is checked once
-   per segment in the worker. A rise in mean or jitter would mean something reached the acquisition
-   loop that shouldn't have — investigate before tagging.
-3. Optional confirmation: repeat the mid-segment USB pull — warning names the right segment, files
-   still written, run stops there.
-4. Banner sanity: `32-bit`, `env SpecEchem32`, `toolkitpy: yes`.
-
-Then: bump `__version__` in `spec_echem/build_info.py` (single source — `setup.py` reads it),
-`CHANGELOG` `[Unreleased]` → `[0.3.0]`, commit, `merge --no-ff` to `main`, tag `v0.3.0`, push both.
-Theme for the release notes: **provenance and diagnosability**.
-
 ## Document the trigger cable build (the user, 2026-07-14)
 
 `docs/sop.md` §2.1 gives the trigger *endpoints* (Gamry DIGOUT0 → Avantes DB26 pin 6) but not how
@@ -634,32 +566,6 @@ termination, ground/shield, cable length. That knowledge currently exists only i
 the single cable on the bench — if it's damaged, or a second rig is built, there's nothing to work
 from. A placeholder marks the spot in the SOP. **Needs the bench notes / photos.**
 
-## Mid-run Gamry USB pull — DIAGNOSED + FIXED 2026-07-27
-
-**What actually happens** (the user pulled the cable during Pre-dedoping, Python mode):
-`tkp.pstat_is_valid()` in the Gamry poll loop *does* notice, so the loop exits and the echem data
-stops. But the thread then falls through to "capture data, write `.dta`, done" with `_error` still
-`None` — **an abnormal exit was indistinguishable from the step finishing.** The spectrometer runs
-its own loop and knows nothing about it, so the segment completed with a *full* spectra file beside a
-*truncated* echem file, was marked ✓, and the only error appeared one segment later
-(`Gamry setup for 'Doping 0' failed`) — naming the wrong segment.
-
-**Fixed (the silent part):** `_note_early_exit()` now logs a warning naming the segment, how far into
-the step the instrument stopped responding, and how many echem points were captured. Runs after the
-poll loop on the Gamry thread — no acquisition-timing cost. Covered by tests.
-
-**Also fixed — the run now stops at the segment that failed** (the call: write the partial data,
-then stop). `Potentiostat.device_lost()` is the seam; the worker checks it *after* writing and
-emitting the segment, then breaks with `reason="error"`. Deliberately a controlled break, **not** an
-exception raised from `run_one_segment`'s `finally` — that would have masked any genuine upstream
-failure. External mode always answers False: it can't know, so it must not stop runs on a guess.
-
-Result: the interrupted segment keeps its complete spectra and its partial echem, appears in Results,
-and the run ends naming the right segment instead of blaming the next one.
-
-Confirmed with the fakes end-to-end: lost-device run emits only the first segment and finishes
-`error`; a healthy run still emits both and finishes `done`.
-
 ## Automated tests for the GUI layer
 
 **Started 2026-07-27** — `tests/test_gui_layout.py` is the first coverage of `gui/`: 4 tests, headless
@@ -667,85 +573,18 @@ via `QT_QPA_PLATFORM=offscreen`, guarded with `pytest.importorskip("qtpy")` so t
 where Qt isn't installed. That resolves the "Qt in the 32-bit env" objection below — the tests skip
 rather than fail.
 
-Still only 4 of 173 tests touch `gui/`. Every bug in the 0.2.0 cycle (stale absorbance after a
-wavelength re-slice, status labels outliving their data, load-before-connect, a discarded segment
-still reaching the Results tab) lived in **GUI wiring**, and the core suite passed through all of
-them. Highest-value targets next, all reachable with the same offscreen pattern:
+**Updated 2026-10-03: 257 of 779 tests now exercise `gui/`** (`test_gui_layout.py` 190,
+`test_band_tab.py` 33, `test_figure_dialog.py` 21, `test_figure_render.py` 9,
+`test_dark_save.py` 4). Every bug in the 0.2.0 cycle (stale absorbance after a wavelength
+re-slice, status labels outliving their data, load-before-connect, a discarded segment still
+reaching the Results tab) lived in **GUI wiring**, and the core suite passed through all of
+them. Of the targets below, Start-in-every-mode and the segment selector now have tests;
+**Stop-vs-Abort enablement, load-before-connect, dark/ref dropped on widen, and discarded
+segments staying out do not appear by name** — check before assuming they are covered:
 
 - Run-tab state machine: Start → finish → Start, Stop vs Abort button enablement.
 - Instrument-tab guards: load-before-connect, dark/ref dropped when the wavelength window widens.
 - Results tab: segment selector across refreshes; discarded segments staying out.
-
-## "Test your setup" probes — Avantes done, Autolab connect probe to follow (the user, 2026-07-14)
-
-Standalone, read-only "can this PC talk to the instrument from Python?" self-checks — useful for
-anyone adopting the repo (and prompted by a colleague with a Metrohm **Autolab PGSTAT302N** + an
-Avantes **AvaSpec-ULS2048i**-class spectrometer). Full plan: `~/.claude/plans/parallel-bubbling-hare.md`.
-Design findings live in the `hardware-portability` memory.
-
-- [x] **`examples/query_avantes.py` + `query_avantes_setup.md` — DONE (2026-07-14).** Opens the
-      Avantes via the AvaSpec-DLL, prints serial/name/pixels/wavelength span, closes. No `spec_echem`
-      import; hardened for a *different* model (`AVS_GetParameter` best-effort). Plus a Windows-only
-      Metrohm/Autolab **USB-presence** scan (PowerShell, no deps). Emailable to the colleague.
-- [x] **`examples/query_autolab.py` + `query_autolab_setup.md` — DONE (2026-07-22).** Read-only,
-      **cell-safe connect probe** via our own ~15 lines of `pythonnet`/`clr` (NOT a dependency on the
-      stale pyMetrohmAUTOLAB — credited as reference). `clr.AddReference(SDK)` →
-      `from EcoChemie.Autolab.Sdk import Instrument` → set `Adk.x` + model `HardwareSetup*.xml` →
-      `Connect()` → report `IsConnected` → `Disconnect()` in `finally`. **Never** `set_CellOnOff` /
-      `Measure` / load a `.nox` (cell stays off — connect and cell power are separate in the SDK).
-      Editable `SDK`/`ADX`/`HDW` paths with PGSTAT302N defaults. Stays in `examples/`, off the
-      `potentiostat.py` seam. Graceful no-pythonnet path smoke-tested on the Mac (exit 0).
-      **Still needs the colleague's Win box to confirm:** (a) pythonnet/SDK **bitness** match,
-      (b) `Connect()` really leaves the cell off (verify on a dummy cell first). Built ahead of the
-      original "wait for the Avantes check" gate at the direction (2026-07-22).
-- **Findings that make an eventual Autolab *backend* look modest, not scary** (see memory): the SDK
-  is **procedure-based** — CV/CA are `.nox` procedure files you `LoadProcedure` + `Measure()`, which
-  mirrors your existing **External mode** (`.GSequence` holds the recipe; Python runs it).
-
-- **BENCH-CONFIRMED on a real Autolab (PGSTAT10, 2026-08-28) — see [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md).**
-  - `query_autolab.py` connects under **64-bit** Python → no 32/64-bit split on an Autolab rig
-    (one interpreter can hold avaspec + the SDK).
-  - The "no digital I/O" note above was **wrong for SDK 2.1**: `Instrument.Dio` exposes
-    `DioPortsP1[]/DioPortsP2[]`, and each `DioPort` has `PortDirection {Input,Output}`, `Value:Byte`,
-    `SetPortBit/GetPortBit`. Also `Ei` (potentiostat), `LoadProcedure`, `Sampler`, `Adc`, `Dac`.
-  - **The trigger works.** New `examples/query_avantes_trigger.py` arms the Avantes for a hardware
-    trigger and pulses Autolab DIO `DioPortsP1[0]` (P1.A) from the same Python process — the scan
-    completes, polarity correct. NOVA's own spectro-EC procedures pulse the same P1.A line.
-  - So a Python-drives-everything Autolab backend in `potentiostat.py` (analogue of
-    `ToolkitPotentiostat`, all 64-bit, one process) is the recommended direction. Note: NOVA and
-    spec-echem can't both own the Avantes over USB.
-
-## Wavelength window is a hardcoded pixel slice — CLOSED 2026-09-04, not worth fixing
-
-**CLOSED 2026-09-04 — no change needed, on measured data.** With the lamp on, raw counts across
-all 2048 pixels: peak 24127 at 655.5 nm against a 721-count floor (pixels 0-200, below the optics
-cutoff, where no light can arrive). Signal above that floor is 1120 counts at 1000 nm, 281 at 1050,
-**66 at 1100, 17 at the current 1123.7 nm edge, and 0 past 1150**. Silicon QE is finished by
-~1050 nm, so the existing window already extends past usable signal and widening it toward 1326 nm
-would add ~388 pixels of baseline. Numbers in `bench-2026-09-04.md`.
-
-The premise was backwards: >1100 nm is not reachable by configuration on a silicon CCD. If NIR
-polaron bands matter scientifically, that is an InGaAs spectrometer, not a code change — and only
-then is the rework below worth building.
-
-Original writeup (2026-08-28), kept because the analysis is still correct — only the payoff was
-wrong:
-
-`spec_echem/spectrometer.py` `CAL_START_PX = 395` / `CAL_STOP_PX = 1659` — a fixed `[395:1660]`
-pixel window applied to **every** Avantes, chosen for the original VRS2048CL-EVO's 300–1100 nm optics.
-On an **AvaSpec-ULS2048L** those pixels are **410.2–1123.7 nm**, so ~1124–1326 nm is silently dropped
-(a user on that rig needs >1100 nm) and <410 nm is unreachable. `set_wavelength_window()` only crops
-*within* the slice, so the GUI can't offer wider.
-
-- [~] ~~Make the calibrated pixel window bench-configurable~~ — **not doing it.** Closed on data
-      2026-09-04 (above). Revisit only with a detector that can see past 1100 nm; if that day comes,
-      the design the user chose is: hard limits read per spectrometer from the device at connect, a
-      default window expressed in **nm** rather than pixels, an operator window anywhere inside
-      those limits, and the best part of *that* detector's range preferred over consistency between
-      instruments (a changed row count on the PLU rig is acceptable).
-- [x] **GUI (options A + C, 2026-08-28):** wl spin boxes clamp to the connected spectrometer's
-      calibrated span and show it; a saved crop that fits a different detector (`_window_fits`) is
-      parked for an explicit Apply, not silently clamped. Does not widen past the slice — see above.
 
 ## Gamry DTA converter — cleanups for when we own the parser
 
@@ -764,10 +603,10 @@ and/or roll our own raw-`.DTA` parser, address:
       subfolder (e.g. `prededoping/`) rather than the main run folder. Benefits: (1) the main folder
       then holds only the analysis series (CV + doping + dedoping); (2) it sidesteps the
       `OECT_processing` mis-sort where `prededoping*` matches the `dedoping*` substring test and gets
-      folded in as a spurious 4th dedoping cycle — a spec-echem-side fix, independent of Raj repairing
-      his reader. Touches: `data.py` write path, GUI `discover_run_segments` + Results/Load-Run (still
+      folded in as a spurious 4th dedoping cycle — a spec-echem-side fix, independent of the upstream
+      reader being repaired. Touches: `data.py` write path, GUI `discover_run_segments` + Results/Load-Run (still
       let you review it), and the timing tooling. Decide default-vs-opt-in, and confirm nothing
-      downstream expects pre-dedoping in the main folder (coordinate with Raj alongside the
+      downstream expects pre-dedoping in the main folder (coordinate upstream alongside the
       "combined 2026 format" discussion — see [[reference-oect-processing]] in memory).
 - [ ] **`+100` magic offset on the chrono `Time (s)` column.** The converter sets
       `Time = Corrected + 100`. Likely vestigial (downstream keys off `Corrected time`, which starts
@@ -777,45 +616,11 @@ and/or roll our own raw-`.DTA` parser, address:
 - [ ] **Multi-cycle CV is concatenated** into one series (loops overlay). Fine for I-vs-E plotting;
       just noted — revisit if per-cycle separation is ever needed.
 
-## Integration-time unit — RESOLVED to milliseconds (2026-06-18)
-
-The unit is **milliseconds**, end to end: `settings.py` key `integration_time_ms` → GUI spin value
-passed straight through `set_integration_time()` → Avantes `m_IntegrationTime` (SDK defines it in
-ms), with NO conversion. Confirmed on hardware 2026-06-18 — `spectrometer.py` printed
-"Integration time set to 0.022 ms". The lone outlier was the CLAUDE.md doc (said "seconds") — now
-**fixed** to ms. No code change needed (everything already agrees on ms).
-
-- [x] **Label the GUI integration-time spin box "(ms)"** — DONE: the spin box already sets
-      `.setSuffix(" ms")` (`instrument_tab.py`), so the unit shows inline in the field.
-
 ## Decide later (triggered)
 
 - [ ] **Roll our own raw-`.DTA` parser** to drop the `gamry_parser` dependency — only when triggered
       (distribution/reproducibility need, `gamry_parser` breaks/unmaintained, or GUI-automated
       conversion). Check `gamry_parser` license first (likely MIT) to learn from it.
-
-## Phase 2 — Python potentiostat (EchemToolkitPy)
-
-`spec_echem/potentiostat.py` is implemented and hardware-validated (SpecEchem32, 2026-07-04):
-`ExternalPotentiostat` = today's manual path, `ToolkitPotentiostat` = Python-driven. All four
-segment types (CV + doping/dedoping/pre-dedoping) run in Python mode with golden output and the
-DIGOUT0 handshake confirmed. Remaining items:
-
-- [x] **Python-mode CV vertex potentials.** DONE (2026-06-30): settings now carry
-      `cv_initial_v / cv_limit1_v / cv_limit2_v / cv_final_v` (replacing `cv_total_voltage`),
-      Parameters tab exposes them, and `ToolkitPotentiostat._cv_signal()` builds the CV signal.
-      Still bench-unconfirmed like the rest of the toolkitpy path.
-- [x] **`curve.run()` blocks vs polls — SETTLED (2026-07-03):** `run(True)` is NON-blocking;
-      `fire()` starts it synchronously and `finish()` polls `curve.running()`. No worker thread.
-      DIGOUT0 HIGH confirmed to land while the spectrometer is armed (arm-then-fire handshake).
-- [x] **toolkitpy API names verified on hardware (2026-07-03):** `initialize_pstat`, `signal_d_step_new`,
-      `signal_r_up_dn_new`, `RcvCurve` / `ChronoCurve`, `pstat_is_valid`, `set_digital_out` all work.
-- [x] In Python mode the doping/dedoping potential fields go live — DONE: the section note now
-      reads "(Python mode drives these; External = reference)" (`parameters_tab.py` `POTENTIAL_NOTE`),
-      replacing the old "(recorded for reference)" wording.
-- [x] **Show the Gamry's custom name in "Identify".** DONE (2026-07-01): `probe_identity()` returns
-      `(Pstat.label(), Pstat.serial_no())`; the Identify status shows "Gamry connected — {label}
-      (serial {serial})" (falls back to serial-only if no label). Optionally add `Pstat.family()` later.
 
 ## Post-Phase-2.5 follow-ups (mirror of STATUS.md)
 
@@ -826,74 +631,8 @@ DIGOUT0 handshake confirmed. Remaining items:
       poll in the run loop is flagged in-code as unconfirmed-necessity.
 - [ ] **First real-sample test (the gold standard).** Real polymer sample, real dark (lamp blocked) +
       reference (blank, lamp on), full multi-cycle sequence in one Start; then confirm the output
-      analyzes cleanly in Raj's `OECT_processing`. External mode is real-test-ready today; Python mode
+      analyzes cleanly in `OECT_processing`. External mode is real-test-ready today; Python mode
       is ready now that echem capture landed.
-
-## Echem plotting in the GUI (Phase 1)
-
-- [x] **Live echem timing SIGNED OFF (the user, 2026-07-07).** Ran the CV live/off A/B ×2 pairs on the
-      incremental-redraw build. Across all 4 runs (~160 spectra) NO 119-style spikes; steady-state
-      (spectra 2–40) all within ~100–103 ms, ~±1.5 ms of the 100 ms target, live indistinguishable
-      from off. The only outlier is the first interval (spectrum 0→1, ~86–97 ms) — the trigger-armed
-      first-measurement settling, present in every run regardless of live/off, and harmless (it's
-      timestamped). Conclusion: the incremental redraw (`update_live_line`) removed the cadence
-      perturbation; the live plot is timing-safe. Minor future-if-ever: the ~first-interval dip could
-      be looked at for perfectly-uniform-from-start sampling, but it's a startup artifact, not the plot.
-- [x] Wire CV (I vs E) + chrono (I vs t) plots into the Results review area — DONE (2026-07-06):
-      absorbance (optical) and electrochemistry are shown side by side; the Results tab loads each
-      segment's clean echem `.txt` via `spec_echem.gamry_data` (`data.echem_txt_path` locates it),
-      and shows a friendly note when there's no echem file (e.g. External mode). CV → I-vs-E,
-      chrono → I-vs-t.
-- [x] **Live echem graph during a Python-mode run — DONE (2026-07-06).** The Run tab now shows a live
-      echem trace (CV → I-vs-E, chrono → I-vs-t) that updates mid-segment, above the last-completed
-      absorbance — so you can watch a CV and ABORT before committing to a long doping sweep. Mechanism:
-      the Gamry thread's existing `acq_data()` poll now stashes each snapshot (`potentiostat.live_data()`);
-      a 400 ms QTimer on the GUI thread reads it and redraws (never touches the acquisition thread, so
-      timing/50 ms budget is safe). **BENCH-VERIFIED + SIGNED OFF 2026-07-07** (see the item above) —
-      after the redraw was made incremental (`update_live_line`), a first full-redraw version DID perturb
-      the spectra cadence (max 119 ms / jitter 3.5) via GIL contention; the incremental version does not.
-      Verification tooling shipped:
-      (a) every segment logs its actual cadence — "X cadence: mean … (target …), min/max, jitter(sd), n"
-      — from hardware timestamps, to the status pane + .log; (b) a "Live echem" checkbox on the Run tab
-      to A/B the same run plot-on vs plot-off and compare the logged cadence. If jitter is bad, the 400 ms
-      redraw interval is a one-line knob (make it tunable). Possible follow-ups: live *absorbance* too
-      (needs per-spectrum emit from the worker); drop the now-purposeful `acq_data()` poll into the
-      two-thread review.
-- [x] **Review a past run without re-running — DONE (2026-07-09).** Results tab gained a "Load Run…"
-      button: pick a saved run folder → `discover_run_segments` reverse-maps the filenames and
-      `read_spectra_absorbance` rebuilds each absorbance matrix from disk (both in `spec_echem/data.py`),
-      populating the Results view (absorbance + echem) exactly as a live run does. Previously the tab only
-      showed the current session's run ("run a sequence first" on a cold launch). Guarded against loading
-      mid-run. ("Open Data Folder" is unchanged — it opens the folder in Explorer, a filesystem shortcut,
-      not an in-GUI viewer.)
-- [x] **Configurable wavelength window — crop noisy lamp edges — DONE (2026-07-10).** Opt-in,
-      driver-level (`m_StartPixel`/`m_StopPixel`); default = full window (output unchanged). Instrument
-      tab: wl_min/max + Conservative/Balanced/Liberal + "Suggest from test-abs" + "Apply". Recommendation
-      in `spec_echem/spectral_range.py` (rolling-σ of the test-abs, ref-net corroboration; knob is an
-      absolute **Max noise (OD)**, default 0.010). IMPLEMENTATION = pure **software crop** (2026-07-10):
-      the `m_StartPixel/m_StopPixel` hardware approach was abandoned (mis-mapped on real hardware — axis
-      jumped to ~1050-1160 nm, graphs blank); `set_wavelength_window` now crops the calibrated `[395:1660]`
-      window by index (`_crop`), never touching measconfig. Instrument-tab plots/loads crash-proofed.
-      Downstream confirmed 2026-07-10: a **cropped run** (400.5–1049.7 nm, salt blank) reads cleanly
-      through `OECT_processing`. **DONE + RELEASED to main.**
-- [ ] **Expose the other hard-coded `measconfig` fields (future, the user 2026-07-10).** Now that the window
-      is config-driven, `_create_measurement_config` could expose smoothing, **saturation detection**
-      (ties to the linearity-check item below), and the averaging model instead of hard-coding them.
-- [x] **Linearity check — DONE + hardware-validated (2026-07-13).** Instrument tab has a `Linearity Check`
-      box beside Spectrometer Settings: ramps integration time, tracks one fixed peak pixel, fits the linear
-      region (with intercept), and recommends a working integration time. Manual Start/Stop/Steps, a
-      "Find saturation" helper (bisects to the real threshold), and "Use recommended".
-      `spec_echem/linearity.py`; run with the reference in place.
-      **Key finding from the real run:** the detector tracks the fit to within ~1% right up to the hard ADC
-      clip, so a deviation-only criterion never fires and puts the working point at ~94% of full scale. The
-      recommendation therefore takes the **tighter of two constraints** — 5% below the limit of linearity,
-      or peak counts ≤ a **max-fill** fraction of full scale. Defaults **85% fill / 2% tolerance** confirmed
-      good by the user on hardware (halogen + ND: saturates ~0.11 ms → recommends ~0.0885 ms).
-- [ ] **Linearity: per-source ramp defaults (the user, 2026-07-13).** Saturation depends strongly on the
-      light source — the user has a halogen+ND (saturates ~0.11 ms) and an Avantes **AvaLight**. Start/Stop are
-      manual and "Find saturation" auto-adapts, so switching sources already works; only the *default*
-      Stop (0.15 ms) is tuned to the halogen. If source-swapping becomes routine, remember the last-used
-      Start/Stop per source in settings rather than shipping one default.
 
 ## GUI UX — Instrument tab potentiostat controls (the user, 2026-07-05)
 
@@ -1338,12 +1077,12 @@ is in the folder. Verified on the 20250710 run: all 13 segments load identically
 from either source — wavelengths and times exact, absorbance differing by 2.98e-08
 (the float32 compromise) — in 0.01 s against 2.20 s, from 81 MB against 904 MB.
 **Retiring the ascii is now a decision, not a blocked task:** switch to `h5` once
-real data has gone through, and tell Raj, whose reader takes the text files.
+real data has gone through, and tell the `OECT_processing` maintainer first: its reader takes the text files.
 
 **Why:** disk. A single long run already writes ~1.6 M rows per spectra file, and the
 8-column tab-separated format stores every wavelength value again for every time point.
 HDF5 stores the wavelength axis once and the absorbance matrix as a typed array — an
-order of magnitude smaller, and faster to read back. Raj's `OECT_processing` already
+order of magnitude smaller, and faster to read back. `OECT_processing` already
 works this way, so there is a reference implementation and a downstream consumer.
 
 **Constraint that makes this safe:** the 8-column format is *not* replaced. It is what
@@ -1362,7 +1101,7 @@ Sketch:
 - Read path: a loader beside `read_spectra_absorbance()` so the Results tab can open
   either.
 
-### Raj already has the writer — `oect_processing/specechem/uvvis_h5.py`
+### `OECT_processing` already has a writer — `oect_processing/specechem/uvvis_h5.py`
 
 101 lines, `save_h5(data, filename)` / `convert_h5(h5file)`. Layout:
 
@@ -1389,7 +1128,7 @@ it, he writes ~6 MB of H5. The ascii is an intermediate nobody wants — it is o
 handoff format. Writing his layout from the acquisition side removes the parse step for
 anyone who wants H5.
 
-### Two questions to settle WITH RAJ before building (Requested: needs a conversation)
+### Two questions to settle upstream before building (Requested: needs a conversation)
 
 1. **Is the H5 an analysis convenience or the archival record?** His file keeps absorbance
    and current only — no raw counts, no dark, no reference. Our 8-column format carries all
@@ -1432,7 +1171,7 @@ Consequences for the design:
   deferred hardware work — an Ocean Optics spectrometer or a third potentiostat changes nothing
   about the file (see the `hardware-portability` notes).
 
-Practical framing for the conversation with Raj: write **our** neutral superset, and make it
+Practical framing for the conversation upstream: write **our** neutral superset, and make it
 trivially convertible to his layout, rather than adopting a shape derived from his objects.
 
 ### Sizes, measured (2026-09-11)
@@ -1441,14 +1180,14 @@ A realistic 14-segment run, 1265 wavelengths, ~5100 time points — **645 MB of 
 
 | layout | size | vs ascii |
 |---|---|---|
-| Raj's, as written (`df.values`, float64) | 51.6 MB | 12x |
-| Raj's, float32 | 25.9 MB | 25x |
+| `OECT_processing`'s, as written (`df.values`, float64) | 51.6 MB | 12x |
+| `OECT_processing`'s, float32 | 25.9 MB | 25x |
 | **archival: absorbance f32 + counts u16 + dark + ref** | **38.8 MB** | **17x** |
 | counts only, absorbance derived | 13.0 MB | 50x |
 
 Raw counts are `uint16` **exactly** — the ADC is 16-bit — so they cost half what float32
 absorbance does. The complete archival file is a ~50% surcharge over absorbance-only, and is
-still *smaller* than Raj's current float64 file while holding strictly more.
+still *smaller* than `OECT_processing`'s current float64 file while holding strictly more.
 
 Absorbance is derivable from counts/dark/reference, so dropping it would reach 13 MB. **Do not:**
 a reader would have to reproduce `compute_absorbance()` exactly, including where NaN and inf fall
@@ -1517,7 +1256,7 @@ fifth tab would duplicate the loading and split "look at the run" across two pla
 
 Revisit only if the controls crowd the tab.
 
-### What "core" means — Raj's `oect_processing/specechem/`
+### What "core" means — `oect_processing/specechem/`
 
 His `UVVis` class and `uvvis_plot` are the reference for which analyzes earn a place:
 
@@ -1540,19 +1279,293 @@ this run worth continuing". `banded_fits` and the rest are Jupyter work.
 - **Not blocked on H5.** The Results tab reads the ascii today, so this can be built now and
   switched to H5 when that lands. Do not sequence it behind the file format.
 - **The pieces mostly exist.** `read_spectra_absorbance()` returns a wavelength-indexed,
-  time-columned DataFrame — the same shape Raj's methods operate on — and `gamry_data.read_cv()` /
+  time-columned DataFrame — the same shape the `OECT_processing` methods operate on — and `gamry_data.read_cv()` /
   `read_chrono()` give the echem side. The work is selection UI and plotting, not analysis maths.
 - **One shared definition of the ladder already exists** (`data.segment_potential`, added
   2026-09-11 so graph titles cannot drift from what was applied). An abs-vs-voltage plot should
   use it rather than re-deriving potentials.
-- Worth asking Raj which of his methods he considers load-bearing versus historical, the same
+- Which `OECT_processing` methods to port is a question for upstream, the same
   conversation as the H5 layout.
 
-## Conversation with Raj — kept OUT of this repo
+## Conversations with collaborators — kept OUT of this repo
 
 **This repository is public.** Notes about a named collaborator — which of his methods look
 historical, what he has not fixed, what to ask him — do not belong in it. They live outside the
-repo at `../private-notes/raj-conversation.md`.
+repo in `../private-notes/`. Credit their work by repository name
+(`rajgiriUW/OECT_processing`), never by a person's name (the user, 2026-10-03).
 
 The *technical* content stays here where it is useful: the H5 layout and sizing above, and the
 `read_files.py` bugs, which are ordinary bug reports and are better sent as a pull request anyway.
+
+## Archive — closed, kept for the record
+
+Moved here verbatim on 2026-10-03 so the top of the file is only what is open. Nothing
+was deleted: these are finished, and their reasoning is still worth having.
+
+### Getting data and figures OUT (2026-09-15) — the ask, not started
+
+Requested: *"eventually it would be good to get data out in a nice format such as the
+graphs... One other option I think might be nice is to export an Igorpro file I can open
+in Igor with all the data and graph info setup to print, since Igor has such amazing
+graphing and formatting capabilities."*
+
+Suggested order — **the numbers matter more than the pictures**, because a figure is
+where editing stops:
+
+- [x] ~~CSV of the fit results~~ — **done**. *All fits…* now carries every fitted
+      parameter with its SD (columns built from `MODELS`, so they follow the model),
+      plus y(0), ⟨τ⟩, 95% CI, point count and the residual split. **Copy as CSV** and
+      **Save CSV…** on the dialog.
+- [x] ~~**2. Figure export via `NavigationToolbar2QT`.**~~ — **superseded 2026-09-30**
+      by the figure-export work at the top of this file. The toolbar alone was the
+      wrong answer: its save writes at whatever size the widget happens to be, which
+      is the bug, not the feature. Pan/zoom/home are kept; SVG and PDF are offered by
+      the preview's save dialog alongside PNG.
+- [x] ~~**3. HDF5**~~ — written, read, and now what Load Run opens. See the HDF5
+      section below and the `data_format` setting on the Parameters tab.
+- [x] ~~**4. Igor Text (`.itx`), not `.pxp`.**~~ — **done 2026-10-02**.
+      `Save Igor (.itx)…` beside `Save data (CSV)…` in the figure preview, writing
+      the same numbers as the CSV: waves, a `Display`, and nothing else. Styling is
+      left to Igor, which is the point of exporting to it.
+
+      `spec_echem/igor_export.py`, tested without Igor on the machine because .itx
+      is plain text — the tests parse it the way Igor's loader reads it.
+
+      **Still open, if wanted:** a whole-segment export (one segment's full
+      absorbance matrix as a 2-D wave with `SetScale` for wavelength and time, so
+      plots can be built in Igor rather than reproduced). About 7 MB of text per
+      segment, which is tolerable; not built because the ask was "the graphs".
+
+### Release gate for v0.3.0 — one bench run before merging `gui-dev` → `main` (the user, 2026-07-27)
+
+**PASSED 2026-09-18** on the Gamry Reference 600 rig, build `0.2.0+215.gc0ddfad`: 8 segments,
+`Run finished: done`, no false potentiostat-lost stop. Every cadence mean is exactly
+**100.0 ms**, not the July 101–102 — expected, because spectra moved onto an absolute
+grid on 2026-09-04 (`cd69030`), after this baseline was taken. The grid removes the drift
+(July's 301 spectra spanned ~30.5 s against 30.0 s of electrochemistry) at the cost of
+wider per-interval jitter (3.3–8.9 ms sd; min as low as 23.6 ms is a catch-up after a late
+spectrum). The table below is the pre-grid baseline — kept for the record, no longer the
+comparison. The same run exposed the ladder overshoot fixed in `0828fd3`.
+
+Almost everything since the v0.2.0 tag is additive (logging, provenance, docs). **One thing is not:**
+the lost-potentiostat handling can now *stop a run*, and it has only ever executed against fakes. A
+false positive would abort a good experiment mid-sample — worse than the bug it fixes. So the gate is
+a **normal** run, not a failure case.
+
+1. **No false positive (the actual gate).** A complete Python-mode run must still end
+   `Run finished: done.` with every segment ✓.
+2. **Timing unaffected.** Every segment logs its real cadence, so this is measurable rather than
+   assumed. Compare against the 2026-07-27 baseline from before these changes:
+
+   | Segment | mean (target 100 ms) | jitter (sd) | max |
+   |---|---|---|---|
+   | CV (41 pts) | 101.1 | 1.2 | 104.0 |
+   | Pre-dedoping (101) | 101.2 | 1.5 | 111.4 |
+   | Doping (301) | 102.0 | 4.5–5.6 | 149–170 |
+   | Dedoping (301) | 101.6–101.9 | 2.6–3.5 | 127–134 |
+
+   **Expectation: no change**, because nothing was added to the per-spectrum path. The only
+   per-spectrum call is `on_tick = potentiostat.pump` (`acquisition.py:62`), which was not touched.
+   `tkp.pstat_is_valid()` sits in the *Gamry* poll loop (20 Hz, its own thread) and predates this
+   work; `_note_early_exit()` runs once per segment after that loop; `device_lost()` is checked once
+   per segment in the worker. A rise in mean or jitter would mean something reached the acquisition
+   loop that shouldn't have — investigate before tagging.
+3. Optional confirmation: repeat the mid-segment USB pull — warning names the right segment, files
+   still written, run stops there.
+4. Banner sanity: `32-bit`, `env SpecEchem32`, `toolkitpy: yes`.
+
+Then: bump `__version__` in `spec_echem/build_info.py` (single source — `setup.py` reads it),
+`CHANGELOG` `[Unreleased]` → `[0.3.0]`, commit, `merge --no-ff` to `main`, tag `v0.3.0`, push both.
+Theme for the release notes: **provenance and diagnosability**.
+
+### Mid-run Gamry USB pull — DIAGNOSED + FIXED 2026-07-27
+
+**What actually happens** (the user pulled the cable during Pre-dedoping, Python mode):
+`tkp.pstat_is_valid()` in the Gamry poll loop *does* notice, so the loop exits and the echem data
+stops. But the thread then falls through to "capture data, write `.dta`, done" with `_error` still
+`None` — **an abnormal exit was indistinguishable from the step finishing.** The spectrometer runs
+its own loop and knows nothing about it, so the segment completed with a *full* spectra file beside a
+*truncated* echem file, was marked ✓, and the only error appeared one segment later
+(`Gamry setup for 'Doping 0' failed`) — naming the wrong segment.
+
+**Fixed (the silent part):** `_note_early_exit()` now logs a warning naming the segment, how far into
+the step the instrument stopped responding, and how many echem points were captured. Runs after the
+poll loop on the Gamry thread — no acquisition-timing cost. Covered by tests.
+
+**Also fixed — the run now stops at the segment that failed** (the call: write the partial data,
+then stop). `Potentiostat.device_lost()` is the seam; the worker checks it *after* writing and
+emitting the segment, then breaks with `reason="error"`. Deliberately a controlled break, **not** an
+exception raised from `run_one_segment`'s `finally` — that would have masked any genuine upstream
+failure. External mode always answers False: it can't know, so it must not stop runs on a guess.
+
+Result: the interrupted segment keeps its complete spectra and its partial echem, appears in Results,
+and the run ends naming the right segment instead of blaming the next one.
+
+Confirmed with the fakes end-to-end: lost-device run emits only the first segment and finishes
+`error`; a healthy run still emits both and finishes `done`.
+
+### "Test your setup" probes — Avantes done, Autolab connect probe to follow (the user, 2026-07-14)
+
+Standalone, read-only "can this PC talk to the instrument from Python?" self-checks — useful for
+anyone adopting the repo (and prompted by a colleague with a Metrohm **Autolab PGSTAT302N** + an
+Avantes **AvaSpec-ULS2048i**-class spectrometer). Full plan: `~/.claude/plans/parallel-bubbling-hare.md`.
+Design findings live in the `hardware-portability` memory.
+
+- [x] **`examples/query_avantes.py` + `query_avantes_setup.md` — DONE (2026-07-14).** Opens the
+      Avantes via the AvaSpec-DLL, prints serial/name/pixels/wavelength span, closes. No `spec_echem`
+      import; hardened for a *different* model (`AVS_GetParameter` best-effort). Plus a Windows-only
+      Metrohm/Autolab **USB-presence** scan (PowerShell, no deps). Emailable to the colleague.
+- [x] **`examples/query_autolab.py` + `query_autolab_setup.md` — DONE (2026-07-22).** Read-only,
+      **cell-safe connect probe** via our own ~15 lines of `pythonnet`/`clr` (NOT a dependency on the
+      stale pyMetrohmAUTOLAB — credited as reference). `clr.AddReference(SDK)` →
+      `from EcoChemie.Autolab.Sdk import Instrument` → set `Adk.x` + model `HardwareSetup*.xml` →
+      `Connect()` → report `IsConnected` → `Disconnect()` in `finally`. **Never** `set_CellOnOff` /
+      `Measure` / load a `.nox` (cell stays off — connect and cell power are separate in the SDK).
+      Editable `SDK`/`ADX`/`HDW` paths with PGSTAT302N defaults. Stays in `examples/`, off the
+      `potentiostat.py` seam. Graceful no-pythonnet path smoke-tested on the Mac (exit 0).
+      **Still needs the colleague's Win box to confirm:** (a) pythonnet/SDK **bitness** match,
+      (b) `Connect()` really leaves the cell off (verify on a dummy cell first). Built ahead of the
+      original "wait for the Avantes check" gate at the direction (2026-07-22).
+- **Findings that make an eventual Autolab *backend* look modest, not scary** (see memory): the SDK
+  is **procedure-based** — CV/CA are `.nox` procedure files you `LoadProcedure` + `Measure()`, which
+  mirrors your existing **External mode** (`.GSequence` holds the recipe; Python runs it).
+
+- **BENCH-CONFIRMED on a real Autolab (PGSTAT10, 2026-08-28) — see [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md).**
+  - `query_autolab.py` connects under **64-bit** Python → no 32/64-bit split on an Autolab rig
+    (one interpreter can hold avaspec + the SDK).
+  - The "no digital I/O" note above was **wrong for SDK 2.1**: `Instrument.Dio` exposes
+    `DioPortsP1[]/DioPortsP2[]`, and each `DioPort` has `PortDirection {Input,Output}`, `Value:Byte`,
+    `SetPortBit/GetPortBit`. Also `Ei` (potentiostat), `LoadProcedure`, `Sampler`, `Adc`, `Dac`.
+  - **The trigger works.** New `examples/query_avantes_trigger.py` arms the Avantes for a hardware
+    trigger and pulses Autolab DIO `DioPortsP1[0]` (P1.A) from the same Python process — the scan
+    completes, polarity correct. NOVA's own spectro-EC procedures pulse the same P1.A line.
+  - So a Python-drives-everything Autolab backend in `potentiostat.py` (analogue of
+    `ToolkitPotentiostat`, all 64-bit, one process) is the recommended direction. Note: NOVA and
+    spec-echem can't both own the Avantes over USB.
+
+### Wavelength window is a hardcoded pixel slice — CLOSED 2026-09-04, not worth fixing
+
+**CLOSED 2026-09-04 — no change needed, on measured data.** With the lamp on, raw counts across
+all 2048 pixels: peak 24127 at 655.5 nm against a 721-count floor (pixels 0-200, below the optics
+cutoff, where no light can arrive). Signal above that floor is 1120 counts at 1000 nm, 281 at 1050,
+**66 at 1100, 17 at the current 1123.7 nm edge, and 0 past 1150**. Silicon QE is finished by
+~1050 nm, so the existing window already extends past usable signal and widening it toward 1326 nm
+would add ~388 pixels of baseline. Numbers in `bench-2026-09-04.md`.
+
+The premise was backwards: >1100 nm is not reachable by configuration on a silicon CCD. If NIR
+polaron bands matter scientifically, that is an InGaAs spectrometer, not a code change — and only
+then is the rework below worth building.
+
+Original writeup (2026-08-28), kept because the analysis is still correct — only the payoff was
+wrong:
+
+`spec_echem/spectrometer.py` `CAL_START_PX = 395` / `CAL_STOP_PX = 1659` — a fixed `[395:1660]`
+pixel window applied to **every** Avantes, chosen for the original VRS2048CL-EVO's 300–1100 nm optics.
+On an **AvaSpec-ULS2048L** those pixels are **410.2–1123.7 nm**, so ~1124–1326 nm is silently dropped
+(a user on that rig needs >1100 nm) and <410 nm is unreachable. `set_wavelength_window()` only crops
+*within* the slice, so the GUI can't offer wider.
+
+- [~] ~~Make the calibrated pixel window bench-configurable~~ — **not doing it.** Closed on data
+      2026-09-04 (above). Revisit only with a detector that can see past 1100 nm; if that day comes,
+      the design the user chose is: hard limits read per spectrometer from the device at connect, a
+      default window expressed in **nm** rather than pixels, an operator window anywhere inside
+      those limits, and the best part of *that* detector's range preferred over consistency between
+      instruments (a changed row count on the PLU rig is acceptable).
+- [x] **GUI (options A + C, 2026-08-28):** wl spin boxes clamp to the connected spectrometer's
+      calibrated span and show it; a saved crop that fits a different detector (`_window_fits`) is
+      parked for an explicit Apply, not silently clamped. Does not widen past the slice — see above.
+
+### Integration-time unit — RESOLVED to milliseconds (2026-06-18)
+
+The unit is **milliseconds**, end to end: `settings.py` key `integration_time_ms` → GUI spin value
+passed straight through `set_integration_time()` → Avantes `m_IntegrationTime` (SDK defines it in
+ms), with NO conversion. Confirmed on hardware 2026-06-18 — `spectrometer.py` printed
+"Integration time set to 0.022 ms". The lone outlier was the CLAUDE.md doc (said "seconds") — now
+**fixed** to ms. No code change needed (everything already agrees on ms).
+
+- [x] **Label the GUI integration-time spin box "(ms)"** — DONE: the spin box already sets
+      `.setSuffix(" ms")` (`instrument_tab.py`), so the unit shows inline in the field.
+
+### Phase 2 — Python potentiostat (EchemToolkitPy)
+
+`spec_echem/potentiostat.py` is implemented and hardware-validated (SpecEchem32, 2026-07-04):
+`ExternalPotentiostat` = today's manual path, `ToolkitPotentiostat` = Python-driven. All four
+segment types (CV + doping/dedoping/pre-dedoping) run in Python mode with golden output and the
+DIGOUT0 handshake confirmed. Remaining items:
+
+- [x] **Python-mode CV vertex potentials.** DONE (2026-06-30): settings now carry
+      `cv_initial_v / cv_limit1_v / cv_limit2_v / cv_final_v` (replacing `cv_total_voltage`),
+      Parameters tab exposes them, and `ToolkitPotentiostat._cv_signal()` builds the CV signal.
+      Still bench-unconfirmed like the rest of the toolkitpy path.
+- [x] **`curve.run()` blocks vs polls — SETTLED (2026-07-03):** `run(True)` is NON-blocking;
+      `fire()` starts it synchronously and `finish()` polls `curve.running()`. No worker thread.
+      DIGOUT0 HIGH confirmed to land while the spectrometer is armed (arm-then-fire handshake).
+- [x] **toolkitpy API names verified on hardware (2026-07-03):** `initialize_pstat`, `signal_d_step_new`,
+      `signal_r_up_dn_new`, `RcvCurve` / `ChronoCurve`, `pstat_is_valid`, `set_digital_out` all work.
+- [x] In Python mode the doping/dedoping potential fields go live — DONE: the section note now
+      reads "(Python mode drives these; External = reference)" (`parameters_tab.py` `POTENTIAL_NOTE`),
+      replacing the old "(recorded for reference)" wording.
+- [x] **Show the Gamry's custom name in "Identify".** DONE (2026-07-01): `probe_identity()` returns
+      `(Pstat.label(), Pstat.serial_no())`; the Identify status shows "Gamry connected — {label}
+      (serial {serial})" (falls back to serial-only if no label). Optionally add `Pstat.family()` later.
+
+### Echem plotting in the GUI (Phase 1)
+
+- [x] **Live echem timing SIGNED OFF (the user, 2026-07-07).** Ran the CV live/off A/B ×2 pairs on the
+      incremental-redraw build. Across all 4 runs (~160 spectra) NO 119-style spikes; steady-state
+      (spectra 2–40) all within ~100–103 ms, ~±1.5 ms of the 100 ms target, live indistinguishable
+      from off. The only outlier is the first interval (spectrum 0→1, ~86–97 ms) — the trigger-armed
+      first-measurement settling, present in every run regardless of live/off, and harmless (it's
+      timestamped). Conclusion: the incremental redraw (`update_live_line`) removed the cadence
+      perturbation; the live plot is timing-safe. Minor future-if-ever: the ~first-interval dip could
+      be looked at for perfectly-uniform-from-start sampling, but it's a startup artifact, not the plot.
+- [x] Wire CV (I vs E) + chrono (I vs t) plots into the Results review area — DONE (2026-07-06):
+      absorbance (optical) and electrochemistry are shown side by side; the Results tab loads each
+      segment's clean echem `.txt` via `spec_echem.gamry_data` (`data.echem_txt_path` locates it),
+      and shows a friendly note when there's no echem file (e.g. External mode). CV → I-vs-E,
+      chrono → I-vs-t.
+- [x] **Live echem graph during a Python-mode run — DONE (2026-07-06).** The Run tab now shows a live
+      echem trace (CV → I-vs-E, chrono → I-vs-t) that updates mid-segment, above the last-completed
+      absorbance — so you can watch a CV and ABORT before committing to a long doping sweep. Mechanism:
+      the Gamry thread's existing `acq_data()` poll now stashes each snapshot (`potentiostat.live_data()`);
+      a 400 ms QTimer on the GUI thread reads it and redraws (never touches the acquisition thread, so
+      timing/50 ms budget is safe). **BENCH-VERIFIED + SIGNED OFF 2026-07-07** (see the item above) —
+      after the redraw was made incremental (`update_live_line`), a first full-redraw version DID perturb
+      the spectra cadence (max 119 ms / jitter 3.5) via GIL contention; the incremental version does not.
+      Verification tooling shipped:
+      (a) every segment logs its actual cadence — "X cadence: mean … (target …), min/max, jitter(sd), n"
+      — from hardware timestamps, to the status pane + .log; (b) a "Live echem" checkbox on the Run tab
+      to A/B the same run plot-on vs plot-off and compare the logged cadence. If jitter is bad, the 400 ms
+      redraw interval is a one-line knob (make it tunable). Possible follow-ups: live *absorbance* too
+      (needs per-spectrum emit from the worker); drop the now-purposeful `acq_data()` poll into the
+      two-thread review.
+- [x] **Review a past run without re-running — DONE (2026-07-09).** Results tab gained a "Load Run…"
+      button: pick a saved run folder → `discover_run_segments` reverse-maps the filenames and
+      `read_spectra_absorbance` rebuilds each absorbance matrix from disk (both in `spec_echem/data.py`),
+      populating the Results view (absorbance + echem) exactly as a live run does. Previously the tab only
+      showed the current session's run ("run a sequence first" on a cold launch). Guarded against loading
+      mid-run. ("Open Data Folder" is unchanged — it opens the folder in Explorer, a filesystem shortcut,
+      not an in-GUI viewer.)
+- [x] **Configurable wavelength window — crop noisy lamp edges — DONE (2026-07-10).** Opt-in,
+      driver-level (`m_StartPixel`/`m_StopPixel`); default = full window (output unchanged). Instrument
+      tab: wl_min/max + Conservative/Balanced/Liberal + "Suggest from test-abs" + "Apply". Recommendation
+      in `spec_echem/spectral_range.py` (rolling-σ of the test-abs, ref-net corroboration; knob is an
+      absolute **Max noise (OD)**, default 0.010). IMPLEMENTATION = pure **software crop** (2026-07-10):
+      the `m_StartPixel/m_StopPixel` hardware approach was abandoned (mis-mapped on real hardware — axis
+      jumped to ~1050-1160 nm, graphs blank); `set_wavelength_window` now crops the calibrated `[395:1660]`
+      window by index (`_crop`), never touching measconfig. Instrument-tab plots/loads crash-proofed.
+      Downstream confirmed 2026-07-10: a **cropped run** (400.5–1049.7 nm, salt blank) reads cleanly
+      through `OECT_processing`. **DONE + RELEASED to main.**
+- [x] **Linearity check — DONE + hardware-validated (2026-07-13).** Instrument tab has a `Linearity Check`
+      box beside Spectrometer Settings: ramps integration time, tracks one fixed peak pixel, fits the linear
+      region (with intercept), and recommends a working integration time. Manual Start/Stop/Steps, a
+      "Find saturation" helper (bisects to the real threshold), and "Use recommended".
+      `spec_echem/linearity.py`; run with the reference in place.
+      **Key finding from the real run:** the detector tracks the fit to within ~1% right up to the hard ADC
+      clip, so a deviation-only criterion never fires and puts the working point at ~94% of full scale. The
+      recommendation therefore takes the **tighter of two constraints** — 5% below the limit of linearity,
+      or peak counts ≤ a **max-fill** fraction of full scale. Defaults **85% fill / 2% tolerance** confirmed
+      good by the user on hardware (halogen + ND: saturates ~0.11 ms → recommends ~0.0885 ms).
+
+*(Its two open items moved to **Now — backlog** on 2026-10-03.)*
+
