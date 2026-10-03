@@ -329,6 +329,34 @@ def test_the_cadence_note_wraps(window):
 # click again — which put two full connect cycles into the 2026-09-11 crash log, on
 # a USB stack that has twice failed under repeated open/close.
 
+def test_the_gamry_ladder_probe_runs_inside_the_click_guard(window, monkeypatch):
+    """2026-10-03 review. A Gamry connect is TWO blocking hardware sessions: the
+    identity probe, then the ladder probe. The ladder ran after the guard had exited,
+    so the button was live again for a multi-second call -- a click then was QUEUED,
+    not discarded, and started another pair of open/close cycles on a USB stack that
+    has failed under exactly that (2026-09-03, 2026-09-09)."""
+    from gui.tabs import instrument_tab
+
+    tab = window.instrument_tab
+    seen = {}
+
+    def ladder_probe():
+        seen["enabled"] = tab.pstat_connect_btn.isEnabled()
+        seen["text"] = tab.pstat_status.text()
+        return None                             # best effort: keep the documented list
+
+    monkeypatch.setattr(instrument_tab, "probe_identity", lambda: ("Duck", "123"))
+    monkeypatch.setattr(instrument_tab, "probe_gamry_ladder", ladder_probe)
+    tab.pstat_python_radio.setChecked(True)
+    tab.pstat_connect_btn.setEnabled(True)
+    tab.on_connect_pstat()
+
+    assert seen["enabled"] is False, "the ladder probe ran with the button live"
+    assert "Connecting" in seen["text"]
+    assert tab.pstat_connect_btn.isEnabled() is True
+    assert "Connected" in tab.pstat_status.text()
+
+
 def test_a_slow_connect_disables_its_own_button(window, monkeypatch):
     """The button must be dead BEFORE the blocking call, not after it returns — a
     click on a disabled button is discarded rather than queued."""
@@ -2850,8 +2878,8 @@ def test_the_delta_names_its_scope_and_shows_the_floor(window):
     tab = window.parameters_tab
     assert "chrono steps" in tab.delta_label.text()
 
-    window.settings["integration_time_ms"] = 0.022
-    window.settings["scan_averages"] = 200
+    window.instrument_tab.integration_spin.setValue(0.022)
+    window.instrument_tab.averages_spin.setValue(200)
     tab._widgets["chrono_delta_time"].setValue(0.100)
     tab.sync_potentiostat_rows()
     assert "minimum" in tab.delta_cost_hint.text()
@@ -3385,3 +3413,27 @@ def test_load_run_prefers_hdf5_when_both_are_present(window, tmp_path):
     window.settings = dict(window.settings, data_format="ascii")
     segs, source = window.results_tab._discover(tmp_path / "both")
     assert source == "text" and segs[0][3].suffix == ".txt"
+
+
+def test_the_delta_floor_follows_the_instrument_tab_without_a_collect(window):
+    """Raised by the 2026-10-03 review and NOT a bug: the hint reads win.settings,
+    but every Instrument-tab spin change runs _update_cadence_note, which calls
+    collect_settings() and so keeps win.settings current. That is a side effect, not
+    a contract -- this test is what notices if it goes away, because the hint would
+    then quote an old floor and approve a spacing the spectra cannot keep."""
+    tab = window.parameters_tab
+    inst = window.instrument_tab
+    inst.integration_spin.setValue(0.022)
+    inst.averages_spin.setValue(10)
+    window.collect_settings()                     # settings agree with the spins here
+    tab._widgets["chrono_delta_time"].setValue(0.100)
+    tab.sync_potentiostat_rows()
+    assert "⚠" not in tab.delta_cost_hint.text()
+
+    # Now only the SPINS move -- no Start, no Connect, so no collect_settings().
+    inst.integration_spin.setValue(5.0)
+    inst.averages_spin.setValue(100)              # 0.5 s of exposure alone
+    tab.sync_potentiostat_rows()                  # what showEvent does
+
+    assert "⚠" in tab.delta_cost_hint.text(), tab.delta_cost_hint.text()
+    assert "cannot keep up" in tab.delta_cost_hint.text()
