@@ -74,6 +74,13 @@ class BandTab(QWidget):
         # Set by whichever plot was last drawn; appended to the status line
         # by _append_sign_note. Never put on the figure.
         self._sign_note = ""
+        # WHAT IS ON SCREEN, recorded when it is drawn. Names, titles and the CSV are
+        # built from these, never from the live controls: the combo, the model and the
+        # time window can all be changed after a fit without refitting, and a file
+        # named from them would then assert something its contents contradict.
+        self._shown_label = None   # the segment whose band is drawn
+        self._band_window = None   # (t_start, t_stop) that band was fitted over
+        self._ladder_window = None # the same, for Fit all segments
         self._build()
 
     # --- layout ---------------------------------------------------------
@@ -273,10 +280,11 @@ class BandTab(QWidget):
     def _figure_basename(self):
         """Names WHICH plot it is. The two look nothing alike and answer different
         questions, so a folder holding both must not call them the same thing."""
-        model = self.model_combo.currentData()
-        if self._showing == "ladder":
-            return f"band_ladder_{model}"
-        label = (self._current_label() or "band").replace(" ", "")
+        if self._showing == "ladder" and self._ladder:
+            return f"band_ladder_{self._ladder[0][3].model}"
+        model = (self._band.model if self._band is not None
+                 else self.model_combo.currentData())
+        label = (self._shown_label or "band").replace(" ", "")
         return f"{label}_band_{model}"
 
     def _remember_segment(self, *_):
@@ -351,11 +359,21 @@ class BandTab(QWidget):
         self._showing = None
         self._wanted_label = None
         self._sign_note = ""
+        self._shown_label = None
+        self._band_window = None
+        self._ladder_window = None
         self._excluded = 0
         self._offscreen = 0
         self._clipped = 0
         self.ladder_btn.setEnabled(False)
         self.save_btn.setEnabled(False)
+        # Emptied so the next refresh_segments REBUILDS it. That method skips a
+        # rebuild when the labels are unchanged, and a new run usually has the same
+        # 'Doping 0..N' labels at different potentials -- left alone, the dropdown
+        # kept the previous run's potentials beside this run's data.
+        self.segment_combo.blockSignals(True)
+        self.segment_combo.clear()
+        self.segment_combo.blockSignals(False)
         self.table.setRowCount(0)
         self.table.setColumnCount(0)
         self.status.setText("Choose a segment and a wavelength range.")
@@ -382,6 +400,7 @@ class BandTab(QWidget):
         if entry is None:
             return False
         self._band = entry[3]
+        self._band_window = self._ladder_window
         self._showing = "one"
         self._draw_one(label)
         self._fill_table(self._band.table())
@@ -420,6 +439,7 @@ class BandTab(QWidget):
         except ValueError as exc:
             self.status.setText(str(exc))
             return
+        self._band_window = (start, stop)
         self._showing = "one"
         self._draw_one(label)
         self._fill_table(self._band.table())
@@ -457,11 +477,16 @@ class BandTab(QWidget):
         progress.setMinimumDuration(0)
 
         results = []
+        # Captured HERE, not read back later: setValue(maximum) below resets the dialog
+        # (autoReset), and the reset clears wasCanceled(), so a cancelled ladder would
+        # report itself as whole.
+        cancelled = False
         for i, (label, seg, potential) in enumerate(fittable):
             progress.setLabelText(f"Fitting {label} ({i + 1} of {len(fittable)})…")
             progress.setValue(i)
             QApplication.processEvents()
             if progress.wasCanceled():
+                cancelled = True
                 break
             df = self._frame_for(label)
             try:
@@ -483,11 +508,11 @@ class BandTab(QWidget):
                 + (f"Skipped: {', '.join(skipped)}." if skipped else ""))
             return
         self._ladder = results
+        self._ladder_window = (start, stop)
         self._band = None
         self._showing = "ladder"
         self.ladder_btn.setEnabled(True)
         self._fill_table(self._ladder_frame())
-        cancelled = progress.wasCanceled()
         parts = [f"{len(results)} segment(s) fitted"]
         if cancelled:
             parts.append("CANCELLED — the rest were not fitted")
@@ -553,6 +578,7 @@ class BandTab(QWidget):
         wl = frame["wavelength_nm"].to_numpy()
         ok = frame["ok"].to_numpy(dtype=bool)
         model = self._band.model
+        self._shown_label = label
 
         series = []
         for column, name in self._curves_for(model):
@@ -584,7 +610,8 @@ class BandTab(QWidget):
                                f"{int(ok.sum())} fitted wavelengths, {spans}")
         self.canvas.plot_multi_xy(
             series, "Wavelength (nm)", "tau (s)",
-            title=f"{label} — tau vs wavelength  ({model}, {self._window_text()})")
+            title=f"{label} — tau vs wavelength  "
+                  f"({model}, {self._window_text(self._band_window)})")
         # NOT shaded here (2026-10-02). On a single segment the wavelengths that
         # flip are usually most of the band, so the tint covers the whole plot and
         # says nothing; the count below the graph says it in words instead. The
@@ -646,6 +673,34 @@ class BandTab(QWidget):
         point outside the axes is COUNTED in the status line rather than silently
         dropped.
         """
+        drawn = self._compose_ladder()
+        if drawn is None:
+            return
+        offscreen, sign_notes = drawn
+        # Below the graph, never ON it: this is a prompt to the scientist to go and
+        # look, not a caption the saved figure should carry (asked for directly).
+        self._sign_note = (f"{self.SIGN_NOTE}: " + ";  ".join(sign_notes)
+                           if sign_notes else "")
+        self.canvas.draw_idle()
+        # This plot is composed on the figure directly -- its own subplots, strips
+        # and whiskers -- so no draw method recorded it and Save figure wrote
+        # the SINGLE-segment plot that came before it, under the ladder's name
+        # (reported 2026-10-01). Registering the composition fixes both halves.
+        #
+        # _compose_ladder, NOT this method: the export re-runs whatever is recorded
+        # for every preview render, and this method also writes the status line --
+        # so each preset change or provenance toggle appended another copy of the
+        # notes (2026-10-03 review).
+        self.canvas.record_draw(self._compose_ladder, self._ladder_frame)
+        self._offscreen = offscreen
+        self._note_plot_limits()
+
+    def _compose_ladder(self):
+        """Draw the ladder onto the canvas's CURRENT figure and nothing else.
+
+        Returns (offscreen, sign_notes), or None when no rung is in range. Writes no
+        status text, so the figure export can re-run it as often as it likes.
+        """
         model = self._ladder[0][3].model
         conditions = self._fit_conditions(self._ladder[0][3])
         beta_row = model == "stretched"
@@ -656,7 +711,7 @@ class BandTab(QWidget):
             self.canvas.show_message(
                 f"No segment between {lo:+.2f} and {hi:+.2f} V. "
                 f"All {len(self._ladder)} are outside that range.")
-            return
+            return None
         directions = [d for d in ("doping", "dedoping")
                       if any(r[2] == d for r in shown)]
 
@@ -717,18 +772,7 @@ class BandTab(QWidget):
                 ax.set_xlabel("potential the film was doped to (V)")
 
         fig.tight_layout()
-        # Below the graph, never ON it: this is a prompt to the scientist to go and
-        # look, not a caption the saved figure should carry (asked for directly).
-        self._sign_note = (f"{self.SIGN_NOTE}: " + ";  ".join(sign_notes)
-                           if sign_notes else "")
-        self.canvas.draw_idle()
-        # This plot is composed on the figure directly -- its own subplots, strips
-        # and whiskers -- so no draw method recorded it and Save figure wrote
-        # the SINGLE-segment plot that came before it, under the ladder's name
-        # (reported 2026-10-01). Registering the composition fixes both halves.
-        self.canvas.record_draw(self._draw_ladder, self._ladder_frame)
-        self._offscreen = offscreen
-        self._note_plot_limits()
+        return offscreen, sign_notes
 
     def _append_sign_note(self):
         """Put the competing-processes note BELOW the graph.
@@ -865,8 +909,8 @@ class BandTab(QWidget):
                         offscreen += int(np.sum((y[bad] < lo) | (y[bad] > hi)))
         return offscreen
 
-    def _window_text(self):
-        start, stop = self._window()
+    def _window_text(self, window=None):
+        start, stop = window if window is not None else self._window()
         if start is None and stop is None:
             return "whole segment"
         return f"{start if start is not None else 'start'}–" \
@@ -906,8 +950,10 @@ class BandTab(QWidget):
     def on_save_csv(self):
         if self._frame is None:
             return
-        base = ("band_all_segments" if self._ladder
-                else f"{self._current_label()}_band")
+        # By what is SHOWING: after Fit all, selecting one segment puts that
+        # segment's table here, and naming it "all segments" would be false.
+        base = ("band_all_segments" if self._showing == "ladder"
+                else f"{(self._shown_label or 'band').replace(' ', '')}_band")
         path, _ = QFileDialog.getSaveFileName(
             self, "Save band fits", f"{base}.csv", "CSV (*.csv)")
         if not path:

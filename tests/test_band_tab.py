@@ -805,3 +805,137 @@ def test_a_new_run_does_not_inherit_the_previous_fits(window):
     window.results_tab._release_loaded_run()
     assert not analysis._fits, "tab 5 kept fits from the released run"
     assert not analysis._fit_wl
+
+
+# 2026-10-03, from the v0.3.1..gui-dev code review: the cancel flag was read AFTER
+# progress.setValue(maximum), and with autoReset on (the default) that call resets
+# the dialog -- which clears wasCanceled(). A cancelled ladder was reported as whole.
+
+def test_a_cancelled_fit_all_says_it_was_cancelled(window, monkeypatch):
+    """Uses the REAL QProgressDialog, cancelled the way a press would, so Qt's own
+    reset-on-maximum runs. Mocking wasCanceled() would hide exactly this bug."""
+    import gui.tabs.band_tab as band_mod
+
+    class PressesCancelOnTheSecondSegment(band_mod.QProgressDialog):
+        def setValue(self, value):
+            super().setValue(value)
+            if value == 1:
+                self.cancel()
+
+    monkeypatch.setattr(band_mod, "QProgressDialog", PressesCancelOnTheSecondSegment)
+    _ladder(window)
+    tab = window.band_tab
+    tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
+    tab.start_spin.setValue(480.0); tab.stop_spin.setValue(540.0)
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("exp"))
+
+    tab.on_fit_all()
+
+    assert tab._ladder is not None and len(tab._ladder) == 1     # one fitted, then stop
+    assert "CANCELLED" in tab.status.text()
+
+
+def test_a_new_run_with_the_same_labels_relabels_its_potentials(window, tmp_path):
+    """From the 2026-10-03 review. refresh_segments skips a rebuild when the LABELS
+    are unchanged, and nothing cleared the combo between runs -- so loading a second
+    run with the same 'Doping 0..2' but a different ladder kept the FIRST run's
+    potentials in the dropdown, naming the wrong potential for the data selected."""
+    # Two folders, as two real runs have: the potential cache is keyed by folder,
+    # so two folderless 'runs' would share one entry and test nothing.
+    window.run_folder = tmp_path / "run_a"
+    _ladder(window)                                     # 0.3, 0.5, 0.7 V
+    tab = window.band_tab
+    first = [tab.segment_combo.itemText(i) for i in range(tab.segment_combo.count())]
+    assert any("0.30" in text for text in first)
+
+    tab.reset_for_new_run()                             # what loading a run does
+    window.run_folder = tmp_path / "run_b"
+    window.settings.update(doping_potential_start=0.4)
+    window.loaded_run_settings = dict(window.settings)  # 0.4, 0.6, 0.8 V
+    tab.refresh_segments()
+
+    second = [tab.segment_combo.itemText(i) for i in range(tab.segment_combo.count())]
+    assert [tab.segment_combo.itemData(i) for i in range(tab.segment_combo.count())] \
+        == [l for l in window.results if not l.startswith("CV")]
+    assert any("0.40" in text for text in second), second
+    assert not any("0.30" in text for text in second), second
+
+
+# 2026-10-03 review: names, titles and the CSV were built from the LIVE controls, so
+# moving the combo, the model or the time window after a fit made them describe a fit
+# that never happened -- a filename asserting what its contents contradict.
+
+def _ready(window):
+    _ladder(window)
+    tab = window.band_tab
+    tab.start_spin.setRange(0.0, 5000.0); tab.stop_spin.setRange(0.0, 5000.0)
+    tab.start_spin.setValue(480.0); tab.stop_spin.setValue(540.0)
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("exp"))
+    tab.t_start.setValue(0.0); tab.t_stop.setValue(0.0)
+    return tab
+
+
+def _suggested_csv_name(tab, monkeypatch):
+    from qtpy.QtWidgets import QFileDialog
+    seen = []
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (seen.append(a[2]), ("", ""))[1]))
+    tab.on_save_csv()
+    return seen[0]
+
+
+def test_the_saved_name_follows_the_plot_not_the_controls(window, monkeypatch):
+    tab = _ready(window)
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 0"))
+    tab.on_fit_segment()
+
+    # Everything moves after the fit; nothing is refitted.
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 2"))
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("biexp"))
+
+    assert tab._figure_basename() == "Doping0_band_exp"
+    assert _suggested_csv_name(tab, monkeypatch) == "Doping0_band.csv"
+
+
+def test_a_stored_fit_is_titled_with_the_window_it_was_fitted_over(window):
+    tab = _ready(window)
+    tab.on_fit_all()                                    # whole segment
+    tab.t_start.setValue(5.0)                           # moved afterwards
+
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 1"))
+
+    title = next(ax.get_title() for ax in tab.canvas.fig.axes if ax.get_title())
+    assert "Doping 1" in title
+    assert "whole segment" in title and "5" not in title.split("(")[-1], title
+
+
+def test_one_segment_shown_after_fit_all_is_not_saved_as_all_segments(window, monkeypatch):
+    tab = _ready(window)
+    tab.on_fit_all()
+    assert _suggested_csv_name(tab, monkeypatch) == "band_all_segments.csv"
+
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 1"))
+    assert tab._showing == "one"
+    assert _suggested_csv_name(tab, monkeypatch) == "Doping1_band.csv"
+
+
+def test_rendering_the_ladder_for_export_does_not_touch_the_status_line(window):
+    """2026-10-03 review: the export re-runs the recorded draw on every preview
+    render, and the recorded draw was _draw_ladder itself -- which also appends its
+    'Not shown' and sign notes to the status line. Each preset change or provenance
+    toggle stacked another copy."""
+    from gui.widgets.figure_dialog import FigureDialog
+
+    tab = _overshoot_ladder(window)
+    tab.on_fit_all()
+    tab.vg_min.setValue(0.45)                  # leaves something to say "Not shown"
+    before = tab.status.text()
+    assert "Not shown" in before
+
+    dialog = FigureDialog(None, tab.canvas, tab.canvas.last_draw(), run_id="x")
+    for i in range(3):                         # what clicking around the preview does
+        dialog.preset_combo.setCurrentIndex(i % dialog.preset_combo.count())
+        dialog.provenance_check.setChecked(i % 2 == 0)
+
+    assert tab.status.text() == before
+    assert tab.status.text().count("Not shown") == 1
