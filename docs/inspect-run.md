@@ -2,7 +2,7 @@
 
 This doc lets a fresh Claude Code session (on the SpecEchem32 / Win11 instrument machine, where the
 actual data lives) inspect a completed spec-echem run: confirm the output is well-formed, diagnose
-the folder-nesting question, and check whether the data is ready for Raj's `OECT_processing`.
+the folder-nesting question, and check whether the data is ready for `OECT_processing`.
 
 **Read `docs/data-format.md` first** — it is the authoritative column/filename spec. Nothing here
 overrides it.
@@ -107,8 +107,8 @@ Gamry **steps `.DTA`** files being colocated with the spectra (§4).
 
 **Known bug in OECT_processing (not us):** two commits May 26–27 2026 made `read_files.py` read
 `Potential`/`Vf` from the *spectra* files instead of the Gamry *steps* files. Our 8-column format is
-correct — no spec-echem change. If Raj's reader misbehaves on potential, that's the cause; fix is in
-`read_files.py` (~lines 76–85: revert `specfiles[0]` → `stepfiles[0]`) and should be flagged to Raj.
+correct — no spec-echem change. If the `OECT_processing` reader misbehaves on potential, that's the cause; fix is in
+`read_files.py` (~lines 76–85: revert `specfiles[0]` → `stepfiles[0]`) and should be reported upstream.
 
 When Dean first runs OECT_processing on this folder, capture any traceback and check it against the
 above before assuming a spec-echem format problem.

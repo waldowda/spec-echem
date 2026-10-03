@@ -217,14 +217,14 @@ instruction.
 Files are tab-separated, saved under `{data_root}/{added_path}/`
 (e.g. `C:\Users\inst-chem\Documents\specechem_data\20260705_P3HT\`).
 
-**Downstream analysis repo:** `rajgiriUW/OECT_processing` (github.com/rajgiriUW/OECT_processing),
-maintained by Raj Giri. The `oect_processing/specechem/read_files.py` module reads spec-echem
+**Downstream analysis repo:** `rajgiriUW/OECT_processing` (github.com/rajgiriUW/OECT_processing).
+The `oect_processing/specechem/read_files.py` module reads spec-echem
 output files and explicitly depends on the `spectra(N).txt` / `dedopingspectra(N).txt` naming.
 
 **Known bug in OECT_processing (not spec-echem):** Two commits May 26–27 2026 accidentally
 changed `read_files.py` to read `Potential`/`Vf` from spectra files instead of the Gamry steps
 files (`WE(1).Potential (V)`). The 8-column spec-echem format is correct — no changes needed.
-Fix: in `read_files.py` lines ~76–85, revert `specfiles[0]` back to `stepfiles[0]`. Notify Raj.
+Fix: in `read_files.py` lines ~76–85, revert `specfiles[0]` back to `stepfiles[0]`. Report it upstream.
 
 **Steps files dependency:** Gamry `.DTA` steps files must be in the same folder as spectra files
 for `current_vs_time()` to work. Gamry and spec-echem output directories must match.

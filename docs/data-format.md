@@ -1,7 +1,7 @@
 # Output File Format — DO NOT CHANGE
 
 This file is the authoritative specification for every data file spec-echem writes.
-Downstream analysis tools at UW (Raj's `OECT_processing`) depend on these formats. **Do not
+Downstream analysis tools at UW (`rajgiriUW/OECT_processing`) depend on these formats. **Do not
 change column names, order, separator, or filename conventions without explicit instruction.**
 
 All files are **tab-separated**, written under the run folder:
@@ -107,7 +107,7 @@ device is available but not split out):
 | 5 | `Index` | Integer 0 .. n−1 |
 
 **Note on `Time (s)`:** the legacy `.DTA` converter set `Time = Corrected + 100`. That `+100`
-offset is **dropped** here — verified against Raj's `OECT_processing/.../uvvis.py`
+offset is **dropped** here — verified against `OECT_processing/.../uvvis.py`
 (`current_vs_time`), which reads step files by column *name* and only uses `Corrected time (s)`
 and `WE(1).Current (A)`; `Time (s)` is never referenced. Both time columns therefore start at 0.
 The column is kept present because spec-echem's own reader (`read_chrono`) requires all 5.

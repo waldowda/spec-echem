@@ -51,7 +51,7 @@ FIT_MIN_TAU_SAMPLES = 1.0
 
 
 # --- the models -------------------------------------------------------------
-# Same three Raj's banded_fits offers, so a fit done here and one done in Jupyter
+# The same three OECT_processing's banded_fits offers, so a fit done here and one done in Jupyter
 # mean the same thing.
 
 def order_biexp(model, popt, pcov=None):

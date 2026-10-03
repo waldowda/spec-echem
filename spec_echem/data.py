@@ -349,7 +349,7 @@ def write_spectra_file(absorb7, spectra, dark, ref, wavelengths, timestamps,
 
 
 def _echem_filename_for(data_type, run_number):
-    """Clean-txt echem filename — the names the converter/Raj already expect."""
+    """Clean-txt echem filename — the names the converter and OECT_processing already expect."""
     return {
         DATA_TYPE_CV:          'CV.txt',
         DATA_TYPE_DOPING:      f'steps({run_number}).txt',

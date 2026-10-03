@@ -412,7 +412,7 @@ package, External + Python (EchemToolkitPy) Gamry with the DIGOUT0→Avantes tri
 echem capture, Results / Load-Run / live-echem, and the opt-in wavelength window. **`gui-dev` stays
 the working branch.** Version stays 0.1.0 (pre-release); a citable Zenodo 0.2.0 can be tagged later.
 
-**Merge gate met:** output validated end-to-end through Raj Giri's `OECT_processing`, including a
+**Merge gate met:** output validated end-to-end through `OECT_processing`, including a
 **cropped run** (2026-07-10, salt blank) — the narrower wavelength axis reads cleanly downstream.
 
 Landed this cycle:
@@ -425,8 +425,8 @@ Landed this cycle:
   the GUI as the workflow with the 32-bit (Python Gamry) vs 64-bit env note.
 
 **Deferred (no rush):** fresh/degassed real-sample scientific demo (~Sept–Oct 2026, lab reno);
-a citable Zenodo 0.2.0 tag; a fuller "Analysis with OECT_processing" README section once Raj fixes his
-reader upstream (`specfiles`→`stepfiles` + `prededoping` mis-sort); the pre-dedoping-subfolder idea;
+a citable Zenodo 0.2.0 tag; a fuller "Analysis with OECT_processing" README section once the
+`OECT_processing` reader is fixed upstream (`specfiles`→`stepfiles` + `prededoping` mis-sort); the pre-dedoping-subfolder idea;
 exposing other `measconfig` fields.
 
 ---
@@ -468,16 +468,16 @@ writer joins the path once). Zero impact on analysis. Reinforces the pending par
 - **Absorbance y-autoscale** — the y-axis now rescales to the selected wavelength range, so zooming into
   the weaker polaron region no longer leaves the traces squished under the π→π* peak.
 
-**🎯 OECT_processing TRIAL PASSED (2026-07-10) — the software gate is met.** Ran Raj Giri's
+**🎯 OECT_processing TRIAL PASSED (2026-07-10) — the software gate is met.** Ran the
 `OECT_processing` doping pipeline on the real `20260709_P3HT_01` data (Mac Mini, dedicated `oect`
 conda env). `read_files` → `UVVis.time_dep_spectra` → `current_vs_time` all run **clean end to end**:
 correct potentials (0.3/0.5/0.7 V), full 301×1265 spectra-vs-time per step, and doping currents
 24/53/**278 µA** — matching the raw CV and the observed "little doping until 0.7 V." **spec-echem's
 output format is confirmed compatible; no output change needed for the merge.** The only fix was in
-Raj's reader (a May-2026 `specfiles`→`stepfiles` regression — the potential lives in the step files;
-applied in our local clone, for Raj to fix upstream). Second reader nit for Raj: `prededoping*` files
-mis-sort into the dedoping lists (substring match). Raj (Slack) will make his reader dual-format
-(his newer single-file design vs our two-file output), so nothing forces a spec-echem change.
+the `OECT_processing` reader (a May-2026 `specfiles`→`stepfiles` regression — the potential lives in the step files;
+applied in our local clone, to be fixed upstream). Second reader nit, also upstream: `prededoping*` files
+mis-sort into the dedoping lists (substring match). Upstream plans to make the reader dual-format
+(its newer single-file design vs our two-file output), so nothing forces a spec-echem change.
 
 **`gui-dev → main`: ✅ DONE (merged 2026-07-10** — see the release section at the top). Both gates
 were met: OECT_processing compatibility proven (incl. a cropped run) + doc hygiene done. The
@@ -495,7 +495,7 @@ When Python drives the Gamry (`ToolkitPotentiostat`), the potentiostat's current
 now saved alongside the UV-Vis spectra:
 
 - clean analysis `.txt` (`CV.txt`, `steps(N).txt`, `dedoping(N).txt`, `prededoping(N).txt`) in
-  Raj's `OECT_processing` format, and
+  the `OECT_processing` format, and
 - native Gamry `.dta` in a `dta/` subfolder (on by default; `save_dta` toggle).
 
 Validated headless (`examples/validate_echem_capture.py`, 6/6) and on a real GUI run.
@@ -533,13 +533,13 @@ machinery is now suspect — see follow-up #1.)
    auto-verify the Gamry when Python mode is selected, and regroup the External/Python/Identify
    controls (see the "GUI UX" section in `TODO.md`).
 5. **Linearity check** on the peak test-counts (saturation warning).
-6. **Future/optional:** a compact tidy-DataFrame sidecar to cut Raj-format duplication —
+6. **Future/optional:** a compact tidy-DataFrame sidecar to cut `OECT_processing`-format duplication —
    an *additional* output; the `.txt` files stay the compatibility contract.
 
 ## The true acceptance test (not yet done)
 
 Everything so far proves the plumbing. The real end-to-end proof is a real polymer sample run
-whose output analyzes cleanly in Raj's `OECT_processing`. That remains the eventual gold
+whose output analyzes cleanly in `OECT_processing`. That remains the eventual gold
 standard, not yet scheduled.
 
 ## Machines

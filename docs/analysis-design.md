@@ -94,7 +94,7 @@ Re-running with a different model and a refined window is the workflow, not an e
 Both current **and** charge: charge is smoother, and it is the more physical comparison against
 absorbance, since absorbance tracks polaron *population* rather than rate.
 
-SD from `sqrt(diag(pcov))`. `curve_fit` already returns the covariance; Raj's `banded_fits` discards
+SD from `sqrt(diag(pcov))`. `curve_fit` already returns the covariance; `OECT_processing`'s `banded_fits` discards
 it. A fit whose SD is a large fraction of τ is flagged rather than printed as a confident number —
 `curve_fit` returns nonsense with a huge covariance rather than raising.
 
