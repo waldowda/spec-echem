@@ -884,14 +884,19 @@ class InstrumentTab(QWidget):
                 logger.warning("Potentiostat connect failed: %s", exc)
                 self._set_pstat_status("● Connect failed", "#b00", detail=str(exc))
                 return
-        self._pstat_connected = True
-        self.win.pstat_identity = who
-        if not autolab:
             # Learn the ladder from the instrument now that it is reachable. The
             # documented table is a Reference 600's; an Interface 1010 runs 1/10/100
             # decades, so the same IERange means a different current there. Best
             # effort -- a None leaves the documented list in place.
-            ladder = probe_gamry_ladder()
+            #
+            # INSIDE the guard: this is a second blocking hardware session, and with
+            # the button live again a click during it was queued rather than
+            # discarded, starting another connect (2026-10-03 review). Outside the
+            # try, as before, so a failed ladder read cannot fail the connect.
+            ladder = None if autolab else probe_gamry_ladder()
+        self._pstat_connected = True
+        self.win.pstat_identity = who
+        if not autolab:
             if ladder:
                 self.win.gamry_ladder = ladder
                 self.win.gamry_ladder_source = who
