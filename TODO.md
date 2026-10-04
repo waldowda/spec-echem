@@ -141,6 +141,12 @@ data.
         hold [120 s]; cadence [full rate for N = 5 s, then one spectrum per M = 1 s]; a
         "repeat on the blank" convenience later; band choice and whether dQ includes the
         fast transient belong with the analysis.
+      **Parameters section + saved-run display built 2026-10-04** (`24b29ac`,
+      `4327b08`): the PITT section with a live estimate and return-leg warning; Load
+      Run shows PITT steps even from a text-first load; the Results tab draws echem
+      from HDF5 (which also gave 'HDF5 only' runs an echem plot for the first time);
+      `docs/data-format.md` section 5. **What remains is the Autolab staircase driver**
+      (after the UW probe), then the PITT analysis when the user is ready.
       **Built 2026-10-04** (`4a1807f`, `c30f089`, `dd4d681`): plan, step-end rule,
       cadence, the continuous loop, per-step HDF5, run wiring, Start refusals. Answered
       after: Abort KEEPS the data (fine); step results appear after the staircase ends
