@@ -141,6 +141,18 @@ data.
         hold [120 s]; cadence [full rate for N = 5 s, then one spectrum per M = 1 s]; a
         "repeat on the blank" convenience later; band choice and whether dQ includes the
         fast transient belong with the analysis.
+      **Built 2026-10-04** (`4a1807f`, `c30f089`, `dd4d681`): plan, step-end rule,
+      cadence, the continuous loop, per-step HDF5, run wiring, Start refusals. Answered
+      after: Abort KEEPS the data (fine); step results appear after the staircase ends
+      (fine); a no-current step ends at its min hold (fine). **PITT-specific analysis
+      (dQ per step, g(E), electrical vs optical) is DEFERRED** -- the user: present the
+      results, wait on the analysis.
+      **FUTURE -- check on the UW rig, deferred by the user:** does the PGSTAT302N have
+      hardware charge integration (an integrator module)? Integrating SAMPLED current
+      misses the head of every step's transient, 1 - exp(-t_first/tau) of its charge;
+      sampling first after each setpoint change holds t_first to ~one Ei sample
+      (~50 ms, ~5% at tau = 1 s), and each step records `first_sample_s` so the
+      analysis can extrapolate. A hardware integral would remove the loss entirely.
       **Later:** a popup to choose the ORDER of the enabled sections, rather than the
       fixed CV -> pre-dedoping -> dope/dedope -> PITT.
       **When building:** the instrument-independent parts (settings, segment, h5 storage
