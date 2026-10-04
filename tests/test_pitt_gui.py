@@ -141,3 +141,106 @@ def test_start_is_unaffected_when_the_pitt_is_not_ticked(window, tmp_path, monke
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Ok)
     window.run_tab.on_start()
     assert len(started) == 1
+
+
+def test_a_text_run_still_shows_its_pitt_steps(window, monkeypatch):
+    """A PITT exists ONLY in HDF5. When Load Run prefers the text files -- data_format
+    'ascii', or a run written that way -- the ladder comes from text, and the PITT
+    must still come from its .h5 rather than silently vanish."""
+    from pathlib import Path
+    import gui.tabs.results_tab as rt
+    from spec_echem.data import (DATA_TYPE_DEDOPING, DATA_TYPE_DOPING,
+                                 DATA_TYPE_PITT)
+    txt, h5 = Path("spectra(0).txt"), Path("run_doping.h5")
+    pitt = Path("run_pitt.h5")
+    monkeypatch.setattr(rt, "discover_run_segments", lambda folder: [
+        ("Doping 0", DATA_TYPE_DOPING, 0, txt),
+        ("Dedoping 0", DATA_TYPE_DEDOPING, 0, Path("dedopingspectra(0).txt"))])
+    monkeypatch.setattr(rt, "discover_run_h5", lambda folder: [
+        ("Doping 0", DATA_TYPE_DOPING, 0, h5),
+        ("Dedoping 0", DATA_TYPE_DEDOPING, 0, Path("run_dedoping.h5")),
+        ("PITT 0", DATA_TYPE_PITT, 0, pitt), ("PITT 1", DATA_TYPE_PITT, 1, pitt)])
+    window.settings["data_format"] = "ascii"
+
+    segs, source = window.results_tab._discover(Path("."))
+
+    assert source == "text"
+    assert [s[0] for s in segs] == ["Doping 0", "Dedoping 0", "PITT 0", "PITT 1"]
+    assert segs[0][3] == txt                            # the ladder stays text
+    assert segs[2][3] == pitt                           # the PITT comes from .h5
+
+
+def test_a_saved_pitt_loads_and_every_step_is_labelled_with_its_potential(
+        window, tmp_path):
+    """End to end: a staircase written by the real writer, opened the way Load Run
+    opens a folder, and each step named in the dropdown with its setpoint."""
+    from spec_echem.acquisition import acquire_pitt
+    from spec_echem.data import write_pitt_h5
+    from spec_echem.fakes import FakePittPotentiostat, FakeSpectrometer
+    from spec_echem.pitt import pitt_plan
+    from spec_echem.settings import DEFAULT_SETTINGS
+    from gui.segment_labels import segment_display
+
+    s = dict(DEFAULT_SETTINGS, pitt_enabled=True, pitt_start_v=0.1, pitt_stop_v=0.3,
+             pitt_step_mv=100.0, pitt_min_hold_s=0.1, pitt_max_hold_s=0.2,
+             pitt_fast_s=0.1, pitt_slow_interval_s=0.1, chrono_delta_time=0.05)
+    spec = FakeSpectrometer()
+    wl = spec.wavelengths()[1]
+    record = acquire_pitt(spec, FakePittPotentiostat(r_leak=3210.0), pitt_plan(s), s)
+    write_pitt_h5(record, np.full(wl.size, 100.0), np.full(wl.size, 40000.0), wl,
+                  tmp_path, "20261004_pitt", settings=s)
+    folder = tmp_path / "20261004_pitt"
+
+    tab = window.results_tab
+    segs, source = tab._discover(folder)
+    results, by_label, errors, _stopped = tab._read_segments(segs)
+    assert errors == []
+    assert list(results) == ["PITT 0", "PITT 1", "PITT 2"]
+
+    window.results = results
+    window.segments_by_label = by_label
+    window.run_folder = folder
+    window.loaded_run_settings = s
+    window._potential_cache.clear()
+    labels = [segment_display(window, label) for label in results]
+    assert labels == ["PITT 0  (+0.10 V)", "PITT 1  (+0.20 V)", "PITT 2  (+0.30 V)"]
+
+
+def test_a_pitt_steps_current_is_drawn_from_its_hdf5(window, tmp_path):
+    """A PITT has no text echem file, ever. Its current is in the step's .h5 group,
+    and the Results tab draws it from there -- the same fallback an 'HDF5 only' run
+    of the ordinary segments now gets, which had no echem plot at all before."""
+    from spec_echem.acquisition import acquire_pitt
+    from spec_echem.data import (DATA_TYPE_PITT, echem_txt_path,
+                                 read_segment_echem_h5, write_pitt_h5, h5_path)
+    from spec_echem.experiment import Segment
+    from spec_echem.fakes import FakePittPotentiostat, FakeSpectrometer
+    from spec_echem.pitt import pitt_plan
+    from spec_echem.settings import DEFAULT_SETTINGS
+
+    s = dict(DEFAULT_SETTINGS, pitt_enabled=True, pitt_start_v=0.1, pitt_stop_v=0.2,
+             pitt_step_mv=100.0, pitt_min_hold_s=0.1, pitt_max_hold_s=0.2,
+             pitt_fast_s=0.1, pitt_slow_interval_s=0.1, chrono_delta_time=0.05)
+    spec = FakeSpectrometer()
+    wl = spec.wavelengths()[1]
+    record = acquire_pitt(spec, FakePittPotentiostat(r_leak=3210.0), pitt_plan(s), s)
+    write_pitt_h5(record, np.full(wl.size, 100.0), np.full(wl.size, 40000.0), wl,
+                  tmp_path, "20261004_pitt", settings=s)
+    folder = tmp_path / "20261004_pitt"
+
+    assert echem_txt_path(folder, DATA_TYPE_PITT, 1) is None      # never text
+    df = read_segment_echem_h5(h5_path(folder, DATA_TYPE_PITT), 1)
+    assert list(df.columns) == ["Time (s)", "Corrected time (s)",
+                                "WE(1).Potential (V)", "WE(1).Current (A)", "Index"]
+    # Still decaying toward the leak's 0.2 V / 3210 Ohm: the fake's RC (tau = 1 s)
+    # has had only the 0.2 s hold.
+    current = df["WE(1).Current (A)"].to_numpy()
+    assert np.all(current > 0.2 / 3210.0) and np.all(np.diff(current) < 0)
+
+    window.run_folder = folder
+    window.segments_by_label = {"PITT 1": Segment("PITT 1", DATA_TYPE_PITT, 1, 0,
+                                                  0.05, False)}
+    tab = window.results_tab
+    tab._has_echem = False
+    tab._plot_echem("PITT 1")
+    assert tab._has_echem

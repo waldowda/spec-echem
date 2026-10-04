@@ -201,6 +201,7 @@ a second copy.
 | 2 | Doping | `spectra(N).txt` |
 | 3 | Dedoping | `dedopingspectra(N).txt` |
 | 4 | Pre-dedoping | `prededopingspectra(N).txt` |
+| 5 | PITT staircase | **HDF5 only**: `{folder}_pitt.h5`, one group per step — no text file of any kind (see `docs/data-format.md` §5) |
 
 N = `run_number`. **Note: parentheses in filenames are literal** — `spectra(0).txt` not `spectra_0.txt`.
 
