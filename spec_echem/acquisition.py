@@ -265,3 +265,126 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
             time.sleep(min(0.5e-3, deadline - now))
 
     return spectra, timestamps
+
+
+def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
+                 stop_event=None, clock=time.monotonic, sleep=time.sleep,
+                 on_step=None):
+    """Run a whole PITT staircase as ONE continuous waveform. -> PittRecord
+
+    A loop of its own rather than acquire_segment with options. That loop pumps the
+    potentiostat once per SPECTRUM, and in Ei mode the pump IS the electrochemistry
+    -- so slowing the spectra to one a second through a long hold would slow the
+    current sampling with them, too coarse to integrate dQ or to see the cutoff.
+    Here the loop ticks at chrono_delta_time and samples the current on EVERY tick;
+    a spectrum is taken only on the ticks where one is due (pitt.spectrum_due).
+
+    The cell is never switched off between steps -- the reason a staircase is not
+    built from separate segments -- and is always switched off at the end, however
+    the loop ends. A step ends by its StepEnd rule, by Stop or by Abort; Stop and
+    Abort keep everything collected so far, the interrupted step included.
+
+    `pot` provides five things: pitt_prepare(v), fire(), pitt_sample() ->
+    (t, potential, current), pitt_set_potential(v) and pitt_end(). `clock` and
+    `sleep` are injectable so a test can run an hour-long staircase in milliseconds.
+    """
+    from spec_echem.pitt import (END_ABORTED, END_FIXED, END_MAX_HOLD, END_STOPPED,
+                                 ROLE_DEDOPE, PittRecord, spectrum_due, step_end_for)
+
+    record = PittRecord()
+    if not plan:
+        return record
+    delta = float(settings["chrono_delta_time"])
+    fast_s = float(settings["pitt_fast_s"])
+    slow_s = float(settings["pitt_slow_interval_s"])
+
+    def _cut(flag):
+        return flag is not None and flag.is_set()
+
+    pot.pitt_prepare(plan[0].potential)
+    try:
+        # Spectrum 0 is triggered exactly as a segment's is: fire() switches the cell
+        # on and raises the edge from INSIDE measure(), after the detector is armed.
+        spec.set_trigger_mode(1 if trigger else 0)
+        result = spec.measure(abort_event, pot.fire)
+        spec.set_trigger_mode(0)
+        if result is None:
+            return record                      # aborted before anything ran
+        k = 0
+        step = plan[0]
+        step_start = anchor = clock()
+        rule = step_end_for(step, settings)
+        timestamp_av, data = result
+        record.spectra.append(data)
+        record.timestamps.append(timestamp_av / 1e5)
+        record.spectrum_step.append(0)
+        last_spectrum = 0.0
+        if on_step is not None:
+            on_step(0, step)
+
+        tick = 0
+        while True:
+            t_pot, v, i = pot.pitt_sample()
+            now = clock()
+            record.echem_time.append(float(t_pot))
+            record.echem_t_in_step.append(now - step_start)
+            record.echem_potential.append(float(v))
+            record.echem_current.append(float(i))
+            record.echem_step.append(k)
+
+            reason = rule.feed(now - step_start, i)
+            if reason == END_MAX_HOLD and step.role == ROLE_DEDOPE:
+                reason = END_FIXED
+            if _cut(abort_event):
+                reason = END_ABORTED
+            elif reason is None and _cut(stop_event):
+                reason = END_STOPPED
+
+            if reason is not None:
+                record.close_step(step, step_start, now, reason, rule.peak)
+                if reason in (END_ABORTED, END_STOPPED):
+                    break
+                if k == len(plan) - 1:
+                    record.completed = True
+                    break
+                k += 1
+                step = plan[k]
+                pot.pitt_set_potential(step.potential)
+                step_start = clock()
+                rule = step_end_for(step, settings)
+                last_spectrum = None
+                if on_step is not None:
+                    on_step(k, step)
+                # Straight back to the top: the next CURRENT sample comes first, with
+                # no spectrum and no tick wait in between. dQ is integrated from the
+                # samples, so everything before the first one is lost -- 1 - exp(-t/tau)
+                # of the step's charge. Sampling first holds that to one sample's
+                # cost (~50 ms in Ei mode, ~5% at tau = 1 s); waiting out a spectrum
+                # and the tick first made it ~0.1 s, ~10%. The step's first spectrum
+                # follows on that next pass, since it is always due.
+                continue
+
+            t_in = clock() - step_start
+            if spectrum_due(t_in, last_spectrum, delta, fast_s, slow_s):
+                result = spec.measure(abort_event, None)
+                if result is None:            # abort arrived during the exposure
+                    record.close_step(step, step_start, clock(), END_ABORTED, rule.peak)
+                    break
+                timestamp_av, data = result
+                record.spectra.append(data)
+                record.timestamps.append(timestamp_av / 1e5)
+                record.spectrum_step.append(k)
+                last_spectrum = t_in
+
+            # Ticks on an absolute grid from spectrum 0, like acquire_segment, so a
+            # slow tick is absorbed rather than pushing every later one back.
+            tick += 1
+            deadline = anchor + tick * delta
+            while not _cut(abort_event):
+                remaining = deadline - clock()
+                if remaining <= 0:
+                    break
+                sleep(min(0.5e-3, remaining))
+    finally:
+        pot.pitt_end()                         # cell OFF, however the loop ended
+    return record
