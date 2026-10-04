@@ -246,10 +246,21 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
     record = acquire_pitt(spec, potentiostat, plan, settings, trigger=segment.trigger,
                           abort_event=abort_event, stop_event=stop_event,
                           on_step=announce)
+    cutoff = float(settings["pitt_cutoff_pct"]) / 100.0
     for st in record.steps:
         log.info("PITT %d at %+.3f V: %s after %.1f s, peak %.3g A, %d spectra",
                  st["index"], st["potential_set"], st["end_reason"], st["hold_s"],
                  st["peak_current_A"], st["n_spectra"])
+        if st["end_reason"] == "max_hold":
+            # The concern, raised where it can be: the cutoff is a fraction of a peak
+            # nobody knows before the step runs, so this cannot be checked at Start.
+            log.warning(
+                "PITT %d did not settle: the current never fell to %.3g A (%g%% of "
+                "its %.3g A peak) within %.0f s. It is NOT at equilibrium. If %.3g A "
+                "is near the current range's noise floor, the cutoff cannot be met "
+                "on that range.", st["index"], cutoff * st["peak_current_A"],
+                cutoff * 100, st["peak_current_A"], st["hold_s"],
+                cutoff * st["peak_current_A"])
     if not record.steps:
         return [], None, record
 
