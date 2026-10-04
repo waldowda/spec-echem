@@ -502,3 +502,62 @@ class FakeAutolab:
     # --- helpers the tests drive the fake with ---
     def lose_connection(self):
         self.AutolabConnection.IsConnected = False
+
+
+class FakePittPotentiostat:
+    """A potentiostat for the PITT loop: an RC cell, optionally with a DC leak.
+
+    Each setpoint change gives a transient (dV / r_series) * exp(-t / tau), with
+    tau = r_series * c -- the shape a film's double layer and doping both have at
+    this level of detail. `r_leak`, when given, adds a steady dV_total / r_leak, the
+    path the UDC4's Randles side has through its 3.01 kOhm: the current then never
+    decays to zero and every step ends at the max hold, which is what that dummy is
+    for. Time comes from `clock`, so a test can drive it as fast as it likes.
+
+    Records the cell's state so a test can check it was never off mid-staircase.
+    """
+
+    supports_pitt = True
+
+    def __init__(self, r_series=1e3, c=1e-3, r_leak=None, clock=time.monotonic):
+        self.r_series, self.c, self.r_leak = r_series, c, r_leak
+        self.clock = clock
+        self.cell_on = False
+        self.cell_events = []                  # ("on"/"off", time)
+        self.setpoints = []                    # (potential, time) as applied
+        self._v = None
+        self._v_before = None
+        self._t_change = None
+        self._t_on = None
+
+    def pitt_prepare(self, potential):
+        self._v = self._v_before = float(potential)
+
+    def fire(self):
+        self.cell_on = True
+        self._t_on = self._t_change = self.clock()
+        self.cell_events.append(("on", self._t_on))
+        self.setpoints.append((self._v, self._t_on))
+
+    def pitt_set_potential(self, potential):
+        if not self.cell_on:
+            raise RuntimeError("setpoint changed with the cell off")
+        self._v_before, self._v = self._v, float(potential)
+        self._t_change = self.clock()
+        self.setpoints.append((self._v, self._t_change))
+
+    def pitt_sample(self):
+        now = self.clock()
+        if not self.cell_on:
+            return now - (self._t_on or now), float("nan"), 0.0
+        dv = self._v - self._v_before
+        tau = self.r_series * self.c
+        i = (dv / self.r_series) * np.exp(-(now - self._t_change) / tau)
+        if self.r_leak:
+            i += self._v / self.r_leak
+        return now - self._t_on, self._v, float(i)
+
+    def pitt_end(self):
+        if self.cell_on:
+            self.cell_events.append(("off", self.clock()))
+        self.cell_on = False
