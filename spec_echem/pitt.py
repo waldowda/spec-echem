@@ -31,6 +31,12 @@ ROLE_DEDOPE = "dedope"      # the optional hold at the dedoping potential at the
 # equilibrium, and the analysis must be able to say so rather than guess.
 END_CUTOFF = "cutoff"       # |I| fell to the cutoff fraction of the step's peak
 END_MAX_HOLD = "max_hold"   # the cap ended it first
+END_FIXED = "fixed"         # the end dedope: a fixed hold, not ended by the current
+END_STOPPED = "stopped"     # Stop pressed: this step cut short, the rest not run
+END_ABORTED = "aborted"     # Abort pressed: likewise, immediately
+# Stopped and aborted steps KEEP their data. A 30 s segment is cheap to discard; a
+# staircase can run for hours, and throwing away every completed step because the
+# last one was interrupted would withhold results the scientist paid for.
 
 # Absorbs binary float error only, as n_doping_cycles does: (0.7 - -0.5) / 0.01 is
 # 119.99999999999999, and that ladder must keep its last step.
@@ -174,3 +180,56 @@ def spectrum_due(t_in_step, t_last, delta_time, fast_s, slow_interval_s):
     # A hair of slack so a loop that wakes exactly on the interval does not skip it
     # to the next tick on a float rounding.
     return t_in_step - t_last >= interval - 1e-9
+
+
+@dataclass
+class PittRecord:
+    """Everything one staircase collected, continuous, each sample tagged by step.
+
+    Tagging at collection time is what lets the data be SAVED per step without
+    matching two clocks: a spectrum belongs to the step that was set when it was
+    taken. The spectrometer and the potentiostat keep separate clocks, and nothing
+    here pretends otherwise.
+    """
+    spectra: list = None            # 1-D count arrays
+    timestamps: list = None         # spectrometer clock, s
+    spectrum_step: list = None      # step index of each spectrum
+    echem_time: list = None         # potentiostat clock, s
+    echem_t_in_step: list = None    # s since this sample's step was set (loop clock)
+    echem_potential: list = None    # V, measured
+    echem_current: list = None      # A
+    echem_step: list = None         # step index of each sample
+    steps: list = None              # one dict per step that RAN; see close_step()
+    completed: bool = False         # every planned step ran to its own end
+
+    def __post_init__(self):
+        for name in ("spectra", "timestamps", "spectrum_step", "echem_time",
+                     "echem_t_in_step", "echem_potential", "echem_current",
+                     "echem_step", "steps"):
+            if getattr(self, name) is None:
+                setattr(self, name, [])
+
+    def close_step(self, step, t_start, t_end, reason, peak):
+        # When the first current sample landed after the setpoint changed. dQ is
+        # integrated from the samples, so the charge before this is NOT in it --
+        # the analysis can extrapolate back to 0, or at least say how much it missed.
+        firsts = [t for t, k in zip(self.echem_t_in_step, self.echem_step)
+                  if k == step.index]
+        self.steps.append({
+            "first_sample_s": float(firsts[0]) if firsts else float("nan"),
+            "index": step.index, "potential_set": step.potential, "role": step.role,
+            "hold_s": float(t_end - t_start), "end_reason": reason,
+            "peak_current_A": float(peak),
+            "n_spectra": sum(1 for k in self.spectrum_step if k == step.index),
+            "n_echem": sum(1 for k in self.echem_step if k == step.index),
+        })
+
+
+def step_end_for(step, settings):
+    """The StepEnd rule for one step. The end dedope is a fixed hold: neither
+    minimum nor maximum, just its time, and the current never ends it early."""
+    if step.role == ROLE_DEDOPE:
+        hold = float(settings["pitt_end_dedope_time_s"])
+        return StepEnd(cutoff_pct=0.0, min_hold_s=hold, max_hold_s=hold)
+    return StepEnd(settings["pitt_cutoff_pct"], settings["pitt_min_hold_s"],
+                   settings["pitt_max_hold_s"])
