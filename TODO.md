@@ -93,7 +93,7 @@ data.
 - [ ] **Single-column figure preset**, and moving the figure-export design doc to
       `docs/` — both after figures are being made from real data. See *Figure output*.
 
-- [ ] **PITT (equilibrium staircase) segment — DESIGNED, decisions MADE 2026-10-04,
+- [ ] **PITT (equilibrium staircase) segment — DESIGNED, ALL decisions made 2026-10-04,
       NOT built** (the user: "don't build yet"). Must be ONE physical waveform with the
       cell held throughout: both drivers switch the cell OFF between segments, so
       stacked chrono holds would sit at open circuit between steps and count the leaked
@@ -125,18 +125,27 @@ data.
       curves run back to back in one toolkitpy session with the cell left on, and how
       long is the gap? Autolab -- can the Ei setpoint change mid-measurement with the
       cell on? The 64-bit pip toolkitpy is imminent and may touch the Gamry layer.
-      **Still open (asked 2026-10-04), proposed defaults in brackets:** "the current
-      level" -- the cutoff, the instrument current range, or both (both user-set; WARN,
-      not block, when the cutoff falls below the selected range's noise floor, ~3.5 nA
-      on the fine ranges); direction [setting: up only / up then back down -- down tests
-      the rearrangement reading, doubles the time]; end of staircase [step to a rest
-      potential, hold briefly, then cell off -- a film left charged at the top with the
-      cell off is not a defined state]. Taken as proposed unless changed: step size
-      [setting, 10 mV]; a MIN hold [5 s] beside the max hold [120 s], so a fast-settling
-      step cannot end at its second sample; cadence [full rate for N = 5 s, then one
-      spectrum per M = 1 s]; a "repeat on the blank" convenience later; analysis
-      choices (which band, whether dQ includes the fast transient) belong with the
-      analysis, not the acquisition.
+      **All decisions answered 2026-10-04 -- the design is complete:**
+      - Order when dope/dedope is also ticked: **dope/dedope first, then PITT.**
+      - Direction: **"also step back down" is a checkbox, with a time warning** showing
+        the estimated duration it adds.
+      - End: **an optional dedope at the end of the PITT** -- part of the same continuous
+        waveform (cell still on), saved as its own h5 group, then cell off. Proposed:
+        the dedoping potential and the ladder's hold time.
+      - "Current level" = **the existing max-current (range) setting** already used for
+        dope/dedope on the Autolab and Gamry; the PITT shares it by default. Whether it
+        gets its OWN range is the existing "range per segment TYPE" decision. Keep the
+        WARNING (not a block) when the cutoff current falls below the selected range's
+        noise floor (~3.5 nA on the fine ranges).
+      - Taken as proposed: step size a setting [10 mV]; a MIN hold [5 s] beside the max
+        hold [120 s]; cadence [full rate for N = 5 s, then one spectrum per M = 1 s]; a
+        "repeat on the blank" convenience later; band choice and whether dQ includes the
+        fast transient belong with the analysis.
+      **Later:** a popup to choose the ORDER of the enabled sections, rather than the
+      fixed CV -> pre-dedoping -> dope/dedope -> PITT.
+      **When building:** the instrument-independent parts (settings, segment, h5 storage
+      per step, GUI section, the fakes) need no rig; the Autolab driver follows the probe
+      on a UW visit, with the UDC4.
       **Bench dummies:** the UDC4 Randles side is 200 Ohm + (3.01 kOhm || 1 uF), so its
       transient is ~0.19 ms -- invisible at 50 ms sampling; every step looks like a jump
       to a DC floor of dV/3.21 kOhm. It tests the MAX-HOLD rule and gives an EXACT dQ
