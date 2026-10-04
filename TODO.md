@@ -93,28 +93,40 @@ data.
 - [ ] **Single-column figure preset**, and moving the figure-export design doc to
       `docs/` — both after figures are being made from real data. See *Figure output*.
 
-- [ ] **PITT (equilibrium staircase) segment — DESIGNED, NOT BUILT; waiting on five
-      decisions** (2026-10-04; the user: "don't build yet"). Why a new segment rather than
-      stacked chrono segments: BOTH drivers switch the cell OFF at the end of every
-      segment (Autolab in `finish()`; the Gamry closes its whole toolkit session), so a
-      staircase of separate segments sits at open circuit between steps -- each step
-      would start from wherever the film drifted, and the leaked charge would be counted
-      in that step's dQ, which is the quantity PITT measures. Instead: ONE segment, cell
-      held throughout, steps inside it, hosted by the Autolab Ei mode (the UW rig; Python
-      already sets the potential and reads current every ~50 ms). Unchecked: that the Ei
-      setpoint can change mid-measurement with the cell on. Decisions (proposed defaults):
-      1. Step end: current below 1% of the step's peak, capped by a max hold; record which.
-      2. Spectra: full rate for the first seconds of each step, ~1 s through the hold.
-      3. Filenames WITHOUT "spectra(" -- `OECT_processing` sorts by `'spectra(' in name`
-         and would read e.g. `pittspectra(0).txt` as a DOPING file -- or HDF5 only.
-         Either way a new `docs/data-format.md` section, and tell its maintainer first.
-      4. Its own experiment with its own Start, not appended to the ladder.
-      5. Ceiling +0.7 V, a max hold per step, abort switches the cell off.
-      **Bench test:** the user's Gamry calibration dummy (Randles-type) before any film --
-      a real RC transient, and its DC path through the parallel resistor means the
-      current settles to a non-zero floor, so it exercises BOTH stopping rules. The
-      10 kOhm dummy cannot: a resistor settles instantly. Full background and the
-      measurement's rationale are in the private DOS doc (see memory).
+- [ ] **PITT (equilibrium staircase) segment — DESIGNED, decisions MADE 2026-10-04,
+      NOT built** (the user: "don't build yet"). Must be ONE physical waveform with the
+      cell held throughout: both drivers switch the cell OFF between segments, so
+      stacked chrono holds would sit at open circuit between steps and count the leaked
+      charge in each step's dQ -- the quantity PITT measures.
+      **The user's decisions:**
+      1. A step ends when |I| falls below a cutoff fraction of that step's peak, OR at a
+         max hold; both are SETTINGS (cutoff default 1%); record which rule ended it.
+      2. **HDF5 only** -- the spectral volume is huge. This also avoids the downstream
+         trap: `OECT_processing` sorts by `'spectra(' in name`, so a text file named
+         like `pittspectra(0).txt` would be read as DOPING. Say "HDF5 only" in the UI,
+         since everything else follows the global data_format setting.
+      3. **Stored per step, not as one block**: the cell stays on, but the data is split
+         at each setpoint change -- one h5 group per step with potential_set /
+         potential_measured, as the doping cycles have. Plus a step table (start/end,
+         end rule, dQ) and the shared spectrometer time axis so steps can be stitched.
+         The Results/Analysis tabs can then list steps as segments.
+      4. Its own Parameters section with a checkbox, beside CV, pre-dedoping and
+         dope/dedope. ASSUMED, to confirm: order CV -> pre-dedoping -> dope/dedope -> PITT,
+         and the PITT starts at the dedoping potential (-0.5 V).
+      5. Ceiling user-set, default +0.7 V (not everything is aqueous; vs Ag/AgCl +0.8 V
+         can be fine); never exceeded, rounding down like n_doping_cycles.
+      **Drivers: BOTH, Gamry first** -- the Gamry and the dummy are at PLU, so it is the
+      path that can be tested without a trip; the Autolab follows for the UW run. Build
+      the segment, settings, storage and analysis instrument-independent. Before either
+      driver, a small probe on a dummy answers its one unknown: Gamry -- can per-step
+      curves run back to back in one toolkitpy session with the cell left on, and how
+      long is the gap? Autolab -- can the Ei setpoint change mid-measurement with the
+      cell on? The 64-bit pip toolkitpy is imminent and may touch the Gamry layer.
+      **Bench dummies:** the UDC4 Randles side is 200 Ohm + (3.01 kOhm || 1 uF), so its
+      transient is ~0.19 ms -- invisible at 50 ms sampling; every step looks like a jump
+      to a DC floor of dV/3.21 kOhm. It tests the MAX-HOLD rule and gives an EXACT dQ
+      (I x t) to validate the integration. The CUTOFF rule needs a slow RC, e.g. 1 kOhm +
+      1000 uF NON-polarised (the staircase crosses 0 V), tau = 1 s.
 
 ### Needs the user's Igor history
 
