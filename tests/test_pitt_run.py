@@ -274,3 +274,105 @@ def test_a_second_staircase_replaces_rather_than_merges(tmp_path):
     _, path = _written(tmp_path, s=settings(pitt_stop_v=0.1))  # then 2
     with h5py.File(path, "r") as f:
         assert sorted(int(k) for k in f if k != "wavelength") == [0, 1]
+
+
+# --- wiring into a run -------------------------------------------------------
+
+from spec_echem.experiment import (build_segments, pitt_start_problems,   # noqa: E402
+                                   pitt_step_segments, run_pitt_segment)
+
+
+def test_the_pitt_runs_after_the_whole_ladder_as_one_segment():
+    s = settings(pitt_enabled=True, cv_enabled=True, prededoping_enabled=True,
+                 doping_enabled=True, doping_potential_start=0.3,
+                 doping_potential_end=0.5, doping_potential_step=0.1)
+    labels = [seg.label for seg in build_segments(s)]
+    assert labels[-1] == "PITT" and labels.count("PITT") == 1
+    assert labels.index("PITT") > labels.index("Dedoping 2")
+    assert build_segments(s)[-1].num_points == 3           # steps, not spectra
+
+
+def test_no_pitt_segment_unless_ticked():
+    assert "PITT" not in [seg.label for seg in build_segments(settings())]
+    assert pitt_step_segments(settings()) == []
+
+
+def test_each_step_is_registered_by_label():
+    segs = pitt_step_segments(settings(pitt_enabled=True))
+    assert [seg.label for seg in segs] == ["PITT 0", "PITT 1", "PITT 2"]
+    assert [seg.run_number for seg in segs] == [0, 1, 2]
+    assert {seg.data_type for seg in segs} == {DATA_TYPE_PITT}
+
+
+@pytest.mark.parametrize("mode, words", [
+    ("external", "sequence file owns the waveform"),
+    ("autolab", "Ei setpoint can change with the cell on"),
+    ("python", "64-bit toolkit"),
+])
+def test_start_says_plainly_which_potentiostat_cannot_run_it(mode, words):
+    problems = pitt_start_problems(settings(pitt_enabled=True, potentiostat_mode=mode))
+    assert any("cannot run a PITT yet" in p and words in p for p in problems), problems
+
+
+def test_start_refuses_without_h5py_because_nothing_would_be_saved(monkeypatch):
+    import spec_echem.data as data
+    monkeypatch.setattr(data, "H5PY_AVAILABLE", False)
+    problems = pitt_start_problems(settings(pitt_enabled=True))
+    assert any("HDF5 only" in p for p in problems)
+
+
+def test_start_is_untouched_when_the_pitt_is_not_ticked():
+    assert pitt_start_problems(settings(potentiostat_mode="external")) == []
+
+
+def _quick():
+    """Real time, so kept to about a second."""
+    return settings(pitt_enabled=True, cv_enabled=False, prededoping_enabled=False,
+                    doping_enabled=False, pitt_start_v=0.0, pitt_stop_v=0.1,
+                    pitt_step_mv=100.0, pitt_min_hold_s=0.2, pitt_max_hold_s=0.4,
+                    pitt_fast_s=0.2, pitt_slow_interval_s=0.1, chrono_delta_time=0.05)
+
+
+def test_run_pitt_segment_writes_the_file_and_returns_every_step(tmp_path):
+    s = _quick()
+    spec = FakeSpectrometer()
+    wl = spec.wavelengths()[1]
+    seg = build_segments(s)[-1]
+    steps, path, record = run_pitt_segment(
+        spec, seg, np.full(wl.size, 100.0), np.full(wl.size, 40000.0), wl,
+        tmp_path, "20261004_pitt", s, FakePittPotentiostat(r_leak=3210.0))
+    assert [label for label, _df in steps] == ["PITT 0", "PITT 1"]
+    assert path is not None and path.exists()
+    assert record.completed
+
+
+def test_the_worker_emits_each_step_then_finishes(tmp_path):
+    pytest.importorskip("qtpy")
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from qtpy.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from gui.workers import AcquisitionWorker
+
+    s = _quick()
+    spec = FakeSpectrometer()
+    wl = spec.wavelengths()[1]
+
+    class Pot(FakePittPotentiostat):
+        python_paced = True
+        settings = s
+        def open(self): pass
+        def close(self): pass
+        def stop(self): pass
+        def device_lost(self): return False
+
+    w = AcquisitionWorker(spec, build_segments(s), np.full(wl.size, 100.0),
+                          np.full(wl.size, 40000.0), wl, tmp_path, "20261004_pitt",
+                          potentiostat=Pot(r_leak=3210.0), settings=s)
+    done, finished = [], []
+    w.segment_done.connect(lambda label, df: done.append(label))
+    w.finished.connect(finished.append)
+    w.gui_idle.set()
+    w.run()
+    assert done == ["PITT 0", "PITT 1"]
+    assert finished == ["done"]
