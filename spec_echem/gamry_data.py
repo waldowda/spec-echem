@@ -56,6 +56,8 @@ def measured_sweep_range(path):
     what identifies it is the span. Measured rather than nominal for the same
     reason -- it cannot disagree with the experiment. None if unreadable.
     """
+    if path is None:          # no text echem file for this segment type
+        return None
     try:
         v = read_cv(path)[POTENTIAL_COL].to_numpy(dtype=float)
         v = v[np.isfinite(v)]
@@ -76,6 +78,8 @@ def measured_potential(path):
     different experiment entirely. On 20260709_P3HT_01 it reads 0.301 / 0.500 /
     0.700 V where the GUI was labeling 0.200 / 0.300 / 0.400 V.
     """
+    if path is None:          # no text echem file for this segment type
+        return None
     try:
         df = read_chrono(path)
         v = df[POTENTIAL_COL].to_numpy(dtype=float)

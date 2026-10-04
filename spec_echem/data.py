@@ -219,6 +219,36 @@ def read_segment_h5(path, run_number=0):
     return pd.DataFrame(absorb, index=wavelengths, columns=times)
 
 
+def read_segment_echem_h5(path, run_number=0, data_type=None):
+    """One cycle's echem from an .h5, shaped like the text readers' output, or None.
+
+    The same column names read_cv / read_chrono return, so the plots take either
+    without knowing which. A CV gets [potential, current]; anything else the chrono
+    layout, with "Time (s)" equal to "Corrected time (s)" -- in the text files they
+    were already identical once the legacy +100 offset was dropped
+    (docs/data-format.md). None when the group carries no echem (External mode) or
+    h5py is absent.
+    """
+    from spec_echem.gamry_data import CURRENT_COL, POTENTIAL_COL
+    if not H5PY_AVAILABLE:
+        return None
+    try:
+        with h5py.File(path, "r") as f:
+            g = f[str(int(run_number))]
+            if "echem" not in g:
+                return None
+            e = g["echem"]
+            t = np.asarray(e["time"], dtype=float)
+            v = np.asarray(e["potential"], dtype=float)
+            i = np.asarray(e["current"], dtype=float)
+    except (OSError, KeyError):
+        return None
+    if data_type == DATA_TYPE_CV:
+        return pd.DataFrame({POTENTIAL_COL: v, CURRENT_COL: i})
+    return pd.DataFrame({"Time (s)": t, "Corrected time (s)": t, POTENTIAL_COL: v,
+                         CURRENT_COL: i, "Index": np.arange(t.size)})
+
+
 def discover_run_h5(run_folder):
     """[(label, data_type, run_number, path)] for the .h5 files in a run folder.
 
@@ -365,19 +395,21 @@ def write_spectra_file(absorb7, spectra, dark, ref, wavelengths, timestamps,
 
 
 def _echem_filename_for(data_type, run_number):
-    """Clean-txt echem filename — the names the converter and OECT_processing already expect."""
+    """Clean-txt echem filename — the names the converter and OECT_processing already
+    expect -- or None for a type that has no text echem file (a PITT is HDF5 only)."""
     return {
         DATA_TYPE_CV:          'CV.txt',
         DATA_TYPE_DOPING:      f'steps({run_number}).txt',
         DATA_TYPE_DEDOPING:    f'dedoping({run_number}).txt',
         DATA_TYPE_PREDEDOPING: f'prededoping({run_number}).txt',
-    }[data_type]
+    }.get(data_type)
 
 
 def echem_txt_path(run_folder, data_type, run_number):
     """Full path to a segment's clean echem .txt inside an existing run folder.
     Public accessor so the GUI can locate the file that write_echem_file wrote."""
-    return Path(run_folder) / _echem_filename_for(data_type, run_number)
+    name = _echem_filename_for(data_type, run_number)
+    return Path(run_folder) / name if name else None
 
 
 def _echem_dta_path(data_type, run_number, data_root, added_path):
