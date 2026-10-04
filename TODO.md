@@ -93,6 +93,29 @@ data.
 - [ ] **Single-column figure preset**, and moving the figure-export design doc to
       `docs/` — both after figures are being made from real data. See *Figure output*.
 
+- [ ] **PITT (equilibrium staircase) segment — DESIGNED, NOT BUILT; waiting on five
+      decisions** (2026-10-04; the user: "don't build yet"). Why a new segment rather than
+      stacked chrono segments: BOTH drivers switch the cell OFF at the end of every
+      segment (Autolab in `finish()`; the Gamry closes its whole toolkit session), so a
+      staircase of separate segments sits at open circuit between steps -- each step
+      would start from wherever the film drifted, and the leaked charge would be counted
+      in that step's dQ, which is the quantity PITT measures. Instead: ONE segment, cell
+      held throughout, steps inside it, hosted by the Autolab Ei mode (the UW rig; Python
+      already sets the potential and reads current every ~50 ms). Unchecked: that the Ei
+      setpoint can change mid-measurement with the cell on. Decisions (proposed defaults):
+      1. Step end: current below 1% of the step's peak, capped by a max hold; record which.
+      2. Spectra: full rate for the first seconds of each step, ~1 s through the hold.
+      3. Filenames WITHOUT "spectra(" -- `OECT_processing` sorts by `'spectra(' in name`
+         and would read e.g. `pittspectra(0).txt` as a DOPING file -- or HDF5 only.
+         Either way a new `docs/data-format.md` section, and tell its maintainer first.
+      4. Its own experiment with its own Start, not appended to the ladder.
+      5. Ceiling +0.7 V, a max hold per step, abort switches the cell off.
+      **Bench test:** the user's Gamry calibration dummy (Randles-type) before any film --
+      a real RC transient, and its DC path through the parallel resistor means the
+      current settles to a non-zero floor, so it exercises BOTH stopping rules. The
+      10 kOhm dummy cannot: a resistor settles instantly. Full background and the
+      measurement's rationale are in the private DOS doc (see memory).
+
 ### Needs the user's Igor history
 
 - [ ] Style one graph in Igor and hand over the command history — settles the
