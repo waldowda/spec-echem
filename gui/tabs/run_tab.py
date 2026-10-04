@@ -15,7 +15,7 @@ from qtpy.QtWidgets import (
 import copy
 from pathlib import Path
 
-from spec_echem.experiment import build_segments
+from spec_echem.experiment import build_segments, pitt_start_problems, pitt_step_segments
 from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
 from spec_echem.data import (write_run_metadata, segment_potential_text,
                              DATA_TYPE_CV, DATA_TYPE_DOPING)
@@ -287,7 +287,13 @@ class RunTab(QWidget):
         segments = build_segments(settings)
         if not segments:
             QMessageBox.warning(self, "Nothing to run",
-                                "Enable at least one step (CV / pre-dedoping / doping) on the Parameters tab.")
+                                "Enable at least one step (CV / pre-dedoping / doping / PITT) on the Parameters tab.")
+            return
+        pitt_blocked = pitt_start_problems(settings)
+        if pitt_blocked:
+            QMessageBox.warning(self, "PITT cannot run",
+                                "\n\n".join(pitt_blocked)
+                                + "\n\nUntick PITT on the Parameters tab to run the rest.")
             return
 
         # Guard against silently overwriting a previous run. The writers use
@@ -375,6 +381,11 @@ class RunTab(QWidget):
         # segment's echem file (written next to the spectra in Python mode).
         self.win.run_folder = run_folder
         self.win.segments_by_label = {seg.label: seg for seg in segments}
+        # A PITT runs as one segment but reports one result per STEP ("PITT 0", ...),
+        # so each step is registered too: every lookup by label -- potentials in the
+        # dropdowns, the Results and Analysis tabs -- then works with no special case.
+        for seg in pitt_step_segments(settings):
+            self.win.segments_by_label[seg.label] = seg
 
         # Clear results from any previous run / loaded folder so the Results tab shows
         # ONLY this run. Segment labels repeat between runs, so a longer prior run
