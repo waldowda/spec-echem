@@ -17,6 +17,9 @@ Each experiment segment produces a **spectra** file (always) and, in Python mode
 Gamry Framework writes its own `.DTA`, converted separately by
 `notebooks/gamry_dta_conversion.ipynb`.
 
+**The one exception is a PITT staircase ([§5](#5-pitt-staircase--hdf5-only)), which writes
+HDF5 only** — no spectra or echem text file of any kind.
+
 ---
 
 ## 1. Spectra files (optical, UV-Vis)
@@ -261,3 +264,65 @@ sending it elsewhere with `--out` is the normal case there, not the exception.
 +100 offset — so the device clock was never in the ascii. Backfilled files omit the
 dataset and set `time_spectrometer_recovered = False` rather than store a copy of `time`
 under that name.
+
+---
+
+## 5. PITT staircase — HDF5 ONLY
+
+Data type **5**. A potential staircase held step by step until each step's current
+settles (PITT, potentiostatic intermittent titration), read electrically and optically.
+Written to **one file and nothing else**:
+
+```
+{folder}/{folder}_pitt.h5
+```
+
+**Why no text files.** At full rate a staircase is tens of thousands of spectra — a
+121-step run can hold one for hours. And the downstream reader sorts files by
+`'spectra(' in name`, so a text file named in this family's pattern would be filed as a
+**doping** step, not ignored. There is nothing for it to misread.
+
+**One group per STEP**, in exactly the §4 layout, so the readers and the Results tab
+take a step like any other segment. The cell ran as **one continuous waveform** — never
+switched off between steps — and the data is split at each setpoint change, using the
+step each sample was tagged with when it was taken; the two instruments' clocks are never
+matched. A step's group adds:
+
+```
+/{step}/  attrs: role            "forward" | "return" | "dedope"
+                 end_reason      "cutoff" | "max_hold" | "fixed" | "stopped" | "aborted"
+                 hold_s          how long the step was held
+                 peak_current_A  the largest SAMPLED |I| in the step
+                 n_spectra
+                 label           "PITT {step}"
+                 potential_set   the step's setpoint, from the plan
+
+    echem/time               s since THIS step's setpoint was applied
+    echem/time_potentiostat  the potentiostat's clock, continuous across all steps
+
+/ (root) attrs:  pitt_steps_json   every step that RAN, in order, with how it ended
+                 pitt_completed    every planned step ran to its own end
+```
+
+**Reading `end_reason`.** `cutoff` means the current fell to the set fraction of the
+step's peak after the minimum hold: settled. **`max_hold` means it did NOT** — that step
+is not at equilibrium, and the run log says by how much. `fixed` is the optional dedope at
+the end, held for a set time. `stopped` / `aborted` mark the step the user interrupted;
+every step before it, and that one, are kept.
+
+**The charge before the first sample is not in the data.** dQ is integrated from the
+sampled current, so whatever flowed between the setpoint change and the first sample —
+`1 − exp(−t/τ)` of the step's charge for a single-exponential step — is missing. The loop
+samples the current FIRST after each change to keep that short (one sample, ~50 ms in
+Autolab Ei mode: ~5% at τ = 1 s), and each step's `first_sample_s` in `pitt_steps_json`
+records how long it was, so an analysis can extrapolate or report what it missed.
+
+**No charge, as in §4.** dQ per step is derived, and is computed by the analysis.
+
+| | |
+|---|---|
+| `spec_echem.data.write_pitt_h5(record, ...)` | the writer: one group per step, the step table at the root |
+| `spec_echem.data.read_segment_h5(path, step)` | a step's absorbance, as for any segment |
+| `spec_echem.data.read_segment_echem_h5(path, step)` | a step's echem, in the text readers' column names |
+| `spec_echem.data.discover_run_h5(folder)` | finds the steps, after the doping ladder |
+| `spec_echem.pitt` | the plan, the step-end rule and the spectrum cadence that produced the file |

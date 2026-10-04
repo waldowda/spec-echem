@@ -681,7 +681,7 @@ class AnalysisTab(QWidget):
         if seg is None or self.win.run_folder is None:
             return None, None, None
         path = echem_txt_path(self.win.run_folder, seg.data_type, seg.run_number)
-        if not path.exists():
+        if path is None or not path.exists():
             return None, None, None
         df = read_chrono(path)
         t = df["Corrected time (s)"].to_numpy(dtype=float)

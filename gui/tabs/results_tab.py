@@ -26,7 +26,8 @@ from spec_echem.analysis import (cv_probe_wavelength, probe_wavelength, density_
 from spec_echem.data import (
     echem_txt_path, read_spectra_absorbance, discover_run_segments,
     discover_run_h5, read_segment_h5, DATA_TYPE_CV,
-    DATA_TYPE_DOPING, segment_potential_text, segment_potential,
+    DATA_TYPE_DOPING, DATA_TYPE_PITT, segment_potential_text, segment_potential,
+    segment_sort_key, h5_path, read_segment_echem_h5,
 )
 from spec_echem.experiment import Segment
 from spec_echem.gamry_data import (read_cv, read_chrono, POTENTIAL_COL,
@@ -723,17 +724,26 @@ class ResultsTab(QWidget):
             self.echem_canvas.show_message("No echem data yet — run a sequence.")
             return
         path = echem_txt_path(self.win.run_folder, seg.data_type, seg.run_number)
-        if not path.exists():
-            self.echem_canvas.show_message(
-                "No echem file for this segment.\n\n"
-                "Python mode saves echem data here;\n"
-                "External mode records it via Gamry Framework.")
-            return
+        df = None
+        if path is None or not path.exists():
+            # No text file: an "HDF5 only" run, or a PITT, which is never text. The
+            # same data is in the segment's .h5 group.
+            h5 = h5_path(self.win.run_folder, seg.data_type)
+            if h5.exists():
+                df = read_segment_echem_h5(h5, seg.run_number, seg.data_type)
+            if df is None:
+                self.echem_canvas.show_message(
+                    "No echem file for this segment.\n\n"
+                    "Python mode saves echem data here;\n"
+                    "External mode records it via Gamry Framework.")
+                return
         try:
             if seg.data_type == DATA_TYPE_CV:
-                self.echem_canvas.show_cv(read_cv(path), title=label)
+                self.echem_canvas.show_cv(read_cv(path) if df is None else df,
+                                          title=label)
             else:
-                self.echem_canvas.show_chrono(read_chrono(path), title=label)
+                self.echem_canvas.show_chrono(read_chrono(path) if df is None else df,
+                                              title=label)
             self._has_echem = True
         except Exception as exc:  # noqa: BLE001 — surface a bad/short file as a note, not a crash
             self.echem_canvas.show_message(f"Could not read echem file:\n{exc}")
@@ -984,7 +994,12 @@ class ResultsTab(QWidget):
         if prefer_h5 and by_h5:
             return by_h5, "HDF5"
         if by_text:
-            return by_text, "text"
+            # A PITT is written to HDF5 ONLY, so a text-first load would drop it
+            # without a word. Its steps come from the .h5 whichever source won.
+            pitt = [seg for seg in by_h5 if seg[1] == DATA_TYPE_PITT]
+            merged = sorted(by_text + pitt, key=lambda seg: segment_sort_key(seg[1],
+                                                                              seg[2]))
+            return merged, "text"
         # Asked for text, and there is none -- take the .h5 rather than refuse.
         return (by_h5, "HDF5") if by_h5 else ([], "text")
 
