@@ -111,17 +111,32 @@ data.
          end rule, dQ) and the shared spectrometer time axis so steps can be stitched.
          The Results/Analysis tabs can then list steps as segments.
       4. Its own Parameters section with a checkbox, beside CV, pre-dedoping and
-         dope/dedope. ASSUMED, to confirm: order CV -> pre-dedoping -> dope/dedope -> PITT,
-         and the PITT starts at the dedoping potential (-0.5 V).
+         dope/dedope. **Start AND stop potentials are user-set** (2026-10-04), so a
+         pre-dedoping before the PITT is the user's optional conditioning step. Still
+         to confirm: order when dope/dedope is also ticked (proposed: PITT last).
       5. Ceiling user-set, default +0.7 V (not everything is aqueous; vs Ag/AgCl +0.8 V
          can be fine); never exceeded, rounding down like n_doping_cycles.
-      **Drivers: BOTH, Gamry first** -- the Gamry and the dummy are at PLU, so it is the
-      path that can be tested without a trip; the Autolab follows for the UW run. Build
+      **Drivers: AUTOLAB FIRST** (the user, 2026-10-04: the UDC4 can travel to UW, and
+      UW visits are frequent). The Gamry waits for the 64-bit pip toolkitpy; the user
+      suspects toolkitpy has a staircase signal, which would make it one curve with
+      fixed holds there. Build
       the segment, settings, storage and analysis instrument-independent. Before either
       driver, a small probe on a dummy answers its one unknown: Gamry -- can per-step
       curves run back to back in one toolkitpy session with the cell left on, and how
       long is the gap? Autolab -- can the Ei setpoint change mid-measurement with the
       cell on? The 64-bit pip toolkitpy is imminent and may touch the Gamry layer.
+      **Still open (asked 2026-10-04), proposed defaults in brackets:** "the current
+      level" -- the cutoff, the instrument current range, or both (both user-set; WARN,
+      not block, when the cutoff falls below the selected range's noise floor, ~3.5 nA
+      on the fine ranges); direction [setting: up only / up then back down -- down tests
+      the rearrangement reading, doubles the time]; end of staircase [step to a rest
+      potential, hold briefly, then cell off -- a film left charged at the top with the
+      cell off is not a defined state]. Taken as proposed unless changed: step size
+      [setting, 10 mV]; a MIN hold [5 s] beside the max hold [120 s], so a fast-settling
+      step cannot end at its second sample; cadence [full rate for N = 5 s, then one
+      spectrum per M = 1 s]; a "repeat on the blank" convenience later; analysis
+      choices (which band, whether dQ includes the fast transient) belong with the
+      analysis, not the acquisition.
       **Bench dummies:** the UDC4 Randles side is 200 Ohm + (3.01 kOhm || 1 uF), so its
       transient is ~0.19 ms -- invisible at 50 ms sampling; every step looks like a jump
       to a DC floor of dV/3.21 kOhm. It tests the MAX-HOLD rule and gives an EXACT dQ
