@@ -15,7 +15,8 @@ import time
 from qtpy.QtCore import QObject, Signal
 
 from spec_echem.data import segment_potential_text
-from spec_echem.experiment import run_one_segment
+from spec_echem.data import DATA_TYPE_PITT
+from spec_echem.experiment import run_one_segment, run_pitt_segment
 from spec_echem.potentiostat import ConfigurationError
 from spec_echem.logging_config import get_run_logger
 
@@ -131,7 +132,14 @@ class AcquisitionWorker(QObject):
                 # held at. External mode has no driver settings: the .GSequence sets
                 # the potentials there, so the log says that instead of guessing.
                 pot_settings = getattr(self.potentiostat, "settings", None)
-                if pot_settings:
+                if seg.data_type == DATA_TYPE_PITT:
+                    ps = self.settings
+                    logger.info("PITT: %d steps, %+.3f to %+.3f V in %g mV%s%s",
+                                seg.num_points, ps["pitt_start_v"], ps["pitt_stop_v"],
+                                ps["pitt_step_mv"],
+                                ", and back" if ps.get("pitt_return") else "",
+                                ", then dedope" if ps.get("pitt_end_dedope") else "")
+                elif pot_settings:
                     text = segment_potential_text(pot_settings, seg.data_type,
                                                   seg.run_number)
                     logger.info("%s potential: %s", seg.label, text or "not defined")
@@ -140,6 +148,30 @@ class AcquisitionWorker(QObject):
                                 "mode)", seg.label)
                 logger.debug("%s: %d points @ %.4gs, trigger=%s",
                              seg.label, seg.num_points, seg.delta_time, seg.trigger)
+
+                if seg.data_type == DATA_TYPE_PITT:
+                    # One waveform, many steps. Each step's result is emitted only
+                    # AFTER the staircase ends: drawing on the GUI thread mid-run is
+                    # what opened 260-463 ms spectra gaps on 2026-09-25, and here it
+                    # would also delay the current samples dQ is integrated from.
+                    # The status pane gets a line per step instead (cheap).
+                    steps, path, _record = run_pitt_segment(
+                        self.spec, seg, self.dark, self.ref, self.wavelengths,
+                        self.data_root, self.added_path, self.settings,
+                        self.potentiostat, self.abort_event, self.stop_event)
+                    for label, absorb_df in steps:
+                        self.gui_idle.clear()
+                        self.segment_done.emit(label, absorb_df)
+                    logger.info("PITT complete: %d steps -> %s", len(steps),
+                                path.name if path is not None else "NOT SAVED")
+                    # Kept either way; the run still ends as the user asked it to.
+                    if self.abort_event.is_set():
+                        reason = "aborted"
+                        break
+                    if self.stop_event.is_set():
+                        reason = "stopped"
+                        break
+                    continue
 
                 result = run_one_segment(
                     self.spec, seg, self.dark, self.ref, self.wavelengths,

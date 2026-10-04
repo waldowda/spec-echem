@@ -416,6 +416,13 @@ class Potentiostat:
     """
 
     python_paced = False
+    # Can this driver run a PITT staircase -- hold the cell on through many setpoint
+    # changes and be sampled between them (pitt_prepare / pitt_sample /
+    # pitt_set_potential / pitt_end)? None can yet: the Autolab needs a bench check
+    # that its Ei setpoint changes cleanly with the cell on, and the Gamry waits for
+    # the 64-bit toolkit. External mode never can -- its waveform is the sequence
+    # file's. The run is refused at Start rather than failing mid-staircase.
+    supports_pitt = False
 
     def open(self):
         pass
@@ -2067,6 +2074,15 @@ class AutolabPotentiostat(Potentiostat):
                 "cell is probably open or a lead is loose — this segment ran to "
                 "completion and the file looks normal, but it carries no "
                 "electrochemistry.", label, floor, peak)
+
+
+def pitt_supported(mode):
+    """Can the driver for this potentiostat_mode run a PITT staircase? Answered
+    from the CLASS, so it never constructs a driver -- the Gamry one refuses to exist
+    where toolkitpy is absent, and a Start check must not need it to."""
+    cls = {"external": ExternalPotentiostat, "python": ToolkitPotentiostat,
+           "autolab": AutolabPotentiostat}.get((mode or "external").lower())
+    return bool(getattr(cls, "supports_pitt", False))
 
 
 def make_potentiostat(settings):

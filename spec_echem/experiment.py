@@ -10,11 +10,14 @@ from dataclasses import dataclass
 import math
 import numpy as np
 
-from spec_echem.acquisition import acquire_segment
+from spec_echem.acquisition import acquire_pitt, acquire_segment
 from spec_echem.data import (
     compute_absorbance, write_spectra_file, write_echem_file, write_segment_h5,
+    write_pitt_h5,
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
+    DATA_TYPE_PITT,
 )
+from spec_echem.pitt import pitt_plan
 from spec_echem.logging_config import get_run_logger
 
 
@@ -91,7 +94,25 @@ def build_segments(settings):
             segments.append(Segment(f"Dedoping {run}", DATA_TYPE_DEDOPING, run,
                                     chrono_points, chrono_delta, trigger))
 
+    # After the whole ladder, as decided. ONE segment for the whole staircase -- the
+    # cell must stay on between steps -- with num_points counting STEPS, not spectra:
+    # how many spectra a step takes depends on when its current settles.
+    if settings.get("pitt_enabled", False):
+        segments.append(Segment("PITT", DATA_TYPE_PITT, 0, len(pitt_plan(settings)),
+                                chrono_delta, trigger))
+
     return segments
+
+
+def pitt_step_segments(settings):
+    """One Segment per planned PITT step, labelled 'PITT 0' ... -- what the GUI
+    registers so each step's results can be found, labelled and plotted like any
+    other segment. Not run: the staircase runs as the single 'PITT' segment."""
+    if not settings.get("pitt_enabled", False):
+        return []
+    delta = settings["chrono_delta_time"]
+    return [Segment(f"PITT {step.index}", DATA_TYPE_PITT, step.index, 0, delta,
+                    False) for step in pitt_plan(settings)]
 
 
 def run_one_segment(spec, segment, dark, ref, wavelengths,
@@ -201,3 +222,85 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
             "are unaffected.", segment.label, exc_info=True)
 
     return absorb_df, path
+
+
+def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_path,
+                     settings, potentiostat, abort_event=None, stop_event=None):
+    """Run the whole PITT staircase, write its HDF5, and return each step's data.
+
+    -> (steps, path, record), `steps` being [(label, absorbance DataFrame)] for every
+    step that took a spectrum, in order. Unlike run_one_segment this never returns
+    None on Abort: a staircase can run for hours, so whatever was collected is written
+    and returned, with the interrupted step marked in its end_reason.
+
+    HDF5 is the ONLY copy -- there is no ascii for a PITT -- so a failed write is an
+    ERROR, never the quiet warning an additive .h5 gets beside its text files.
+    """
+    log = get_run_logger()
+    plan = pitt_plan(settings)
+
+    def announce(k, step):
+        log.info("PITT step %d of %d: %+.3f V (%s)", k + 1, len(plan),
+                 step.potential, step.role)
+
+    record = acquire_pitt(spec, potentiostat, plan, settings, trigger=segment.trigger,
+                          abort_event=abort_event, stop_event=stop_event,
+                          on_step=announce)
+    for st in record.steps:
+        log.info("PITT %d at %+.3f V: %s after %.1f s, peak %.3g A, %d spectra",
+                 st["index"], st["potential_set"], st["end_reason"], st["hold_s"],
+                 st["peak_current_A"], st["n_spectra"])
+    if not record.steps:
+        return [], None, record
+
+    path = None
+    try:
+        path = write_pitt_h5(record, dark, ref, wavelengths, data_root, added_path,
+                             settings=settings,
+                             compression=settings.get("hdf5_compression", 0))
+    except Exception:  # noqa: BLE001 -- the only copy: say so as loudly as possible
+        log.exception("PITT: the HDF5 file could NOT be written, and it is the only "
+                      "copy of this staircase's data.")
+    if path is None:
+        log.error("PITT: no file was written for this staircase (see above).")
+
+    tags = np.asarray(record.spectrum_step, dtype=int)
+    steps = []
+    for st in record.steps:
+        rows = np.flatnonzero(tags == st["index"])
+        if rows.size:
+            steps.append((f"PITT {st['index']}", compute_absorbance(
+                [record.spectra[j] for j in rows], dark, ref, wavelengths,
+                [record.timestamps[j] for j in rows])))
+    return steps, path, record
+
+
+def pitt_start_problems(settings):
+    """Why a run with the PITT ticked cannot start, or [] when it can.
+
+    Refused at Start rather than discovered mid-staircase: the settings themselves
+    (pitt_problems), a potentiostat whose driver cannot hold the cell through a
+    staircase yet, and a missing h5py -- HDF5 is the ONLY copy of a PITT, so without
+    it the run would collect data and save none of it.
+    """
+    if not settings.get("pitt_enabled", False):
+        return []
+    from spec_echem.data import H5PY_AVAILABLE
+    from spec_echem.pitt import pitt_problems
+    from spec_echem.potentiostat import pitt_supported
+    out = list(pitt_problems(settings))
+    mode = (settings.get("potentiostat_mode") or "external").lower()
+    if not pitt_supported(mode):
+        why = {
+            "external": "In External mode the sequence file owns the waveform, so "
+                        "Python cannot step the potential.",
+            "autolab": "The Autolab staircase driver is not written yet: it waits on "
+                       "a bench check that the Ei setpoint can change with the cell on.",
+            "python": "The Gamry staircase driver is not written yet: it waits on the "
+                      "64-bit toolkit.",
+        }.get(mode, f"The {mode!r} driver cannot run one.")
+        out.append(f"This potentiostat cannot run a PITT yet. {why}")
+    if not H5PY_AVAILABLE:
+        out.append("A PITT is saved to HDF5 only, and h5py is not installed in this "
+                   "environment, so nothing would be saved.")
+    return out
