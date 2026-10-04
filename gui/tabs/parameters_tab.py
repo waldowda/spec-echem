@@ -22,6 +22,7 @@ from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES, GAMRY_CURRENT_RANGE
                                      is_high_current_range)
 from spec_echem.acquisition import spectrum_cost_seconds
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
+from spec_echem.pitt import pitt_duration_bounds, pitt_plan, pitt_problems
 from gui.tabs.instrument_tab import _next_serial_path
 from gui.forms import form_layout, fill_width
 
@@ -407,8 +408,120 @@ class ParametersTab(QWidget):
         dope_form.addRow("Step duration:", self._dspin("chrono_time", 0.1, 100000.0, 1, 1.0, " s"))
         layout.addWidget(dope_group)
 
+        layout.addWidget(self._build_pitt_group())
+
         layout.addStretch()
         self._wire_shared_hints()
+
+    def _build_pitt_group(self):
+        """PITT: an equilibrium potential staircase, after the doping ladder.
+
+        Every field is a setting the scientist sets -- the cutoff and both holds
+        included. The estimate and the problems line update as they type, so the
+        cost of "also step back down" is seen before Start, not after an hour.
+        """
+        # Not POTENTIAL_NOTE: External mode cannot run a PITT at all -- its waveform
+        # is the sequence file's -- so "External = reference" would be untrue here.
+        group = QGroupBox("PITT \u2014 equilibrium staircase  (Python mode only)")
+        form = form_layout(group)
+        form.addRow(self._check("pitt_enabled",
+                                "Include PITT (runs after doping/dedoping)"))
+        note = QLabel("Saved as HDF5 only, one group per step, whatever the file "
+                      "format above says: a staircase is tens of thousands of spectra.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #888;")
+        form.addRow(fill_width(note))
+        form.addRow("Start (vs Vref):",
+                    self._dspin("pitt_start_v", -10.0, 10.0, 3, 0.05, " V"))
+        form.addRow("Stop (vs Vref):", self._hint(
+            self._dspin("pitt_stop_v", -10.0, 10.0, 3, 0.05, " V"),
+            "a ceiling: the last step never passes it"))
+        form.addRow("Step:", self._dspin("pitt_step_mv", 0.1, 1000.0, 1, 1.0, " mV"))
+        form.addRow("Step ends at:", self._hint(
+            self._dspin("pitt_cutoff_pct", 0.01, 99.99, 2, 0.5, " %"),
+            "of the step's peak current. If that is below the current range's noise "
+            "floor (~3.5 nA on the finest ranges), steps end at the maximum hold."))
+        form.addRow("Minimum hold:", self._hint(
+            self._dspin("pitt_min_hold_s", 0.0, 100000.0, 1, 1.0, " s"),
+            "no step ends sooner, so each gets its transient"))
+        form.addRow("Maximum hold:", self._hint(
+            self._dspin("pitt_max_hold_s", 0.1, 100000.0, 1, 10.0, " s"),
+            "a step that reaches this is not at equilibrium"))
+        form.addRow("Spectra at full rate for:", self._hint(
+            self._dspin("pitt_fast_s", 0.0, 100000.0, 1, 1.0, " s"),
+            "from each step's start; the current is sampled at full rate throughout"))
+        form.addRow("Then one spectrum every:",
+                    self._dspin("pitt_slow_interval_s", 0.01, 10000.0, 2, 0.5, " s"))
+        form.addRow(self._check("pitt_return", "Also step back down to the start"))
+        dedope = self._check("pitt_end_dedope",
+                             "Dedope at the end, at the dedoping potential above")
+        form.addRow(dedope)
+        hold = self._dspin("pitt_end_dedope_time_s", 0.1, 100000.0, 1, 1.0, " s")
+        hold.setEnabled(dedope.isChecked())
+        dedope.toggled.connect(hold.setEnabled)
+        form.addRow("End dedope hold:", hold)
+
+        self.pitt_estimate = fill_width(QLabel())
+        self.pitt_estimate.setWordWrap(True)
+        form.addRow(self.pitt_estimate)
+        self.pitt_problems_label = fill_width(QLabel())
+        self.pitt_problems_label.setWordWrap(True)
+        self.pitt_problems_label.setStyleSheet("color: #b00;")
+        form.addRow(self.pitt_problems_label)
+
+        for key in ("pitt_enabled", "pitt_start_v", "pitt_stop_v", "pitt_step_mv",
+                    "pitt_cutoff_pct", "pitt_min_hold_s", "pitt_max_hold_s",
+                    "pitt_fast_s", "pitt_slow_interval_s", "pitt_return",
+                    "pitt_end_dedope", "pitt_end_dedope_time_s", "dedoping_potential",
+                    "chrono_delta_time"):
+            w = self._widgets[key]
+            signal = w.toggled if isinstance(w, QCheckBox) else w.valueChanged
+            signal.connect(self._update_pitt_estimate)
+        return group
+
+    def _pitt_settings(self):
+        """The PITT fields as a settings dict, without touching win.settings."""
+        s = dict(DEFAULT_SETTINGS)
+        s.update(self.win.settings)
+        self.collect_into(s)
+        return s
+
+    @staticmethod
+    def _duration_text(seconds):
+        if seconds < 120:
+            return f"{seconds:.0f} s"
+        if seconds < 7200:
+            return f"{seconds / 60:.0f} min"
+        return f"{seconds / 3600:.1f} h"
+
+    def _update_pitt_estimate(self, *_):
+        """Steps and the time they can take, and anything that would stop Start.
+
+        The bounds are honest ones: every step holds at least its minimum and at most
+        its maximum, so the run lies between. Stepping back down is called out with
+        what it ADDS, since that is the decision the checkbox is.
+        """
+        s = self._pitt_settings()
+        problems = pitt_problems(s)
+        self.pitt_problems_label.setText("\n".join(problems))
+        self.pitt_problems_label.setVisible(bool(problems))
+        if problems:
+            self.pitt_estimate.setText("")
+            return
+        n = len(pitt_plan(s))
+        lo, hi = pitt_duration_bounds(s)
+        text = (f"{n} steps, between {self._duration_text(lo)} and "
+                f"{self._duration_text(hi)}")
+        if s.get("pitt_return"):
+            one_way = dict(s, pitt_return=False)
+            add_lo, add_hi = (b - a for a, b in zip(pitt_duration_bounds(one_way),
+                                                    (lo, hi)))
+            text = ("\u26a0 " + text + f" \u2014 stepping back down adds "
+                    f"{self._duration_text(add_lo)} to {self._duration_text(add_hi)}")
+            self.pitt_estimate.setStyleSheet("color: #a60;")
+        else:
+            self.pitt_estimate.setStyleSheet("color: #888;")
+        self.pitt_estimate.setText(text)
 
     def lock_for_run(self, locked):
         """Freeze the form while a run is going.
@@ -569,6 +682,7 @@ class ParametersTab(QWidget):
         folder = self._widgets["data_folder"]
         if not folder.text().strip():
             folder.setText(datetime.now().strftime("%Y%m%d_"))
+        self._update_pitt_estimate()
 
         # A loaded file can change the mode and the spectrometer settings, so the
         # shared rows and the floor hint are only right if they follow it.
