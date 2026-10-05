@@ -125,8 +125,8 @@ class AcquisitionWorker(QObject):
                 self.segment_started.emit(seg.label, i + 1, total)
                 # Logged BEFORE run_one_segment, which does the Gamry setup first and
                 # only then arms — so this states intent, not that arming has happened.
-                logger.info("Starting %s (%d/%d) — Gamry setup, then arm and wait for trigger",
-                            seg.label, i + 1, total)
+                logger.info("Starting %s (%d/%d) — potentiostat setup, then arm and "
+                            "wait for trigger", seg.label, i + 1, total)
                 # The potential the driver is about to apply, from the SAME function
                 # it uses -- requested, since the log never said what each step was
                 # held at. External mode has no driver settings: the .GSequence sets
