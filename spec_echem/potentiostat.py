@@ -1241,6 +1241,91 @@ class AutolabPotentiostat(Potentiostat):
         self._report_timing()
         self._report_segment_health()
 
+    # --- PITT: one continuous staircase, the cell held ON throughout -----------
+    #
+    # The five methods acquire_pitt() needs. Always Ei -- whatever autolab_ca_mode
+    # says -- because a staircase IS a setpoint changed from Python with the cell
+    # left on, which is exactly what Ei is. The cell is switched on once by fire()
+    # and off once by pitt_end(); nothing in between touches it.
+    #
+    # UNPROVEN ON HARDWARE until examples/probe_autolab_pitt.py has run on a dummy:
+    # that probe drives these same methods, so its verdict is this code's verdict.
+    supports_pitt = True
+
+    def pitt_prepare(self, potential):
+        """Mode, range and the first setpoint, with the cell still OPEN."""
+        if self._inst is None:
+            raise RuntimeError("Autolab not open: call open() before a PITT.")
+        self._ei_mode = True
+        self._aborted = False
+        self._overloaded = False
+        self._t_cell_on = None
+        ei = self._inst.Ei
+        _set_ei_mode(ei)
+        _set_current_range(ei, self.settings.get("autolab_current_range"))
+        back = self._pitt_write_setpoint(potential)
+        get_run_logger().info(
+            "Autolab PITT: first step at %+.6f V (asked %+.6f V), range %s, cell "
+            "still open.", back, potential,
+            self.settings.get("autolab_current_range") or "as the instrument has it")
+
+    def _pitt_write_setpoint(self, potential):
+        """Write and READ BACK. Ei.Setpoint is a DAC and snaps (~55 uV), so the check
+        is AUTOLAB_SETPOINT_TOL_V, never 1e-9; a miss larger than that is not
+        rounding and stops the staircase (its finally switches the cell off)."""
+        ei = self._inst.Ei
+        ei.Setpoint = float(potential)
+        back = float(ei.Setpoint)
+        if abs(back - float(potential)) > AUTOLAB_SETPOINT_TOL_V:
+            raise RuntimeError(
+                f"Autolab Ei.Setpoint did not take: wrote {potential}, read back "
+                f"{back} (further than {AUTOLAB_SETPOINT_TOL_V} V).")
+        return back
+
+    def pitt_sample(self):
+        """One fresh (t, potential, current). t is seconds since cell-on.
+
+        sample_ei() FIRST: Ei's readings are a latch, and without it every read
+        returns whatever was last loaded (20260909_test11). A straddled pair --
+        the potential moved between the two reads, which a setpoint change can
+        cause -- comes back as NaN rather than as a point describing no instant.
+        """
+        inst = self._inst
+        origin = self._t_cell_on
+        refreshed = sample_ei(inst)
+        pair = self._read_ei_pair(inst) if refreshed else None
+        t = time.perf_counter() - origin if origin is not None else 0.0
+        try:
+            cur_over = bool(inst.Ei.CurrentOverload)
+            pot_over = bool(inst.Ei.PotentialOverload)
+        except Exception:  # noqa: BLE001 -- a diagnostic must not stop the staircase
+            cur_over = pot_over = False
+        if (cur_over or pot_over) and not self._overloaded:
+            self._overloaded = True
+            get_run_logger().warning(
+                "Autolab PITT: %s OVERLOAD at t=%.1f s. In Ei mode nothing autoranges,"
+                " so this will persist: ABORT and raise autolab_current_range.",
+                " and ".join(w for w, f in (("CURRENT", cur_over),
+                                            ("POTENTIAL", pot_over)) if f), t)
+        if pair is None:
+            self._bad_samples += 1
+            return t, float("nan"), float("nan")
+        e, i = pair
+        return t, float(e), float(i)
+
+    def pitt_set_potential(self, potential):
+        """The next step: a new setpoint with the cell LEFT ON."""
+        self._pitt_write_setpoint(potential)
+
+    def pitt_end(self):
+        """Cell off. Called from acquire_pitt()'s finally, so it runs on every exit."""
+        if self._inst is None:
+            return
+        try:
+            _set_cell(self._inst, False)
+        except Exception as exc:  # noqa: BLE001
+            get_run_logger().warning("Autolab: could not switch the cell off: %s", exc)
+
     def stop(self):
         self._aborted = True
         self._stop_procedure()
