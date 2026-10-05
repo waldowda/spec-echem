@@ -453,12 +453,15 @@ class ParametersTab(QWidget):
         form.addRow("Then one spectrum every:",
                     self._dspin("pitt_slow_interval_s", 0.01, 10000.0, 2, 0.5, " s"))
         form.addRow(self._check("pitt_return", "Also step back down to the start"))
-        dedope = self._check("pitt_end_dedope",
-                             "Dedope at the end, at the dedoping potential above")
+        dedope = self._check("pitt_end_dedope", "Dedope at the end")
         form.addRow(dedope)
+        # Its own potential, not the doping ladder's dedoping potential above.
+        dedope_v = self._dspin("pitt_end_dedope_v", -10.0, 10.0, 3, 0.05, " V")
         hold = self._dspin("pitt_end_dedope_time_s", 0.1, 100000.0, 1, 1.0, " s")
-        hold.setEnabled(dedope.isChecked())
-        dedope.toggled.connect(hold.setEnabled)
+        for w in (dedope_v, hold):
+            w.setEnabled(dedope.isChecked())
+            dedope.toggled.connect(w.setEnabled)
+        form.addRow("End dedope potential (vs Vref):", dedope_v)
         form.addRow("End dedope hold:", hold)
 
         self.pitt_estimate = fill_width(QLabel())
@@ -472,7 +475,7 @@ class ParametersTab(QWidget):
         for key in ("pitt_enabled", "pitt_start_v", "pitt_stop_v", "pitt_step_mv",
                     "pitt_cutoff_pct", "pitt_min_hold_s", "pitt_max_hold_s",
                     "pitt_fast_s", "pitt_slow_interval_s", "pitt_return",
-                    "pitt_end_dedope", "pitt_end_dedope_time_s", "dedoping_potential",
+                    "pitt_end_dedope", "pitt_end_dedope_v", "pitt_end_dedope_time_s",
                     "chrono_delta_time"):
             w = self._widgets[key]
             signal = w.toggled if isinstance(w, QCheckBox) else w.valueChanged

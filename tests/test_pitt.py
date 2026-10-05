@@ -58,12 +58,21 @@ def test_the_return_leg_retraces_without_repeating_the_turn():
     assert [s.role for s in plan] == [ROLE_FORWARD] * 4 + [ROLE_RETURN] * 3
 
 
-def test_the_end_dedope_is_the_last_step_at_the_dedoping_potential():
+def test_the_end_dedope_has_its_own_potential_not_the_ladders():
+    """Its own setting, defaulting to -0.5 V -- not the doping ladder's dedoping
+    potential, which is a different step with its own default (0.0 V)."""
     plan = pitt_plan(settings(pitt_start_v=0.0, pitt_stop_v=0.1, pitt_step_mv=100.0,
-                              pitt_end_dedope=True, dedoping_potential=-0.5))
+                              pitt_end_dedope=True, pitt_end_dedope_v=-0.4,
+                              dedoping_potential=0.0))
     assert plan[-1].role == ROLE_DEDOPE
-    assert plan[-1].potential == -0.5
+    assert plan[-1].potential == -0.4
     assert plan[-1].index == len(plan) - 1
+
+
+def test_the_end_dedope_defaults_to_minus_half_a_volt():
+    assert DEFAULT_SETTINGS["pitt_end_dedope_v"] == -0.5
+    plan = pitt_plan(settings(pitt_end_dedope=True))
+    assert plan[-1].potential == -0.5
 
 
 def test_a_step_potential_is_read_from_the_plan():
