@@ -11,7 +11,8 @@ from spec_echem.data import (DATA_TYPE_PITT, discover_run_h5, h5_path,
                              read_segment_h5, write_pitt_h5)
 from spec_echem.fakes import FakePittPotentiostat, FakeSpectrometer
 from spec_echem.pitt import (END_ABORTED, END_CUTOFF, END_FIXED, END_MAX_HOLD,
-                             END_STOPPED, ROLE_DEDOPE, ROLE_RETURN, pitt_plan)
+                             END_STOPPED, ROLE_DEDOPE, ROLE_RETURN, SETTLE_SAMPLES,
+                             pitt_plan)
 from spec_echem.settings import DEFAULT_SETTINGS
 
 h5py = pytest.importorskip("h5py")
@@ -98,7 +99,9 @@ def test_a_settling_step_ends_at_its_cutoff():
     # comes that much later.
     for s in later:
         assert s["first_sample_s"] == pytest.approx(SAMPLE_COST, abs=0.01)
-        assert s["hold_s"] == pytest.approx(4.6 + s["first_sample_s"], abs=0.12)
+        # ...and ends once SETTLE_SAMPLES ticks (0.1 s each) in a row stay below it.
+        assert s["hold_s"] == pytest.approx(
+            4.6 + s["first_sample_s"] + (SETTLE_SAMPLES - 1) * 0.1, abs=0.12)
 
 
 def test_a_step_with_no_current_ends_at_its_minimum_hold():

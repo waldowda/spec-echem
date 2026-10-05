@@ -38,6 +38,15 @@ END_ABORTED = "aborted"     # Abort pressed: likewise, immediately
 # staircase can run for hours, and throwing away every completed step because the
 # last one was interrupted would withhold results the scientist paid for.
 
+# How many CONSECUTIVE samples must sit at or below the cutoff before a step ends.
+# One is not enough: on the PGSTAT302N 2026-10-05 a 1 MOhm dummy on CR10_1mA read
+# ~90 nA low (the range's zero offset), so at +0.1 V the current sat near zero, the
+# 'peak' was 12 nA, and a single sample landing within 0.12 nA of zero ended the step
+# at 4.4 s on a cell whose current never decays. At the 0.1 s tick, 5 is half a
+# second of the current staying down -- a real settle does that; noise grazing zero
+# does not.
+SETTLE_SAMPLES = 5
+
 # Absorbs binary float error only, as n_doping_cycles does: (0.7 - -0.5) / 0.01 is
 # 119.99999999999999, and that ladder must keep its last step.
 _FLOAT_SLACK = 1e-9
@@ -133,8 +142,8 @@ class StepEnd:
     """Decides when ONE step is over, from the current as it is sampled.
 
     Ends at the cutoff -- |I| at or below `cutoff_pct` of the largest |I| seen in this
-    step -- once the minimum hold has passed, or at the maximum hold, whichever comes
-    first. The minimum exists because a fast-settling step could otherwise end at its
+    step, on SETTLE_SAMPLES consecutive samples -- once the minimum hold has passed,
+    or at the maximum hold, whichever comes first. The minimum exists because a fast-settling step could otherwise end at its
     second sample, before the transient or a single spectrum had been taken.
 
     The peak is the largest SAMPLED current. On a cell whose transient is faster than
@@ -143,12 +152,15 @@ class StepEnd:
     every step. That is the right answer: nothing resolvable relaxed.
     """
 
-    def __init__(self, cutoff_pct, min_hold_s, max_hold_s):
+    def __init__(self, cutoff_pct, min_hold_s, max_hold_s,
+                 settle_samples=SETTLE_SAMPLES):
         self.fraction = float(cutoff_pct) / 100.0
         self.min_hold = float(min_hold_s)
         self.max_hold = float(max_hold_s)
+        self.settle_samples = int(settle_samples)
         self.peak = 0.0
         self.reason = None
+        self._below = 0          # consecutive samples at or below the cutoff
 
     def feed(self, t_in_step, current):
         """One sample. Returns END_CUTOFF / END_MAX_HOLD once over, else None."""
@@ -157,10 +169,13 @@ class StepEnd:
         magnitude = abs(float(current))
         if math.isfinite(magnitude):
             self.peak = max(self.peak, magnitude)
+        if math.isfinite(magnitude) and magnitude <= self.fraction * self.peak:
+            self._below += 1
+        elif math.isfinite(magnitude):
+            self._below = 0      # one sample back above it starts the count again
         if t_in_step >= self.max_hold:
             self.reason = END_MAX_HOLD
-        elif (t_in_step >= self.min_hold and math.isfinite(magnitude)
-              and magnitude <= self.fraction * self.peak):
+        elif t_in_step >= self.min_hold and self._below >= self.settle_samples:
             self.reason = END_CUTOFF
         return self.reason
 
