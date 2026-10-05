@@ -180,9 +180,17 @@ def main():
         slope = sum((v - mv) * (i - mi) for v, i in pts) / sxx
         offset = mi - slope * mv
         span = max(i for _, i in pts) - min(i for _, i in pts)
+        # Resolvable = the fitted change across the staircase stands well clear of
+        # the fit's own scatter. NOT a fixed current: the first version used 0.3 uA,
+        # right for CR09_10mA and wrong on CR13_1uA, where it called a clean 1.01 MOhm
+        # (150 nA across the staircase, ~1 nA scatter) unresolvable.
+        resid = math.sqrt(sum((i - (offset + slope * v)) ** 2 for v, i in pts) / n)
+        v_span = max(v for v, _ in pts) - min(v for v, _ in pts)
+        fitted_change = abs(slope) * v_span
         ac.say(f"  current vs potential: slope {slope:+.4e} A/V, intercept {offset:+.4e} A")
-        ac.say(f"  current changed by {span:.3e} A across the whole staircase")
-        if abs(slope) > 0 and abs(slope) * 0.15 > 3 * 1e-7:
+        ac.say(f"  current changed by {span:.3e} A across the whole staircase "
+               f"(fit scatter {resid:.2e} A)")
+        if abs(slope) > 0 and fitted_change > max(10 * resid, 5e-9):
             ac.say(f"  -> DC resistance {1 / slope:,.0f} Ohm")
         else:
             ac.say("  -> no DC current this range can resolve: the dummy has a very")
