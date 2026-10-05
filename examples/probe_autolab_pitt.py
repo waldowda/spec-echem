@@ -62,7 +62,12 @@ def main():
     ap.add_argument("--energize", action="store_true",
                     help="actually switch the cell on (DUMMY CELL ONLY)")
     ap.add_argument("--ohms", type=float, default=3210.0,
-                    help="DC resistance of the dummy (UDC4 Randles = 3210)")
+                    help="DC resistance of the dummy (UDC4 Randles = 3210); 0 = "
+                         "unknown, skip the current check and just measure it")
+    ap.add_argument("--range", default=None,
+                    help="current range for this probe only, e.g. CR11_100uA "
+                         "(overrides bench.ini; members run BACKWARDS: CR09_10mA, "
+                         "CR10_1mA, CR11_100uA, ...)")
     args = ap.parse_args()
 
     ac.rule("CAN THE AUTOLAB STEP ITS Ei SETPOINT WITH THE CELL ON?  (PITT probe)")
@@ -70,13 +75,15 @@ def main():
         ac.say("Refusing to energize: re-run with --energize, with a DUMMY cell in.")
         return 1
     ac.say(f"*** The cell WILL be switched on and stepped through {STEPS_V} V. ***")
-    ac.say(f"*** Dummy only: expecting {args.ohms:.0f} Ohm DC. Never a film. ***")
+    ac.say(f"*** Dummy only: {f'expecting {args.ohms:.0f} Ohm DC' if args.ohms else 'DC resistance unknown -- measured below'}. Never a film. ***")
 
     settings = dict(DEFAULT_SETTINGS)
     bench, warnings = load_bench_defaults()
     settings.update(bench)
     for w in warnings:
         ac.say(f"  bench.ini: {w}")
+    if args.range:
+        settings["autolab_current_range"] = args.range
     ac.say(f"  current range: {settings.get('autolab_current_range') or '(as the instrument has it)'}")
     ac.say(f"  DIO mask:      {settings.get('autolab_dio_mask')}")
 
@@ -136,8 +143,11 @@ def main():
         e_set = sorted(r[4] for r in tail)[len(tail) // 2]
         i_set = sorted(r[5] for r in tail)[len(tail) // 2]
         reached = next((r[2] for r in good if abs(r[4] - v) <= E_TOL_V), None)
-        expect_i = v / args.ohms
-        if abs(expect_i) > 1e-7:
+        expect_i = v / args.ohms if args.ohms else 0.0
+        if not args.ohms:                     # unknown resistance: report, do not judge
+            i_ok = True
+            i_txt = "  -- "
+        elif abs(expect_i) > 1e-7:
             i_err = abs(i_set - expect_i) / abs(expect_i)
             i_ok = i_err <= I_TOL
             i_txt = f"{i_err * 100:5.1f}%"
@@ -151,6 +161,35 @@ def main():
                f"{i_set:+.4e}     {i_txt}    "
                f"{(f'{reached * 1000:6.0f} ms') if reached is not None else '   never '}   "
                f"{nan_reads:>3}   {'OK' if ok else 'FAIL'}")
+
+    # The cell's DC path, MEASURED: the slope of settled current against setpoint.
+    # Needs no assumed resistance, and the intercept is the range's zero offset --
+    # which a coarse range shows as a constant current that does not follow V.
+    pts = []
+    for k, v in enumerate(STEPS_V):
+        tail = [r for r in rows if r[0] == k and not math.isnan(r[5])
+                and r[2] >= HOLD_S - SETTLED_TAIL_S]
+        if tail:
+            pts.append((v, sorted(r[5] for r in tail)[len(tail) // 2]))
+    ac.rule("THE DC PATH, MEASURED")
+    if len({v for v, _i in pts}) >= 2:
+        n = len(pts)
+        mv = sum(v for v, _ in pts) / n
+        mi = sum(i for _, i in pts) / n
+        sxx = sum((v - mv) ** 2 for v, _ in pts)
+        slope = sum((v - mv) * (i - mi) for v, i in pts) / sxx
+        offset = mi - slope * mv
+        span = max(i for _, i in pts) - min(i for _, i in pts)
+        ac.say(f"  current vs potential: slope {slope:+.4e} A/V, intercept {offset:+.4e} A")
+        ac.say(f"  current changed by {span:.3e} A across the whole staircase")
+        if abs(slope) > 0 and abs(slope) * 0.15 > 3 * 1e-7:
+            ac.say(f"  -> DC resistance {1 / slope:,.0f} Ohm")
+        else:
+            ac.say("  -> no DC current this range can resolve: the dummy has a very")
+            ac.say("     high or no DC path, or the range is too coarse. The intercept")
+            ac.say("     is then just the range's zero offset. Try --range CR11_100uA.")
+    else:
+        ac.say("  not enough steps with settled samples to fit")
 
     ac.rule("THE CELL, AS THE INSTRUMENT REPORTED IT")
     for label, on in cell_after:
