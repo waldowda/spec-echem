@@ -14,7 +14,7 @@ from gui.main_window import MainWindow                              # noqa: E402
 PITT_KEYS = ("pitt_enabled", "pitt_start_v", "pitt_stop_v", "pitt_step_mv",
              "pitt_return", "pitt_cutoff_pct", "pitt_min_hold_s", "pitt_max_hold_s",
              "pitt_fast_s", "pitt_slow_interval_s", "pitt_end_dedope",
-             "pitt_end_dedope_time_s")
+             "pitt_end_dedope_v", "pitt_end_dedope_time_s")
 
 
 @pytest.fixture(scope="module")
@@ -40,7 +40,7 @@ def test_every_pitt_setting_has_a_field_and_round_trips(window):
               "pitt_step_mv": 20.0, "pitt_return": True, "pitt_cutoff_pct": 2.5,
               "pitt_min_hold_s": 3.0, "pitt_max_hold_s": 90.0, "pitt_fast_s": 4.0,
               "pitt_slow_interval_s": 2.0, "pitt_end_dedope": True,
-              "pitt_end_dedope_time_s": 45.0}
+              "pitt_end_dedope_v": -0.6, "pitt_end_dedope_time_s": 45.0}
     tab.populate_from(chosen)
     out = {}
     tab.collect_into(out)
@@ -88,12 +88,20 @@ def test_impossible_settings_are_said_live_not_at_start(window):
     assert not tab.pitt_problems_label.isVisibleTo(tab)
 
 
-def test_the_end_dedope_hold_is_only_editable_when_it_will_run(window):
+def test_the_end_dedope_fields_are_only_editable_when_it_will_run(window):
     tab = window.parameters_tab
     tab._widgets["pitt_end_dedope"].setChecked(False)
-    assert not tab._widgets["pitt_end_dedope_time_s"].isEnabled()
+    for key in ("pitt_end_dedope_v", "pitt_end_dedope_time_s"):
+        assert not tab._widgets[key].isEnabled(), key
     tab._widgets["pitt_end_dedope"].setChecked(True)
-    assert tab._widgets["pitt_end_dedope_time_s"].isEnabled()
+    for key in ("pitt_end_dedope_v", "pitt_end_dedope_time_s"):
+        assert tab._widgets[key].isEnabled(), key
+
+
+def test_the_end_dedope_potential_defaults_to_minus_half_a_volt(window):
+    tab = window.parameters_tab
+    tab.populate_from(dict(window.settings))
+    assert tab._widgets["pitt_end_dedope_v"].value() == -0.5
 
 
 @pytest.mark.parametrize("mode", ["external", "python", "autolab"])

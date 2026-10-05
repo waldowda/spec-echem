@@ -130,8 +130,9 @@ data.
       - Direction: **"also step back down" is a checkbox, with a time warning** showing
         the estimated duration it adds.
       - End: **an optional dedope at the end of the PITT** -- part of the same continuous
-        waveform (cell still on), saved as its own h5 group, then cell off. Proposed:
-        the dedoping potential and the ladder's hold time.
+        waveform (cell still on), saved as its own h5 group, then cell off. **Its OWN
+        potential, user-set, default -0.5 V** (the user, 2026-10-04) -- not the doping
+        ladder's dedoping_potential -- and its own hold time (default 30 s).
       - "Current level" = **the existing max-current (range) setting** already used for
         dope/dedope on the Autolab and Gamry; the PITT shares it by default. Whether it
         gets its OWN range is the existing "range per segment TYPE" decision. Keep the

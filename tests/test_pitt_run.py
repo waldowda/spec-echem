@@ -66,7 +66,7 @@ def settings(**over):
     s.update(pitt_start_v=0.0, pitt_stop_v=0.2, pitt_step_mv=100.0,
              pitt_cutoff_pct=1.0, pitt_min_hold_s=2.0, pitt_max_hold_s=60.0,
              pitt_fast_s=2.0, pitt_slow_interval_s=1.0, pitt_return=False,
-             pitt_end_dedope=False, chrono_delta_time=0.1, dedoping_potential=-0.5)
+             pitt_end_dedope=False, chrono_delta_time=0.1, pitt_end_dedope_v=-0.5)
     s.update(over)
     return s
 
