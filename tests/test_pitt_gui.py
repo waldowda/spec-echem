@@ -104,7 +104,7 @@ def test_the_end_dedope_potential_defaults_to_minus_half_a_volt(window):
     assert tab._widgets["pitt_end_dedope_v"].value() == -0.5
 
 
-@pytest.mark.parametrize("mode", ["external", "python", "autolab"])
+@pytest.mark.parametrize("mode", ["external", "python"])
 def test_start_refuses_a_pitt_this_potentiostat_cannot_run(window, tmp_path,
                                                           monkeypatch, mode):
     """Refused at Start with the reason, never discovered mid-staircase -- and the

@@ -1983,3 +1983,116 @@ def test_an_instrument_that_cannot_list_its_ladder_still_works(stub_tkp):
     p = Angry()
     how, full = initialize_pstat(p, 6.0e-4)
     assert p.range_set == 8 and full == 6.0e-4          # documented table
+
+
+# --- PITT on the Autolab: the five methods acquire_pitt() drives ------------------
+
+@pytest.fixture
+def pitt_autolab(autolab, monkeypatch):
+    monkeypatch.setattr(potentiostat, "_set_ei_mode", lambda ei, potentiostatic=True: None)
+    monkeypatch.setattr(potentiostat, "_set_current_range", lambda ei, name: None)
+    return autolab()
+
+
+def test_the_autolab_says_it_can_run_a_pitt():
+    assert potentiostat.pitt_supported("autolab")
+    assert not potentiostat.pitt_supported("external")
+    assert not potentiostat.pitt_supported("python")
+
+
+def test_the_first_step_is_set_with_the_cell_still_open(pitt_autolab):
+    p, inst = pitt_autolab
+    p.pitt_prepare(0.1)
+    assert inst.Ei.Setpoint == pytest.approx(0.1)
+    assert inst.Ei.Cell is False
+
+
+def test_the_cell_goes_on_once_and_stays_on_across_setpoint_changes(pitt_autolab):
+    """The whole point: no open circuit between steps."""
+    p, inst = pitt_autolab
+    states = []
+    real = potentiostat._set_cell
+    p.pitt_prepare(0.0)
+    p.fire()
+    states.append(inst.Ei.Cell)
+    for v in (0.05, 0.10, 0.05):
+        p.pitt_set_potential(v)
+        states.append(inst.Ei.Cell)
+        assert inst.Ei.Setpoint == pytest.approx(v)
+    p.pitt_end()
+    assert states == [True, True, True, True]
+    assert inst.Ei.Cell is False
+    assert real is potentiostat._set_cell                 # untouched by the test
+
+
+def test_a_sample_refreshes_the_latch_first(pitt_autolab):
+    """Without Sample() every read returns the stale latch (20260909_test11)."""
+    p, inst = pitt_autolab
+    p.pitt_prepare(0.1)
+    p.fire()
+    inst.Ei.true_potential, inst.Ei.true_current = 0.1, 0.1 / 3210.0
+    t, e, i = p.pitt_sample()
+    assert (e, i) == pytest.approx((0.1, 0.1 / 3210.0))
+    inst.Ei.true_potential, inst.Ei.true_current = 0.2, 0.2 / 3210.0
+    _t, e, i = p.pitt_sample()
+    assert (e, i) == pytest.approx((0.2, 0.2 / 3210.0))
+    assert t >= 0.0
+
+
+def test_a_setpoint_that_does_not_take_stops_the_staircase(pitt_autolab):
+    p, inst = pitt_autolab
+    p.pitt_prepare(0.0)
+    p.fire()
+
+    class Stuck:
+        def __init__(self, ei):
+            self.__dict__["_ei"] = ei
+        def __getattr__(self, name):
+            return getattr(self._ei, name)
+        def __setattr__(self, name, value):
+            if name != "Setpoint":
+                setattr(self._ei, name, value)          # the DAC ignores the write
+
+    inst.Ei = Stuck(inst.Ei)
+    with pytest.raises(RuntimeError, match="did not take"):
+        p.pitt_set_potential(0.3)
+
+
+def test_an_overload_is_said_once_not_every_sample(pitt_autolab, caplog):
+    p, inst = pitt_autolab
+    p.pitt_prepare(0.1)
+    p.fire()
+    inst.Ei.CurrentOverload = True
+    with caplog.at_level("WARNING"):
+        for _ in range(5):
+            p.pitt_sample()
+    assert sum("OVERLOAD" in r.message for r in caplog.records) == 1
+
+
+def test_a_whole_staircase_runs_on_the_autolab_driver(pitt_autolab):
+    """acquire_pitt end to end on the real driver class against the fake: the cell
+    never toggles mid-run and every planned setpoint is applied, in order."""
+    from spec_echem.acquisition import acquire_pitt
+    from spec_echem.fakes import FakeSpectrometer
+    from spec_echem.pitt import pitt_plan
+    p, inst = pitt_autolab
+    s = _autolab_settings(pitt_start_v=0.0, pitt_stop_v=0.2, pitt_step_mv=100.0,
+                          pitt_min_hold_s=0.05, pitt_max_hold_s=0.1, pitt_fast_s=0.05,
+                          pitt_slow_interval_s=0.05, chrono_delta_time=0.02)
+    toggles, applied = [], []
+    real_set = potentiostat._set_cell
+
+    def watch_cell(i, on):
+        toggles.append(on)
+        real_set(i, on)
+
+    potentiostat._set_cell = watch_cell
+    real_write = p._pitt_write_setpoint
+    p._pitt_write_setpoint = lambda v: (applied.append(v), real_write(v))[1]
+    try:
+        record = acquire_pitt(FakeSpectrometer(), p, pitt_plan(s), s)
+    finally:
+        potentiostat._set_cell = real_set
+    assert toggles == [True, False]
+    assert applied == pytest.approx([0.0, 0.1, 0.2])
+    assert record.completed and len(record.steps) == 3

@@ -306,7 +306,6 @@ def test_each_step_is_registered_by_label():
 
 @pytest.mark.parametrize("mode, words", [
     ("external", "sequence file owns the waveform"),
-    ("autolab", "Ei setpoint can change with the cell on"),
     ("python", "64-bit toolkit"),
 ])
 def test_start_says_plainly_which_potentiostat_cannot_run_it(mode, words):
