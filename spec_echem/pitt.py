@@ -25,7 +25,7 @@ from dataclasses import dataclass
 # What a step was, so the analysis never has to infer it from the potential.
 ROLE_FORWARD = "forward"    # start -> stop
 ROLE_RETURN = "return"      # stop -> start, when "also step back down" is ticked
-ROLE_DEDOPE = "dedope"      # the optional hold at the dedoping potential at the end
+ROLE_DEDOPE = "dedope"      # the optional hold at pitt_end_dedope_v at the end
 
 # How a step ended. Recorded per step: a step that hit its max hold is NOT at
 # equilibrium, and the analysis must be able to say so rather than guess.
@@ -76,7 +76,7 @@ def pitt_plan(settings):
     if settings.get("pitt_return", False) and len(forward) > 1:
         potentials += [(v, ROLE_RETURN) for v in forward[-2::-1]]
     if settings.get("pitt_end_dedope", False):
-        potentials.append((float(settings["dedoping_potential"]), ROLE_DEDOPE))
+        potentials.append((float(settings["pitt_end_dedope_v"]), ROLE_DEDOPE))
     return [PittStep(i, v, role) for i, (v, role) in enumerate(potentials)]
 
 

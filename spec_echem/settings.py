@@ -199,7 +199,10 @@ DEFAULT_SETTINGS = {
     "pitt_max_hold_s": 120.0,       # s — a step that reaches this is NOT at equilibrium
     "pitt_fast_s": 5.0,             # s — full spectrum rate from each step's start...
     "pitt_slow_interval_s": 1.0,    # s — ...then one spectrum this often
-    "pitt_end_dedope": False,       # hold at dedoping_potential after the last step
+    "pitt_end_dedope": False,       # hold at pitt_end_dedope_v after the last step
+    # Its OWN potential, not the doping ladder's dedoping_potential (a different step
+    # with a different default).
+    "pitt_end_dedope_v": -0.5,      # V
     "pitt_end_dedope_time_s": 30.0, # s — that hold, a fixed time
 }
 
