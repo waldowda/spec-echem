@@ -650,6 +650,12 @@ def is_high_current_range(member):
 # so this still catches the failure worth catching: a write that was ignored outright.
 AUTOLAB_SETPOINT_TOL_V = 0.002
 
+# One count of the current reading, as a fraction of the range's full scale. MEASURED
+# on the PGSTAT302N 2026-10-05: every current logged on CR10_1mA was a whole multiple
+# of 3.0518 nA (1, 4, 18, 19, 33, 34 counts) = 1 mA / 327,680. Used so a PITT cutoff
+# finer than one count is never judged met by readings of exactly zero.
+AUTOLAB_COUNT_FRACTION = 1.0 / 327_680
+
 # Pulse the trigger this long, and give up on a segment after this.
 AUTOLAB_PULSE_WIDTH_S = 0.002
 AUTOLAB_MAX_WAIT_MARGIN_S = 30.0
@@ -1316,6 +1322,12 @@ class AutolabPotentiostat(Potentiostat):
     def pitt_set_potential(self, potential):
         """The next step: a new setpoint with the cell LEFT ON."""
         self._pitt_write_setpoint(potential)
+
+    def current_resolution_a(self):
+        """One count of the configured current range, in amperes, or None when no
+        range is set (the instrument keeps its own, which Python cannot name)."""
+        full = range_full_scale_a(self.settings.get("autolab_current_range") or "")
+        return full * AUTOLAB_COUNT_FRACTION if full else None
 
     def pitt_end(self):
         """Cell off. Called from acquire_pitt()'s finally, so it runs on every exit."""
