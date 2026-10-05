@@ -6,7 +6,8 @@ feed these functions; they do not re-decide any of it.
 import pytest
 
 from spec_echem.pitt import (
-    END_CUTOFF, END_MAX_HOLD, ROLE_DEDOPE, ROLE_FORWARD, ROLE_RETURN, StepEnd,
+    END_CUTOFF, END_MAX_HOLD, ROLE_DEDOPE, ROLE_FORWARD, ROLE_RETURN, SETTLE_SAMPLES,
+    StepEnd,
     pitt_duration_bounds, pitt_plan, pitt_problems, pitt_step_potential,
     spectrum_due)
 from spec_echem.settings import DEFAULT_SETTINGS
@@ -141,8 +142,9 @@ def test_a_settling_step_ends_at_the_cutoff():
             t_end = t
             break
     assert end.reason == END_CUTOFF
-    # 1% of the peak is reached at t = tau * ln(100) = 9.21 s
-    assert t_end == pytest.approx(9.21, abs=0.06)
+    # 1% of the peak is reached at t = tau * ln(100) = 9.21 s, and the step ends once
+    # SETTLE_SAMPLES in a row have stayed there: (N - 1) samples later.
+    assert t_end == pytest.approx(9.21 + (SETTLE_SAMPLES - 1) * 0.05, abs=0.06)
 
 
 def test_the_cutoff_waits_for_the_minimum_hold():
@@ -174,8 +176,9 @@ def test_the_cutoff_is_a_fraction_the_scientist_sets():
             if end.feed(t, i):
                 ends[pct] = t
                 break
-    assert ends[10.0] == pytest.approx(2.0 * 2.302585, abs=0.02)      # tau ln 10
-    assert ends[1.0] == pytest.approx(2.0 * 4.605170, abs=0.02)       # tau ln 100
+    settle = (SETTLE_SAMPLES - 1) * 0.01
+    assert ends[10.0] == pytest.approx(2.0 * 2.302585 + settle, abs=0.02)   # tau ln 10
+    assert ends[1.0] == pytest.approx(2.0 * 4.605170 + settle, abs=0.02)    # tau ln 100
 
 
 def test_a_negative_current_is_judged_by_its_size():
@@ -186,7 +189,7 @@ def test_a_negative_current_is_judged_by_its_size():
             break
     assert end.reason == END_CUTOFF
     # At the SAME time as the positive case -- a signed comparison ends it at once.
-    assert t == pytest.approx(2.0 * 4.605170, abs=0.06)
+    assert t == pytest.approx(2.0 * 4.605170 + (SETTLE_SAMPLES - 1) * 0.05, abs=0.06)
 
 
 def test_a_nan_sample_neither_ends_the_step_nor_poisons_the_peak():
@@ -232,3 +235,37 @@ def test_the_first_spectrum_of_a_step_is_always_due():
 def test_slow_equal_to_fast_is_full_rate_throughout():
     taken = _times(fast_s=0.0, slow_s=0.1, until=1.0)
     assert len(taken) == 11
+
+
+def test_one_noisy_sample_near_zero_cannot_end_a_step():
+    """Found on the PGSTAT302N 2026-10-05: a 1 MOhm dummy on CR10_1mA read ~90 nA
+    low (the range's zero offset), so at +0.1 V the reading sat near zero with a
+    'peak' of 12 nA -- and ONE sample landing within 0.12 nA of zero met the 1%
+    cutoff and ended the step at 4.4 s, on a cell whose current never decays."""
+    import numpy as np
+    rng = np.random.default_rng(5)
+    end = StepEnd(cutoff_pct=1.0, min_hold_s=2.0, max_hold_s=5.0)
+    t = 0.0
+    reason = None
+    while reason is None:
+        i = 1.2e-8 * rng.uniform(-1, 1)          # noise straddling zero, ~no signal
+        if 3.0 < t < 3.05:
+            i = 1e-11                            # the one sample that grazes zero
+        reason = end.feed(t, i)
+        t = round(t + 0.1, 6)
+    assert reason == END_MAX_HOLD
+
+
+def test_the_cutoff_needs_consecutive_samples_below_it():
+    end = StepEnd(cutoff_pct=10.0, min_hold_s=0.0, max_hold_s=60.0)
+    end.feed(0.0, 1.0)                              # the peak
+    t = 0.1
+    for k in range(4):                              # four below -- not yet
+        assert end.feed(t, 0.05) is None
+        t += 0.1
+    assert end.feed(t, 0.5) is None                 # one above resets the count
+    t += 0.1
+    for k in range(4):
+        assert end.feed(t, 0.05) is None
+        t += 0.1
+    assert end.feed(t, 0.05) == END_CUTOFF          # the fifth in a row

@@ -149,7 +149,15 @@ data.
       no straddled reads. On CR13_1uA the current followed V/R to ~1%: 50.4 / 100.1 /
       149.7 nA, fitted R = 1.010 MOhm. On CR09_10mA the same cell was invisible (a
       ~-0.8 uA range offset). The Autolab PITT driver (`7770e19`) is what the probe
-      ran. NEXT: a short PITT from the GUI on the dummy.
+      ran. **And the GUI PITT ran on hardware the same day**: 4 steps +0.10 -> +0.20 V in
+      50 mV plus a -0.5 V end dedope, one segment, cell held, one .h5, `done`. On
+      CR13_1uA the peaks were 102 / 153 / 202 nA (V / 1 MOhm to 2%), every step ending
+      at its max hold -- correct for that cell. On CR10_1mA (test 1) the range read
+      ~90 nA low, and step 0 ENDED AT 'CUTOFF' at 4.4 s from ONE noisy sample grazing
+      zero -- fixed: the cutoff now needs SETTLE_SAMPLES = 5 consecutive samples
+      (`pitt.py`). The fix is not yet re-run on hardware. NEXT: re-run test 1's
+      settings (CR10_1mA) to confirm no early cutoff; then the cutoff rule itself on a
+      SLOW series RC (1 MOhm in series with 1 uF, tau = 1 s, 0.15 V steps, 10% cutoff).
       **Parameters section + saved-run display built 2026-10-04** (`24b29ac`,
       `4327b08`): the PITT section with a live estimate and return-leg warning; Load
       Run shows PITT steps even from a text-first load; the Results tab draws echem
