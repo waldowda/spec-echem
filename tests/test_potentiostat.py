@@ -2096,3 +2096,45 @@ def test_a_whole_staircase_runs_on_the_autolab_driver(pitt_autolab):
     assert toggles == [True, False]
     assert applied == pytest.approx([0.0, 0.1, 0.2])
     assert record.completed and len(record.steps) == 3
+
+
+def test_the_autolab_knows_one_count_of_its_range(pitt_autolab):
+    """Measured 2026-10-05: CR10_1mA reads in whole counts of 1 mA / 327,680."""
+    p, _inst = pitt_autolab
+    p.settings["autolab_current_range"] = "CR10_1mA"
+    assert p.current_resolution_a() == pytest.approx(3.0518e-9, rel=1e-4)
+    p.settings["autolab_current_range"] = "CR13_1uA"
+    assert p.current_resolution_a() == pytest.approx(3.0518e-12, rel=1e-4)
+    p.settings["autolab_current_range"] = ""
+    assert p.current_resolution_a() is None
+
+
+def test_test_3_replayed_runs_to_the_max_hold(pitt_autolab):
+    """The run that exposed it, on the real driver class: CR10_1mA, a reading of
+    mostly exact zeros with one-count blips. Before the fix it ended at 'cutoff'."""
+    from spec_echem.acquisition import acquire_pitt
+    from spec_echem.fakes import FakeSpectrometer
+    from spec_echem.pitt import pitt_plan
+    p, inst = pitt_autolab
+    s = _autolab_settings(autolab_current_range="CR10_1mA", pitt_start_v=0.1,
+                          pitt_stop_v=0.1, pitt_step_mv=50.0, pitt_min_hold_s=0.2,
+                          pitt_max_hold_s=0.6, pitt_fast_s=0.1,
+                          pitt_slow_interval_s=0.1, chrono_delta_time=0.02)
+    p.settings.update(s)
+    count = 1e-3 / 327_680
+    ticks = []
+    real = potentiostat.sample_ei
+
+    def blips(i):
+        ticks.append(1)
+        i.Ei.true_potential = 0.1
+        i.Ei.true_current = count if len(ticks) % 9 == 0 else 0.0
+        return real(i)
+
+    potentiostat.sample_ei = blips
+    try:
+        record = acquire_pitt(FakeSpectrometer(), p, pitt_plan(s), s)
+    finally:
+        potentiostat.sample_ei = real
+    assert record.steps[0]["end_reason"] == "max_hold"
+    assert record.steps[0]["cutoff_unresolved"] is True

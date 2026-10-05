@@ -155,7 +155,13 @@ data.
       at its max hold -- correct for that cell. On CR10_1mA (test 1) the range read
       ~90 nA low, and step 0 ENDED AT 'CUTOFF' at 4.4 s from ONE noisy sample grazing
       zero -- fixed: the cutoff now needs SETTLE_SAMPLES = 5 consecutive samples
-      (`pitt.py`). The fix is not yet re-run on hardware. NEXT: re-run test 1's
+      (`pitt.py`). **Test 3 showed that was not enough**: CR10_1mA reads in whole counts
+      of 3.0518 nA (1 mA / 327,680 -- every peak logged on that range was an integer
+      multiple), so at +0.1 V the reading was mostly EXACTLY zero, the 'peak' one count,
+      and five zeros met a 1% cutoff no reading can express. Now a cutoff below one
+      count of the range is never judged met (`AUTOLAB_COUNT_FRACTION`, StepEnd
+      `resolution_a`, per-step `cutoff_unresolved`); the step runs to its max hold
+      and the log says the range is too coarse. Not yet re-run. NEXT: re-run test 1's
       settings (CR10_1mA) to confirm no early cutoff; then the cutoff rule itself on a
       SLOW series RC (1 MOhm in series with 1 uF, tau = 1 s, 0.15 V steps, 10% cutoff).
       **Parameters section + saved-run display built 2026-10-04** (`24b29ac`,

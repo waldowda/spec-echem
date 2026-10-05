@@ -153,14 +153,26 @@ class StepEnd:
     """
 
     def __init__(self, cutoff_pct, min_hold_s, max_hold_s,
-                 settle_samples=SETTLE_SAMPLES):
+                 settle_samples=SETTLE_SAMPLES, resolution_a=None):
         self.fraction = float(cutoff_pct) / 100.0
         self.min_hold = float(min_hold_s)
         self.max_hold = float(max_hold_s)
         self.settle_samples = int(settle_samples)
+        # One count of the current range, when the driver knows it. A cutoff smaller
+        # than this cannot be expressed by any reading: on the PGSTAT302N CR10_1mA
+        # reads in whole counts of 3.05 nA, so a 1% cutoff of a one-count peak was met
+        # by readings of exactly zero (2026-10-05, test 3). Such a step cannot be
+        # judged settled, and runs to its max hold with `unresolved` set.
+        self.resolution = float(resolution_a) if resolution_a else 0.0
         self.peak = 0.0
         self.reason = None
         self._below = 0          # consecutive samples at or below the cutoff
+
+    @property
+    def unresolved(self):
+        """The cutoff current is below one count of the range: settling cannot be
+        judged from these readings. Meaningful once the step has ended."""
+        return self.resolution > 0 and self.fraction * self.peak < self.resolution
 
     def feed(self, t_in_step, current):
         """One sample. Returns END_CUTOFF / END_MAX_HOLD once over, else None."""
@@ -175,7 +187,8 @@ class StepEnd:
             self._below = 0      # one sample back above it starts the count again
         if t_in_step >= self.max_hold:
             self.reason = END_MAX_HOLD
-        elif t_in_step >= self.min_hold and self._below >= self.settle_samples:
+        elif (t_in_step >= self.min_hold and self._below >= self.settle_samples
+              and not self.unresolved):
             self.reason = END_CUTOFF
         return self.reason
 
@@ -224,7 +237,7 @@ class PittRecord:
             if getattr(self, name) is None:
                 setattr(self, name, [])
 
-    def close_step(self, step, t_start, t_end, reason, peak):
+    def close_step(self, step, t_start, t_end, reason, peak, unresolved=False):
         # When the first current sample landed after the setpoint changed. dQ is
         # integrated from the samples, so the charge before this is NOT in it --
         # the analysis can extrapolate back to 0, or at least say how much it missed.
@@ -235,16 +248,19 @@ class PittRecord:
             "index": step.index, "potential_set": step.potential, "role": step.role,
             "hold_s": float(t_end - t_start), "end_reason": reason,
             "peak_current_A": float(peak),
+            # True when the cutoff was below one count of the current range, so the
+            # step could not be judged settled whatever the cell did.
+            "cutoff_unresolved": bool(unresolved),
             "n_spectra": sum(1 for k in self.spectrum_step if k == step.index),
             "n_echem": sum(1 for k in self.echem_step if k == step.index),
         })
 
 
-def step_end_for(step, settings):
+def step_end_for(step, settings, resolution_a=None):
     """The StepEnd rule for one step. The end dedope is a fixed hold: neither
     minimum nor maximum, just its time, and the current never ends it early."""
     if step.role == ROLE_DEDOPE:
         hold = float(settings["pitt_end_dedope_time_s"])
         return StepEnd(cutoff_pct=0.0, min_hold_s=hold, max_hold_s=hold)
     return StepEnd(settings["pitt_cutoff_pct"], settings["pitt_min_hold_s"],
-                   settings["pitt_max_hold_s"])
+                   settings["pitt_max_hold_s"], resolution_a=resolution_a)

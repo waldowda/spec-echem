@@ -251,7 +251,14 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
         log.info("PITT %d at %+.3f V: %s after %.1f s, peak %.3g A, %d spectra",
                  st["index"], st["potential_set"], st["end_reason"], st["hold_s"],
                  st["peak_current_A"], st["n_spectra"])
-        if st["end_reason"] == "max_hold":
+        if st["end_reason"] == "max_hold" and st.get("cutoff_unresolved"):
+            log.warning(
+                "PITT %d: settling could NOT be judged. %g%% of its %.3g A peak is "
+                "%.3g A, finer than one count of this current range, so no reading "
+                "could show it -- the step ran to its maximum hold. Use a finer "
+                "range for currents this small.", st["index"], cutoff * 100,
+                st["peak_current_A"], cutoff * st["peak_current_A"])
+        elif st["end_reason"] == "max_hold":
             # The concern, raised where it can be: the cutoff is a fraction of a peak
             # nobody knows before the step runs, so this cannot be checked at Start.
             log.warning(
