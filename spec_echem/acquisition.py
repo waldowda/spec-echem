@@ -295,6 +295,9 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     if not plan:
         return record
     delta = float(settings["chrono_delta_time"])
+    # One count of the potentiostat's current range, when its driver can say. Below
+    # it no cutoff can be expressed (see StepEnd.resolution).
+    resolution = getattr(pot, "current_resolution_a", lambda: None)()
     fast_s = float(settings["pitt_fast_s"])
     slow_s = float(settings["pitt_slow_interval_s"])
 
@@ -313,7 +316,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
         k = 0
         step = plan[0]
         step_start = anchor = clock()
-        rule = step_end_for(step, settings)
+        rule = step_end_for(step, settings, resolution)
         timestamp_av, data = result
         record.spectra.append(data)
         record.timestamps.append(timestamp_av / 1e5)
@@ -341,7 +344,8 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                 reason = END_STOPPED
 
             if reason is not None:
-                record.close_step(step, step_start, now, reason, rule.peak)
+                record.close_step(step, step_start, now, reason, rule.peak,
+                                  rule.unresolved)
                 if reason in (END_ABORTED, END_STOPPED):
                     break
                 if k == len(plan) - 1:
@@ -351,7 +355,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                 step = plan[k]
                 pot.pitt_set_potential(step.potential)
                 step_start = clock()
-                rule = step_end_for(step, settings)
+                rule = step_end_for(step, settings, resolution)
                 last_spectrum = None
                 if on_step is not None:
                     on_step(k, step)

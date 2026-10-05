@@ -269,3 +269,42 @@ def test_the_cutoff_needs_consecutive_samples_below_it():
         assert end.feed(t, 0.05) is None
         t += 0.1
     assert end.feed(t, 0.05) == END_CUTOFF          # the fifth in a row
+
+
+# On the PGSTAT302N 2026-10-05 (test 3), CR10_1mA readings came in whole counts of
+# 3.0518 nA (1 mA / 327,680) -- every peak logged on that range was an integer
+# multiple. At +0.1 V the range's offset cancelled the real 100 nA, the reading was
+# mostly EXACTLY zero, the 'peak' was one count, and five zeros in a row met a 1%
+# cutoff that no reading could ever express.
+
+LSB_1MA = 1e-3 / 327_680
+
+
+def test_a_cutoff_finer_than_one_count_cannot_end_a_step():
+    end = StepEnd(cutoff_pct=1.0, min_hold_s=2.0, max_hold_s=5.0,
+                  resolution_a=LSB_1MA)
+    t, reason = 0.0, None
+    while reason is None:
+        counts = 1 if int(t * 10) % 7 == 0 else 0        # mostly exactly zero
+        reason = end.feed(t, counts * LSB_1MA)
+        t = round(t + 0.1, 6)
+    assert reason == END_MAX_HOLD
+    assert end.unresolved                               # and it says why
+
+
+def test_a_resolvable_cutoff_still_ends_the_step():
+    """A real decay whose 1% level is many counts: unchanged behaviour."""
+    end = StepEnd(cutoff_pct=1.0, min_hold_s=0.0, max_hold_s=120.0,
+                  resolution_a=LSB_1MA)
+    for t, i in _decaying(peak=1e-4, tau=2.0, dt=0.05, until=120.0):
+        if end.feed(t, round(i / LSB_1MA) * LSB_1MA):
+            break
+    assert end.reason == END_CUTOFF and not end.unresolved
+
+
+def test_without_a_known_resolution_nothing_changes():
+    end = StepEnd(cutoff_pct=1.0, min_hold_s=0.0, max_hold_s=120.0)
+    for t, i in _decaying(peak=1e-4, tau=2.0, dt=0.05, until=120.0):
+        if end.feed(t, i):
+            break
+    assert end.reason == END_CUTOFF
