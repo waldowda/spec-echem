@@ -161,7 +161,20 @@ data.
       and five zeros met a 1% cutoff no reading can express. Now a cutoff below one
       count of the range is never judged met (`AUTOLAB_COUNT_FRACTION`, StepEnd
       `resolution_a`, per-step `cutoff_unresolved`); the step runs to its max hold
-      and the log says the range is too coarse. Not yet re-run. NEXT: re-run test 1's
+      and the log says the range is too coarse. **NOT yet confirmed on hardware**: the
+      user ran it after this and saw it 'working pretty well' but the log was not
+      captured, and whether that run had `ff38197` is unknown.
+      **WEDNESDAY 2026-10-07 at the UW rig, in order:**
+      1. `git pull`; check the build in the GUI title includes `ff38197` or later.
+      2. Re-run test 3 exactly (CR10_1mA, +0.1 -> +0.2 V in 50 mV, min 2 s, max 5 s,
+         -0.5 V end dedope). Expect all three forward steps at `max_hold`, each with
+         "settling could NOT be judged ... finer than one count"; none at cutoff.
+         Paste the status-pane log back.
+      3. The cutoff rule on a real decay -- never yet seen on hardware: 1 MOhm in
+         SERIES with 1 uF, nothing in parallel (tau = 1 s), CR13_1uA, 0.15 V steps,
+         10% cutoff. Expect each step at `cutoff` after ~2.3 s + ~0.4 s.
+      4. Only then a film -- the user's call -- with the current range raised.
+      NEXT after that: re-run test 1's
       settings (CR10_1mA) to confirm no early cutoff; then the cutoff rule itself on a
       SLOW series RC (1 MOhm in series with 1 uF, tau = 1 s, 0.15 V steps, 10% cutoff).
       **Parameters section + saved-run display built 2026-10-04** (`24b29ac`,
