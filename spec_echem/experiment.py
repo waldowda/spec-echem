@@ -305,8 +305,6 @@ def pitt_start_problems(settings):
         why = {
             "external": "In External mode the sequence file owns the waveform, so "
                         "Python cannot step the potential.",
-            "autolab": "The Autolab staircase driver is not written yet: it waits on "
-                       "a bench check that the Ei setpoint can change with the cell on.",
             "python": "The Gamry staircase driver is not written yet: it waits on the "
                       "64-bit toolkit.",
         }.get(mode, f"The {mode!r} driver cannot run one.")
