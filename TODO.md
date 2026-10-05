@@ -142,6 +142,14 @@ data.
         hold [120 s]; cadence [full rate for N = 5 s, then one spectrum per M = 1 s]; a
         "repeat on the blank" convenience later; band choice and whether dQ includes the
         fast transient belong with the analysis.
+      **✅ AUTOLAB PROBE PASSED ON HARDWARE 2026-10-05** (PGSTAT302N, a Randles dummy
+      100 Ohm + (1 MOhm || 1 uF), `examples/probe_autolab_pitt.py`): Ei.Setpoint steps
+      cleanly with the cell held ON -- the instrument read the cell ON after all six
+      changes, E within 0.19 mV of setpoint, each reached by the first sample (~65 ms),
+      no straddled reads. On CR13_1uA the current followed V/R to ~1%: 50.4 / 100.1 /
+      149.7 nA, fitted R = 1.010 MOhm. On CR09_10mA the same cell was invisible (a
+      ~-0.8 uA range offset). The Autolab PITT driver (`7770e19`) is what the probe
+      ran. NEXT: a short PITT from the GUI on the dummy.
       **Parameters section + saved-run display built 2026-10-04** (`24b29ac`,
       `4327b08`): the PITT section with a live estimate and return-leg warning; Load
       Run shows PITT steps even from a text-first load; the Results tab draws echem
