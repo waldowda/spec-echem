@@ -82,18 +82,32 @@ def nearest_step(v):
     return min(range(len(STEPS_V)), key=lambda k: abs(STEPS_V[k] - v))
 
 
-def run_once(tkp, pstat, label, period, stop_at):
-    """One staircase. Returns (data, live, curve_class, error)."""
+def run_once(tkp, pstat, label, period, stop_at, kind="array2"):
+    """One staircase. Returns (data, live, curve_class, error).
+
+    kind "array2": signal_array2_new, a list of potentials. On the Reference 600
+    (2026-10-05) StopAt ended that WHOLE curve after 6 points: the list is one
+    section. kind "mstep": signal_m_step_new, a 'multi-part' constant-height
+    staircase -- whose parts may be separate sections, which is what run D asks.
+    """
     repeats = [int(round(HOLD_S / period))] * len(STEPS_V)
     keep = []                                   # the signal MUST outlive the run
     curve = None
     live = []
     try:
-        bias_none = getattr(tkp, "BIAS_NONE", 0)
-        signal = pstat.signal_array2_new(0.0, 1, float(period), list(STEPS_V),
-                                         repeats, bias_none, tkp.PSTATMODE)
-        keep.append(signal)
-        pstat.set_signal_array2(signal)
+        if kind == "mstep":
+            vstep = STEPS_V[1] - STEPS_V[0]
+            signal = pstat.signal_m_step_new(STEPS_V[0], vstep, HOLD_S, HOLD_S,
+                                             len(STEPS_V) - 1, float(period),
+                                             tkp.PSTATMODE)
+            keep.append(signal)
+            pstat.set_signal_m_step(signal)
+        else:
+            bias_none = getattr(tkp, "BIAS_NONE", 0)
+            signal = pstat.signal_array2_new(0.0, 1, float(period), list(STEPS_V),
+                                             repeats, bias_none, tkp.PSTATMODE)
+            keep.append(signal)
+            pstat.set_signal_array2(signal)
         pstat.init_signal()
         curve, cls = make_curve(tkp, pstat, sum(repeats) + 100)
         if stop_at:
@@ -106,7 +120,8 @@ def run_once(tkp, pstat, label, period, stop_at):
             # NOTHING in here may end the run: an exception would leave the curve
             # running on the instrument with Python gone (2026-10-05).
             n = ac.safe(lambda: int(curve.count()), -1)
-            vf = ac.safe(lambda: field(curve.last_data_point(), "Vf", "vf"), None)
+            vf = ac.safe(lambda: field(curve.last_data_point(), "vsig", "Vf", "vf"),
+                         None)
             live.append((time.perf_counter() - t0, n, vf[-1] if vf else float("nan")))
             time.sleep(POLL_S)
         data = curve.acq_data()
@@ -138,7 +153,7 @@ def report(label, period, stop_at, data, live, cls, err):
     names = data.dtype.names if data is not None else None
     ac.say("  curve class: %s;  data fields: %s" % (cls, names))
     t = field(data, "T", "time", "Time")
-    vf = field(data, "Vf", "vf")
+    vf = field(data, "vsig", "Vf", "vf")      # vsig: the potential ASKED for
     im = field(data, "Im", "im")
     if not t or not vf:
         ac.say("  no time/potential columns -- cannot analyse")
@@ -175,6 +190,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--energize", action="store_true",
                     help="actually switch the cell on (DUMMY CELL ONLY)")
+    ap.add_argument("--only-mstep", action="store_true",
+                    help="run only D (the m_step staircase with StopAt)")
     ap.add_argument("--fast", action="store_true",
                     help="also try a 0.05 s sample period, below the manual's "
                          "recommended 0.1 s. Run C timed the instrument out on "
@@ -201,11 +218,14 @@ def main():
         how, _full = potentiostat.initialize_pstat(
             pstat, settings.get("gamry_current_range", 6.0e-3))
         ac.say("  current range: %s" % how)
-        runs = [("A_baseline", 0.1, False), ("B_stopat", 0.1, True)]
+        runs = [("A_baseline", 0.1, False, "array2"), ("B_stopat", 0.1, True, "array2"),
+                ("D_mstep_stopat", 0.1, True, "mstep")]
+        if args.only_mstep:
+            runs = [r for r in runs if r[3] == "mstep"]
         if args.fast:
-            runs.append(("C_fast", 0.05, False))
-        for label, period, stop_at in runs:
-            data, live, cls, err = run_once(tkp, pstat, label, period, stop_at)
+            runs.append(("C_fast", 0.05, False, "array2"))
+        for label, period, stop_at, kind in runs:
+            data, live, cls, err = run_once(tkp, pstat, label, period, stop_at, kind)
             results[label] = report(label, period, stop_at, data, live, cls, err)
             time.sleep(0.5)
     finally:
@@ -229,6 +249,16 @@ def main():
         elif len(b) < len(STEPS_V):
             ac.say("     -> StopAt ended the WHOLE CURVE, not one step: early step-ending")
             ac.say("        would need one curve per step.")
+    d = results.get("D_mstep_stopat")
+    if d:
+        short = [s for s in d if s[3] <= STOP_DELAY_PTS + 3]
+        ac.say("  D (m_step): %d level(s) seen, %d ended after ~%d points."
+               % (len(d), len(short), STOP_DELAY_PTS))
+        if len(d) == len(STEPS_V) and len(short) >= len(STEPS_V) - 1:
+            ac.say("     -> m_step's parts ARE sections: StopAt skips ONE STEP at a time.")
+            ac.say("        A firmware PITT is possible, one m_step curve per direction.")
+        elif len(d) < len(STEPS_V):
+            ac.say("     -> StopAt ended the whole m_step curve too.")
     if args.fast:
         ac.say("  C: see its sample period above.")
     ac.say("  Send the report and the three CSVs back.")
