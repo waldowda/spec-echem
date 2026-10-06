@@ -20,8 +20,9 @@ Three things only the instrument can answer, one run each:
                 at most ~47 uA on the UDC4 EIS side), delay 5 points. If 'next
                 section' means NEXT STEP, every step ends after ~5 points instead
                 of its full 3 s hold.
-  C  fast       a 0.05 s sample period (the manual recommends >= 0.1 s): is it
-                accepted, and what period does the clock actually deliver?
+  C  fast       ONLY with --fast: a 0.05 s sample period (the manual recommends
+                >= 0.1 s). On 2026-10-05 it timed the instrument out -- possibly
+                the period, possibly the probe bug above it; not yet separated.
 
 and, in every run, whether Python can follow WHICH STEP is running while the curve
 runs (curve.count() / last_data_point()), so spectra can be tagged live.
@@ -67,9 +68,13 @@ def make_curve(tkp, pstat, max_points):
 
 
 def field(data, *names):
+    """A column as floats. last_data_point() returns ONE row, whose fields are
+    scalars -- iterating one raised TypeError on the Reference 600 (2026-10-05)
+    and, worse, ended the run with its curve still going on the instrument."""
+    import numpy as np
     for n in names:
         if data is not None and data.dtype.names and n in data.dtype.names:
-            return [float(x) for x in data[n]]
+            return [float(x) for x in np.atleast_1d(data[n])]
     return None
 
 
@@ -98,9 +103,10 @@ def run_once(tkp, pstat, label, period, stop_at):
         t0 = time.perf_counter()
         curve.run(True)
         while curve.running():
+            # NOTHING in here may end the run: an exception would leave the curve
+            # running on the instrument with Python gone (2026-10-05).
             n = ac.safe(lambda: int(curve.count()), -1)
-            last = ac.safe(lambda: curve.last_data_point(), None)
-            vf = field(last, "Vf", "vf") if last is not None else None
+            vf = ac.safe(lambda: field(curve.last_data_point(), "Vf", "vf"), None)
             live.append((time.perf_counter() - t0, n, vf[-1] if vf else float("nan")))
             time.sleep(POLL_S)
         data = curve.acq_data()
@@ -108,6 +114,16 @@ def run_once(tkp, pstat, label, period, stop_at):
     except Exception as exc:  # noqa: BLE001
         return None, live, None, "%s: %s" % (type(exc).__name__, exc)
     finally:
+        # Stop the curve and WAIT for it before the cell goes off and before the
+        # next run loads a new signal. The first version only switched the cell
+        # off, and the next run's init_signal landed on a curve still running.
+        if curve is not None:
+            if ac.safe(lambda: curve.running(), False):
+                ac.safe(curve.stop)
+                deadline = time.perf_counter() + 5.0
+                while ac.safe(lambda: curve.running(), False) \
+                        and time.perf_counter() < deadline:
+                    time.sleep(0.05)
         ac.safe(lambda: pstat.set_cell(False))
 
 
@@ -159,6 +175,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--energize", action="store_true",
                     help="actually switch the cell on (DUMMY CELL ONLY)")
+    ap.add_argument("--fast", action="store_true",
+                    help="also try a 0.05 s sample period, below the manual's "
+                         "recommended 0.1 s. Run C timed the instrument out on "
+                         "2026-10-05 (cause not yet separated from a probe bug).")
     args = ap.parse_args()
     ac.rule("CAN THE GAMRY RUN A PITT STAIRCASE ON ITS OWN CLOCK?")
     if not args.energize:
@@ -181,9 +201,10 @@ def main():
         how, _full = potentiostat.initialize_pstat(
             pstat, settings.get("gamry_current_range", 6.0e-3))
         ac.say("  current range: %s" % how)
-        for label, period, stop_at in (("A_baseline", 0.1, False),
-                                       ("B_stopat", 0.1, True),
-                                       ("C_fast", 0.05, False)):
+        runs = [("A_baseline", 0.1, False), ("B_stopat", 0.1, True)]
+        if args.fast:
+            runs.append(("C_fast", 0.05, False))
+        for label, period, stop_at in runs:
             data, live, cls, err = run_once(tkp, pstat, label, period, stop_at)
             results[label] = report(label, period, stop_at, data, live, cls, err)
             time.sleep(0.5)
@@ -208,7 +229,8 @@ def main():
         elif len(b) < len(STEPS_V):
             ac.say("     -> StopAt ended the WHOLE CURVE, not one step: early step-ending")
             ac.say("        would need one curve per step.")
-    ac.say("  C: see its sample period above.")
+    if args.fast:
+        ac.say("  C: see its sample period above.")
     ac.say("  Send the report and the three CSVs back.")
     ac.write_transcript(os.path.join(HERE, "probe_gamry_staircase_report.txt"))
     return 0
