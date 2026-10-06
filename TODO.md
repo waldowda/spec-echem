@@ -177,7 +177,18 @@ data.
       NEXT after that: re-run test 1's
       settings (CR10_1mA) to confirm no early cutoff; then the cutoff rule itself on a
       SLOW series RC (1 MOhm in series with 1 uF, tau = 1 s, 0.15 V steps, 10% cutoff).
-      **GAMRY PITT DRIVER WRITTEN 2026-10-05, not yet run on hardware.** toolkitpy has
+      **GAMRY PITT REWRITTEN 2026-10-05 as ONE CURVE PER STEP** (after the probes on
+      the Reference 600: direct reads take ~176 ms each; a curve samples at exactly
+      0.100 s; StopAt ends a whole array2 curve and is ignored on m_step; between
+      curves the cell stays ON at the previous potential, ~80 ms to the next run()).
+      A dedicated thread (`_GamryPittRunner`) owns the session, cell on once, one
+      single-potential curve per step, restarted in place if it runs out; OUR step-end
+      rule (% of each step's peak, min hold, 5 consecutive, one count) decides from
+      the curve's live points; every hardware point is kept and SAVED (not the loop's
+      samples). Tested on a curve-on-a-clock fake; 4 mutations caught. NEXT, on the
+      rig: `examples/probe_gamry_pitt.py --energize` (the real loop + real driver,
+      stand-in spectrometer), then a short GUI PITT in Python mode.
+      (Superseded:) **GAMRY PITT DRIVER WRITTEN 2026-10-05, not yet run on hardware.** toolkitpy has
       direct control -- `set_voltage` (applied only with the cell on), `measure_v`,
       `measure_i`, `cell()` -- so the Gamry PITT mirrors the Autolab's Ei driver: NO
       curve, so no dedicated thread; the session lives on the thread running the

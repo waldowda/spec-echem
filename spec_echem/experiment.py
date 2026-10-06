@@ -246,6 +246,7 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
     record = acquire_pitt(spec, potentiostat, plan, settings, trigger=segment.trigger,
                           abort_event=abort_event, stop_event=stop_event,
                           on_step=announce)
+    _use_hardware_echem(record, potentiostat)
     cutoff = float(settings["pitt_cutoff_pct"]) / 100.0
     for st in record.steps:
         log.info("PITT %d at %+.3f V: %s after %.1f s, peak %.3g A, %d spectra",
@@ -318,3 +319,26 @@ def pitt_start_problems(settings):
         out.append("A PITT is saved to HDF5 only, and h5py is not installed in this "
                    "environment, so nothing would be saved.")
     return out
+
+
+def _use_hardware_echem(record, potentiostat):
+    """Save the INSTRUMENT'S points, when the driver kept them, not the loop's.
+
+    The Gamry runs each step as a curve on its own 0.1 s clock and keeps every point
+    it records; the loop only saw the newest one each tick, enough to decide when a
+    step had settled but not the whole record. The step table follows: how many
+    points each step has, and when its first one landed after the step began.
+    """
+    getter = getattr(potentiostat, "pitt_hardware_echem", None)
+    points = getter() if getter is not None else None
+    if not points:
+        return
+    record.echem_step = [p[0] for p in points]
+    record.echem_t_in_step = [p[1] for p in points]
+    record.echem_time = [p[2] for p in points]
+    record.echem_potential = [p[3] for p in points]
+    record.echem_current = [p[4] for p in points]
+    for st in record.steps:
+        mine = [p for p in points if p[0] == st["index"]]
+        st["n_echem"] = len(mine)
+        st["first_sample_s"] = float(min(p[1] for p in mine)) if mine else float("nan")

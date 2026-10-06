@@ -5,6 +5,7 @@ instead of hanging. toolkitpy is hardware-only, so it's replaced with a MagicMoc
 these tests exercise the arm/fire/finish coordination, not the Gamry itself.
 """
 import logging
+import math
 import time
 from unittest import mock
 
@@ -2145,45 +2146,6 @@ def test_the_gamry_can_now_run_a_pitt():
     assert potentiostat.pitt_supported("python")
 
 
-def test_the_gamry_pitt_sequence_on_the_instrument(toolkit):
-    """The order IS the safety: potential set with the cell OFF, the cell on ONCE,
-    the edge after it, setpoints changed with the cell left on, then edge low, cell
-    off and the session closed -- and never a curve."""
-    tkp, pstat, _curve = toolkit
-    pstat.measure_v.return_value = 0.1
-    pstat.measure_i.return_value = 3.1e-5
-    p = potentiostat.ToolkitPotentiostat(dict(DEFAULT_SETTINGS))
-    p.pitt_prepare(0.1)
-    p.fire()
-    t, v, i = p.pitt_sample()
-    p.pitt_set_potential(0.15)
-    p.pitt_end()
-
-    calls = [c for c in pstat.mock_calls
-             if c[0] in ("set_voltage", "set_cell", "set_digital_out")]
-    # initialize_pstat sets 0.0 V first, then the step's own potential
-    assert calls == [
-        mock.call.set_voltage(0.0), mock.call.set_voltage(0.1),
-        mock.call.set_cell(True), mock.call.set_digital_out(0x1, 0x1),
-        mock.call.set_voltage(0.15),
-        mock.call.set_digital_out(0x0, 0x1), mock.call.set_cell(False)]
-    assert (v, i) == (0.1, 3.1e-5) and t >= 0.0
-    tkp.toolkitpy_close.assert_called_once()
-    tkp.ChronoCurve.assert_not_called()
-    tkp.RcvCurve.assert_not_called()
-
-
-def test_a_lost_gamry_stops_the_staircase(toolkit):
-    tkp, _pstat, _curve = toolkit
-    p = potentiostat.ToolkitPotentiostat(dict(DEFAULT_SETTINGS))
-    p.pitt_prepare(0.1)
-    p.fire()
-    tkp.pstat_is_valid.return_value = False
-    with pytest.raises(RuntimeError, match="stopped responding"):
-        p.pitt_sample()
-    assert p.device_lost()
-
-
 def test_a_failed_setup_closes_the_session(toolkit):
     tkp, pstat, _curve = toolkit
     pstat.set_ctrl_mode.side_effect = RuntimeError("no instrument")
@@ -2193,18 +2155,180 @@ def test_a_failed_setup_closes_the_session(toolkit):
     tkp.toolkitpy_close.assert_called_once()
 
 
-def test_a_whole_staircase_runs_on_the_gamry_driver(toolkit):
+# --- the Gamry PITT: one curve per step, against a fake that behaves like the
+#     Reference 600 did on 2026-10-05 -----------------------------------------------
+
+class _GSig:
+    def __init__(self, period, v, repeats):
+        self.period, self.v, self.repeats = period, v, repeats
+
+
+class _GPstat:
+    def __init__(self, tk):
+        self.tk, self.signal, self.pending, self.v_prev = tk, None, None, 0.0
+    def set_ctrl_mode(self, m): pass
+    def set_voltage(self, v): self.v_prev = float(v)
+    def set_cell(self, on): self.tk.events.append("cell on" if on else "cell off")
+    def set_digital_out(self, value, mask):
+        self.tk.events.append("edge high" if value else "edge low")
+    def signal_array2_new(self, bias, cycles, period, values, repeats, bm, cm):
+        return _GSig(period, values[0], repeats[0])
+    def set_signal_array2(self, sig): self.pending = sig
+    def init_signal(self):
+        # The previous step's potential is what the cell sits at until this starts.
+        if self.signal is not None:
+            self.v_prev = self.signal.v
+        self.signal = self.pending
+
+
+class _GCurve:
+    """Points on a clock; stop() ends it; the current decays from the step's dV."""
+    def __init__(self, tk, pstat, n):
+        self.tk, self.pstat = tk, pstat
+        self.sig, self.dv, self.t0, self.n_final = None, 0.0, None, None
+    def run(self, auto):
+        self.sig = self.pstat.signal
+        self.dv = self.sig.v - self.pstat.v_prev
+        self.t0 = time.perf_counter()
+        self.tk.curves.append(self.sig.v)
+    def _n(self):
+        return min(int((time.perf_counter() - self.t0) / self.sig.period), self.sig.repeats)
+    def running(self):
+        return self.n_final is None and self._n() < self.sig.repeats
+    def stop(self):
+        self.n_final = self._n()
+    def acq_data(self):
+        n = self.n_final if self.n_final is not None else self._n()
+        P, tk = self.sig.period, self.tk
+        rows = [((k + 1) * P, self.sig.v + 0.0013,
+                 (self.dv / 1e3) * np.exp(-(k + 1) * P / tk.tau)
+                 + (self.sig.v / tk.r_leak if tk.r_leak else 0.0), 0)
+                for k in range(n)]
+        return np.array(rows, dtype=[("time", float), ("vf", float), ("im", float),
+                                     ("overload", int)])
+
+
+class _GTk:
+    PSTATMODE = 1
+    BIAS_NONE = 0
+    def __init__(self, tau=0.05, r_leak=None):
+        self.tau, self.r_leak = tau, r_leak
+        self.events, self.curves, self.valid, self.closed = [], [], True, 0
+    def toolkitpy_init(self, name): pass
+    def toolkitpy_close(self): self.closed += 1
+    def Pstat(self, name): return _GPstat(self)
+    def ChronoCurve(self, pstat, n): return _GCurve(self, pstat, n)
+    def pstat_is_valid(self, pstat): return self.valid
+
+
+@pytest.fixture
+def gamry_pitt(monkeypatch):
+    def make(**tk_kw):
+        tk = _GTk(**tk_kw)
+        monkeypatch.setattr(potentiostat, "tkp", tk)
+        monkeypatch.setattr(potentiostat, "TOOLKITPY_AVAILABLE", True)
+        monkeypatch.setattr(potentiostat, "GAMRY_PITT_MIN_PERIOD_S", 0.01)
+        monkeypatch.setattr(potentiostat, "initialize_pstat",
+                            lambda pstat, r=6e-3: ("6 mA (fixed)", 6e-3))
+        return tk
+    return make
+
+
+def _gamry_settings(**over):
+    s = dict(DEFAULT_SETTINGS, pitt_start_v=0.0, pitt_stop_v=0.2, pitt_step_mv=100.0,
+             pitt_cutoff_pct=1.0, pitt_min_hold_s=0.05, pitt_max_hold_s=1.0,
+             pitt_fast_s=0.05, pitt_slow_interval_s=0.05, chrono_delta_time=0.01)
+    s.update(over)
+    return s
+
+
+def _run_gamry(s):
     from spec_echem.acquisition import acquire_pitt
     from spec_echem.fakes import FakeSpectrometer
     from spec_echem.pitt import pitt_plan
-    tkp, pstat, _curve = toolkit
-    pstat.measure_v.return_value = 0.0
-    pstat.measure_i.return_value = 1e-6
-    s = dict(DEFAULT_SETTINGS, pitt_start_v=0.0, pitt_stop_v=0.2, pitt_step_mv=100.0,
-             pitt_min_hold_s=0.05, pitt_max_hold_s=0.1, pitt_fast_s=0.05,
-             pitt_slow_interval_s=0.05, chrono_delta_time=0.02)
     p = potentiostat.ToolkitPotentiostat(s)
-    record = acquire_pitt(FakeSpectrometer(), p, pitt_plan(s), s)
-    cells = [c for c in pstat.mock_calls if c[0] == "set_cell"]
-    assert cells == [mock.call.set_cell(True), mock.call.set_cell(False)]
+    return p, acquire_pitt(FakeSpectrometer(), p, pitt_plan(s), s)
+
+
+def test_the_gamry_pitt_runs_one_curve_per_step_with_the_cell_held_on(gamry_pitt):
+    tk = gamry_pitt()
+    p, record = _run_gamry(_gamry_settings())
+    assert tk.events == ["cell on", "edge high", "edge low", "cell off"]
+    assert tk.curves == pytest.approx([0.0, 0.1, 0.2])        # one curve per step
+    assert tk.closed == 1
     assert record.completed and len(record.steps) == 3
+
+
+def test_a_decaying_step_ends_at_its_cutoff_long_before_the_max_hold(gamry_pitt):
+    """The early end comes from OUR rule on the curve's live points (a % of each
+    step's own peak, consecutive samples), not the firmware's absolute StopAt."""
+    gamry_pitt(tau=0.05)
+    _p, record = _run_gamry(_gamry_settings())
+    for st in record.steps[1:]:                    # step 0 has no dV, so no current
+        assert st["end_reason"] == "cutoff"
+        assert st["hold_s"] < 0.6                  # tau ln 100 = 0.23 s, plus settling
+
+
+def test_the_saved_echem_is_the_instruments_own_points(gamry_pitt):
+    from spec_echem.experiment import _use_hardware_echem
+    gamry_pitt(tau=0.05)
+    p, record = _run_gamry(_gamry_settings())
+    points = p.pitt_hardware_echem()
+    _use_hardware_echem(record, p)
+    assert len(record.echem_current) == len(points)
+    for st in record.steps:
+        mine = [pt for pt in points if pt[0] == st["index"]]
+        assert st["n_echem"] == len(mine) > 0
+        # the instrument's first point is one sample period into the step
+        assert st["first_sample_s"] == pytest.approx(0.01, abs=0.005)
+    # times within a step run on the instrument's clock, in 0.01 s steps
+    t = [pt[1] for pt in points if pt[0] == 1]
+    assert np.allclose(np.diff(t), 0.01, atol=1e-9)
+
+
+def test_a_curve_that_runs_out_is_restarted_at_the_same_potential(gamry_pitt):
+    """If a curve ends before the step does, the hold carries on: same step, same
+    potential, its clock unbroken."""
+    tk = gamry_pitt(tau=1e9, r_leak=3210.0)                 # current never settles
+    s = _gamry_settings(pitt_start_v=0.1, pitt_stop_v=0.1, pitt_max_hold_s=0.3)
+    p = potentiostat.ToolkitPotentiostat(s)
+    from spec_echem.acquisition import acquire_pitt
+    from spec_echem.fakes import FakeSpectrometer
+    from spec_echem.pitt import pitt_plan
+    real_init = potentiostat._GamryPittRunner.__init__
+
+    def short_curves(self, settings):
+        real_init(self, settings)
+        self.repeats = 8                                     # 0.08 s per curve
+    potentiostat._GamryPittRunner.__init__ = short_curves
+    try:
+        record = acquire_pitt(FakeSpectrometer(), p, pitt_plan(s), s)
+    finally:
+        potentiostat._GamryPittRunner.__init__ = real_init
+    assert len(tk.curves) >= 3 and set(tk.curves) == {0.1}   # restarted, same V
+    assert record.steps[0]["end_reason"] == "max_hold"
+    t = [pt[1] for pt in p.pitt_hardware_echem()]
+    assert all(b > a for a, b in zip(t, t[1:]))              # the step's clock runs on
+
+
+def test_a_lost_gamry_stops_the_staircase_with_the_cell_off(gamry_pitt):
+    tk = gamry_pitt(tau=1e9, r_leak=3210.0)
+    import threading
+    threading.Timer(0.15, lambda: setattr(tk, "valid", False)).start()
+    with pytest.raises(RuntimeError, match="stopped responding"):
+        _run_gamry(_gamry_settings(pitt_max_hold_s=2.0))
+    assert tk.events[-1] == "cell off" and tk.closed == 1
+
+
+def test_a_late_point_from_the_old_step_is_not_served_to_the_new_one():
+    """The race: Python has asked for step 1, but the thread is still harvesting
+    step 0's curve. Those points must not feed step 1's step-end rule -- a large
+    old current would set the new step's peak, and its cutoff with it."""
+    r = potentiostat._GamryPittRunner(dict(DEFAULT_SETTINGS))
+    r.t_on = time.perf_counter()
+    r.step = 1                                       # step 1 requested ...
+    r.points = [(0, 0.5, 0.5, 0.0, 1e-3)]            # ... a step-0 point arrives
+    t, v, i = r.sample(timeout=0.05)
+    assert math.isnan(i) and math.isnan(v)           # not served as step 1's
+    r.points.append((1, 0.01, 0.6, 0.1, 2e-6))
+    assert r.sample(timeout=0.05)[2] == 2e-6
