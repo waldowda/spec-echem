@@ -193,8 +193,13 @@ data.
       the flag (`b9ec364`); `spectrum_due` needed half a tick of slack, or a late
       spectrum made every other gap 0.20 s (`4cee4d4`); Load Settings put the Gamry
       range on 60 pA, the FIRST item, because combos matched by str() (`ebaa337`).
-      OPEN: the Gamry's count on 600 uA (`current_resolution_a` is None, so the
-      'cutoff below one count' check is Autolab-only) -- needs a high-R dummy.
+      Gamry count MEASURED 2026-10-05 from `20261005_pitt_test4` (600 uA range): the
+      currents sit on a ~16.5 pA grid (smallest gaps 0.0164-0.0167 nA, others at 2x;
+      the 0.0146/0.0182 pair at 31 uA is float32 rounding, ulp ~3.6 pA there) --
+      ~3e-8 of full scale, so post-averaging, not an ADC step. A 1% cutoff is never
+      within a count of it on any sensible range: `current_resolution_a` stays None
+      for the Gamry. What CAN make a cutoff unmeetable there is NOISE (48 distinct
+      values in ~50 points); a noise-floor check is a design question, not built.
       (Superseded:) **GAMRY PITT DRIVER WRITTEN 2026-10-05, not yet run on hardware.** toolkitpy has
       direct control -- `set_voltage` (applied only with the cell on), `measure_v`,
       `measure_i`, `cell()` -- so the Gamry PITT mirrors the Autolab's Ei driver: NO
