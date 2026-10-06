@@ -4,11 +4,34 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-09-28_
+_Last updated: 2026-10-05_
 
 ---
 
-## The Gamry was measuring microamps on its 600 mA range (2026-09-25/28, `gui-dev`) — newest
+## PITT — an equilibrium potential staircase, running on both rigs (2026-10-04/05) — newest
+
+**A new segment type for density-of-states work:** step the gate potential in small
+increments with the cell held on, and end each step when the current has decayed to a
+set fraction of its peak (or at a maximum hold), so each step's spectra and charge are
+taken near equilibrium rather than mid-transient. HDF5 only, one group per step
+(`docs/data-format.md` §5).
+
+- **Autolab PGSTAT302N:** runs from the GUI. A cutoff below one count of the current
+  range is now never judged met; that fix still needs confirming on hardware.
+- **Gamry Reference 600:** runs from the GUI, one curve per step (neither built-in
+  toolkitpy staircase can end a step early). On a 3.2 kΩ dummy: ~50 spectra per 5 s
+  step at 0.10 s, the dummy's resistance recovered to ~1%.
+- Fixed on the way: a spurious Gamry OVERLOAD warning, every-other-tick spectra gaps,
+  and Load Settings silently putting the Gamry on its 60 pA range.
+
+**Next:** at the Autolab, confirm the count rule and test the cutoff on a slow series RC
+(τ = 1 s); then a real film, at the user's call. The PITT analysis (charge per step,
+DOS) comes after. The HDF5 writer from the 2026-09-28 plan below has since been built
+(`docs/data-format.md` §4).
+
+---
+
+## The Gamry was measuring microamps on its 600 mA range (2026-09-25/28, `gui-dev`)
 
 **A "very noisy" 10 kΩ dummy CV turned out to be a four-decade current-range error that
 had been corrupting Python-mode Gamry data since Phase 2.** `initialize_pstat()` set nine

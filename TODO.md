@@ -2,7 +2,7 @@
 
 Running list of planned work and deferred cleanups. (Active design/status notes live in CLAUDE.md.)
 
-## Now — 2026-10-03
+## Now — 2026-10-03 (PITT state updated 2026-10-05)
 
 **One list of what is open.** Replaces three dated "Next up" lists (2026-09-24, -25,
 -28) that had started to disagree — several of their items were already done
@@ -93,8 +93,12 @@ data.
 - [ ] **Single-column figure preset**, and moving the figure-export design doc to
       `docs/` — both after figures are being made from real data. See *Figure output*.
 
-- [ ] **PITT (equilibrium staircase) segment — DESIGNED, ALL decisions made 2026-10-04,
-      NOT built** (the user: "don't build yet"). Must be ONE physical waveform with the
+- [ ] **PITT (equilibrium staircase) segment — BUILT, and RUNS ON HARDWARE on both
+      rigs (2026-10-05).** Open: the Autolab count rule `ff38197` on hardware and the
+      cutoff rule on a real decay (WEDNESDAY checklist below); PITT analysis (deferred
+      by the user). The history below is in the order it happened; older lines saying
+      "not built" or "Gamry waits for 64-bit" are superseded.
+      Designed 2026-10-04 with all decisions made. Must be ONE physical waveform with the
       cell held throughout: both drivers switch the cell OFF between segments, so
       stacked chrono holds would sit at open circuit between steps and count the leaked
       charge in each step's dQ -- the quantity PITT measures.
@@ -215,8 +219,8 @@ data.
       `4327b08`): the PITT section with a live estimate and return-leg warning; Load
       Run shows PITT steps even from a text-first load; the Results tab draws echem
       from HDF5 (which also gave 'HDF5 only' runs an echem plot for the first time);
-      `docs/data-format.md` section 5. **What remains is the Autolab staircase driver**
-      (after the UW probe), then the PITT analysis when the user is ready.
+      `docs/data-format.md` section 5. (Then: both drivers built and run on hardware
+      2026-10-05; the PITT analysis waits until the user is ready.)
       **Built 2026-10-04** (`4a1807f`, `c30f089`, `dd4d681`): plan, step-end rule,
       cadence, the continuous loop, per-step HDF5, run wiring, Start refusals. Answered
       after: Abort KEEPS the data (fine); step results appear after the staircase ends

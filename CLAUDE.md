@@ -85,7 +85,7 @@ spec-echem/
 │   ├── sop.md                       # Standard operating procedure (GUI-first)
 │   └── inspect-run.md
 ├── examples/                        # Bench/validation scripts + identify_hardware.py
-├── tests/                           # Unit tests (588) — no hardware required
+├── tests/                           # Unit tests (886) — no hardware required
 ├── data/                            # Sample data directory
 ├── CHANGELOG.md                     # What changed between versions
 ├── STATUS.md                        # Human-readable project status + next steps
@@ -363,6 +363,19 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   `spec_echem_version` (the build id), sample name, electrolyte, notes, and a full settings snapshot,
   making each data folder self-documenting.
 
+### PITT staircase (data type 5) — runs on both rigs (2026-10-05)
+
+`spec_echem/pitt.py` (plan, step-end rule, cadence), `acquisition.acquire_pitt` (one
+loop, cell held on throughout), `data.write_pitt_h5` (HDF5 only, a group per step).
+- **Autolab:** the Ei setpoint is rewritten with the cell on. A cutoff below one
+  count of the range (`AUTOLAB_COUNT_FRACTION`) is never judged met.
+- **Gamry:** ONE CURVE PER STEP on a dedicated thread (`_GamryPittRunner`). Direct
+  `measure_v`/`measure_i` take ~176 ms each; StopAt ends a whole array2 curve and
+  `m_step` ignores it, so neither built-in staircase can end a step early. The cell
+  stays on between curves. `pitt_sample()` must NEVER wait for a point. The saved
+  echem is the instrument's own points, not the loop's samples.
+- PITT analysis (dQ per step, g(E)) is deliberately NOT built yet.
+
 ### Metrohm / Autolab rig — Python drives it; chrono runs from `Ei` (2026-09-09)
 
 **Read [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md) first** (the first film
@@ -421,7 +434,7 @@ ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm
 
 ### Modularization — DONE
 `get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
-`data.py`; hardware is faked (`fakes.py`) so all 588 tests run with no instruments attached.
+`data.py`; hardware is faked (`fakes.py`) so all 886 tests run with no instruments attached.
 
 ### Settings: two layers, don't confuse them
 - **Experiment settings** (`settings.py`, `DEFAULT_SETTINGS`) — *this run*: sample, folder, CV
@@ -477,8 +490,8 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 588 tests total (587 pass, 1 skip; counted 2026-09-28);
-  `tests/test_gui_layout.py` alone holds 169 and `tests/test_dark_save.py` another 4, both
+- **`gui/` coverage — no longer the gap it was.** 886 tests total (885 pass, 1 skip; counted 2026-10-05);
+  `tests/test_gui_layout.py` alone holds 187 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
   was built still stands: every bug in the 0.2.0 cycle lived in GUI wiring and the core suite
