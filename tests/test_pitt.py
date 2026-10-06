@@ -208,12 +208,13 @@ def test_once_ended_a_step_stays_ended():
 # --- when a spectrum is due --------------------------------------------------
 
 def _times(fast_s, slow_s, delta=0.1, until=10.0):
+    # Asked once per tick, as acquire_pitt asks it -- never more often.
     taken, last, t = [], None, 0.0
     while t <= until + 1e-9:
         if spectrum_due(t, last, delta, fast_s, slow_s):
             taken.append(round(t, 3))
             last = t
-        t = round(t + 0.01, 6)
+        t = round(t + delta, 6)
     return taken
 
 
@@ -308,3 +309,13 @@ def test_without_a_known_resolution_nothing_changes():
         if end.feed(t, i):
             break
     assert end.reason == END_CUTOFF
+
+
+def test_a_late_spectrum_does_not_make_the_next_tick_skip():
+    """A spectrum stamped 5 ms late leaves the next tick 95 ms after it, and at full
+    rate that tick must still take one -- skipping it doubled every other gap on the
+    Reference 600 (20261005_pitt_test1/2: 0.10, 0.20, 0.19, 0.10, ...)."""
+    assert spectrum_due(0.2001, 0.1052, 0.1, 5.0, 1.0)
+    assert not spectrum_due(0.1501, 0.1052, 0.1, 5.0, 1.0)      # half a tick: not yet
+    assert spectrum_due(6.0, 5.05, 0.1, 5.0, 1.0)              # slow rate, a tick early
+    assert not spectrum_due(5.9, 5.05, 0.1, 5.0, 1.0)

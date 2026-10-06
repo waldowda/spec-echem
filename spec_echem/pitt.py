@@ -205,9 +205,12 @@ def spectrum_due(t_in_step, t_last, delta_time, fast_s, slow_interval_s):
     if t_last is None:
         return True
     interval = delta_time if t_in_step < fast_s else slow_interval_s
-    # A hair of slack so a loop that wakes exactly on the interval does not skip it
-    # to the next tick on a float rounding.
-    return t_in_step - t_last >= interval - 1e-9
+    # Half a tick of slack. The loop ticks on a grid, but each spectrum is stamped
+    # when it STARTS, and that wanders by tens of ms: one 5 ms late made the next
+    # tick 95 ms after it, "not due", skipped to the tick after. On the Reference 600
+    # (20261005_pitt_test1/2) that put spectra 0.19-0.20 s apart on every other tick.
+    # The original 1e-9 of slack only covered float rounding.
+    return t_in_step - t_last >= interval - 0.5 * delta_time
 
 
 @dataclass
