@@ -2242,6 +2242,7 @@ class _GamryPittRunner:
         self.error = None
         self.lost = False
         self.how = "?"
+        self.range_full = None
         self.t_on = None
         self._overload_said = False
         self.thread = threading.Thread(target=self._run, name="gamry-pitt", daemon=True)
@@ -2328,10 +2329,24 @@ class _GamryPittRunner:
         names = data.dtype.names
         over = rows["overload"] if "overload" in names else None
         if over is not None and not self._overload_said and any(int(x) for x in over):
-            self._overload_said = True
-            get_run_logger().warning(
-                "Gamry PITT: OVERLOAD flagged at step %d. The current range is too "
-                "fine for this current; raise gamry_current_range.", step)
+            # Believed only when the CURRENT corroborates it, as the chrono driver
+            # learned (20260925_test5: the flag set on 721 of 721 points at 1.24% of
+            # full scale). The first PITT on the Reference 600 (2026-10-05) repeated
+            # that mistake: OVERLOAD at step 0, at ~0.1 uA on a 6 mA range.
+            peak = max(abs(float(r["im"])) for r in rows)
+            full = self.range_full or 0.0
+            if full and peak > 0.9 * full:
+                self._overload_said = True
+                get_run_logger().warning(
+                    "Gamry PITT: OVERLOAD at step %d, the current at %.0f%% of the "
+                    "%.3g A range. Raise gamry_current_range.",
+                    step, peak / full * 100, full)
+            else:
+                get_run_logger().debug(
+                    "Gamry PITT step %d: acq_data flag field set at %.2g A (%.2f%% of "
+                    "range) -- not corroborated by the current, not warned; values %s.",
+                    step, peak, (peak / full * 100) if full else float("nan"),
+                    sorted(set(int(x) for x in over)))
         with self.cond:
             for r in rows:
                 t_curve = float(r["time"])
@@ -2348,7 +2363,7 @@ class _GamryPittRunner:
             tkp.toolkitpy_init("spec-echem-pitt")
             pstat = tkp.Pstat("PSTAT")
             pstat.set_ctrl_mode(tkp.PSTATMODE)
-            self.how, _full = initialize_pstat(
+            self.how, self.range_full = initialize_pstat(
                 pstat, self.settings.get("gamry_current_range", 6.0e-3))
             pstat.set_voltage(self.v0)
             self.built.set()
