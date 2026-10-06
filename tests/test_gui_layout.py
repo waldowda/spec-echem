@@ -3437,3 +3437,18 @@ def test_the_delta_floor_follows_the_instrument_tab_without_a_collect(window):
 
     assert "⚠" in tab.delta_cost_hint.text(), tab.delta_cost_hint.text()
     assert "cannot keep up" in tab.delta_cost_hint.text()
+
+
+def test_a_loaded_gamry_range_never_falls_to_the_finest(window):
+    """A settings file saved at 600 uA loaded as the FIRST item, 60 pA, on the
+    instrument PC, and a PITT then ran clipped at 65 pA (20261005_pitt_test3).
+    A number is matched as a number; one off the list takes the rung AT OR ABOVE."""
+    tab = window.parameters_tab
+    combo = tab._widgets["gamry_current_range"]
+    for saved, expect in ((6.0e-4, 6.0e-4), (0.0006000000000000001, 6.0e-4),
+                          ("0.0006", 6.0e-4), (5.0e-4, 6.0e-4), (5.0, 6.0e-1),
+                          ("auto", "auto")):
+        tab.populate_from({"gamry_current_range": saved})
+        assert combo.currentData() == expect, saved
+    tab.populate_from({"autolab_current_range": "CR11_100uA"})   # strings unchanged
+    assert tab._widgets["autolab_current_range"].currentData() == "CR11_100uA"
