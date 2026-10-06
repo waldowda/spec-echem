@@ -36,6 +36,7 @@ independent; t=0 is still synced by the hardware trigger.
 """
 import os
 import re
+import math
 import threading
 import time
 
@@ -2207,6 +2208,203 @@ class ExternalPotentiostat(Potentiostat):
     pass
 
 
+# The shortest curve sample period a Gamry PITT uses. The manual recommends >= 0.1 s,
+# and a 0.05 s run on 2026-10-05 ended in a reply timeout and a power cycle (possibly
+# from a probe bug that ran beside it; not separated). Tests lower it.
+GAMRY_PITT_MIN_PERIOD_S = 0.1
+
+
+class _GamryPittRunner:
+    """The Gamry side of a PITT: one session, the cell on once, one curve per step.
+
+    Owns its thread end to end, as the chrono driver's per-segment thread does --
+    toolkitpy objects are made, used and closed on it, and it does nothing but poll
+    and swap curves. The PITT loop talks to it through sample() and next_step().
+    """
+
+    def __init__(self, settings):
+        self.settings = settings
+        self.period = max(float(settings.get("chrono_delta_time", 0.1)),
+                          GAMRY_PITT_MIN_PERIOD_S)
+        # Each curve outlasts any hold acquire_pitt can ask for, so it is ended by
+        # Python's step-end rule; one that runs out anyway is restarted in place.
+        hold = max(float(settings.get("pitt_max_hold_s", 120.0)),
+                   float(settings.get("pitt_end_dedope_time_s", 30.0)))
+        self.repeats = int(math.ceil((hold + 5.0) / self.period))
+        self.cond = threading.Condition()
+        self.points = []           # (step, t_in_step, t_since_on, vf, im)
+        self.served = 0
+        self.step = 0              # the step Python has asked for
+        self.want = None           # (step, potential) not yet started
+        self.armed = threading.Event()
+        self.built = threading.Event()
+        self.stop_flag = threading.Event()
+        self.error = None
+        self.lost = False
+        self.how = "?"
+        self.t_on = None
+        self._overload_said = False
+        self.thread = threading.Thread(target=self._run, name="gamry-pitt", daemon=True)
+
+    # --- called from the PITT loop's thread -----------------------------------
+
+    def start(self, v0):
+        self.v0 = v0
+        self.thread.start()
+        if not self.built.wait(timeout=30.0):
+            self.stop_flag.set()
+            raise RuntimeError("Gamry PITT setup did not complete within 30 s.")
+        if self.error is not None:
+            self.thread.join(timeout=10.0)
+            raise RuntimeError("Gamry PITT setup failed: %s" % self.error)
+
+    def sample(self, timeout=0.5):
+        """The newest point of the CURRENT step, waiting up to `timeout` for one.
+
+        Only the current step's points are served: a late point from the step just
+        left must not feed the new step's rule. In the ~80 ms + first-sample gap
+        after a change there is none, and the sample is NaN, which the step-end rule
+        ignores. The full record keeps every point either way.
+        """
+        deadline = time.perf_counter() + timeout
+        with self.cond:
+            while True:
+                if self.error is not None:
+                    raise RuntimeError("Gamry PITT stopped: %s" % self.error)
+                mine = [p for p in self.points[self.served:] if p[0] == self.step]
+                self.served = len(self.points)
+                if mine:
+                    _k, _ts, t_on, vf, im = mine[-1]
+                    return t_on, vf, im
+                left = deadline - time.perf_counter()
+                if left <= 0:
+                    t = time.perf_counter() - self.t_on if self.t_on else 0.0
+                    return t, float("nan"), float("nan")
+                self.cond.wait(left)
+
+    def next_step(self, potential):
+        with self.cond:
+            self.step += 1
+            self.want = (self.step, potential)
+
+    def finish(self):
+        self.stop_flag.set()
+        self.armed.set()                       # release it if never fired
+        self.thread.join(timeout=15.0)
+
+    # --- the curve thread ----------------------------------------------------
+
+    def _new_curve(self, pstat, v):
+        signal = pstat.signal_array2_new(
+            0.0, 1, self.period, [float(v)], [self.repeats],
+            getattr(tkp, "BIAS_NONE", 0), tkp.PSTATMODE)
+        pstat.set_signal_array2(signal)
+        pstat.init_signal()
+        curve = tkp.ChronoCurve(pstat, self.repeats + 50)
+        t_run = time.perf_counter()
+        curve.run(True)
+        return curve, signal, t_run          # the signal must outlive the curve
+
+    def _stop_curve(self, curve):
+        if curve is None:
+            return
+        try:
+            if curve.running():
+                curve.stop()
+                deadline = time.perf_counter() + 5.0
+                while curve.running() and time.perf_counter() < deadline:
+                    time.sleep(0.01)
+        except Exception:  # noqa: BLE001 -- teardown must not mask the real result
+            pass
+
+    def _harvest(self, curve, step, t_run, t_step0, seen):
+        data = curve.acq_data()
+        if data is None or getattr(data, "dtype", None) is None or not data.dtype.names:
+            return seen
+        n = len(data)
+        if n <= seen:
+            return seen
+        rows = data[seen:n]
+        names = data.dtype.names
+        over = rows["overload"] if "overload" in names else None
+        if over is not None and not self._overload_said and any(int(x) for x in over):
+            self._overload_said = True
+            get_run_logger().warning(
+                "Gamry PITT: OVERLOAD flagged at step %d. The current range is too "
+                "fine for this current; raise gamry_current_range.", step)
+        with self.cond:
+            for r in rows:
+                t_curve = float(r["time"])
+                self.points.append((step, (t_run - t_step0) + t_curve,
+                                    (t_run - self.t_on) + t_curve,
+                                    float(r["vf"]), float(r["im"])))
+            self.cond.notify_all()
+        return n
+
+    def _run(self):
+        pstat = curve = None
+        keep = None                              # the live signal reference
+        try:
+            tkp.toolkitpy_init("spec-echem-pitt")
+            pstat = tkp.Pstat("PSTAT")
+            pstat.set_ctrl_mode(tkp.PSTATMODE)
+            self.how, _full = initialize_pstat(
+                pstat, self.settings.get("gamry_current_range", 6.0e-3))
+            pstat.set_voltage(self.v0)
+            self.built.set()
+            self.armed.wait()
+            if self.stop_flag.is_set():
+                return
+            time.sleep(_FIRE_ARM_MARGIN_S)       # let AVS_Measure() finish arming
+            pstat.set_cell(True)
+            self.t_on = time.perf_counter()
+            pstat.set_digital_out(0x1, 0x1)      # DIGOUT0 HIGH -> armed Avantes fires
+            step, v = 0, self.v0
+            curve, keep, t_run = self._new_curve(pstat, v)
+            t_step0, seen = t_run, 0
+            while not self.stop_flag.is_set():
+                if not tkp.pstat_is_valid(pstat):
+                    self.lost = True
+                    raise RuntimeError("the instrument stopped responding mid-PITT")
+                seen = self._harvest(curve, step, t_run, t_step0, seen)
+                with self.cond:
+                    want, self.want = self.want, None
+                if want is not None:
+                    self._stop_curve(curve)
+                    self._harvest(curve, step, t_run, t_step0, seen)
+                    step, v = want
+                    curve, keep, t_run = self._new_curve(pstat, v)
+                    t_step0, seen = t_run, 0
+                elif not curve.running():
+                    # Ran out before Python ended the step: hold on, same potential,
+                    # same step, its clock carried on through t_step0.
+                    self._harvest(curve, step, t_run, t_step0, seen)
+                    curve, keep, t_run = self._new_curve(pstat, v)
+                    seen = 0
+                time.sleep(0.02)
+            self._stop_curve(curve)
+            self._harvest(curve, step, t_run, t_step0, seen)
+        except Exception as exc:  # noqa: BLE001 -- surfaced through sample()
+            self.error = exc
+            get_run_logger().exception("Gamry PITT thread failed")
+        finally:
+            self._stop_curve(curve)
+            if pstat is not None:
+                try:
+                    pstat.set_digital_out(0x0, 0x1)     # DIGOUT0 LOW
+                    pstat.set_cell(False)
+                except Exception:  # noqa: BLE001
+                    pass
+            try:
+                tkp.toolkitpy_close()
+            except Exception:  # noqa: BLE001
+                pass
+            del keep
+            self.built.set()                     # never leave start() waiting
+            with self.cond:
+                self.cond.notify_all()
+
+
 class ToolkitPotentiostat(Potentiostat):
     """
     Phase-2: drive the Gamry from Python via toolkitpy, firing DIGOUT0 so the
@@ -2236,8 +2434,8 @@ class ToolkitPotentiostat(Potentiostat):
         self._error = None                # exception from the Gamry thread, if any
         self._device_lost = False         # instrument vanished partway through a segment
         self._max_wait = 60.0             # safety cap on the poll loop (set per segment)
-        self._pitt_pstat = None           # the PITT's own session, when one is running
-        self._t_cell_on = None
+        self._pitt_runner = None          # the PITT's curve thread, when one is running
+        self._pitt_points = []
 
     # --- lifecycle ------------------------------------------------------
 
@@ -2306,8 +2504,9 @@ class ToolkitPotentiostat(Potentiostat):
         Avantes catches) and runs the waveform. Returns immediately; the Gamry runs
         concurrently on its own thread.
         """
-        if self._pitt_pstat is not None:
-            return self._pitt_fire()
+        if self._pitt_runner is not None:
+            self._pitt_runner.armed.set()     # its thread: cell on, edge, first curve
+            return
         self._fired.set()   # record that the segment genuinely started (see finish)
         self._armed.set()
 
@@ -2339,74 +2538,55 @@ class ToolkitPotentiostat(Potentiostat):
 
     # --- PITT: one continuous staircase, the cell held ON throughout -----------
     #
-    # NO curve. toolkitpy can set the cell potential and read the cell directly --
-    # set_voltage() ("not applied unless the cell switch is on"), measure_i(),
-    # measure_v() -- which is the same shape as the Autolab's Ei, so this mirrors
-    # that driver. The dedicated-thread rule above exists because a CURVE dies when
-    # its thread does anything else; with no curve, the session lives on the thread
-    # that runs the staircase, and every call below comes from that one thread
-    # (acquire_pitt calls fire() from inside the spectrometer's measure()).
-    #
-    # UNPROVEN ON HARDWARE until examples/probe_gamry_pitt.py has run on a dummy.
+    # ONE CURVE PER STEP, on a dedicated thread, in one session with the cell left
+    # on: dope, dope, dope ... then optionally back down and a dedope, the way the
+    # chrono segments run, minus the cell going off between them. Established on
+    # the Reference 600 (2026-10-05, examples/probe_gamry_*):
+    #   * measure_v / measure_i take ~176 ms EACH, so reading the cell directly
+    #     samples at ~5.6 Hz -- too slow; a curve samples on the instrument's own
+    #     clock at exactly 0.100 s.
+    #   * neither built-in staircase can end a step early (StopAt ends a whole
+    #     array2 curve, and is ignored on m_step) -- so one curve per step.
+    #   * between curves the cell stays ON at the previous step's potential, and
+    #     the gap is ~80 ms to the next run().
+    # The step-end decision stays in acquire_pitt (a % of each step's own peak, the
+    # minimum hold, consecutive samples), fed live from the curve's points;
+    # pitt_set_potential() then stops this curve and starts the next. The curve
+    # thread does nothing but poll and swap curves -- the rule that keeps a curve
+    # alive -- and everything it records is kept for the file.
     supports_pitt = True
 
     def pitt_prepare(self, potential):
-        """Open a session, set up the hardware, set the first potential -- cell OFF."""
-        tkp.toolkitpy_init("spec-echem-pitt")
-        try:
-            pstat = tkp.Pstat("PSTAT")
-            pstat.set_ctrl_mode(tkp.PSTATMODE)
-            how, self._range_full_a = initialize_pstat(
-                pstat, self.settings.get("gamry_current_range", 6.0e-3))
-            pstat.set_voltage(float(potential))
-        except Exception:
-            tkp.toolkitpy_close()
-            raise
-        self._pitt_pstat = pstat
-        self._t_cell_on = None
-        self._device_lost = False
-        get_run_logger().info("Gamry PITT: first step %+.6f V, current range %s, "
-                              "cell still open.", float(potential), how)
-
-    def _pitt_fire(self):
-        """Cell on, then DIGOUT0 high: the edge the armed Avantes is waiting for."""
-        pstat = self._pitt_pstat
-        time.sleep(_FIRE_ARM_MARGIN_S)   # let AVS_Measure() finish arming, as before
-        pstat.set_cell(True)
-        self._t_cell_on = time.perf_counter()
-        pstat.set_digital_out(0x1, 0x1)
+        """Start the Gamry thread: session, hardware setup, first potential, cell OFF."""
+        self._pitt_points = []
+        self._pitt_runner = _GamryPittRunner(self.settings)
+        self._pitt_runner.start(float(potential))
+        get_run_logger().info(
+            "Gamry PITT: first step %+.6f V, current range %s, one curve per step at "
+            "%.3f s; cell still open.", float(potential), self._pitt_runner.how,
+            self._pitt_runner.period)
 
     def pitt_sample(self):
-        """One (t, potential, current), t in seconds since cell-on. A vanished
-        instrument raises, so the staircase stops and its finally switches off."""
-        pstat = self._pitt_pstat
-        if not tkp.pstat_is_valid(pstat):
-            self._device_lost = True
-            raise RuntimeError("Gamry: the instrument stopped responding mid-PITT.")
-        v = float(pstat.measure_v())
-        i = float(pstat.measure_i())
-        origin = self._t_cell_on
-        return (time.perf_counter() - origin if origin is not None else 0.0), v, i
+        return self._pitt_runner.sample()
 
     def pitt_set_potential(self, potential):
-        """The next step: a new potential with the cell LEFT ON."""
-        self._pitt_pstat.set_voltage(float(potential))
+        """The next step: this curve stopped, the next one started, the cell left on."""
+        self._pitt_runner.next_step(float(potential))
 
     def pitt_end(self):
-        """DIGOUT0 low, cell off, session closed -- from acquire_pitt's finally."""
-        pstat, self._pitt_pstat = self._pitt_pstat, None
-        if pstat is None:
+        """Stop the thread: curve stopped, DIGOUT0 low, cell off, session closed."""
+        runner, self._pitt_runner = self._pitt_runner, None
+        if runner is None:
             return
-        try:
-            pstat.set_digital_out(0x0, 0x1)
-            pstat.set_cell(False)
-        except Exception as exc:  # noqa: BLE001
-            get_run_logger().warning("Gamry: could not switch the cell off: %s", exc)
-        finally:
-            try:
-                tkp.toolkitpy_close()
-            except Exception:  # noqa: BLE001
-                pass
+        runner.finish()
+        self._pitt_points = list(runner.points)
+        self._device_lost = self._device_lost or runner.lost
+
+    def pitt_hardware_echem(self):
+        """Every point the curves recorded, as (step, t_in_step, t_since_cell_on,
+        potential, current) -- the instrument's own 0.1 s clock, not the loop's
+        samples. run_pitt_segment saves THIS."""
+        return list(getattr(self, "_pitt_points", []) or [])
 
     def device_lost(self):
         return self._device_lost
