@@ -309,7 +309,6 @@ def test_each_step_is_registered_by_label():
 
 @pytest.mark.parametrize("mode, words", [
     ("external", "sequence file owns the waveform"),
-    ("python", "64-bit toolkit"),
 ])
 def test_start_says_plainly_which_potentiostat_cannot_run_it(mode, words):
     problems = pitt_start_problems(settings(pitt_enabled=True, potentiostat_mode=mode))

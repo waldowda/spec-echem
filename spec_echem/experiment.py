@@ -312,8 +312,6 @@ def pitt_start_problems(settings):
         why = {
             "external": "In External mode the sequence file owns the waveform, so "
                         "Python cannot step the potential.",
-            "python": "The Gamry staircase driver is not written yet: it waits on the "
-                      "64-bit toolkit.",
         }.get(mode, f"The {mode!r} driver cannot run one.")
         out.append(f"This potentiostat cannot run a PITT yet. {why}")
     if not H5PY_AVAILABLE:
