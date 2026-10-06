@@ -2332,3 +2332,46 @@ def test_a_late_point_from_the_old_step_is_not_served_to_the_new_one():
     assert math.isnan(i) and math.isnan(v)           # not served as step 1's
     r.points.append((1, 0.01, 0.6, 0.1, 2e-6))
     assert r.sample(timeout=0.05)[2] == 2e-6
+
+
+def test_an_uncorroborated_overload_flag_is_not_warned(gamry_pitt, caplog):
+    """The Reference 600 flags points the current does not bear out (2026-09-25 on
+    chrono, 2026-10-05 on the first PITT: OVERLOAD at ~0.1 uA on a 6 mA range)."""
+    tk = gamry_pitt(tau=1e9, r_leak=3210.0)
+    real = _GCurve.acq_data
+
+    def flagged(self):
+        d = real(self)
+        d["overload"] = 1                                    # every point flagged
+        return d
+
+    _GCurve.acq_data = flagged
+    try:
+        with caplog.at_level("WARNING"):
+            _run_gamry(_gamry_settings(pitt_stop_v=0.1, pitt_max_hold_s=0.2))
+    finally:
+        _GCurve.acq_data = real
+    assert not any("OVERLOAD" in r.message for r in caplog.records)
+    assert tk.events[-1] == "cell off"
+
+
+def test_a_corroborated_overload_is_warned_once(gamry_pitt, monkeypatch, caplog):
+    """Flagged AND the current near full scale: that one is believed."""
+    gamry_pitt(tau=1e9, r_leak=3210.0)
+    monkeypatch.setattr(potentiostat, "initialize_pstat",
+                        lambda pstat, r=6e-3: ("60 uA", 3.0e-5))   # 0.1 V/3210 ~ 31 uA
+    real = _GCurve.acq_data
+
+    def flagged(self):
+        d = real(self)
+        d["overload"] = 1
+        return d
+
+    _GCurve.acq_data = flagged
+    try:
+        with caplog.at_level("WARNING"):
+            _run_gamry(_gamry_settings(pitt_start_v=0.1, pitt_stop_v=0.1,
+                                       pitt_max_hold_s=0.2))
+    finally:
+        _GCurve.acq_data = real
+    assert sum("OVERLOAD" in r.message for r in caplog.records) == 1
