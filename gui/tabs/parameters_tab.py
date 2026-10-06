@@ -29,6 +29,34 @@ from gui.forms import form_layout, fill_width
 POTENTIAL_NOTE = "  (Python mode drives these; External = reference)"
 
 
+
+def _combo_index(combo, value):
+    """The item to select for a loaded settings value.
+
+    Matching by str() was right for the Autolab dropdown (its data are enum names) and
+    wrong for the Gamry one (its data are floats): on the instrument PC a settings
+    file saved at 600 uA loaded as the FIRST item -- 60 pA, the finest range there is
+    -- and a PITT ran clipped at 65 pA (20261005_pitt_test3). So a number is matched
+    as a number, and one not on the list takes the nearest range AT OR ABOVE it,
+    never index 0: a range that is too fine clips the measurement.
+    """
+    try:
+        amps = None if isinstance(value, (str, bool)) or value is None else float(value)
+    except (TypeError, ValueError):
+        amps = None
+    if amps is not None:
+        rungs = [(n, float(combo.itemData(n))) for n in range(combo.count())
+                 if isinstance(combo.itemData(n), (int, float))
+                 and not isinstance(combo.itemData(n), bool)]
+        if rungs:
+            same = [n for n, a in rungs if abs(a - amps) <= abs(a) * 1e-6]
+            if same:
+                return same[0]
+            above = sorted((a, n) for n, a in rungs if a >= amps)
+            return above[0][1] if above else max(rungs, key=lambda r: r[1])[0]
+    i = combo.findData(str(value or ""))
+    return i if i >= 0 else 0
+
 class ParametersTab(QWidget):
     def __init__(self, main_window):
         super().__init__()
@@ -674,8 +702,7 @@ class ParametersTab(QWidget):
             elif isinstance(w, QPlainTextEdit):
                 w.setPlainText(str(value))
             elif isinstance(w, QComboBox):
-                i = w.findData(str(value or ""))
-                w.setCurrentIndex(i if i >= 0 else 0)
+                w.setCurrentIndex(_combo_index(w, value))
             elif isinstance(w, QLineEdit):
                 w.setText(str(value))
 
