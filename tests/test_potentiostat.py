@@ -1997,7 +1997,6 @@ def pitt_autolab(autolab, monkeypatch):
 def test_the_autolab_says_it_can_run_a_pitt():
     assert potentiostat.pitt_supported("autolab")
     assert not potentiostat.pitt_supported("external")
-    assert not potentiostat.pitt_supported("python")
 
 
 def test_the_first_step_is_set_with_the_cell_still_open(pitt_autolab):
@@ -2138,3 +2137,74 @@ def test_test_3_replayed_runs_to_the_max_hold(pitt_autolab):
         potentiostat.sample_ei = real
     assert record.steps[0]["end_reason"] == "max_hold"
     assert record.steps[0]["cutoff_unresolved"] is True
+
+
+# --- PITT on the Gamry: direct set_voltage / measure_i / measure_v, no curve -------
+
+def test_the_gamry_can_now_run_a_pitt():
+    assert potentiostat.pitt_supported("python")
+
+
+def test_the_gamry_pitt_sequence_on_the_instrument(toolkit):
+    """The order IS the safety: potential set with the cell OFF, the cell on ONCE,
+    the edge after it, setpoints changed with the cell left on, then edge low, cell
+    off and the session closed -- and never a curve."""
+    tkp, pstat, _curve = toolkit
+    pstat.measure_v.return_value = 0.1
+    pstat.measure_i.return_value = 3.1e-5
+    p = potentiostat.ToolkitPotentiostat(dict(DEFAULT_SETTINGS))
+    p.pitt_prepare(0.1)
+    p.fire()
+    t, v, i = p.pitt_sample()
+    p.pitt_set_potential(0.15)
+    p.pitt_end()
+
+    calls = [c for c in pstat.mock_calls
+             if c[0] in ("set_voltage", "set_cell", "set_digital_out")]
+    # initialize_pstat sets 0.0 V first, then the step's own potential
+    assert calls == [
+        mock.call.set_voltage(0.0), mock.call.set_voltage(0.1),
+        mock.call.set_cell(True), mock.call.set_digital_out(0x1, 0x1),
+        mock.call.set_voltage(0.15),
+        mock.call.set_digital_out(0x0, 0x1), mock.call.set_cell(False)]
+    assert (v, i) == (0.1, 3.1e-5) and t >= 0.0
+    tkp.toolkitpy_close.assert_called_once()
+    tkp.ChronoCurve.assert_not_called()
+    tkp.RcvCurve.assert_not_called()
+
+
+def test_a_lost_gamry_stops_the_staircase(toolkit):
+    tkp, _pstat, _curve = toolkit
+    p = potentiostat.ToolkitPotentiostat(dict(DEFAULT_SETTINGS))
+    p.pitt_prepare(0.1)
+    p.fire()
+    tkp.pstat_is_valid.return_value = False
+    with pytest.raises(RuntimeError, match="stopped responding"):
+        p.pitt_sample()
+    assert p.device_lost()
+
+
+def test_a_failed_setup_closes_the_session(toolkit):
+    tkp, pstat, _curve = toolkit
+    pstat.set_ctrl_mode.side_effect = RuntimeError("no instrument")
+    p = potentiostat.ToolkitPotentiostat(dict(DEFAULT_SETTINGS))
+    with pytest.raises(RuntimeError):
+        p.pitt_prepare(0.1)
+    tkp.toolkitpy_close.assert_called_once()
+
+
+def test_a_whole_staircase_runs_on_the_gamry_driver(toolkit):
+    from spec_echem.acquisition import acquire_pitt
+    from spec_echem.fakes import FakeSpectrometer
+    from spec_echem.pitt import pitt_plan
+    tkp, pstat, _curve = toolkit
+    pstat.measure_v.return_value = 0.0
+    pstat.measure_i.return_value = 1e-6
+    s = dict(DEFAULT_SETTINGS, pitt_start_v=0.0, pitt_stop_v=0.2, pitt_step_mv=100.0,
+             pitt_min_hold_s=0.05, pitt_max_hold_s=0.1, pitt_fast_s=0.05,
+             pitt_slow_interval_s=0.05, chrono_delta_time=0.02)
+    p = potentiostat.ToolkitPotentiostat(s)
+    record = acquire_pitt(FakeSpectrometer(), p, pitt_plan(s), s)
+    cells = [c for c in pstat.mock_calls if c[0] == "set_cell"]
+    assert cells == [mock.call.set_cell(True), mock.call.set_cell(False)]
+    assert record.completed and len(record.steps) == 3

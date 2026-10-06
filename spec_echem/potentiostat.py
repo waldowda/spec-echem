@@ -2236,6 +2236,8 @@ class ToolkitPotentiostat(Potentiostat):
         self._error = None                # exception from the Gamry thread, if any
         self._device_lost = False         # instrument vanished partway through a segment
         self._max_wait = 60.0             # safety cap on the poll loop (set per segment)
+        self._pitt_pstat = None           # the PITT's own session, when one is running
+        self._t_cell_on = None
 
     # --- lifecycle ------------------------------------------------------
 
@@ -2304,6 +2306,8 @@ class ToolkitPotentiostat(Potentiostat):
         Avantes catches) and runs the waveform. Returns immediately; the Gamry runs
         concurrently on its own thread.
         """
+        if self._pitt_pstat is not None:
+            return self._pitt_fire()
         self._fired.set()   # record that the segment genuinely started (see finish)
         self._armed.set()
 
@@ -2332,6 +2336,77 @@ class ToolkitPotentiostat(Potentiostat):
 
     def stop(self):
         self._abort.set()
+
+    # --- PITT: one continuous staircase, the cell held ON throughout -----------
+    #
+    # NO curve. toolkitpy can set the cell potential and read the cell directly --
+    # set_voltage() ("not applied unless the cell switch is on"), measure_i(),
+    # measure_v() -- which is the same shape as the Autolab's Ei, so this mirrors
+    # that driver. The dedicated-thread rule above exists because a CURVE dies when
+    # its thread does anything else; with no curve, the session lives on the thread
+    # that runs the staircase, and every call below comes from that one thread
+    # (acquire_pitt calls fire() from inside the spectrometer's measure()).
+    #
+    # UNPROVEN ON HARDWARE until examples/probe_gamry_pitt.py has run on a dummy.
+    supports_pitt = True
+
+    def pitt_prepare(self, potential):
+        """Open a session, set up the hardware, set the first potential -- cell OFF."""
+        tkp.toolkitpy_init("spec-echem-pitt")
+        try:
+            pstat = tkp.Pstat("PSTAT")
+            pstat.set_ctrl_mode(tkp.PSTATMODE)
+            how, self._range_full_a = initialize_pstat(
+                pstat, self.settings.get("gamry_current_range", 6.0e-3))
+            pstat.set_voltage(float(potential))
+        except Exception:
+            tkp.toolkitpy_close()
+            raise
+        self._pitt_pstat = pstat
+        self._t_cell_on = None
+        self._device_lost = False
+        get_run_logger().info("Gamry PITT: first step %+.6f V, current range %s, "
+                              "cell still open.", float(potential), how)
+
+    def _pitt_fire(self):
+        """Cell on, then DIGOUT0 high: the edge the armed Avantes is waiting for."""
+        pstat = self._pitt_pstat
+        time.sleep(_FIRE_ARM_MARGIN_S)   # let AVS_Measure() finish arming, as before
+        pstat.set_cell(True)
+        self._t_cell_on = time.perf_counter()
+        pstat.set_digital_out(0x1, 0x1)
+
+    def pitt_sample(self):
+        """One (t, potential, current), t in seconds since cell-on. A vanished
+        instrument raises, so the staircase stops and its finally switches off."""
+        pstat = self._pitt_pstat
+        if not tkp.pstat_is_valid(pstat):
+            self._device_lost = True
+            raise RuntimeError("Gamry: the instrument stopped responding mid-PITT.")
+        v = float(pstat.measure_v())
+        i = float(pstat.measure_i())
+        origin = self._t_cell_on
+        return (time.perf_counter() - origin if origin is not None else 0.0), v, i
+
+    def pitt_set_potential(self, potential):
+        """The next step: a new potential with the cell LEFT ON."""
+        self._pitt_pstat.set_voltage(float(potential))
+
+    def pitt_end(self):
+        """DIGOUT0 low, cell off, session closed -- from acquire_pitt's finally."""
+        pstat, self._pitt_pstat = self._pitt_pstat, None
+        if pstat is None:
+            return
+        try:
+            pstat.set_digital_out(0x0, 0x1)
+            pstat.set_cell(False)
+        except Exception as exc:  # noqa: BLE001
+            get_run_logger().warning("Gamry: could not switch the cell off: %s", exc)
+        finally:
+            try:
+                tkp.toolkitpy_close()
+            except Exception:  # noqa: BLE001
+                pass
 
     def device_lost(self):
         return self._device_lost

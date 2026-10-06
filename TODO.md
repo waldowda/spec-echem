@@ -177,6 +177,17 @@ data.
       NEXT after that: re-run test 1's
       settings (CR10_1mA) to confirm no early cutoff; then the cutoff rule itself on a
       SLOW series RC (1 MOhm in series with 1 uF, tau = 1 s, 0.15 V steps, 10% cutoff).
+      **GAMRY PITT DRIVER WRITTEN 2026-10-05, not yet run on hardware.** toolkitpy has
+      direct control -- `set_voltage` (applied only with the cell on), `measure_v`,
+      `measure_i`, `cell()` -- so the Gamry PITT mirrors the Autolab's Ei driver: NO
+      curve, so no dedicated thread; the session lives on the thread running the
+      staircase. `examples/probe_gamry_pitt.py` (SpecEchem32, UDC4 Randles) checks the
+      steps with the cell read back ON, the DC resistance, how long a measure_v +
+      measure_i pair takes against the 0.1 s tick, and one current COUNT of the range
+      from within-step jitter -- the number current_resolution_a() needs for the Gamry
+      (None until measured, so the sub-count rule is off on the Gamry for now). The
+      user has the Gamry rig through 2026-10-06. toolkitpy also offers
+      signal_m_step_new (a fixed-hold staircase) -- not used: no current cutoff.
       **Parameters section + saved-run display built 2026-10-04** (`24b29ac`,
       `4327b08`): the PITT section with a live estimate and return-leg warning; Load
       Run shows PITT steps even from a text-first load; the Results tab draws echem
