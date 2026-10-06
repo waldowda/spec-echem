@@ -185,9 +185,16 @@ data.
       single-potential curve per step, restarted in place if it runs out; OUR step-end
       rule (% of each step's peak, min hold, 5 consecutive, one count) decides from
       the curve's live points; every hardware point is kept and SAVED (not the loop's
-      samples). Tested on a curve-on-a-clock fake; 4 mutations caught. NEXT, on the
-      rig: `examples/probe_gamry_pitt.py --energize` (the real loop + real driver,
-      stand-in spectrometer), then a short GUI PITT in Python mode.
+      samples). Tested on a curve-on-a-clock fake; 4 mutations caught.
+      **✅ CONFIRMED ON THE REFERENCE 600 2026-10-05** (UDC4 EIS side): the probe
+      passed, then GUI PITTs 0 -> +0.1 V in 50 mV, 600 uA range (`20261005_pitt_test4`):
+      49-50 spectra per 5 s step at ~0.10 s, ~3,170 Ohm, all max_hold as a dummy should.
+      Three fixes on the way, all pushed: OVERLOAD only when the current corroborates
+      the flag (`b9ec364`); `spectrum_due` needed half a tick of slack, or a late
+      spectrum made every other gap 0.20 s (`4cee4d4`); Load Settings put the Gamry
+      range on 60 pA, the FIRST item, because combos matched by str() (`ebaa337`).
+      OPEN: the Gamry's count on 600 uA (`current_resolution_a` is None, so the
+      'cutoff below one count' check is Autolab-only) -- needs a high-R dummy.
       (Superseded:) **GAMRY PITT DRIVER WRITTEN 2026-10-05, not yet run on hardware.** toolkitpy has
       direct control -- `set_voltage` (applied only with the cell on), `measure_v`,
       `measure_i`, `cell()` -- so the Gamry PITT mirrors the Autolab's Ei driver: NO
