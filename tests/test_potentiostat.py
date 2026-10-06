@@ -2375,3 +2375,19 @@ def test_a_corroborated_overload_is_warned_once(gamry_pitt, monkeypatch, caplog)
     finally:
         _GCurve.acq_data = real
     assert sum("OVERLOAD" in r.message for r in caplog.records) == 1
+
+
+def test_the_gamry_pitt_sample_never_waits_for_a_point(gamry_pitt):
+    """Waiting for each new Gamry point held the spectrum loop back a tick at a time:
+    spectra 0.19-0.21 s apart instead of 0.10 on the first GUI PITT (2026-10-05)."""
+    gamry_pitt(tau=1e9, r_leak=3210.0)
+    p = potentiostat.ToolkitPotentiostat(dict(DEFAULT_SETTINGS))
+    r = potentiostat._GamryPittRunner(dict(DEFAULT_SETTINGS))
+    r.t_on = time.perf_counter()
+    p._pitt_runner = r
+    t0 = time.perf_counter()
+    _t, v, i = p.pitt_sample()                       # no point yet
+    assert time.perf_counter() - t0 < 0.02
+    assert math.isnan(i) and math.isnan(v)
+    r.points.append((0, 0.1, 0.1, 0.05, 1.6e-5))
+    assert p.pitt_sample()[2] == 1.6e-5

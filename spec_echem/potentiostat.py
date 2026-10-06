@@ -2582,7 +2582,11 @@ class ToolkitPotentiostat(Potentiostat):
             self._pitt_runner.period)
 
     def pitt_sample(self):
-        return self._pitt_runner.sample()
+        # Never wait for a point. Waiting for each new one cost a tick whenever the
+        # spectrum loop got ahead of the curve thread: spectra 0.10 / 0.19-0.21 s
+        # apart instead of 0.10 (20261005_pitt_test1). A NaN is skipped by the
+        # step-end rule, and the saved echem is the instrument's own points anyway.
+        return self._pitt_runner.sample(timeout=0.0)
 
     def pitt_set_potential(self, potential):
         """The next step: this curve stopped, the next one started, the cell left on."""
