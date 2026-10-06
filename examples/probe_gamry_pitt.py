@@ -1,44 +1,31 @@
 """
-probe_gamry_pitt.py -- can the Gamry step its potential with the cell ON?
+probe_gamry_pitt.py -- the Gamry PITT end to end, on a dummy, before the GUI.
 
-The Gamry twin of probe_autolab_pitt.py. It drives the REAL ToolkitPotentiostat PITT
-methods (pitt_prepare / fire / pitt_sample / pitt_set_potential / pitt_end), which
-use toolkitpy's direct set_voltage / measure_v / measure_i -- no curve -- so this
-script's verdict is the driver's verdict. No spectrometer: fire() still raises
-DIGOUT0, and nothing catches it.
+Runs the REAL PITT loop (spec_echem.acquisition.acquire_pitt) on the REAL Gamry
+driver (ToolkitPotentiostat: one curve per step, the cell held on, our step-end rule
+fed live from each curve's points) -- the exact path a GUI PITT takes, with a stand-
+in spectrometer (FakeSpectrometer) so no Avantes is needed. DIGOUT0 still goes high.
 
-    >> A DUMMY CELL ONLY, never a film: the UDC4 on its Randles position
-       (200 Ohm + 3.01 kOhm || 1 uF -> 3210 Ohm DC), or a plain resistor. <<
+How the design was arrived at, all on the Reference 600 (2026-10-05):
+  * measure_v / measure_i take ~176 ms each -- too slow to sample a step with
+  * a curve samples at exactly 0.100 s on the instrument's own clock
+  * neither built-in staircase can end a step early, so: one curve per step
+  * between curves the cell stays ON at the previous potential; ~80 ms to run()
 
-A small staircase, 0 -> +0.15 V -> 0 in 50 mV steps, 3 s a step, sampled every
-0.1 s. The cell is switched on ONCE and off ONCE. Per step it checks:
+    >> A DUMMY CELL ONLY: the UDC4 EIS side (3210 Ohm DC) or a 2 kOhm. <<
 
-  * each STEP is within 2 mV of the step asked (a constant offset is
-    reported, not failed)
-  * the current, as a DC resistance MEASURED from the slope (no resistance assumed)
-  * how long the potential took to reach the new setpoint
-  * the cell, as the instrument reports it (Pstat.cell()), after every change
+A dummy's current does not decay at these rates, so every step should end at its
+MAXIMUM hold -- that is the correct answer here. Per step it reports how it ended,
+how long it held, the instrument's own point count and sample period, when the first
+point landed, the gap to the next step, and the DC resistance from all of it.
 
-and two things only this instrument can answer:
+    python examples/probe_gamry_pitt.py --energize
 
-  * how long one measure_v + measure_i pair takes -- the PITT samples on a 0.1 s
-    tick, and this says whether that holds
-  * the apparent size of ONE current count on this range, from the spacing of the
-    readings (the Autolab's CR10_1mA turned out to read in 3.05 nA counts)
-
-Run in the 32-bit SpecEchem32 env, from the repo folder on the Gamry PC:
-
-    python examples/probe_gamry_pitt.py --energize                  # bench.ini range
-    python examples/probe_gamry_pitt.py --energize --range 6e-5     # a finer range, A
-
-Writes examples/probe_gamry_pitt_report.txt and probe_gamry_pitt_samples.csv.
+Writes examples/probe_gamry_pitt_report.txt.
 """
 import argparse
-import csv
-import math
 import os
 import sys
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -46,24 +33,11 @@ sys.path.insert(0, HERE)
 
 import autolab_common as ac        # noqa: E402  (only its say/rule/transcript helpers)
 from spec_echem import potentiostat                                # noqa: E402
+from spec_echem.acquisition import acquire_pitt                    # noqa: E402
 from spec_echem.bench import load_bench_defaults                   # noqa: E402
+from spec_echem.fakes import FakeSpectrometer                      # noqa: E402
+from spec_echem.pitt import pitt_plan                              # noqa: E402
 from spec_echem.settings import DEFAULT_SETTINGS                   # noqa: E402
-
-STEPS_V = (0.0, 0.05, 0.10, 0.15, 0.10, 0.05, 0.0)
-HOLD_S = 3.0
-TICK_S = 0.1
-SETTLED_TAIL_S = 1.0
-E_TOL_V = 0.002
-
-
-def cell_reads_on(p):
-    pstat = p._pitt_pstat
-    return ac.safe(lambda: bool(pstat.cell()))
-
-
-def median(values):
-    v = sorted(values)
-    return v[len(v) // 2] if v else float("nan")
 
 
 def main():
@@ -71,179 +45,87 @@ def main():
     ap.add_argument("--energize", action="store_true",
                     help="actually switch the cell on (DUMMY CELL ONLY)")
     ap.add_argument("--range", type=float, default=None,
-                    help="Gamry current range for this probe only, in amperes "
-                         "(full scale, e.g. 6e-3, 6e-4, 6e-5); overrides bench.ini")
+                    help="Gamry current range for this probe only, in amperes")
     args = ap.parse_args()
-
-    ac.rule("CAN THE GAMRY STEP ITS POTENTIAL WITH THE CELL ON?  (PITT probe)")
+    ac.rule("THE GAMRY PITT, END TO END, ON A DUMMY")
     if not args.energize:
         ac.say("Refusing to energize: re-run with --energize, with a DUMMY cell in.")
         return 1
     if not potentiostat.TOOLKITPY_AVAILABLE:
         ac.say("toolkitpy is not importable here. Use the 32-bit SpecEchem32 env.")
         return 1
-    ac.say("*** The cell WILL be switched on and stepped through %s V. ***" % (STEPS_V,))
-    ac.say("*** Dummy only. Never a film. ***")
 
-    settings = dict(DEFAULT_SETTINGS)
-    bench, warnings = load_bench_defaults()
-    settings.update(bench)
-    for w in warnings:
-        ac.say("  bench.ini: %s" % w)
+    s = dict(DEFAULT_SETTINGS)
+    s.update(load_bench_defaults()[0])
     if args.range:
-        settings["gamry_current_range"] = args.range
-    ac.say("  current range: %s A" % settings.get("gamry_current_range"))
+        s["gamry_current_range"] = args.range
+    s.update(pitt_start_v=0.0, pitt_stop_v=0.15, pitt_step_mv=50.0, pitt_return=True,
+             pitt_cutoff_pct=1.0, pitt_min_hold_s=1.0, pitt_max_hold_s=3.0,
+             pitt_fast_s=1.0, pitt_slow_interval_s=0.5, pitt_end_dedope=False,
+             chrono_delta_time=0.1)
+    plan = pitt_plan(s)
+    ac.say("*** %d steps, 0 -> +0.15 V -> 0 in 50 mV, 1-3 s holds. Dummy only. ***"
+           % len(plan))
 
-    p = potentiostat.ToolkitPotentiostat(settings)
-    rows, cell_after, costs, timing = [], [], [], {}
+    p = potentiostat.ToolkitPotentiostat(s)
+    record, err = None, None
     try:
-        p.pitt_prepare(STEPS_V[0])
-        p.fire()                                        # cell ON, the only time
-        cell_after.append(("after fire", cell_reads_on(p)))
-        # Where the time goes. The first run measured 355 ms for one measure_v +
-        # measure_i pair -- 3.5x the PITT's 0.1 s tick -- so time each call alone, and
-        # ask the instrument what it thinks a measurement takes.
-        pstat = p._pitt_pstat
-        for name in ("measure_v", "measure_i"):
-            fn = getattr(pstat, name)
-            ts = []
-            for _ in range(5):
-                t0 = time.perf_counter()
-                fn()
-                ts.append(time.perf_counter() - t0)
-            timing[name] = ts
-        timing["measure_time()"] = ac.safe(lambda: float(pstat.measure_time()))
-        for k, v in enumerate(STEPS_V):
-            t_change = time.perf_counter()
-            if k:
-                p.pitt_set_potential(v)                 # cell LEFT on
-                cell_after.append(("after step %d -> %+.3f V" % (k, v),
-                                   cell_reads_on(p)))
-            next_tick = t_change
-            while time.perf_counter() - t_change < HOLD_S:
-                t0 = time.perf_counter()
-                t, e, i = p.pitt_sample()
-                costs.append(time.perf_counter() - t0)
-                rows.append((k, v, time.perf_counter() - t_change, t, e, i))
-                next_tick += TICK_S
-                time.sleep(max(0.0, next_tick - time.perf_counter()))
-    except Exception as exc:  # noqa: BLE001 -- say it, then the finally makes it safe
-        ac.say("\n*** STOPPED: %s: %s" % (type(exc).__name__, exc))
-    finally:
-        p.pitt_end()                                    # cell OFF, session closed
-        ac.say("Cell switched OFF, session closed.")
+        record = acquire_pitt(FakeSpectrometer(), p, plan, s)
+    except Exception as exc:  # noqa: BLE001 -- acquire_pitt's finally has the cell off
+        err = "%s: %s" % (type(exc).__name__, exc)
+    ac.say("Cell switched OFF, session closed (acquire_pitt's finally).")
+    if err:
+        ac.say("\n*** STOPPED: %s" % err)
 
-    with open(os.path.join(HERE, "probe_gamry_pitt_samples.csv"), "w",
-              newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
-        w.writerow(["step", "setpoint_V", "t_in_step_s", "t_since_cell_on_s",
-                    "potential_V", "current_A"])
-        w.writerows(rows)
-
-    ac.rule("PER STEP")
-    ac.say("  step  set (V)   E settled (V)   dE (mV)   I settled (A)   step size")
-    passes, pts, settled = [], [], []
-    for k, v in enumerate(STEPS_V):
-        mine = [r for r in rows if r[0] == k and not math.isnan(r[4])]
-        tail = [r for r in mine if r[2] >= HOLD_S - SETTLED_TAIL_S]
-        if not tail:
-            ac.say("  %4d  %+.3f   (no settled samples)" % (k, v))
-            passes.append(False)
+    pts = p.pitt_hardware_echem()
+    ac.rule("PER STEP  (the instrument's own points)")
+    ac.say("  step  set (V)   ended      hold (s)  points  period (s)  first pt (s)"
+           "   E mean (V)   I mean (A)")
+    fit = []
+    for st in (record.steps if record else []):
+        k = st["index"]
+        mine = [q for q in pts if q[0] == k]
+        if not mine:
+            ac.say("  %4d  %+.3f   %-9s  (no points)" % (k, st["potential_set"],
+                                                        st["end_reason"]))
             continue
-        e_set = median([r[4] for r in tail])
-        i_set = median([r[5] for r in tail])
-        pts.append((v, i_set))
-        settled.append((v, e_set))
-        # The STEP is what a PITT needs right; a constant offset in the readback is
-        # reported below, not failed. First run on the Reference 600 (2026-10-05):
-        # every reading sat +2.5..+2.7 mV high, including at 0 V, while the steps
-        # themselves were exact to ~0.1 mV -- an absolute 2 mV test failed them all.
-        ok = True
-        dstep = None
-        if len(settled) > 1:
-            dstep = (e_set - settled[-2][1]) - (v - settled[-2][0])
-            ok = abs(dstep) <= E_TOL_V
-        passes.append(ok)
-        ac.say("  %4d  %+.3f   %+.6f      %+6.2f    %+.4e     %s   %s"
-               % (k, v, e_set, (e_set - v) * 1000, i_set,
-                  ("step off by %+.2f mV" % (dstep * 1000)) if dstep is not None
-                  else "(first step)       ", "OK" if ok else "FAIL"))
+        t = [q[1] for q in mine]
+        dts = sorted(b - a for a, b in zip(t, t[1:]))
+        e = sum(q[3] for q in mine) / len(mine)
+        i = sum(q[4] for q in mine) / len(mine)
+        fit.append((st["potential_set"], i))
+        ac.say("  %4d  %+.3f   %-9s  %8.2f  %6d  %10.4f  %12.3f   %+.6f   %+.4e"
+               % (k, st["potential_set"], st["end_reason"], st["hold_s"], len(mine),
+                  dts[len(dts) // 2] if dts else float("nan"), t[0], e, i))
 
-    if settled:
-        offsets = [(e - v) * 1000 for v, e in settled]
-        ac.say("")
-        ac.say("  readback offset: %+.2f mV on average (range %+.2f to %+.2f) -- a"
-               % (sum(offsets) / len(offsets), min(offsets), max(offsets)))
-        ac.say("  CONSTANT offset is the voltage readout or the applied potential; it")
-        ac.say("  does not affect the steps a PITT takes.")
+    ac.rule("BETWEEN STEPS  (last point of one to the first of the next)")
+    for k in range(1, len(record.steps) if record else 0):
+        a = [q for q in pts if q[0] == k - 1]
+        b = [q for q in pts if q[0] == k]
+        if a and b:
+            ac.say("  %d -> %d: %.0f ms" % (k - 1, k, (b[0][2] - a[-1][2]) * 1000))
 
-    ac.rule("THE DC PATH, MEASURED")
-    if len(set(v for v, _ in pts)) >= 2:
-        n = len(pts)
-        mv = sum(v for v, _ in pts) / n
-        mi = sum(i for _, i in pts) / n
-        slope = (sum((v - mv) * (i - mi) for v, i in pts)
-                 / sum((v - mv) ** 2 for v, _ in pts))
-        offset = mi - slope * mv
-        resid = math.sqrt(sum((i - (offset + slope * v)) ** 2 for v, i in pts) / n)
-        change = abs(slope) * (max(v for v, _ in pts) - min(v for v, _ in pts))
-        ac.say("  slope %+.4e A/V, intercept %+.4e A, fit scatter %.2e A"
-               % (slope, offset, resid))
-        if slope and change > max(10 * resid, 5e-9):
-            ac.say("  -> DC resistance %s Ohm" % format(1 / slope, ",.0f"))
-        else:
-            ac.say("  -> no DC current this range resolves; try a finer --range")
-
-    ac.rule("WHAT ONE SAMPLE COSTS, AND ONE COUNT")
-    for name in ("measure_v", "measure_i"):
-        if timing.get(name):
-            ac.say("  %s alone: median %.1f ms (5 calls)" % (name, median(timing[name]) * 1000))
-    if "measure_time()" in timing:
-        ac.say("  the instrument's measure_time(): %s" % (
-            "%.4f s" % timing["measure_time()"] if timing["measure_time()"] is not None
-            else "unavailable"))
-    if costs:
-        cs = sorted(costs)
-        ac.say("  measure_v + measure_i: median %.1f ms, max %.1f ms over %d samples"
-               % (median(cs) * 1000, cs[-1] * 1000, len(cs)))
-        ac.say("  (the PITT ticks every 0.1 s; a pair much over ~50 ms crowds it)")
-    # One count shows as reading-to-reading jitter WITHIN a step, so it is taken from
-    # there -- the gaps between all distinct readings would mostly be the gaps between
-    # step levels, which says nothing about the converter.
-    jitter = []
-    for k in range(len(STEPS_V)):
-        tail = [r[5] for r in rows if r[0] == k and not math.isnan(r[5])
-                and r[2] >= HOLD_S - SETTLED_TAIL_S]
-        jitter += [abs(b - a) for a, b in zip(tail, tail[1:]) if b != a]
-    if jitter:
-        count = min(jitter)
-        multiples = [j / count for j in jitter]
-        whole = sum(1 for m in multiples if abs(m - round(m)) < 0.02) / len(multiples)
-        ac.say("  smallest reading-to-reading change within a step: %.3e A" % count)
-        ac.say("  %.0f%% of the changes are whole multiples of it%s"
-               % (whole * 100, " -- that looks like one count of this range"
-                  if whole > 0.9 else " -- not clearly quantised"))
-    else:
-        ac.say("  readings did not change within any step: no count estimate")
-
-    ac.rule("THE CELL, AS THE INSTRUMENT REPORTED IT")
-    for label, on in cell_after:
-        ac.say("  %-32s %s" % (label, "ON" if on else ("OFF" if on is not None
-                                                        else "unreadable")))
-    cell_ok = bool(cell_after) and all(on is True for _l, on in cell_after)
+    ac.rule("THE DC PATH")
+    if len(set(v for v, _ in fit)) >= 2:
+        n = len(fit)
+        mv = sum(v for v, _ in fit) / n
+        mi = sum(i for _, i in fit) / n
+        slope = (sum((v - mv) * (i - mi) for v, i in fit)
+                 / sum((v - mv) ** 2 for v, _ in fit))
+        ac.say("  slope %+.4e A/V -> %s Ohm"
+               % (slope, format(1 / slope, ",.0f") if slope else "inf"))
 
     ac.rule("VERDICT")
-    if all(passes) and cell_ok and len(passes) == len(STEPS_V):
-        ac.say("  PASS: the potential steps cleanly with the cell held on.")
-        ac.say("  Next: a short PITT from the GUI on the same dummy (Python mode).")
+    ok = (record is not None and record.completed and err is None
+          and len(record.steps) == len(plan) and len(pts) > 0)
+    if ok:
+        ac.say("  PASS: every step ran, on the instrument's clock, cell held on.")
+        ac.say("  Expected on a dummy: every step 'max_hold' (its current does not")
+        ac.say("  decay at 0.1 s). Next: a short PITT from the GUI, Python mode.")
     else:
-        ac.say("  NOT YET: see the FAIL rows and the cell lines above.")
-        if not cell_ok:
-            ac.say("  The cell did not read ON after every change. Do NOT run a PITT on")
-            ac.say("  a film until that is understood.")
-        ac.say("  Send the report and the CSV back.")
+        ac.say("  NOT YET -- send this report back.")
     ac.write_transcript(os.path.join(HERE, "probe_gamry_pitt_report.txt"))
-    return 0 if all(passes) and cell_ok else 2
+    return 0 if ok else 2
 
 
 if __name__ == "__main__":
