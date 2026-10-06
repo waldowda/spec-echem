@@ -27,6 +27,18 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **PITT — an equilibrium potential staircase segment (2026-10-04/05).** Data type 5,
+  its own Parameters section. One continuous waveform with the cell held ON from the
+  first step to the last; each step ends when |I| stays below a user-set fraction of
+  that step's peak (default 1%, 5 consecutive samples, after a minimum hold) or at a
+  maximum hold, and records which. Optional return leg and optional end dedope at its
+  own potential (default -0.5 V). Spectra at full rate for the first seconds of a step,
+  then slower. **HDF5 only** (`{folder}_pitt.h5`, one group per step) — a text file
+  would be misread as doping by the downstream reader's filename sort. See
+  `docs/data-format.md` §5. Runs on both drivers, confirmed on hardware 2026-10-05:
+  the Autolab steps its Ei setpoint with the cell on; the Gamry runs one curve per
+  step (neither built-in toolkitpy staircase can end a step early). A cutoff below one
+  count of the Autolab range is never judged met. Analysis of the steps is not built.
 - **HDF5 output, written IN ADDITION to the ascii.** Four files per run, one per
   segment type, cycles inside keyed by cycle number. Carries everything the 8-column
   format does and more: raw counts, the dark and the reference (which no reader had
@@ -72,6 +84,15 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Fixed
 
+- **Load Settings put the Gamry current range on 60 pA**, the first item, whatever the
+  file held: the dropdown was matched by text, and a miss fell back to index 0 — the
+  finest range, which clips. Now matched as a number; an off-list value takes the
+  nearest range at or above it.
+- **PITT spectra were 0.20 s apart on every other tick** on the Reference 600: a
+  spectrum starting a few ms late left the next tick "not due". Half a tick of slack.
+- **The Gamry PITT warned OVERLOAD on a flag the current did not bear out** — the same
+  spurious acq_data field the chrono driver already guards; now only when the current
+  is above 90% of full scale.
 - **`examples/bench_live_cv.py` addressed the CV staircase parameters in the wrong order.**
   `FHCyclicVoltammetry2` puts **step at `[3]` and stop at `[5]`**, swapped relative to the
   order the NOVA manual prints them, so the script wrote `step = 0.0`. A zero-step
