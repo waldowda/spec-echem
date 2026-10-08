@@ -1204,11 +1204,18 @@ class InstrumentTab(QWidget):
             return
         _, spectrum = self.win.spec.measure()
         self.win.ref = spectrum
+        self.win.ref_info = {"how": "collected", "when": datetime.now(),
+                             "sample": self._sample_name()}
         logger.info("Reference collected (%d px, max %.0f counts)",
                     len(spectrum), np.max(spectrum))
         self.ref_status.setText(f"Reference: collected ({len(spectrum)} px)")
         self._update_cal_plot()
         self._update_absorbance_enabled()
+
+    def _sample_name(self):
+        w = getattr(self.win, "parameters_tab", None)
+        w = w._widgets.get("sample_name") if w is not None else None
+        return w.text().strip() if w is not None else ""
 
     def on_save_ref(self):
         if self.win.ref is None:
@@ -1246,6 +1253,11 @@ class InstrumentTab(QWidget):
                     "reset to full range or load a matching file.")
                 return
             self.win.ref = fitted
+            # The file's own time is when the reference was SAVED -- the nearest thing
+            # to when it was taken that a loaded file can say.
+            self.win.ref_info = {"how": f"loaded from {Path(path).name}",
+                                 "when": datetime.fromtimestamp(Path(path).stat().st_mtime),
+                                 "sample": self._sample_name()}
             self.ref_status.setText(f"Reference: loaded ({len(fitted)} px)")
             self._update_cal_plot()
             self._update_absorbance_enabled()

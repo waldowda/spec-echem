@@ -3452,3 +3452,107 @@ def test_a_loaded_gamry_range_never_falls_to_the_finest(window):
         assert combo.currentData() == expect, saved
     tab.populate_from({"autolab_current_range": "CR11_100uA"})   # strings unchanged
     assert tab._widgets["autolab_current_range"].currentData() == "CR11_100uA"
+
+
+def test_the_live_trace_marks_its_newest_point_and_shows_a_status(app):
+    """Requested 2026-10-07: a dot that moves with the newest point, and a readout
+    (cycle, E, I) updated live, so a slow CV visibly moves."""
+    import numpy as np
+    from gui.widgets.plot_canvas import MplCanvas
+
+    canvas = MplCanvas()
+    e = np.linspace(0.0, 0.5, 26)
+    canvas.update_live_line(e, e / 1e4, "Potential (V)", "Current", y_unit="A",
+                            status="Cycle 1 of 3  up")
+    assert list(canvas._live_head.get_xdata()) == [0.5]
+    assert list(canvas._live_head.get_ydata()) == [0.5 / 1e4]
+    assert canvas._live_head.get_color() != canvas._live_line.get_color()
+    assert canvas._live_head.get_markersize() > canvas._live_line.get_linewidth()
+    assert canvas._live_text.get_text() == "Cycle 1 of 3  up"
+
+    e2 = np.concatenate([e, [0.48, 0.46]])
+    canvas.update_live_line(e2, e2 / 1e4, "Potential (V)", "Current", y_unit="A",
+                            status="Cycle 1 of 3  down")
+    assert list(canvas._live_head.get_xdata()) == [0.46]
+    assert canvas._live_text.get_text() == "Cycle 1 of 3  down"
+    canvas.draw()                                     # renders without error
+
+
+def test_a_live_trace_without_a_status_shows_no_box(app):
+    import numpy as np
+    from gui.widgets.plot_canvas import MplCanvas
+
+    canvas = MplCanvas()
+    canvas.update_live_line(np.arange(3.0), np.arange(3.0), "Time (s)", "Current")
+    assert not canvas._live_text.get_visible()
+
+
+def test_the_run_tab_feeds_the_cv_readout_from_live_data(window):
+    """The Run tab's timer slot builds the readout from the potentiostat's growing
+    data and the run's own cycle count."""
+    import numpy as np
+    from types import SimpleNamespace
+    from spec_echem.data import DATA_TYPE_CV, EchemData
+    from spec_echem.experiment import Segment
+
+    up = np.arange(0.0, 1.0001, 0.02)
+    e = np.concatenate([up, up[-2::-1], up[1:6]])          # into cycle 2, going up
+    data = EchemData(time=np.arange(e.size) * 1.0, potential=e,
+                     current=np.full(e.size, 2.5e-6))
+    tab = window.run_tab
+    tab._worker = SimpleNamespace(potentiostat=SimpleNamespace(live_data=lambda: data))
+    tab._current_segment = Segment("CV", DATA_TYPE_CV, 0, 101, 1.0, True)
+    tab._run_cv_cycles = 3
+    try:
+        tab._update_live_echem()
+    finally:
+        tab._worker = None
+    text = tab.live_canvas._live_text.get_text().splitlines()
+    assert text[0] == "Cycle 2 of 3  ↑ up"
+    assert text[1] == f"E = {e[-1]:+.3f} V" and text[2] == "I = +2.5 µA"
+    assert list(tab.live_canvas._live_head.get_xdata()) == [e[-1]]
+
+
+# --- the reference reminder (requested 2026-10-07) ----------------------------
+
+def _start_dialog_text(window, monkeypatch):
+    from qtpy.QtWidgets import QMessageBox
+    seen = []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: seen.append(a[2]) or QMessageBox.Cancel)
+    monkeypatch.setattr(window, "collect_settings", lambda: dict(window.settings))
+    window.run_tab.on_start()
+    return seen[0]
+
+
+def test_start_names_when_the_reference_was_taken(ready_window, monkeypatch):
+    from datetime import datetime, timedelta
+    window, _ = ready_window
+    window.settings["sample_name"] = "film A"
+    window.ref_info = {"how": "collected", "when": datetime.now() - timedelta(minutes=75),
+                       "sample": "film A"}
+    text = _start_dialog_text(window, monkeypatch)
+    assert "Reference:  collected" in text and "1 h 15 min ago" in text
+    assert "New sample or cell" in text                  # the standing reminder
+    assert "sample name was" not in text                 # nothing changed: no concern
+
+
+def test_start_flags_a_reference_taken_under_another_sample_name(ready_window, monkeypatch):
+    from datetime import datetime
+    window, _ = ready_window
+    window.settings["sample_name"] = "film B"
+    window.ref_info = {"how": "collected", "when": datetime.now(), "sample": "film A"}
+    text = _start_dialog_text(window, monkeypatch)
+    assert "sample name was 'film A'" in text and "'film B'" in text
+
+
+def test_collecting_a_reference_records_when_and_for_which_sample(window):
+    from spec_echem.fakes import FakeSpectrometer
+    spec = FakeSpectrometer()
+    spec.init()
+    window.spec = spec
+    window.parameters_tab._widgets["sample_name"].setText("film C")
+    window.instrument_tab.on_collect_ref()
+    info = window.ref_info
+    assert info["how"] == "collected" and info["sample"] == "film C"
+    assert info["when"] is not None
