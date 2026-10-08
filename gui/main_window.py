@@ -50,6 +50,9 @@ class MainWindow(QMainWindow):
         self.spec = None
         self.dark = None
         self.ref = None
+        # How and when the reference was taken, and the sample name at the time, so
+        # Start can remind the user to retake it for a new sample (2026-10-07).
+        self.ref_info = None
         self.wavelengths = None
         self.results = {}   # segment label -> absorbance DataFrame (populated during a run)
         self.run_folder = None       # Path to the active/last run folder (echem file lookup)

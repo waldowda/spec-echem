@@ -54,6 +54,65 @@ def n_doping_cycles(settings):
     return max(1, int(math.floor((end - start) / step + 1e-9)) + 1)
 
 
+def cv_progress(potential, n_cycles, threshold_v=0.010):
+    """(cycle, direction) of a CV in progress, from its measured potential so far.
+
+    For the live readout, so a slow CV visibly moves (2026-10-07: at 1 mV/s a point
+    arrives every 20 s). A reversal is counted when the potential comes back more
+    than `threshold_v` from the furthest point of the current sweep -- larger than the
+    measured wobble (+-2.5 mV on 20261007) and smaller than a staircase step. Two
+    reversals make a cycle, so a CV that starts at a vertex counts exactly; one that
+    starts between the vertices turns over at its second vertex rather than when it
+    passes its start again. direction: +1 up, -1 down, 0 not yet known. The count
+    stops at `n_cycles`.
+    """
+    e = np.asarray(potential, dtype=float)
+    direction, reversals = 0, 0
+    if e.size:
+        extreme = e[0]
+        for v in e[1:]:
+            if direction == 0:
+                if abs(v - extreme) > threshold_v:
+                    direction = 1 if v > extreme else -1
+                    extreme = v
+            elif (v - extreme) * direction > 0:
+                extreme = v
+            elif abs(v - extreme) > threshold_v:
+                direction, extreme = -direction, v
+                reversals += 1
+    return min(reversals // 2 + 1, max(int(n_cycles), 1)), direction
+
+
+def format_current(amps):
+    """'+3.41 µA' -- a current in the unit that keeps 1-999 before the point."""
+    a = float(amps)
+    if not math.isfinite(a):
+        return "--"
+    for scale, unit in ((1.0, "A"), (1e-3, "mA"), (1e-6, "\u00b5A"), (1e-9, "nA")):
+        if abs(a) >= scale:
+            return f"{a / scale:+.3g} {unit}"
+    return f"{a / 1e-12:+.3g} pA"
+
+
+def live_status(is_cv, time, potential, current, n_cycles=1):
+    """The live plot's readout: where the segment is now.
+
+    CV:    "Cycle 2 of 3  up / E = +0.512 V / I = +3.41 µA"
+    holds: "t = 12.3 s / E = +0.700 V / I = +3.41 µA"
+    Empty string before the first point.
+    """
+    if len(current) == 0:
+        return ""
+    e, i = float(potential[-1]), float(current[-1])
+    if is_cv:
+        cycle, direction = cv_progress(potential, n_cycles)
+        way = {1: "\u2191 up", -1: "\u2193 down"}.get(direction, "")
+        head = f"Cycle {cycle} of {max(int(n_cycles), 1)}  {way}".rstrip()
+    else:
+        head = f"t = {float(time[-1]) - float(time[0]):.1f} s"
+    return f"{head}\nE = {e:+.3f} V\nI = {format_current(i)}"
+
+
 def build_segments(settings):
     """Translate a settings dict into the ordered list of segments to run."""
     trigger = settings["trigger"]
