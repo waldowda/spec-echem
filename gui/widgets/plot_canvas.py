@@ -117,6 +117,8 @@ class MplCanvas(FigureCanvasQTAgg):
         self._xlabel = xlabel
         self._ylabel = ylabel
         self._live_line = None   # persistent Line2D for the incremental live trace
+        self._live_head = None   # the dot on its newest point
+        self._live_text = None   # the status readout in its corner
         # (artist, raw text, warn) for the footnote, so a resize can rewrap it. The
         # wrap depends on the canvas width, and one computed at draw time ran off
         # both edges once the window was narrowed.
@@ -157,7 +159,7 @@ class MplCanvas(FigureCanvasQTAgg):
     # Everything a draw method may rebind. resid_ax exists only after plot_fit, and
     # plot_fit also overwrites _xlabel/_ylabel -- rendering offscreen must not leave
     # the widget relabeled.
-    _RETARGET_ATTRS = ("fig", "ax", "resid_ax", "_live_line", "_footnote",
+    _RETARGET_ATTRS = ("fig", "ax", "resid_ax", "_live_line", "_live_head", "_live_text", "_footnote",
                        "_xlabel", "_ylabel")
 
     @contextmanager
@@ -414,7 +416,8 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
-    def update_live_line(self, x, y, xlabel, ylabel, title=None, y_unit=None):
+    def update_live_line(self, x, y, xlabel, ylabel, title=None, y_unit=None,
+                         status=None):
         """Incremental live echem trace mid-run (red = running). Reuses ONE Line2D
         and just updates its data + rescales, instead of clearing and rebuilding the
         whole figure each tick — a much lighter redraw, so it holds the GIL only
@@ -429,15 +432,30 @@ class MplCanvas(FigureCanvasQTAgg):
         "1e-9+3.027e-5" (2026-09-25, a 30 uA hold on a resistor). An engineering
         formatter writes full values instead, so the ticks stay readable at any zoom.
         A minimum span was tried first and rejected at the rig: it made a hold look
-        flat when it was not, which is the plot deciding what the user sees."""
+        flat when it was not, which is the plot deciding what the user sees.
+
+        The newest point carries a blue dot, and `status` (e.g. "Cycle 2 of 3 ...")
+        is written in the top-left corner, both updated every tick. Requested
+        2026-10-07: at 1 mV/s a point arrives every 20 s, and a slowly growing line
+        did not show that the run was moving, where it was, or which cycle it was on."""
         if self._live_line is None:
             self._xlabel, self._ylabel = xlabel, ylabel
             self._new_axes()
             (self._live_line,) = self.ax.plot([], [], lw=1.0, color="#d62728")
+            (self._live_head,) = self.ax.plot([], [], "o", ms=7, color="#1f77b4",
+                                              zorder=3)
+            self._live_text = self.ax.text(
+                0.02, 0.97, "", transform=self.ax.transAxes, va="top", ha="left",
+                fontsize=9, family="monospace",
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.7", alpha=0.85))
             if y_unit:
                 self.ax.yaxis.set_major_formatter(EngFormatter(unit=y_unit))
             self._decorate(title)
         self._live_line.set_data(x, y)
+        if len(x):
+            self._live_head.set_data([x[-1]], [y[-1]])
+        self._live_text.set_text(status or "")
+        self._live_text.set_visible(bool(status))
         self.ax.relim()
         self.ax.autoscale_view()
         self.draw_idle()

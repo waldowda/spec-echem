@@ -13,9 +13,11 @@ from qtpy.QtWidgets import (
 )
 
 import copy
+from datetime import datetime
 from pathlib import Path
 
-from spec_echem.experiment import build_segments, pitt_start_problems, pitt_step_segments
+from spec_echem.experiment import (build_segments, live_status, pitt_start_problems,
+                                   pitt_step_segments)
 from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
 from spec_echem.data import (write_run_metadata, segment_potential_text,
                              DATA_TYPE_CV, DATA_TYPE_DOPING)
@@ -25,6 +27,30 @@ from spec_echem.potentiostat import make_potentiostat
 from gui.widgets.plot_canvas import MplCanvas
 from gui.workers import AcquisitionWorker
 
+
+
+def reference_notes(info, sample, now):
+    """(line, concern) about the reference spectrum, for the Start dialog.
+
+    A reminder, not a check: the software cannot tell a blank from a sample in the
+    beam, so it says when the reference was taken and under which sample name, and
+    raises a concern only when the name has changed since. Requested 2026-10-07.
+    """
+    if not info:
+        return ("Reference:  in use (when it was taken is not known)\n"
+                "    New sample or cell since then? Take a new reference first.", None)
+    mins = max(int((now - info["when"]).total_seconds() // 60), 0)
+    age = f"{mins // 60} h {mins % 60} min ago" if mins >= 60 else f"{mins} min ago"
+    stamp = f"{info['when']:%H:%M}" if info["when"].date() == now.date() \
+        else f"{info['when']:%Y-%m-%d %H:%M}"
+    line = (f"Reference:  {info['how']}, {stamp} ({age})\n"
+            "    New sample or cell since then? Take a new reference first.")
+    then = str(info.get("sample") or "").strip()
+    concern = None
+    if then and sample and then != sample:
+        concern = (f"The reference was taken when the sample name was '{then}'; this "
+                   f"run is '{sample}'. A new sample or cell needs a new reference.")
+    return line, concern
 
 class RunTab(QWidget):
     def __init__(self, main_window):
@@ -233,6 +259,11 @@ class RunTab(QWidget):
                          + ("auto" if str(rng).lower() == "auto" else f"{float(rng):.3e} A"))
 
         concerns = []
+        ref_line, ref_concern = reference_notes(getattr(self.win, "ref_info", None),
+                                                sample, datetime.now())
+        lines.append(ref_line)
+        if ref_concern:
+            concerns.append(ref_concern)
         if not sample:
             concerns.append("The sample name is blank.")
         if settings["data_folder"].endswith("_"):
@@ -434,6 +465,7 @@ class RunTab(QWidget):
         # acq_data snapshot and redraw here on the GUI thread, throttled — this
         # never touches the acquisition thread, so it can't affect timing.
         self._current_segment = None
+        self._run_cv_cycles = settings.get("cv_cycles", 1)   # the frozen run's, for the readout
         if python_mode and self.live_check.isChecked():
             self.live_canvas.show_message("Waiting for the first segment…")
             self._live_timer = QTimer(self)
@@ -515,16 +547,19 @@ class RunTab(QWidget):
         if data is None or len(data.current) == 0:
             return
         current = data.current
-        if seg.data_type == DATA_TYPE_CV:
+        is_cv = seg.data_type == DATA_TYPE_CV
+        status = live_status(is_cv, data.time, data.potential, current,
+                             getattr(self, "_run_cv_cycles", 1))
+        if is_cv:
             self.live_canvas.update_live_line(
                 data.potential, current, "Potential (V)", "Current",
-                title=f"{seg.label} — live", y_unit="A")
+                title=f"{seg.label} — live", y_unit="A", status=status)
         else:
             t = data.time
             t0 = t[0] if len(t) else 0.0
             self.live_canvas.update_live_line(
                 t - t0, current, "Time (s)", "Current",
-                title=f"{seg.label} — live", y_unit="A")
+                title=f"{seg.label} — live", y_unit="A", status=status)
 
     def _stop_live_timer(self):
         if self._live_timer is not None:
