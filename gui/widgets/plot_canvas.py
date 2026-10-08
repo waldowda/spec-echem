@@ -444,7 +444,7 @@ class MplCanvas(FigureCanvasQTAgg):
             self._xlabel, self._ylabel = xlabel, ylabel
             self._new_axes()
             (self._live_line,) = self.ax.plot([], [], lw=1.0, color="#d62728")
-            (self._live_head,) = self.ax.plot([], [], "o", ms=5, color="#1f77b4",
+            (self._live_head,) = self.ax.plot([], [], "o", ms=4, color="#1f77b4",
                                               zorder=3)
             self._live_text = self.ax.text(
                 0.5, 1.015, "", transform=self.ax.transAxes, va="bottom",
