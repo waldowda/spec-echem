@@ -3463,12 +3463,18 @@ def test_the_live_trace_marks_its_newest_point_and_shows_a_status(app):
     canvas = MplCanvas()
     e = np.linspace(0.0, 0.5, 26)
     canvas.update_live_line(e, e / 1e4, "Potential (V)", "Current", y_unit="A",
-                            status="Cycle 1 of 3  up")
+                            title="CV \u2014 live", status="Cycle 1 of 3  up")
     assert list(canvas._live_head.get_xdata()) == [0.5]
     assert list(canvas._live_head.get_ydata()) == [0.5 / 1e4]
     assert canvas._live_head.get_color() != canvas._live_line.get_color()
     assert canvas._live_head.get_markersize() > canvas._live_line.get_linewidth()
     assert canvas._live_text.get_text() == "Cycle 1 of 3  up"
+    # Outside the axes, between them and the title: it must never cover data.
+    canvas.draw()
+    r = canvas.get_renderer()
+    box = canvas._live_text.get_window_extent(r)
+    assert box.y0 >= canvas.ax.get_window_extent(r).y1
+    assert box.y1 <= canvas.ax.title.get_window_extent(r).y0
 
     e2 = np.concatenate([e, [0.48, 0.46]])
     canvas.update_live_line(e2, e2 / 1e4, "Potential (V)", "Current", y_unit="A",
@@ -3507,9 +3513,8 @@ def test_the_run_tab_feeds_the_cv_readout_from_live_data(window):
         tab._update_live_echem()
     finally:
         tab._worker = None
-    text = tab.live_canvas._live_text.get_text().splitlines()
-    assert text[0] == "Cycle 2 of 3  ↑ up"
-    assert text[1] == f"E = {e[-1]:+.3f} V" and text[2] == "I = +2.5 µA"
+    text = tab.live_canvas._live_text.get_text()
+    assert text == f"Cycle 2 of 3  ↑ up   E = {e[-1]:+.3f} V   I = +2.5 µA"
     assert list(tab.live_canvas._live_head.get_xdata()) == [e[-1]]
 
 

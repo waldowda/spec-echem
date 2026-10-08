@@ -435,7 +435,9 @@ class MplCanvas(FigureCanvasQTAgg):
         flat when it was not, which is the plot deciding what the user sees.
 
         The newest point carries a blue dot, and `status` (e.g. "Cycle 2 of 3 ...")
-        is written in the top-left corner, both updated every tick. Requested
+        is written on one line between the title and the axes, both updated every
+        tick. Outside the axes so it can never cover data: in the top-left corner it
+        hid the start of every doping transient. Requested
         2026-10-07: at 1 mV/s a point arrives every 20 s, and a slowly growing line
         did not show that the run was moving, where it was, or which cycle it was on."""
         if self._live_line is None:
@@ -445,16 +447,17 @@ class MplCanvas(FigureCanvasQTAgg):
             (self._live_head,) = self.ax.plot([], [], "o", ms=7, color="#1f77b4",
                                               zorder=3)
             self._live_text = self.ax.text(
-                0.02, 0.97, "", transform=self.ax.transAxes, va="top", ha="left",
-                fontsize=9, family="monospace",
-                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.7", alpha=0.85))
+                0.5, 1.015, "", transform=self.ax.transAxes, va="bottom",
+                ha="center", fontsize=9, family="monospace", color="#1f77b4")
             if y_unit:
                 self.ax.yaxis.set_major_formatter(EngFormatter(unit=y_unit))
             self._decorate(title)
+            if title:
+                self.ax.set_title(title, pad=16)     # room for the status line
         self._live_line.set_data(x, y)
         if len(x):
             self._live_head.set_data([x[-1]], [y[-1]])
-        self._live_text.set_text(status or "")
+        self._live_text.set_text("   ".join((status or "").splitlines()))
         self._live_text.set_visible(bool(status))
         self.ax.relim()
         self.ax.autoscale_view()
