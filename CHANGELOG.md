@@ -27,6 +27,15 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **Live plot readout (2026-10-07):** the newest point carries a blue dot, and a line
+  under the title gives cycle n of N with sweep direction, E and I for a CV (time, E
+  and I for a hold), updated every tick. Requested after a 1 mV/s CV, where a point
+  every 20 s left it unclear whether the run was moving.
+- **Reference reminder at Start (2026-10-07):** the confirmation says how and when the
+  reference spectrum was taken, reminds the user to retake it for a new sample or
+  cell, and raises a concern when the sample name has changed since it was taken.
+- **`notebooks/pitt_review.ipynb`:** a first look at a PITT run's HDF5 — the step
+  table, the staircase, transients, end-of-step spectra, absorbance vs potential.
 - **PITT — an equilibrium potential staircase segment (2026-10-04/05).** Data type 5,
   its own Parameters section. One continuous waveform with the cell held ON from the
   first step to the last; each step ends when |I| stays below a user-set fraction of
