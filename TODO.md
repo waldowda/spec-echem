@@ -49,8 +49,9 @@ data.
 
 ### Needs a decision
 
-- [ ] **A hold before the CV** (potential + duration), so every CV starts from a verified
-      neutral film. 20261007: the 20 mV/s CV ended still partly doped, and the film
+- [ ] **A hold before the CV** -- ON HOLD (the user, 2026-10-07: the partly doped start
+      was a setup slip after the quick CV, not a gap in the software). Was proposed as a
+      potential + duration, so every CV starts from a verified neutral film. 20261007: the 20 mV/s CV ended still partly doped, and the film
       oxidised further during ~19 min at open circuit, so the 1 mV/s CV began doped.
       The fixed order runs pre-dedoping AFTER the CV; the Autolab procedure's FHWait
       (set to 0 by spec-echem) is the likely hook. Or fold into the order popup.
