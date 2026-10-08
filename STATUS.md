@@ -4,7 +4,7 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-10-05_
+_Last updated: 2026-10-07_
 
 ---
 
@@ -23,6 +23,12 @@ taken near equilibrium rather than mid-transient. HDF5 only, one group per step
   step at 0.10 s, the dummy's resistance recovered to ~1%.
 - Fixed on the way: a spurious Gamry OVERLOAD warning, every-other-tick spectra gaps,
   and Load Settings silently putting the Gamry on its 60 pA range.
+
+**2026-10-07 — first real-film CVs through the new code** (Autolab, a 20 mV/s and a
+1 mV/s CV on one film). The gap between the sweeps, read optically, halved from ~230
+to ~118 mV — still well above equilibrium, so the PITT's return leg is the next
+measurement. Also added: a live-plot readout (cycle, E, I) and a reference reminder at
+Start, both requested at the bench.
 
 **Next:** at the Autolab, confirm the count rule and test the cutoff on a slow series RC
 (τ = 1 s); then a real film, at the user's call. The PITT analysis (charge per step,
