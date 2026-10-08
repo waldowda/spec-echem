@@ -49,6 +49,14 @@ data.
 
 ### Needs a decision
 
+- [ ] **A hold before the CV** (potential + duration), so every CV starts from a verified
+      neutral film. 20261007: the 20 mV/s CV ended still partly doped, and the film
+      oxidised further during ~19 min at open circuit, so the 1 mV/s CV began doped.
+      The fixed order runs pre-dedoping AFTER the CV; the Autolab procedure's FHWait
+      (set to 0 by spec-echem) is the likely hook. Or fold into the order popup.
+      (Done the same day, `a5957e6`: live-plot dot + cycle/E/I readout; the Start
+      dialog names the reference's time and flags a changed sample name.)
+
 - [ ] **Move the current-range control to Tab 1, beside the potentiostat selection.**
       Requested 2026-09-25. Two range dropdowns in the doping group — "Current range
       (Ei mode):" (Autolab) and "Current range (Gamry):" — and on 2026-09-25 it was not
