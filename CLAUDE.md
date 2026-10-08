@@ -85,7 +85,7 @@ spec-echem/
 │   ├── sop.md                       # Standard operating procedure (GUI-first)
 │   └── inspect-run.md
 ├── examples/                        # Bench/validation scripts + identify_hardware.py
-├── tests/                           # Unit tests (886) — no hardware required
+├── tests/                           # Unit tests (902) — no hardware required
 ├── data/                            # Sample data directory
 ├── CHANGELOG.md                     # What changed between versions
 ├── STATUS.md                        # Human-readable project status + next steps
@@ -434,7 +434,7 @@ ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm
 
 ### Modularization — DONE
 `get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
-`data.py`; hardware is faked (`fakes.py`) so all 886 tests run with no instruments attached.
+`data.py`; hardware is faked (`fakes.py`) so all 902 tests run with no instruments attached.
 
 ### Settings: two layers, don't confuse them
 - **Experiment settings** (`settings.py`, `DEFAULT_SETTINGS`) — *this run*: sample, folder, CV
@@ -490,8 +490,8 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 886 tests total (885 pass, 1 skip; counted 2026-10-05);
-  `tests/test_gui_layout.py` alone holds 187 and `tests/test_dark_save.py` another 3, both
+- **`gui/` coverage — no longer the gap it was.** 902 tests total (901 pass, 1 skip; counted 2026-10-07);
+  `tests/test_gui_layout.py` alone holds 193 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
   was built still stands: every bug in the 0.2.0 cycle lived in GUI wiring and the core suite
