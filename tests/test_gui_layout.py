@@ -3561,3 +3561,69 @@ def test_collecting_a_reference_records_when_and_for_which_sample(window):
     info = window.ref_info
     assert info["how"] == "collected" and info["sample"] == "film C"
     assert info["when"] is not None
+
+
+# --- choosing between two Gamrys (2026-10-09) ---------------------------------
+
+def _two_gamrys(monkeypatch, pick):
+    from gui.tabs import instrument_tab
+    from qtpy.QtWidgets import QInputDialog
+    opened = []
+    monkeypatch.setattr(instrument_tab, "list_gamry_sections",
+                        lambda: ["REF600-1", "IFC1010-2"])
+    monkeypatch.setattr(instrument_tab, "probe_identity",
+                        lambda section=None: opened.append(section) or ("Unit", "1"))
+    monkeypatch.setattr(instrument_tab, "probe_gamry_ladder", lambda section=None: None)
+    asked = []
+    monkeypatch.setattr(QInputDialog, "getItem",
+                        lambda *a, **k: asked.append(a) or pick)
+    return opened, asked
+
+
+def test_with_two_gamrys_connect_asks_and_opens_the_one_chosen(window, monkeypatch):
+    opened, asked = _two_gamrys(monkeypatch, ("IFC1010-2", True))
+    tab = window.instrument_tab
+    tab.pstat_python_radio.setChecked(True)
+    tab.on_connect_pstat()
+    assert asked and list(asked[0][3]) == ["REF600-1", "IFC1010-2"]
+    assert opened == ["IFC1010-2"]
+    assert window.settings["gamry_section"] == "IFC1010-2"
+    assert "Connected" in tab.pstat_status.text()
+
+
+def test_the_last_choice_is_preselected(window, monkeypatch):
+    opened, asked = _two_gamrys(monkeypatch, ("IFC1010-2", True))
+    window.settings["gamry_section"] = "IFC1010-2"
+    window.instrument_tab.pstat_python_radio.setChecked(True)
+    window.instrument_tab.on_connect_pstat()
+    assert asked[0][4] == 1
+
+
+def test_cancelling_the_choice_connects_nothing(window, monkeypatch):
+    opened, _ = _two_gamrys(monkeypatch, ("", False))
+    tab = window.instrument_tab
+    tab.pstat_python_radio.setChecked(True)
+    tab.on_connect_pstat()
+    assert opened == []
+    assert "no Gamry chosen" in tab.pstat_status.text()
+
+
+def test_one_gamry_is_taken_without_asking(window, monkeypatch):
+    from gui.tabs import instrument_tab
+    from qtpy.QtWidgets import QInputDialog
+    monkeypatch.setattr(instrument_tab, "list_gamry_sections", lambda: ["REF600-1"])
+    monkeypatch.setattr(instrument_tab, "probe_identity", lambda section=None: ("U", "1"))
+    monkeypatch.setattr(instrument_tab, "probe_gamry_ladder", lambda section=None: None)
+    monkeypatch.setattr(QInputDialog, "getItem",
+                        lambda *a, **k: pytest.fail("asked with one Gamry"))
+    window.instrument_tab.pstat_python_radio.setChecked(True)
+    window.instrument_tab.on_connect_pstat()
+    assert window.settings["gamry_section"] == "REF600-1"
+
+
+def test_start_names_the_chosen_gamry(ready_window, monkeypatch):
+    window, _ = ready_window
+    window.settings["potentiostat_mode"] = "python"
+    window.settings["gamry_section"] = "IFC1010-2"
+    text = _start_dialog_text(window, monkeypatch)
+    assert "Gamry:  IFC1010-2" in text

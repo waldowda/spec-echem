@@ -19,7 +19,7 @@ from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea, QGridLayout,
     QPushButton, QLabel, QCheckBox, QRadioButton, QDoubleSpinBox, QSpinBox, QFileDialog,
-    QApplication, QMessageBox, QTabWidget, QSizePolicy,
+    QApplication, QMessageBox, QTabWidget, QSizePolicy, QInputDialog,
 )
 
 # Cap spin boxes so the left column's minimum width stays small — Qt satisfies
@@ -54,7 +54,7 @@ from spec_echem.linearity import (
 from spec_echem import potentiostat as _potentiostat
 from spec_echem.potentiostat import (
     TOOLKITPY_AVAILABLE, AUTOLAB_AVAILABLE, probe_identity, autolab_identity,
-    probe_gamry_ladder,
+    probe_gamry_ladder, list_gamry_sections,
 )
 from spec_echem.settings import (DEFAULT_SETTINGS, LIN_STOP_FLOOR_SPANS,
                                  tidy_detector_floor)
@@ -875,7 +875,15 @@ class InstrumentTab(QWidget):
                 if autolab:
                     who = autolab_identity(self.win.settings)
                 else:
-                    label, serial = probe_identity()
+                    section = self._choose_gamry()
+                    if section is None:
+                        self._pstat_connected = False
+                        self._set_pstat_status("● Not connected — no Gamry chosen",
+                                               "#b00")
+                        return
+                    self.win.settings["gamry_section"] = section
+                    label, serial = (probe_identity(section) if section
+                                     else probe_identity())
                     label = (label or "").strip()
                     who = (f"{label} (serial {serial})" if label
                            else f"Gamry serial {serial}")
@@ -893,7 +901,9 @@ class InstrumentTab(QWidget):
             # the button live again a click during it was queued rather than
             # discarded, starting another connect (2026-10-03 review). Outside the
             # try, as before, so a failed ladder read cannot fail the connect.
-            ladder = None if autolab else probe_gamry_ladder()
+            section = self.win.settings.get("gamry_section") or ""
+            ladder = (None if autolab else
+                      probe_gamry_ladder(section) if section else probe_gamry_ladder())
         self._pstat_connected = True
         self.win.pstat_identity = who
         if not autolab:
@@ -909,6 +919,26 @@ class InstrumentTab(QWidget):
         logger.info("Potentiostat connected in %.1f s: %s",
                     time.perf_counter() - t0, who)
         self._set_pstat_status(f"● Connected — {who}", "#080")
+
+    def _choose_gamry(self):
+        """Which Gamry to use: its section name, "" for the default, None if the
+        user cancelled.
+
+        Asks only when more than one is on USB. With a Reference 600 and an
+        Interface 1010E both connected (2026-10-09) Connect silently took the
+        Reference 600. The last choice is pre-selected; one instrument is taken
+        without asking; none found (or no way to list them) keeps the old default.
+        """
+        sections = list_gamry_sections()
+        if len(sections) <= 1:
+            return sections[0] if sections else ""
+        last = self.win.settings.get("gamry_section") or ""
+        current = sections.index(last) if last in sections else 0
+        choice, ok = QInputDialog.getItem(
+            self, "Which Gamry?",
+            f"{len(sections)} Gamry potentiostats are connected.\n"
+            "Which one should this run use?", sections, current, False)
+        return str(choice) if ok else None
 
     def _update_cal_plot(self):
         # Dark is unannotated on purpose: it is detector noise / stray light, so its
