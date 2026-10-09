@@ -2391,3 +2391,39 @@ def test_the_gamry_pitt_sample_never_waits_for_a_point(gamry_pitt):
     assert math.isnan(i) and math.isnan(v)
     r.points.append((0, 0.1, 0.1, 0.05, 1.6e-5))
     assert p.pitt_sample()[2] == 1.6e-5
+
+
+# The ladder an Interface 1010E reported on 2026-10-09: decades, at IERange 4..12.
+_IFC1010E_LADDER = [(i, 10.0 ** (i - 12), lbl) for i, lbl in zip(
+    range(4, 13), ("10nA", "100nA", "1uA", "10uA", "100uA", "1mA", "10mA", "100mA", "1A"))]
+
+
+def test_the_range_advice_uses_the_instruments_own_ladder():
+    """50 uA with headroom: 600 uA on a Reference 600, 100 uA on an Interface 1010E.
+    The Reference 600 table would have advised a range the 1010E does not have."""
+    assert potentiostat.suggest_gamry_current_range(50e-6) == pytest.approx(6e-4)
+    assert potentiostat.suggest_gamry_current_range(
+        50e-6, ladder=_IFC1010E_LADDER) == pytest.approx(1e-4)
+    assert potentiostat.suggest_gamry_current_range(
+        5e-9, ladder=_IFC1010E_LADDER) == pytest.approx(1e-8)
+
+
+def test_a_1010e_range_is_set_by_its_own_index():
+    """On the 1010E, IERange 8 is 100 uA, not the Reference 600's 600 uA."""
+    class Pstat:
+        def __init__(self):
+            self.set = None
+        def ie_range_value_list(self):
+            return [i for i, _a, _l in _IFC1010E_LADDER]
+        def ie_range_label_list(self):
+            return [l for _i, _a, l in _IFC1010E_LADDER]
+        def set_ie_range_mode(self, auto):
+            pass
+        def set_ie_range(self, i):
+            self.set = i
+        def ie_range(self):
+            return self.set
+    p = Pstat()
+    how, full = potentiostat.apply_gamry_current_range(p, 1e-4)
+    assert p.set == 8 and full == pytest.approx(1e-4)
+    assert "IERange 8" in how
