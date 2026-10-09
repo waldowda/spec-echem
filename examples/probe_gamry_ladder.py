@@ -21,9 +21,14 @@ section name (`tkp.enum_sections()`). `tkp.Pstat("PSTAT")` alone -- what the res
 spec-echem uses -- is documented by Gamry for a SINGLE connected instrument; with two
 it opens whichever the toolkit picks, and nothing says which.
 """
+import faulthandler
 import os
 import struct
 import sys
+
+# A crash inside the vendor DLL ends the process with no Python traceback; this at
+# least prints where it happened.
+faulthandler.enable()
 
 # `python examples/probe_gamry_ladder.py` puts examples/ on sys.path, NOT the repo
 # root, so `import spec_echem` fails unless the package happens to be installed.
@@ -79,11 +84,19 @@ def main():
         return 1
 
     from spec_echem.potentiostat import read_gamry_ladder, tkp
+    # enum_sections() goes through the toolkit's broker, so the toolkit must be
+    # initialised first. Called cold on the Reference 600 rig (2026-10-09) the process
+    # died with no output at all -- not even an exception.
+    print("Listing connected Gamry instruments...", flush=True)
+    sections = []
+    tkp.toolkitpy_init("spec-echem-ladder-list")
     try:
-        sections = list(tkp.enum_sections() or [])
+        sections = [str(x) for x in (tkp.enum_sections() or [])]
     except Exception as exc:  # noqa: BLE001 -- an older toolkitpy may lack it
         print(f"(could not list instruments: {exc}; reading the default one)\n")
-        sections = []
+    finally:
+        tkp.toolkitpy_close()
+    print(f"  found {len(sections)}\n", flush=True)
 
     if len(sections) <= 1:
         try:
