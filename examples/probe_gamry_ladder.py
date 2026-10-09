@@ -15,6 +15,11 @@ Run it on a machine with the 32-bit toolkitpy environment and the potentiostat o
 Read-only and cell-safe: it opens the instrument, reads its identity and its list of
 ranges, and closes. **It does not switch the cell on, apply a potential, or measure.**
 No spectrometer and no dummy cell are needed.
+
+**More than one Gamry on USB:** every one is listed and read, each opened by its own
+section name (`tkp.enum_sections()`). `tkp.Pstat("PSTAT")` alone -- what the rest of
+spec-echem uses -- is documented by Gamry for a SINGLE connected instrument; with two
+it opens whichever the toolkit picks, and nothing says which.
 """
 import os
 import struct
@@ -73,15 +78,58 @@ def main():
                   "\ninstalled on this machine.")
         return 1
 
+    from spec_echem.potentiostat import read_gamry_ladder, tkp
     try:
-        label, serial = probe_identity()
-        who = f"{label} (serial {serial})" if (label or "").strip() else f"serial {serial}"
-    except Exception as exc:  # noqa: BLE001
-        print(f"Could not open the potentiostat: {exc}")
-        return 1
-    print(f"Potentiostat: {who}\n")
+        sections = list(tkp.enum_sections() or [])
+    except Exception as exc:  # noqa: BLE001 -- an older toolkitpy may lack it
+        print(f"(could not list instruments: {exc}; reading the default one)\n")
+        sections = []
 
-    ladder = probe_gamry_ladder()
+    if len(sections) <= 1:
+        try:
+            label, serial = probe_identity()
+            who = f"{label} (serial {serial})" if (label or "").strip() else f"serial {serial}"
+        except Exception as exc:  # noqa: BLE001
+            print(f"Could not open the potentiostat: {exc}")
+            return 1
+        print(f"Potentiostat: {who}\n")
+        show_ladder(probe_gamry_ladder(), gamry_range_full_scale, GAMRY_CURRENT_RANGES)
+        return 0
+
+    print(f"{len(sections)} Gamry instruments connected:")
+    for sec in sections:
+        print(f"  {sec}")
+    print("\nspec-echem itself opens the DEFAULT one (tkp.Pstat('PSTAT')), which Gamry")
+    print("documents for a single instrument -- with several connected, unplug the ones")
+    print("not in use before a run. Each is read below by name.\n")
+    failed = 0
+    for sec in sections:
+        print("=" * 62)
+        print(f"Section: {sec}")
+        tkp.toolkitpy_init("spec-echem-ladder")
+        pstat = None
+        try:
+            pstat = tkp.Pstat("PSTAT", sec)
+            label, serial = pstat.label(), pstat.serial_no()
+            print(f"Potentiostat: {label} (serial {serial})\n")
+            show_ladder(read_gamry_ladder(pstat), gamry_range_full_scale,
+                        GAMRY_CURRENT_RANGES)
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            print(f"Could not read it: {type(exc).__name__}: {exc}")
+        finally:
+            if pstat is not None:
+                try:
+                    pstat.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                del pstat
+            tkp.toolkitpy_close()
+        print()
+    return 1 if failed else 0
+
+
+def show_ladder(ladder, gamry_range_full_scale, GAMRY_CURRENT_RANGES):
     if not ladder:
         print("This instrument did not report a range list.")
         print("spec-echem will fall back to the documented Reference 600 table:")
@@ -89,7 +137,7 @@ def main():
             print(f"  IERange {i:2d}   {lbl:>8s}   {amps:.3e} A")
         print("\nIf this instrument is NOT a Reference 600/620, those values are wrong")
         print("for it, and the per-segment '% of full scale' advice would be too.")
-        return 0
+        return
 
     print(f"{'IERange':>8}  {'label':>10}  {'full scale':>12}   documented (REF 600)")
     print("-" * 62)
@@ -109,7 +157,6 @@ def main():
         print("from the instrument. spec-echem will use the values above.")
     else:
         print("All agree with the documented Reference 600 table.")
-    return 0
 
 
 if __name__ == "__main__":
