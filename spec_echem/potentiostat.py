@@ -326,7 +326,7 @@ def initialize_pstat(pstat, current_range=6.0e-3):
 
 
 def list_gamry_sections():
-    """Every Gamry on this PC, by section name (e.g. 'REF600-08083'), or [].
+    """Every Gamry on this PC, by section name (e.g. 'REF600-12345'), or [].
 
     The toolkit must be initialised for this: called cold, enum_sections() killed the
     process with no output at all (2026-10-09). [] when toolkitpy is missing or the

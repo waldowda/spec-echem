@@ -134,7 +134,7 @@ DEFAULT_SETTINGS = {
     # Gamry documents auto-ranging as not recommended above 1 point/s and we sample
     # at 10. See apply_gamry_current_range.
     "gamry_current_range": 6.0e-3,
-    # Which Gamry, by section name ('REF600-08083'), when more than one is on USB.
+    # Which Gamry, by section name ('REF600-12345'), when more than one is on USB.
     # Chosen at Connect; "" = the toolkit's default, right only for a single one.
     "gamry_section": "",
     # gzip level for the HDF5 files: 0 = off (the default), 1-9 = gzip.
