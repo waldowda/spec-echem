@@ -17,9 +17,9 @@ ranges, and closes. **It does not switch the cell on, apply a potential, or meas
 No spectrometer and no dummy cell are needed.
 
 **More than one Gamry on USB:** every one is listed and read, each opened by its own
-section name (`tkp.enum_sections()`). `tkp.Pstat("PSTAT")` alone -- what the rest of
-spec-echem uses -- is documented by Gamry for a SINGLE connected instrument; with two
-it opens whichever the toolkit picks, and nothing says which.
+section name (`tkp.enum_sections()`). `tkp.Pstat("PSTAT")` alone is documented by
+Gamry for a SINGLE connected instrument; with two it opens whichever the toolkit
+picks. The GUI therefore asks which one at Connect and opens it by section.
 """
 import faulthandler
 import os
@@ -112,9 +112,8 @@ def main():
     print(f"{len(sections)} Gamry instruments connected:")
     for sec in sections:
         print(f"  {sec}")
-    print("\nspec-echem itself opens the DEFAULT one (tkp.Pstat('PSTAT')), which Gamry")
-    print("documents for a single instrument -- with several connected, unplug the ones")
-    print("not in use before a run. Each is read below by name.\n")
+    print("\nThe GUI asks which one to use when you press Connect. Each is read below")
+    print("by name.\n")
     failed = 0
     for sec in sections:
         print("=" * 62)
