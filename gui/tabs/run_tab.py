@@ -237,6 +237,9 @@ class RunTab(QWidget):
         lines.append(f"Sample:  {sample or '(blank)'}")
         mode = settings.get("potentiostat_mode", "external")
         lines.append(f"Potentiostat:  {mode}")
+        if mode == "python":
+            lines.append("    Gamry:  "
+                         + (settings.get("gamry_section") or "the default instrument"))
         lines.append(f"Segments:  {len(segments)}")
         if any(seg.data_type == DATA_TYPE_CV for seg in segments):
             lines.append(f"    CV:  {settings.get('cv_limit1_v', 0.0):+.3f} to "

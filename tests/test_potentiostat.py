@@ -2427,3 +2427,42 @@ def test_a_1010e_range_is_set_by_its_own_index():
     how, full = potentiostat.apply_gamry_current_range(p, 1e-4)
     assert p.set == 8 and full == pytest.approx(1e-4)
     assert "IERange 8" in how
+
+
+# --- more than one Gamry on USB (2026-10-09: a Reference 600 and an Interface 1010E) --
+
+class _TwoGamrys:
+    def __init__(self, sections=("REF600-1", "IFC1010-2")):
+        self.sections, self.opened = list(sections), []
+    def enum_sections(self):
+        return self.sections
+    def Pstat(self, tag, section=None):
+        self.opened.append(section)
+        return object()
+
+
+def test_the_chosen_gamry_is_opened_by_its_section(monkeypatch):
+    tk = _TwoGamrys()
+    monkeypatch.setattr(potentiostat, "tkp", tk)
+    potentiostat.open_gamry_pstat("IFC1010-2")
+    potentiostat.open_gamry_pstat(None)              # nothing chosen: the default
+    assert tk.opened == ["IFC1010-2", None]
+
+
+def test_a_chosen_gamry_that_is_not_connected_is_an_error_not_another_one(monkeypatch):
+    tk = _TwoGamrys(sections=["REF600-1"])
+    monkeypatch.setattr(potentiostat, "tkp", tk)
+    with pytest.raises(RuntimeError, match="IFC1010-2.*not connected.*REF600-1"):
+        potentiostat.open_gamry_pstat("IFC1010-2")
+    assert tk.opened == []                           # nothing else was opened instead
+
+
+def test_the_pitt_runs_on_the_chosen_gamry(gamry_pitt):
+    tk = gamry_pitt(tau=1e9, r_leak=3210.0)
+    opened = []
+    tk.enum_sections = lambda: ["REF600-1", "IFC1010-2"]
+    real = tk.Pstat
+    tk.Pstat = lambda tag, section=None: opened.append(section) or real(tag)
+    _run_gamry(_gamry_settings(pitt_stop_v=0.0, pitt_max_hold_s=0.1,
+                               gamry_section="IFC1010-2"))
+    assert opened == ["IFC1010-2"]

@@ -325,7 +325,54 @@ def initialize_pstat(pstat, current_range=6.0e-3):
     return apply_gamry_current_range(pstat, current_range)
 
 
-def probe_identity():
+def list_gamry_sections():
+    """Every Gamry on this PC, by section name (e.g. 'REF600-08083'), or [].
+
+    The toolkit must be initialised for this: called cold, enum_sections() killed the
+    process with no output at all (2026-10-09). [] when toolkitpy is missing or the
+    call fails, which every caller treats as "use the default instrument".
+    """
+    if not TOOLKITPY_AVAILABLE:
+        return []
+    try:
+        tkp.toolkitpy_init("spec-echem-list")
+    except Exception:   # noqa: BLE001
+        return []
+    try:
+        return [str(s) for s in (tkp.enum_sections() or [])]
+    except Exception:   # noqa: BLE001 -- an older toolkitpy may lack it
+        return []
+    finally:
+        try:
+            tkp.toolkitpy_close()
+        except Exception:   # noqa: BLE001
+            pass
+
+
+def open_gamry_pstat(section=None):
+    """Open the CHOSEN Gamry, or the toolkit's default when none was chosen.
+
+    tkp.Pstat("PSTAT") alone is documented by Gamry for a single connected
+    instrument. With a Reference 600 and an Interface 1010E both on USB (2026-10-09)
+    the GUI opened the Reference 600 and nothing said it had picked. A section that
+    is not connected is an ERROR naming what is, never a quiet fall back to another
+    instrument -- a run on the wrong potentiostat is worse than no run.
+    """
+    if not section:
+        return tkp.Pstat("PSTAT")
+    try:
+        present = [str(s) for s in (tkp.enum_sections() or [])]
+    except Exception:   # noqa: BLE001 -- cannot check; let Pstat() itself say
+        present = None
+    if present is not None and section not in present:
+        raise RuntimeError(
+            f"The chosen Gamry '{section}' is not connected (found: "
+            f"{', '.join(present) or 'none'}). Connect again on the Instrument tab "
+            f"and choose one.")
+    return tkp.Pstat("PSTAT", section)
+
+
+def probe_identity(section=None):
     """
     Open the Gamry briefly, read its label (user-assigned custom name) and serial
     number, and close. Returns (label, serial). Backs a GUI "Identify" button so
@@ -336,13 +383,13 @@ def probe_identity():
         raise RuntimeError("toolkitpy is not importable — Python potentiostat control unavailable.")
     tkp.toolkitpy_init("spec-echem-identify")
     try:
-        pstat = tkp.Pstat("PSTAT")
+        pstat = open_gamry_pstat(section)
         return pstat.label(), pstat.serial_no()
     finally:
         tkp.toolkitpy_close()
 
 
-def probe_gamry_ladder():
+def probe_gamry_ladder(section=None):
     """Open the Gamry briefly and return its I/E ladder, or None.
 
     Separate from probe_identity() rather than folded into it: that returns a pair
@@ -357,7 +404,7 @@ def probe_gamry_ladder():
     except Exception:   # noqa: BLE001
         return None
     try:
-        return read_gamry_ladder(tkp.Pstat("PSTAT"))
+        return read_gamry_ladder(open_gamry_pstat(section))
     except Exception:   # noqa: BLE001
         return None
     finally:
@@ -2367,7 +2414,7 @@ class _GamryPittRunner:
         keep = None                              # the live signal reference
         try:
             tkp.toolkitpy_init("spec-echem-pitt")
-            pstat = tkp.Pstat("PSTAT")
+            pstat = open_gamry_pstat(self.settings.get("gamry_section") or None)
             pstat.set_ctrl_mode(tkp.PSTATMODE)
             self.how, self.range_full = initialize_pstat(
                 pstat, self.settings.get("gamry_current_range", 6.0e-3))
@@ -2583,9 +2630,10 @@ class ToolkitPotentiostat(Potentiostat):
         self._pitt_runner = _GamryPittRunner(self.settings)
         self._pitt_runner.start(float(potential))
         get_run_logger().info(
-            "Gamry PITT: first step %+.6f V, current range %s, one curve per step at "
-            "%.3f s; cell still open.", float(potential), self._pitt_runner.how,
-            self._pitt_runner.period)
+            "Gamry PITT on %s: first step %+.6f V, current range %s, one curve per "
+            "step at %.3f s; cell still open.",
+            self.settings.get("gamry_section") or "the default Gamry", float(potential),
+            self._pitt_runner.how, self._pitt_runner.period)
 
     def pitt_sample(self):
         # Never wait for a point. Waiting for each new one cost a tick whenever the
@@ -2742,7 +2790,7 @@ class ToolkitPotentiostat(Potentiostat):
         curve = None
         try:
             tkp.toolkitpy_init("spec-echem")
-            pstat = tkp.Pstat("PSTAT")
+            pstat = open_gamry_pstat(self.settings.get("gamry_section") or None)
             pstat.set_ctrl_mode(tkp.PSTATMODE)
             # Log the range EVERY segment. It was wrong for months precisely because
             # nothing ever said what it was, and no overload bit fires to announce a
@@ -2751,8 +2799,9 @@ class ToolkitPotentiostat(Potentiostat):
             how, self._range_full_a = initialize_pstat(
                 pstat, self.settings.get("gamry_current_range", 6.0e-3))
             self._ladder = read_gamry_ladder(pstat)   # this model's, for the advice
-            get_run_logger().info("%s: Gamry current range %s.",
-                                  segment.label, how)
+            get_run_logger().info("%s: Gamry %s, current range %s.", segment.label,
+                                  self.settings.get("gamry_section") or "(default)",
+                                  how)
             # Hold `signal` as a live local for the WHOLE segment. The toolkitpy
             # signal object must outlive curve.run(): if its last Python reference
             # drops, CPython frees it immediately (refcount, no GC needed) and the

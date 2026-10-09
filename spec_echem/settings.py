@@ -134,6 +134,9 @@ DEFAULT_SETTINGS = {
     # Gamry documents auto-ranging as not recommended above 1 point/s and we sample
     # at 10. See apply_gamry_current_range.
     "gamry_current_range": 6.0e-3,
+    # Which Gamry, by section name ('REF600-08083'), when more than one is on USB.
+    # Chosen at Connect; "" = the toolkit's default, right only for a single one.
+    "gamry_section": "",
     # gzip level for the HDF5 files: 0 = off (the default), 1-9 = gzip.
     # MEASURED 2026-09-29 on a real CV (1261 wavelengths x 721 spectra): ascii
     # 83.6 MB -> H5 plain 7.29 MB -> gzip4 5.74 MB. So compression buys 21%, NOT
