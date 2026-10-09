@@ -154,15 +154,21 @@ def gamry_range_full_scale(ie_range):
     return None
 
 
-def suggest_gamry_current_range(peak_a, headroom=0.8):
+def suggest_gamry_current_range(peak_a, headroom=0.8, ladder=None):
     """The finest Gamry range whose full scale still covers `peak_a` with headroom.
 
     Same headroom argument as the Autolab's: a healthier film draws MORE than a
     degraded one, so a range chosen to fit today's peak exactly clips tomorrow's.
+
+    `ladder` is the instrument's own [(index, full_a, label)] when it reported one.
+    MEASURED 2026-10-09: an Interface 1010E reports 10 nA..1 A in decades at IERange
+    4..12, so the Reference 600 table would advise ranges that model does not have.
     """
     if not peak_a or peak_a <= 0:
         return None
-    for full, _label in GAMRY_CURRENT_RANGES:
+    fulls = (sorted(a for _i, a, _l in ladder) if ladder
+             else [full for full, _label in GAMRY_CURRENT_RANGES])
+    for full in fulls:
         if peak_a <= full * headroom:
             return full
     return None
@@ -2676,7 +2682,8 @@ class ToolkitPotentiostat(Potentiostat):
                         "usable; treat those points with care and consider a coarser "
                         "gamry_current_range.",
                         label, counts[0], counts[1], used * 100, full)
-            better = suggest_gamry_current_range(peak)
+            better = suggest_gamry_current_range(peak,
+                                                 ladder=getattr(self, "_ladder", None))
             # ALWAYS one line per segment. On 20260925_test6 a doping step that sat
             # comfortably inside its range printed nothing at all, which reads as
             # "not checked" rather than "fine" — and silence about the range is what
@@ -2743,6 +2750,7 @@ class ToolkitPotentiostat(Potentiostat):
             # puts it where a run log is read.
             how, self._range_full_a = initialize_pstat(
                 pstat, self.settings.get("gamry_current_range", 6.0e-3))
+            self._ladder = read_gamry_ladder(pstat)   # this model's, for the advice
             get_run_logger().info("%s: Gamry current range %s.",
                                   segment.label, how)
             # Hold `signal` as a live local for the WHOLE segment. The toolkitpy
