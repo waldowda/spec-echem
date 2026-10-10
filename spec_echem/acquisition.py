@@ -161,6 +161,44 @@ def _warn_if_cadence_unachievable(spec, delta_time, num_points):
 
 
 
+# How long the spectrometer may sit armed after the potentiostat was told to fire
+# before the run says so. Python-driven modes only (External passes no on_armed):
+# there the edge follows the arming within ~1 s on both rigs, while in External a
+# person starts the sequence and minutes of waiting are normal.
+NO_TRIGGER_WARN_S = 10.0
+
+
+def _armed_with_watchdog(on_armed):
+    """(on_armed wrapped to start a watchdog, a function that stops it).
+
+    2026-10-09: an Interface 1010E ran a whole CV while the Avantes waited for an
+    edge that went out on the 1010E's digital output -- the trigger cable was on the
+    Reference 600 -- and the GUI sat at 'Collecting' saying nothing. A warning, not
+    a stop: the user may be about to fix the cable, and Abort is theirs.
+    """
+    if on_armed is None:
+        return None, lambda: None
+    import threading
+    from spec_echem.logging_config import get_run_logger
+
+    def warn():
+        get_run_logger().warning(
+            "No trigger after %.0f s: the spectrometer is armed and waiting for the "
+            "potentiostat's trigger edge, and none has arrived. Is the trigger cable "
+            "connected to the potentiostat driving this run? Abort to stop.",
+            NO_TRIGGER_WARN_S)
+
+    timer = threading.Timer(NO_TRIGGER_WARN_S, warn)
+    timer.daemon = True
+
+    def armed():
+        try:
+            on_armed()
+        finally:
+            timer.start()
+    return armed, timer.cancel
+
+
 def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
                     abort_event=None, on_armed=None, on_tick=None,
                     on_first_spectrum=None):
@@ -222,6 +260,7 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
     except Exception:  # noqa: BLE001 — a spectrometer that cannot say still runs
         measure_cost = 0.0
 
+    armed0, stop_watchdog = _armed_with_watchdog(on_armed)
     for j in range(num_echem_points):
         if abort_event is not None and abort_event.is_set():
             break
@@ -229,7 +268,11 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
         started = time.time_ns() / 1e9
         # Fire the trigger (on_armed) only for spectrum 0, from inside measure()
         # so the DIGOUT0 edge lands after AVS_Measure() has armed the device.
-        result = spec.measure(abort_event, on_armed if j == 0 else None)
+        try:
+            result = spec.measure(abort_event, armed0 if j == 0 else None)
+        finally:
+            if j == 0:
+                stop_watchdog()
         if result is None:  # aborted while waiting for the trigger / data
             break
         finished = time.time_ns() / 1e9
@@ -309,7 +352,11 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
         # Spectrum 0 is triggered exactly as a segment's is: fire() switches the cell
         # on and raises the edge from INSIDE measure(), after the detector is armed.
         spec.set_trigger_mode(1 if trigger else 0)
-        result = spec.measure(abort_event, pot.fire)
+        armed0, stop_watchdog = _armed_with_watchdog(pot.fire)
+        try:
+            result = spec.measure(abort_event, armed0)
+        finally:
+            stop_watchdog()
         spec.set_trigger_mode(0)
         if result is None:
             return record                      # aborted before anything ran
