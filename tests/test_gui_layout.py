@@ -3634,9 +3634,21 @@ def test_a_healthy_connect_does_not_show_its_details_in_red(window):
     (2026-10-09). Identity is grey; red is kept for a real failure."""
     tab = window.instrument_tab
     tab.simulated_check.setChecked(True)
+    window.settings.update(lin_start_ms=1.0, lin_stop_ms=50.0)   # nothing to raise
+    tab.populate_from(window.settings)
     tab.on_connect()
-    assert "#b00" not in tab.spec_detail.styleSheet()
-    assert tab.spec_detail.text()
+    assert "so raised" not in tab.spec_detail.text()
+    assert tab.spec_detail.styleSheet() == "color: #555;"
 
     tab._set_spec_status("● Connect failed", "#b00", detail="no device")
     assert "#b00" in tab.spec_detail.styleSheet()
+
+
+def test_a_value_raised_to_the_detector_floor_is_reported_in_amber(window):
+    tab = window.instrument_tab
+    tab.simulated_check.setChecked(True)
+    window.settings["lin_start_ms"] = 1e-05        # below the floor: the GUI raises it
+    tab.populate_from(window.settings)
+    tab.on_connect()
+    assert "so raised" in tab.spec_detail.text()
+    assert tab.spec_detail.styleSheet() == "color: #a65f00;"
