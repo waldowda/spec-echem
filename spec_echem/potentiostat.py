@@ -325,28 +325,46 @@ def initialize_pstat(pstat, current_range=6.0e-3):
     return apply_gamry_current_range(pstat, current_range)
 
 
-def list_gamry_sections():
-    """Every Gamry on this PC, by section name (e.g. 'REF600-12345'), or [].
+def list_gamry_instruments():
+    """[(section, label)] for every Gamry on this PC; label is the name given to it
+    in Gamry's software ('' if it cannot be read). Each is opened briefly, read-only,
+    to ask -- requested 2026-10-09 so the Connect popup can show the names people
+    know the instruments by, not only model-serial.
 
-    The toolkit must be initialised for this: called cold, enum_sections() killed the
+    The toolkit must be initialised first: called cold, enum_sections() killed the
     process with no output at all (2026-10-09). [] when toolkitpy is missing or the
-    call fails, which every caller treats as "use the default instrument".
-    """
+    call fails, which every caller treats as "use the default instrument"."""
     if not TOOLKITPY_AVAILABLE:
         return []
     try:
         tkp.toolkitpy_init("spec-echem-list")
     except Exception:   # noqa: BLE001
         return []
+    found = []
     try:
-        return [str(s) for s in (tkp.enum_sections() or [])]
-    except Exception:   # noqa: BLE001 -- an older toolkitpy may lack it
+        for sec in [str(s) for s in (tkp.enum_sections() or [])]:
+            label, pstat = "", None
+            try:
+                pstat = tkp.Pstat("PSTAT", sec)
+                label = str(pstat.label() or "").strip()
+            except Exception:   # noqa: BLE001 -- a name is a nicety
+                pass
+            finally:
+                if pstat is not None:
+                    try:
+                        pstat.close()
+                    except Exception:   # noqa: BLE001
+                        pass
+                    del pstat
+            found.append((sec, label))
+    except Exception:   # noqa: BLE001 -- an older toolkitpy may lack enum_sections
         return []
     finally:
         try:
             tkp.toolkitpy_close()
         except Exception:   # noqa: BLE001
             pass
+    return found
 
 
 def open_gamry_pstat(section=None):

@@ -4,6 +4,7 @@ never fired is NOT released to run the waveform, and that a setup failure surfac
 instead of hanging. toolkitpy is hardware-only, so it's replaced with a MagicMock;
 these tests exercise the arm/fire/finish coordination, not the Gamry itself.
 """
+import types
 import logging
 import math
 import time
@@ -2482,3 +2483,22 @@ def test_the_pitt_runs_on_the_chosen_gamry(gamry_pitt):
     _run_gamry(_gamry_settings(pitt_stop_v=0.0, pitt_max_hold_s=0.1,
                                gamry_section="IFC1010-2"))
     assert opened == ["IFC1010-2"]
+
+
+def test_each_gamry_is_listed_with_its_name(monkeypatch):
+    class Pstat:
+        def __init__(self, tag, section):
+            self.section = section
+        def label(self):
+            if self.section == "IFC1010-2":
+                raise RuntimeError("busy")             # a name is a nicety
+            return " Unit A "
+        def close(self):
+            pass
+    tk = types.SimpleNamespace(
+        enum_sections=lambda: ["REF600-1", "IFC1010-2"], Pstat=Pstat,
+        toolkitpy_init=lambda n: None, toolkitpy_close=lambda: None)
+    monkeypatch.setattr(potentiostat, "tkp", tk)
+    monkeypatch.setattr(potentiostat, "TOOLKITPY_AVAILABLE", True)
+    assert potentiostat.list_gamry_instruments() == [("REF600-1", "Unit A"),
+                                                     ("IFC1010-2", "")]
