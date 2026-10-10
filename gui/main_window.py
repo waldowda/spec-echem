@@ -38,6 +38,12 @@ class MainWindow(QMainWindow):
         # Code defaults, then the repo-tracked lab defaults, then THIS machine's bench
         # file. An experiment settings JSON (loaded explicitly) still overrides all of it.
         self.settings = DEFAULT_SETTINGS.copy()
+        # Which Gamry Connect chose. Connection state, not an experiment setting: it
+        # is written into the settings at every collect, so loading a settings file
+        # or resetting to bench defaults cannot quietly put a run back on the
+        # toolkit's default instrument -- which is how a CV meant for the Interface
+        # 1010E ran on the Reference 600 (2026-10-09).
+        self.gamry_section = ""
         # Settings belonging to a run LOADED from disk, read from its metadata JSON.
         # Graph titles and the analysis ladder must describe the run on screen, not
         # whatever is currently typed into the Parameters tab for the next one.
@@ -104,6 +110,7 @@ class MainWindow(QMainWindow):
             return self.settings
         self.instrument_tab.collect_into(self.settings)
         self.parameters_tab.collect_into(self.settings)
+        self.settings["gamry_section"] = self.gamry_section
         return self.settings
 
     def _populate_tabs(self, settings, instrument_first=False):
