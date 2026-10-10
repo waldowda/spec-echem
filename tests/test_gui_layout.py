@@ -3627,3 +3627,16 @@ def test_start_names_the_chosen_gamry(ready_window, monkeypatch):
     window.settings["gamry_section"] = "IFC1010-2"
     text = _start_dialog_text(window, monkeypatch)
     assert "Gamry:  IFC1010-2" in text
+
+
+def test_a_healthy_connect_does_not_show_its_details_in_red(window):
+    """The detail label was red for everything, so a good connect read as an error
+    (2026-10-09). Identity is grey; red is kept for a real failure."""
+    tab = window.instrument_tab
+    tab.simulated_check.setChecked(True)
+    tab.on_connect()
+    assert "#b00" not in tab.spec_detail.styleSheet()
+    assert tab.spec_detail.text()
+
+    tab._set_spec_status("● Connect failed", "#b00", detail="no device")
+    assert "#b00" in tab.spec_detail.styleSheet()
