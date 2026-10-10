@@ -3569,8 +3569,8 @@ def _two_gamrys(monkeypatch, pick):
     from gui.tabs import instrument_tab
     from qtpy.QtWidgets import QInputDialog
     opened = []
-    monkeypatch.setattr(instrument_tab, "list_gamry_sections",
-                        lambda: ["REF600-1", "IFC1010-2"])
+    monkeypatch.setattr(instrument_tab, "list_gamry_instruments",
+                        lambda: [("REF600-1", "Unit A"), ("IFC1010-2", "Unit B")])
     monkeypatch.setattr(instrument_tab, "probe_identity",
                         lambda section=None: opened.append(section) or ("Unit", "1"))
     monkeypatch.setattr(instrument_tab, "probe_gamry_ladder", lambda section=None: None)
@@ -3581,18 +3581,18 @@ def _two_gamrys(monkeypatch, pick):
 
 
 def test_with_two_gamrys_connect_asks_and_opens_the_one_chosen(window, monkeypatch):
-    opened, asked = _two_gamrys(monkeypatch, ("IFC1010-2", True))
+    opened, asked = _two_gamrys(monkeypatch, ("IFC1010-2 (Unit B)", True))
     tab = window.instrument_tab
     tab.pstat_python_radio.setChecked(True)
     tab.on_connect_pstat()
-    assert asked and list(asked[0][3]) == ["REF600-1", "IFC1010-2"]
+    assert asked and list(asked[0][3]) == ["REF600-1 (Unit A)", "IFC1010-2 (Unit B)"]
     assert opened == ["IFC1010-2"]
     assert window.settings["gamry_section"] == "IFC1010-2"
     assert "Connected" in tab.pstat_status.text()
 
 
 def test_the_last_choice_is_preselected(window, monkeypatch):
-    opened, asked = _two_gamrys(monkeypatch, ("IFC1010-2", True))
+    opened, asked = _two_gamrys(monkeypatch, ("IFC1010-2 (Unit B)", True))
     window.gamry_section = "IFC1010-2"
     window.instrument_tab.pstat_python_radio.setChecked(True)
     window.instrument_tab.on_connect_pstat()
@@ -3611,7 +3611,8 @@ def test_cancelling_the_choice_connects_nothing(window, monkeypatch):
 def test_one_gamry_is_taken_without_asking(window, monkeypatch):
     from gui.tabs import instrument_tab
     from qtpy.QtWidgets import QInputDialog
-    monkeypatch.setattr(instrument_tab, "list_gamry_sections", lambda: ["REF600-1"])
+    monkeypatch.setattr(instrument_tab, "list_gamry_instruments",
+                        lambda: [("REF600-1", "Unit A")])
     monkeypatch.setattr(instrument_tab, "probe_identity", lambda section=None: ("U", "1"))
     monkeypatch.setattr(instrument_tab, "probe_gamry_ladder", lambda section=None: None)
     monkeypatch.setattr(QInputDialog, "getItem",
@@ -3688,7 +3689,7 @@ def test_the_chosen_gamry_survives_loading_settings(window, monkeypatch):
     other instrument. Loading settings or resetting to bench defaults must not
     undo a hardware choice."""
     from spec_echem.settings import DEFAULT_SETTINGS
-    _two_gamrys(monkeypatch, ("IFC1010-2", True))
+    _two_gamrys(monkeypatch, ("IFC1010-2 (Unit B)", True))
     window.instrument_tab.pstat_python_radio.setChecked(True)
     window.instrument_tab.on_connect_pstat()
     window.apply_settings(dict(DEFAULT_SETTINGS))          # e.g. Load Settings
