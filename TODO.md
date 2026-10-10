@@ -16,6 +16,10 @@ data.
 
 ### Needs the rig
 
+- [ ] **Interface 1010E (2026-10-09):** wire the Avantes trigger to its digital output
+      (check its pinout) before a spectra run on it; confirm the named Connect popup;
+      confirm the code -5 recovery (`99f6134`) after an abort mid-wait.
+
 - [ ] **First real-sample run — the gold standard.** Real film, real dark (lamp
       blocked) and reference (blank, lamp on), the full multi-cycle sequence in one
       Start, then confirm it analyses cleanly downstream (`OECT_processing`). Gates

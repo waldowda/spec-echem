@@ -85,7 +85,7 @@ spec-echem/
 │   ├── sop.md                       # Standard operating procedure (GUI-first)
 │   └── inspect-run.md
 ├── examples/                        # Bench/validation scripts + identify_hardware.py
-├── tests/                           # Unit tests (902) — no hardware required
+├── tests/                           # Unit tests (929) — no hardware required
 ├── data/                            # Sample data directory
 ├── CHANGELOG.md                     # What changed between versions
 ├── STATUS.md                        # Human-readable project status + next steps
@@ -363,6 +363,19 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   `spec_echem_version` (the build id), sample name, electrolyte, notes, and a full settings snapshot,
   making each data folder self-documenting.
 
+### More than one Gamry on one PC (2026-10-09)
+
+A Reference 600 and an Interface 1010E can both be on USB. `tkp.Pstat("PSTAT")` alone
+is documented for ONE instrument, so every driver path goes through
+`open_gamry_pstat(section)`. Connect asks which one in a popup when more than one is
+found (`list_gamry_instruments()`: `tkp.enum_sections()` -- **initialise the toolkit
+first, or the process dies silently** -- plus each one's label). The choice is window
+state (`MainWindow.gamry_section`), written into the settings at every collect, so
+Load Settings cannot drop it; none chosen with several connected is an ERROR. The
+1010E reports IERange 4..12 = 10 nA..1 A in decades, so ranges and advice always come
+from the instrument's own ladder. **The Avantes trigger is wired to ONE Gamry's
+DIGOUT0**; a run on the other gets no spectra and warns after 10 s.
+
 ### PITT staircase (data type 5) — runs on both rigs (2026-10-05)
 
 `spec_echem/pitt.py` (plan, step-end rule, cadence), `acquisition.acquire_pitt` (one
@@ -434,7 +447,7 @@ ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm
 
 ### Modularization — DONE
 `get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
-`data.py`; hardware is faked (`fakes.py`) so all 902 tests run with no instruments attached.
+`data.py`; hardware is faked (`fakes.py`) so all 929 tests run with no instruments attached.
 
 ### Settings: two layers, don't confuse them
 - **Experiment settings** (`settings.py`, `DEFAULT_SETTINGS`) — *this run*: sample, folder, CV
@@ -490,8 +503,8 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 902 tests total (901 pass, 1 skip; counted 2026-10-07);
-  `tests/test_gui_layout.py` alone holds 193 and `tests/test_dark_save.py` another 3, both
+- **`gui/` coverage — no longer the gap it was.** 929 tests total (928 pass, 1 skip; counted 2026-10-09);
+  `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
   was built still stands: every bug in the 0.2.0 cycle lived in GUI wiring and the core suite
