@@ -80,3 +80,47 @@ def test_currents_are_written_in_a_readable_unit():
     assert format_current(-6.81e-5) == "-68.1 µA"
     assert format_current(3.05e-12) == "+3.05 pA"
     assert format_current(float("nan")) == "--"
+
+
+def _cv_from(start, l1, l2, n_cycles, step=0.02):
+    """start -> l1 -> l2 -> l1 ... (n cycles) -> back to start, as a staircase."""
+    def leg(a, b):
+        k = int(round(abs(b - a) / step))
+        return list(np.linspace(a, b, k + 1))[1:]
+    e, here = [start], start
+    targets = [l1, l2] * n_cycles
+    for t in targets:
+        e += leg(here, t)
+        here = t
+    e += leg(here, start)
+    return np.array(e)
+
+
+def test_a_cycle_starting_between_the_vertices_ends_back_through_its_start():
+    """2026-10-09: 0 -> -0.5 -> +0.7 -> ..., 3 cycles. Each cycle ends where the
+    potential passes back through 0 V going DOWN, not at the top vertex."""
+    e = _cv_from(0.0, -0.5, 0.7, 3)
+    kw = dict(start_v=0.0, limit1_v=-0.5)
+    # 0 -> -0.5 is 25 points, -0.5 -> +0.7 is 60, so the top vertex is index 85
+    # and the first return through 0 V going down is index 85 + 35 = 120.
+    assert cv_progress(e[:86], 3, **kw)[0] == 1          # at the top: still cycle 1
+    assert cv_progress(e[:110], 3, **kw) == (1, -1)      # coming down, above 0 V
+    assert cv_progress(e[:122], 3, **kw)[0] == 2         # through 0 V: cycle 2
+    assert cv_progress(e, 3, **kw)[0] == 3               # the final sweep is cycle 3
+
+
+def test_each_cycle_is_the_same_length():
+    e = _cv_from(0.0, -0.5, 0.7, 3)
+    kw = dict(start_v=0.0, limit1_v=-0.5)
+    starts = [i for i in range(1, e.size)
+              if cv_progress(e[:i + 1], 3, **kw)[0] != cv_progress(e[:i], 3, **kw)[0]]
+    # One cycle is 25 + 60 + 35 = 120 points: cycles 2 and 3 begin at 120 and 240.
+    assert starts == [120, 240]
+
+
+def test_a_cycle_starting_at_a_vertex_still_counts_by_vertices():
+    """The 20261007 CVs: start 0 V = limit 1, 0 -> +1.0 -> 0."""
+    e = _cv(3, lo=0.0, hi=1.0)
+    kw = dict(start_v=0.0, limit1_v=0.0)
+    assert cv_progress(e[:60], 3, **kw) == (1, -1)
+    assert cv_progress(e[:110], 3, **kw) == (2, +1)

@@ -3693,3 +3693,26 @@ def test_the_chosen_gamry_survives_loading_settings(window, monkeypatch):
     window.instrument_tab.on_connect_pstat()
     window.apply_settings(dict(DEFAULT_SETTINGS))          # e.g. Load Settings
     assert window.collect_settings()["gamry_section"] == "IFC1010-2"
+
+
+def test_the_run_tab_counts_cycles_from_the_runs_start_potential(window):
+    """0 -> -0.5 -> +0.7 -> ...: coming down from the top vertex, still above 0 V,
+    is cycle 1. Counting vertex to vertex called it cycle 2 (2026-10-09)."""
+    import numpy as np
+    from types import SimpleNamespace
+    from spec_echem.data import DATA_TYPE_CV, EchemData
+    from spec_echem.experiment import Segment
+
+    e = np.concatenate([np.linspace(0, -0.5, 26), np.linspace(-0.48, 0.7, 60),
+                        np.linspace(0.68, 0.2, 25)])
+    data = EchemData(time=np.arange(e.size) * 1.0, potential=e,
+                     current=np.full(e.size, 1e-6))
+    tab = window.run_tab
+    tab._worker = SimpleNamespace(potentiostat=SimpleNamespace(live_data=lambda: data))
+    tab._current_segment = Segment("CV", DATA_TYPE_CV, 0, 300, 1.0, True)
+    tab._run_cv_cycles, tab._run_cv_start = 3, (0.0, -0.5)
+    try:
+        tab._update_live_echem()
+    finally:
+        tab._worker = None
+    assert tab.live_canvas._live_text.get_text().startswith("Cycle 1 of 3  ↓ down")
