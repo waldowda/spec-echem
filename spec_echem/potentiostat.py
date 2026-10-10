@@ -1122,6 +1122,11 @@ class AutolabPotentiostat(Potentiostat):
         self._cmd = None            # the measurement command for this segment
         self._segment = None
         self._last_data = None
+        # Set per segment in prepare(), but read by live_data(), which the Run tab
+        # polls from the moment a segment STARTS. A slow or failed prepare (another
+        # program holding the instrument) left it unset, and the AttributeError in
+        # the timer closed the whole GUI (2026-10-10).
+        self._ei_mode = False
         self._live_samples = []     # (t, E, I) scalars accumulated by pump()
         self._bad_samples = 0       # refresh failed, or the pair straddled one
         self._pre_latch_samples = 0  # read before the latch had ever been loaded

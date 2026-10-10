@@ -547,7 +547,16 @@ class RunTab(QWidget):
         if worker is None or seg is None:
             return
         pot = worker.potentiostat
-        data = pot.live_data() if pot is not None else None
+        # Never let the live plot take the GUI down: an unhandled exception in a Qt
+        # timer slot aborts the application under PyQt5, and that is what an
+        # AttributeError in the Autolab's live_data() did on 2026-10-10. The run
+        # itself reports its own errors; the plot just skips a frame.
+        try:
+            data = pot.live_data() if pot is not None else None
+        except Exception:  # noqa: BLE001
+            get_run_logger().debug("live echem: live_data() failed; frame skipped",
+                                   exc_info=True)
+            return
         if data is None or len(data.current) == 0:
             return
         current = data.current
