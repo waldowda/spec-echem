@@ -68,6 +68,9 @@ except ImportError as exc:
 # of a connection attempt was a shell nobody keeps.
 logger = logging.getLogger(__name__)
 
+# The Avantes SDK's ERR_OPERATION_PENDING: a measurement is still outstanding.
+AVS_ERR_OPERATION_PENDING = -5
+
 
 # Calibrated usable pixel window (~380-1100 nm, 1265 pts) — the fixed slice this
 # code has always applied. It is now the DEFAULT of a configurable window; a
@@ -327,11 +330,23 @@ class AvantesSpectrometer:
         """
         # Start measurement (in trigger mode this arms the device to wait for the edge)
         ret = AVS_Measure(self.dev_handle, 0, 1)
+        if ret == AVS_ERR_OPERATION_PENDING and self._stop_pending():
+            # A measurement armed earlier was never collected or cancelled. Found
+            # 2026-10-09: a run aborted while waiting for its trigger left one
+            # pending, and every later run failed here with code -5 until the
+            # spectrometer was reconnected.
+            logger.warning("AVS_Measure: a previous measurement was still pending; "
+                           "stopped it and re-armed.")
+            ret = AVS_Measure(self.dev_handle, 0, 1)
         if ret < 0:
             # Arm failed: do NOT fire the trigger — otherwise the Gamry would run
             # while the spectrometer captures nothing (a silent time-zero desync).
+            hint = (" A previous measurement is still pending (an aborted run?):"
+                    " reconnect the spectrometer." if ret == AVS_ERR_OPERATION_PENDING
+                    else "")
             raise RuntimeError(
-                f"AVS_Measure failed (code {ret}); spectrometer not armed — trigger not fired.")
+                f"AVS_Measure failed (code {ret}); spectrometer not armed — trigger "
+                f"not fired.{hint}")
 
         # Device is now armed and waiting; fire the trigger here if asked.
         if on_armed is not None:
@@ -341,6 +356,9 @@ class AvantesSpectrometer:
         dataready = False
         while not dataready:
             if abort_event is not None and abort_event.is_set():
+                # Cancel the armed measurement, or it stays pending in the device
+                # and the next AVS_Measure fails with code -5 (2026-10-09).
+                self._stop_pending()
                 return None
             dataready = AVS_PollScan(self.dev_handle)
             time.sleep(0.001)
@@ -351,6 +369,21 @@ class AvantesSpectrometer:
         spectral_data = ret[1]
 
         return timestamp, self._crop(spectral_data)
+
+    def _stop_pending(self):
+        """Cancel an armed, uncollected measurement. True if it was asked to.
+
+        Looked up at call time so a wrapper without AVS_StopMeasure degrades to the
+        old behaviour instead of failing to import.
+        """
+        stop = globals().get("AVS_StopMeasure")
+        if stop is None:
+            return False
+        try:
+            stop(self.dev_handle)
+            return True
+        except Exception:  # noqa: BLE001 -- best effort; the arm reports what's left
+            return False
     
     def plot_data(self, wavelength, spectral_data):
         """

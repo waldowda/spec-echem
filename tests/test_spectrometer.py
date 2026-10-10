@@ -347,3 +347,39 @@ def test_the_accepted_boundary_value_itself_is_refused():
     with pytest.raises(ValueError):
         spec.set_integration_time(1.04803466796875)
     spec.set_integration_time(1.05)
+
+
+# --- a pending measurement (2026-10-09) --------------------------------------
+# A run aborted while the Avantes waited for its trigger left the armed measurement
+# pending; every later run failed with 'AVS_Measure failed (code -5)'.
+
+def test_abort_while_waiting_cancels_the_armed_measurement(monkeypatch):
+    import threading
+    stopped = []
+    monkeypatch.setattr(sm, "AVS_Measure", lambda *a: 0, raising=False)
+    monkeypatch.setattr(sm, "AVS_PollScan", lambda *a: False, raising=False)
+    monkeypatch.setattr(sm, "AVS_StopMeasure", lambda h: stopped.append(h) or 0,
+                        raising=False)
+    abort = threading.Event()
+    abort.set()
+    assert _detached_spectrometer().measure(abort) is None
+    assert stopped == [0]
+
+
+def test_a_pending_measurement_is_stopped_and_rearmed(monkeypatch):
+    arms, fired = iter([sm.AVS_ERR_OPERATION_PENDING, 0]), []
+    monkeypatch.setattr(sm, "AVS_Measure", lambda *a: next(arms), raising=False)
+    monkeypatch.setattr(sm, "AVS_StopMeasure", lambda h: 0, raising=False)
+    monkeypatch.setattr(sm, "AVS_PollScan", lambda *a: True, raising=False)
+    monkeypatch.setattr(sm, "AVS_GetScopeData",
+                        lambda *a: (1.0, list(range(2000))), raising=False)
+    ts, data = _detached_spectrometer().measure(on_armed=lambda: fired.append(1))
+    assert fired == [1] and ts == 1.0
+
+
+def test_without_stopmeasure_a_pending_arm_says_to_reconnect(monkeypatch):
+    monkeypatch.setattr(sm, "AVS_Measure", lambda *a: sm.AVS_ERR_OPERATION_PENDING,
+                        raising=False)
+    monkeypatch.delattr(sm, "AVS_StopMeasure", raising=False)
+    with pytest.raises(RuntimeError, match="reconnect the spectrometer"):
+        _detached_spectrometer().measure(on_armed=lambda: None)
