@@ -3717,3 +3717,22 @@ def test_the_run_tab_counts_cycles_from_the_runs_start_potential(window):
     finally:
         tab._worker = None
     assert tab.live_canvas._live_text.get_text().startswith("Cycle 1 of 3  ↓ down")
+
+
+def test_a_failing_live_data_cannot_take_the_gui_down(window):
+    """An unhandled exception in a Qt timer slot aborts the app under PyQt5; on
+    2026-10-10 an AttributeError in live_data() did exactly that."""
+    from types import SimpleNamespace
+    from spec_echem.data import DATA_TYPE_CV
+    from spec_echem.experiment import Segment
+
+    def boom():
+        raise AttributeError("'AutolabPotentiostat' object has no attribute '_ei_mode'")
+
+    tab = window.run_tab
+    tab._worker = SimpleNamespace(potentiostat=SimpleNamespace(live_data=boom))
+    tab._current_segment = Segment("CV", DATA_TYPE_CV, 0, 101, 1.0, True)
+    try:
+        tab._update_live_echem()            # must not raise
+    finally:
+        tab._worker = None
