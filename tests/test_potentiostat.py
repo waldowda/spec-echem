@@ -2502,3 +2502,12 @@ def test_each_gamry_is_listed_with_its_name(monkeypatch):
     monkeypatch.setattr(potentiostat, "TOOLKITPY_AVAILABLE", True)
     assert potentiostat.list_gamry_instruments() == [("REF600-1", "Unit A"),
                                                      ("IFC1010-2", "")]
+
+
+def test_autolab_live_data_before_any_segment_is_prepared(monkeypatch):
+    """2026-10-10: the Run tab polls live_data() as soon as a segment STARTS; a slow
+    or failed prepare (another program holding the instrument) left _ei_mode unset,
+    and the AttributeError closed the GUI."""
+    monkeypatch.setattr(potentiostat, "AUTOLAB_AVAILABLE", True)
+    p = potentiostat.AutolabPotentiostat(_autolab_settings())
+    assert p.live_data() is None
