@@ -881,6 +881,7 @@ class InstrumentTab(QWidget):
                         self._set_pstat_status("● Not connected — no Gamry chosen",
                                                "#b00")
                         return
+                    self.win.gamry_section = section
                     self.win.settings["gamry_section"] = section
                     label, serial = (probe_identity(section) if section
                                      else probe_identity())
@@ -932,7 +933,7 @@ class InstrumentTab(QWidget):
         sections = list_gamry_sections()
         if len(sections) <= 1:
             return sections[0] if sections else ""
-        last = self.win.settings.get("gamry_section") or ""
+        last = getattr(self.win, "gamry_section", "") or ""
         current = sections.index(last) if last in sections else 0
         choice, ok = QInputDialog.getItem(
             self, "Which Gamry?",

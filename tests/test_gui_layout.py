@@ -3593,7 +3593,7 @@ def test_with_two_gamrys_connect_asks_and_opens_the_one_chosen(window, monkeypat
 
 def test_the_last_choice_is_preselected(window, monkeypatch):
     opened, asked = _two_gamrys(monkeypatch, ("IFC1010-2", True))
-    window.settings["gamry_section"] = "IFC1010-2"
+    window.gamry_section = "IFC1010-2"
     window.instrument_tab.pstat_python_radio.setChecked(True)
     window.instrument_tab.on_connect_pstat()
     assert asked[0][4] == 1
@@ -3681,3 +3681,15 @@ def test_every_instrument_value_survives_being_loaded(app):
         assert tab.averages_spin.value() == 12
     finally:
         win.close()
+
+
+def test_the_chosen_gamry_survives_loading_settings(window, monkeypatch):
+    """2026-10-09: chosen at Connect, then lost before Start, and the CV ran on the
+    other instrument. Loading settings or resetting to bench defaults must not
+    undo a hardware choice."""
+    from spec_echem.settings import DEFAULT_SETTINGS
+    _two_gamrys(monkeypatch, ("IFC1010-2", True))
+    window.instrument_tab.pstat_python_radio.setChecked(True)
+    window.instrument_tab.on_connect_pstat()
+    window.apply_settings(dict(DEFAULT_SETTINGS))          # e.g. Load Settings
+    assert window.collect_settings()["gamry_section"] == "IFC1010-2"
