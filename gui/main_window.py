@@ -88,16 +88,35 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
 
         # Populate parameter widgets from the default settings
-        self.parameters_tab.populate_from(self.settings)
-        self.instrument_tab.populate_from(self.settings)
+        self._populate_tabs(self.settings)
 
     # --- settings coordination across the input tabs ---
 
     def collect_settings(self):
-        """Read every input tab's widgets into the canonical settings dict."""
+        """Read every input tab's widgets into the canonical settings dict.
+
+        Not while the tabs are being FILLED: a widget's change signal calls this
+        part-way through, and reading the boxes not yet filled wrote their empty
+        values (the box minimums) over the settings being loaded. Linearity start
+        came up as 1e-05 ms on every launch and every Load Settings (2026-10-09).
+        """
+        if getattr(self, "_populating", False):
+            return self.settings
         self.instrument_tab.collect_into(self.settings)
         self.parameters_tab.collect_into(self.settings)
         return self.settings
+
+    def _populate_tabs(self, settings, instrument_first=False):
+        # The two callers fill the tabs in different orders, kept as they were.
+        tabs = [self.parameters_tab, self.instrument_tab]
+        if instrument_first:
+            tabs.reverse()
+        self._populating = True
+        try:
+            for tab in tabs:
+                tab.populate_from(settings)
+        finally:
+            self._populating = False
 
     def bench_base(self):
         """Code defaults + lab defaults + THIS machine — the layer a loaded
@@ -209,5 +228,4 @@ class MainWindow(QMainWindow):
     def apply_settings(self, settings):
         """Push a settings dict into every input tab's widgets."""
         self.settings = settings
-        self.instrument_tab.populate_from(settings)
-        self.parameters_tab.populate_from(settings)
+        self._populate_tabs(settings, instrument_first=True)
