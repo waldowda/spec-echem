@@ -54,7 +54,7 @@ from spec_echem.linearity import (
 from spec_echem import potentiostat as _potentiostat
 from spec_echem.potentiostat import (
     TOOLKITPY_AVAILABLE, AUTOLAB_AVAILABLE, probe_identity, autolab_identity,
-    probe_gamry_ladder, list_gamry_sections,
+    probe_gamry_ladder, list_gamry_instruments,
 )
 from spec_echem.settings import (DEFAULT_SETTINGS, LIN_STOP_FLOOR_SPANS,
                                  tidy_detector_floor)
@@ -930,16 +930,21 @@ class InstrumentTab(QWidget):
         Reference 600. The last choice is pre-selected; one instrument is taken
         without asking; none found (or no way to list them) keeps the old default.
         """
-        sections = list_gamry_sections()
+        found = list_gamry_instruments()
+        sections = [sec for sec, _label in found]
         if len(sections) <= 1:
             return sections[0] if sections else ""
+        # Section and the name it was given in Gamry's software: "IFC1010-... (name)".
+        items = [f"{sec} ({label})" if label else sec for sec, label in found]
         last = getattr(self.win, "gamry_section", "") or ""
         current = sections.index(last) if last in sections else 0
         choice, ok = QInputDialog.getItem(
             self, "Which Gamry?",
             f"{len(sections)} Gamry potentiostats are connected.\n"
-            "Which one should this run use?", sections, current, False)
-        return str(choice) if ok else None
+            "Which one should this run use?", items, current, False)
+        if not ok:
+            return None
+        return sections[items.index(choice)] if choice in items else str(choice)
 
     def _update_cal_plot(self):
         # Dark is unannotated on purpose: it is detector noise / stray light, so its
