@@ -2445,8 +2445,24 @@ def test_the_chosen_gamry_is_opened_by_its_section(monkeypatch):
     tk = _TwoGamrys()
     monkeypatch.setattr(potentiostat, "tkp", tk)
     potentiostat.open_gamry_pstat("IFC1010-2")
-    potentiostat.open_gamry_pstat(None)              # nothing chosen: the default
-    assert tk.opened == ["IFC1010-2", None]
+    assert tk.opened == ["IFC1010-2"]
+
+
+def test_with_two_gamrys_and_none_chosen_nothing_is_opened(monkeypatch):
+    """2026-10-09: a CV meant for the Interface 1010E ran on the Reference 600,
+    because the choice never reached the run and the default was taken."""
+    tk = _TwoGamrys()
+    monkeypatch.setattr(potentiostat, "tkp", tk)
+    with pytest.raises(RuntimeError, match="2 Gamrys are connected.*none was chosen"):
+        potentiostat.open_gamry_pstat(None)
+    assert tk.opened == []
+
+
+def test_with_one_gamry_and_none_chosen_it_is_used(monkeypatch):
+    tk = _TwoGamrys(sections=["REF600-1"])
+    monkeypatch.setattr(potentiostat, "tkp", tk)
+    potentiostat.open_gamry_pstat(None)
+    assert tk.opened == [None]
 
 
 def test_a_chosen_gamry_that_is_not_connected_is_an_error_not_another_one(monkeypatch):

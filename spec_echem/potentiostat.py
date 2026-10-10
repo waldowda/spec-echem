@@ -358,12 +358,18 @@ def open_gamry_pstat(section=None):
     is not connected is an ERROR naming what is, never a quiet fall back to another
     instrument -- a run on the wrong potentiostat is worse than no run.
     """
-    if not section:
-        return tkp.Pstat("PSTAT")
     try:
         present = [str(s) for s in (tkp.enum_sections() or [])]
     except Exception:   # noqa: BLE001 -- cannot check; let Pstat() itself say
         present = None
+    if not section:
+        # The safety net: a CV meant for an Interface 1010E ran on the Reference 600
+        # (2026-10-09) because the choice made at Connect never reached the run.
+        if present is not None and len(present) > 1:
+            raise RuntimeError(
+                f"{len(present)} Gamrys are connected ({', '.join(present)}) and none "
+                f"was chosen. Press Connect on the Instrument tab and pick one.")
+        return tkp.Pstat("PSTAT")
     if present is not None and section not in present:
         raise RuntimeError(
             f"The chosen Gamry '{section}' is not connected (found: "
