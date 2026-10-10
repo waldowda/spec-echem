@@ -1069,6 +1069,7 @@ class InstrumentTab(QWidget):
         self.spec_status.setStyleSheet(f"color: {color};")
         if detail:
             self.spec_detail.setText(detail)
+            self.spec_detail.setStyleSheet(f"color: {color};")
 
     def on_connect(self):
         if self.simulated_check.isChecked() or AvantesSpectrometer is None:
@@ -1101,7 +1102,10 @@ class InstrumentTab(QWidget):
         # Which detector is this, in terms you can check against the instrument on the
         # bench? A serial alone doesn't distinguish a ULS2048L from a VRS2048CL-EVO;
         # the pixel count and reported span do. Also replaces any previous failure text.
+        # Grey: this is the detector's identity, not a problem. The label was red
+        # for everything, so a healthy connect read as an error (2026-10-09).
         self.spec_detail.setText(self._spectrometer_detail(spec, serial))
+        self.spec_detail.setStyleSheet("color: #555;")
         self._set_actions_enabled(True)
         # BEFORE on_apply(): that is what hands the spin box's value to the detector,
         # and an exposure below the floor now raises rather than being ignored.
@@ -1111,6 +1115,7 @@ class InstrumentTab(QWidget):
                 self._spectrometer_detail(spec, serial)
                 + f"   ·   below this detector's {self.win.spec_min_integration_ms:g} ms "
                 f"minimum, so raised: {floor_note}")
+            self.spec_detail.setStyleSheet("color: #a65f00;")   # amber: a value was changed
         self.on_apply()
 
         # Clamp the wavelength spin boxes to what THIS spectrometer actually reports
