@@ -54,19 +54,25 @@ def n_doping_cycles(settings):
     return max(1, int(math.floor((end - start) / step + 1e-9)) + 1)
 
 
-def cv_progress(potential, n_cycles, threshold_v=0.010):
+def cv_progress(potential, n_cycles, threshold_v=0.010, start_v=None, limit1_v=None):
     """(cycle, direction) of a CV in progress, from its measured potential so far.
 
     For the live readout, so a slow CV visibly moves (2026-10-07: at 1 mV/s a point
-    arrives every 20 s). A reversal is counted when the potential comes back more
-    than `threshold_v` from the furthest point of the current sweep -- larger than the
-    measured wobble (+-2.5 mV on 20261007) and smaller than a staircase step. Two
-    reversals make a cycle, so a CV that starts at a vertex counts exactly; one that
-    starts between the vertices turns over at its second vertex rather than when it
-    passes its start again. direction: +1 up, -1 down, 0 not yet known. The count
-    stops at `n_cycles`.
+    arrives every 20 s). direction: +1 up, -1 down, 0 not yet known. The count stops
+    at `n_cycles`.
+
+    A cycle is start -> limit 1 -> limit 2 -> back through the START heading the
+    way it began. The first version counted vertex to vertex, which is only right
+    when the start IS a vertex: on 0 -> -0.5 -> +0.7 -> ... (2026-10-09) it began
+    each cycle at the top vertex, so cycle 1 looked short and the last 'cycle'
+    carried the final sweep as well. Given `start_v` (and `limit1_v`, which fixes the
+    first direction), a cycle ends where the potential passes back through the
+    start; a start within `threshold_v` of a vertex falls back to counting vertices,
+    since there the return IS the vertex. Every comparison carries `threshold_v`,
+    larger than the measured wobble (+-2.5 mV on 20261007) and smaller than a step.
     """
     e = np.asarray(potential, dtype=float)
+    n = max(int(n_cycles), 1)
     direction, reversals = 0, 0
     if e.size:
         extreme = e[0]
@@ -80,7 +86,21 @@ def cv_progress(potential, n_cycles, threshold_v=0.010):
             elif abs(v - extreme) > threshold_v:
                 direction, extreme = -direction, v
                 reversals += 1
-    return min(reversals // 2 + 1, max(int(n_cycles), 1)), direction
+    at_vertex = (start_v is None or limit1_v is None
+                 or abs(float(start_v) - float(limit1_v)) <= threshold_v)
+    if at_vertex or not e.size:
+        return min(reversals // 2 + 1, n), direction
+
+    e0 = float(start_v)
+    d0 = 1 if float(limit1_v) > e0 else -1          # the way the CV leaves its start
+    completed, armed = 0, False
+    for v in e:
+        if (e0 - v) * d0 > threshold_v:             # well behind the start
+            armed = True
+        elif armed and (v - e0) * d0 >= 0:         # back through it, the original way
+            completed += 1
+            armed = False
+    return min(completed + 1, n), direction
 
 
 def format_current(amps):
@@ -94,7 +114,8 @@ def format_current(amps):
     return f"{a / 1e-12:+.3g} pA"
 
 
-def live_status(is_cv, time, potential, current, n_cycles=1):
+def live_status(is_cv, time, potential, current, n_cycles=1, start_v=None,
+                limit1_v=None):
     """The live plot's readout: where the segment is now.
 
     CV:    "Cycle 2 of 3  up / E = +0.512 V / I = +3.41 µA"
@@ -105,7 +126,8 @@ def live_status(is_cv, time, potential, current, n_cycles=1):
         return ""
     e, i = float(potential[-1]), float(current[-1])
     if is_cv:
-        cycle, direction = cv_progress(potential, n_cycles)
+        cycle, direction = cv_progress(potential, n_cycles, start_v=start_v,
+                                       limit1_v=limit1_v)
         way = {1: "\u2191 up", -1: "\u2193 down"}.get(direction, "")
         head = f"Cycle {cycle} of {max(int(n_cycles), 1)}  {way}".rstrip()
     else:
