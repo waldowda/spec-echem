@@ -469,6 +469,7 @@ class RunTab(QWidget):
         # never touches the acquisition thread, so it can't affect timing.
         self._current_segment = None
         self._run_cv_cycles = settings.get("cv_cycles", 1)   # the frozen run's, for the readout
+        self._run_cv_start = (settings.get("cv_initial_v"), settings.get("cv_limit1_v"))
         if python_mode and self.live_check.isChecked():
             self.live_canvas.show_message("Waiting for the first segment…")
             self._live_timer = QTimer(self)
@@ -551,8 +552,9 @@ class RunTab(QWidget):
             return
         current = data.current
         is_cv = seg.data_type == DATA_TYPE_CV
+        start_v, limit1_v = getattr(self, "_run_cv_start", (None, None))
         status = live_status(is_cv, data.time, data.potential, current,
-                             getattr(self, "_run_cv_cycles", 1))
+                             getattr(self, "_run_cv_cycles", 1), start_v, limit1_v)
         if is_cv:
             self.live_canvas.update_live_line(
                 data.potential, current, "Potential (V)", "Current",
