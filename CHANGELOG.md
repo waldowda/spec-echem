@@ -27,6 +27,11 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **Choose the Gamry at Connect (2026-10-09)** when more than one is on USB: a popup
+  lists each as `section (name)`, the choice survives loading settings, and a run with
+  several connected and none chosen stops with an error instead of taking the default.
+- **"No trigger after 10 s" warning** in Python-driven runs, asking whether the trigger
+  cable is on the potentiostat driving the run.
 - **Live plot readout (2026-10-07):** the newest point carries a blue dot, and a line
   under the title gives cycle n of N with sweep direction, E and I for a CV (time, E
   and I for a hold), updated every tick. Requested after a 1 mV/s CV, where a point
@@ -93,6 +98,17 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Fixed
 
+- **Settings were overwritten by half-filled tabs at every launch and Load Settings**
+  (2026-10-09): filling the integration time collected every field before the rest
+  were filled, so linearity start came up as 1e-05 ms and scan averages as 1.
+- **Abort while the Avantes waited for its trigger left the measurement pending**, and
+  the next run failed with `AVS_Measure failed (code -5)`. Now cancelled on abort, and
+  a pending one is stopped and re-armed. (Not yet seen on hardware.)
+- **The live CV cycle count** ran vertex to vertex; a cycle now ends back through the
+  start potential.
+- **Gamry range advice** used the Reference 600 table on other models.
+- **The spectrometer detail line was always red**; now grey, amber for a changed value,
+  red only for a failure.
 - **Load Settings put the Gamry current range on 60 pA**, the first item, whatever the
   file held: the dropdown was matched by text, and a miss fell back to index 0 — the
   finest range, which clips. Now matched as a number; an off-list value takes the

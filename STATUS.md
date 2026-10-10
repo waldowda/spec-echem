@@ -4,7 +4,7 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-10-07_
+_Last updated: 2026-10-09_
 
 ---
 
@@ -23,6 +23,12 @@ taken near equilibrium rather than mid-transient. HDF5 only, one group per step
   step at 0.10 s, the dummy's resistance recovered to ~1%.
 - Fixed on the way: a spurious Gamry OVERLOAD warning, every-other-tick spectra gaps,
   and Load Settings silently putting the Gamry on its 60 pA range.
+
+**2026-10-09 — a second Gamry (Interface 1010E) on the same PC.** Connect now asks
+which Gamry to use, and the 1010E ran a CV at its own 1 mA range. No spectra with it
+yet: the Avantes trigger cable is on the Reference 600. Several bugs found and fixed
+on the way (settings overwritten at launch, a pending Avantes measurement after an
+abort, the live cycle count).
 
 **2026-10-07 — first real-film CVs through the new code** (Autolab, a 20 mV/s and a
 1 mV/s CV on one film). The gap between the sweeps, read optically, halved from ~230
