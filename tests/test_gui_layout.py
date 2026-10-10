@@ -3652,3 +3652,32 @@ def test_a_value_raised_to_the_detector_floor_is_reported_in_amber(window):
     tab.on_connect()
     assert "so raised" in tab.spec_detail.text()
     assert tab.spec_detail.styleSheet() == "color: #a65f00;"
+
+
+def test_every_instrument_value_survives_being_loaded(app):
+    """Setting the integration time fires the cadence note, which collects EVERY
+    field on the tab -- before the rest were filled in. Their empty values (the box
+    minimums) overwrote the settings being loaded: linearity start came up as 1e-05
+    ms on every launch, so Connect 'raised' it every time (2026-10-09)."""
+    from unittest.mock import patch
+    import gui.main_window as _mw
+    bench = {"lin_start_ms": 0.05, "lin_stop_ms": 2.0, "lin_steps": 17,
+             "scan_averages": 37, "wavelength_min": 420.0, "wavelength_max": 990.0}
+    with patch.object(_mw, "load_bench_defaults", lambda *a, **k: (dict(bench), [])):
+        win = _mw.MainWindow()
+    try:
+        tab = win.instrument_tab
+        assert tab.lin_start_spin.value() == pytest.approx(0.05)
+        assert tab.lin_stop_spin.value() == pytest.approx(2.0)
+        assert tab.lin_steps_spin.value() == 17
+        assert tab.averages_spin.value() == 37
+        assert tab.wl_min_spin.value() == pytest.approx(420.0)
+        assert win.settings["lin_start_ms"] == pytest.approx(0.05)
+
+        # And a Load Settings, which goes through the same populate.
+        loaded = dict(win.settings, lin_start_ms=0.07, scan_averages=12)
+        win.apply_settings(loaded)
+        assert tab.lin_start_spin.value() == pytest.approx(0.07)
+        assert tab.averages_spin.value() == 12
+    finally:
+        win.close()
