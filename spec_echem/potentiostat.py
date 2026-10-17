@@ -291,7 +291,7 @@ def apply_gamry_current_range(pstat, current_range):
                else f" (requested {amps:.3g} A)")), full
 
 
-def initialize_pstat(pstat, current_range=6.0e-3):
+def initialize_pstat(pstat, current_range=6.0e-3, sample_period_s=0.1):
     """
     Hardware ranges / modes — the "Advanced Pstat Setup". Lifted verbatim from
     the bundled toolkitpy examples (cyclic_voltammetery.py / chronoamperometry.py)
@@ -305,6 +305,16 @@ def initialize_pstat(pstat, current_range=6.0e-3):
     the 600 mA it was silently using -- so every caller, including the bench scripts
     in examples/, gets a sane range. The per-segment advisory then names a finer one
     for the sample actually in the cell.
+
+    The current and voltage channel FILTERS are not in the examples either, and were
+    left at the instrument's index 1 = 200 kHz, i.e. wide open. MEASURED 2026-10-17:
+    on an Interface 1010E that let pickup through which 10 points/s folded into a
+    3.36 Hz, +-80-114 nA wave on the current (2 kOhm dummy, `20261017_test3`/`_test5`)
+    that Gamry Framework's own chrono on the same instrument did not show. Framework
+    sets each filter to `test_*_filter(1 / sample period)` -- 1 kHz on BOTH the
+    Reference 600 (index 2) and the 1010E (index 3) at 10-100 points/s, so an index
+    must never be hard-coded. Framework's Noise Reject at 0.1 s then read the same
+    holds to ~4-5 nA sd on both instruments.
     """
     pstat.set_ach_select(tkp.ACHSELECT_GND)
     pstat.set_ie_stability(tkp.STABILITY_NORM)
@@ -316,13 +326,22 @@ def initialize_pstat(pstat, current_range=6.0e-3):
     pstat.set_vch_range(10.0)
     pstat.set_vch_range_mode(True)
     pstat.set_vch_offset_enable(False)
+    rate_hz = 1.0 / float(sample_period_s)
+    ich_filter = pstat.test_ich_filter(rate_hz)
+    pstat.set_ich_filter(ich_filter)
+    pstat.set_vch_filter(pstat.test_vch_filter(rate_hz))
     pstat.set_ach_range(3.0)
     pstat.set_ie_range_lower_limit(0)  # none
     pstat.set_pos_feed_enable(False)
     pstat.set_analog_out(0.0)
     pstat.set_voltage(0.0)
     pstat.set_pos_feed_resistance(0.0)
-    return apply_gamry_current_range(pstat, current_range)
+    how, full = apply_gamry_current_range(pstat, current_range)
+    try:
+        filt = pstat.ich_filter_label(ich_filter)
+    except Exception:  # noqa: BLE001 -- the label is for the log only
+        filt = f"index {ich_filter}"
+    return f"{how}; I/V filter {filt}", full
 
 
 def list_gamry_instruments():
@@ -2450,7 +2469,8 @@ class _GamryPittRunner:
             pstat = open_gamry_pstat(self.settings.get("gamry_section") or None)
             pstat.set_ctrl_mode(tkp.PSTATMODE)
             self.how, self.range_full = initialize_pstat(
-                pstat, self.settings.get("gamry_current_range", 6.0e-3))
+                pstat, self.settings.get("gamry_current_range", 6.0e-3),
+                sample_period_s=self.period)
             pstat.set_voltage(self.v0)
             self.built.set()
             self.armed.wait()
@@ -2830,7 +2850,8 @@ class ToolkitPotentiostat(Potentiostat):
             # range that is merely too coarse. The .dta carries it per point; this
             # puts it where a run log is read.
             how, self._range_full_a = initialize_pstat(
-                pstat, self.settings.get("gamry_current_range", 6.0e-3))
+                pstat, self.settings.get("gamry_current_range", 6.0e-3),
+                sample_period_s=self._sample_period(segment))
             self._ladder = read_gamry_ladder(pstat)   # this model's, for the advice
             get_run_logger().info("%s: Gamry %s, current range %s.", segment.label,
                                   self.settings.get("gamry_section") or "(default)",
@@ -2967,6 +2988,13 @@ class ToolkitPotentiostat(Potentiostat):
             raise ValueError(
                 f"No chrono potential for data_type {segment.data_type}")
         return v
+
+    def _sample_period(self, segment):
+        """Seconds per echem point: step/rate for a CV, delta_time for a hold."""
+        if segment.data_type == DATA_TYPE_CV:
+            s = self.settings
+            return (s["cv_step_size"] / 1000.0) / (s["cv_scan_rate"] / 1000.0)
+        return segment.delta_time
 
     def _cv_signal(self, pstat, segment):
         # Vertices map straight onto the .GSequence VINIT/VLIMIT1/VLIMIT2/VFINAL.
