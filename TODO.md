@@ -16,15 +16,21 @@ data.
 
 ### Needs the rig
 
-- [ ] **Interface 1010E (2026-10-09):** wire the Avantes trigger to its digital output
-      (check its pinout) before a spectra run on it; confirm the named Connect popup;
-      confirm the code -5 recovery (`99f6134`) after an abort mid-wait.
+- [ ] **Interface 1010E (2026-10-09; pinout checked 2026-10-17):** same connector
+      and pins as the Reference 600 (pin 7 Digital Out 0, pin 6 ground; `docs/sop.md`
+      §2.1), but its output is CMOS (< 10 uA load) where the 600's is TTL/330 ohm, and
+      its pin 6 is earth. Test: move the custom cable to the 1010E and run a
+      multi-segment dummy (10 kohm) run with spectra; every segment must trigger (no
+      "No trigger after 10 s"). Any stall -> meter pin 7 vs 6 with the Avantes
+      plugged in. Same session: confirm the named Connect popup and the code -5
+      recovery (`99f6134`) after an abort mid-wait.
 
 - [ ] **First real-sample run — the gold standard.** Real film, real dark (lamp
       blocked) and reference (blank, lamp on), the full multi-cycle sequence in one
       Start, then confirm it analyses cleanly downstream (`OECT_processing`). Gates
       almost everything under *Needs a decision*.
-- [ ] **Confirm the current-range ladder on a Reference 610+ and an Interface 1010.**
+- [ ] **Confirm the current-range ladder on a Reference 610+.** (Interface 1010E
+      done 2026-10-09: IERange 4..12 = 10 nA..1 A in decades.)
       Was planned for 2026-09-30; not recorded as done. `examples/probe_gamry_ladder.py`
       — read-only, cell-safe, needs no spectrometer and no dummy cell. The 610+ should
       match the documented Reference 600 column; the 1010 should report 10 nA..1 A in
