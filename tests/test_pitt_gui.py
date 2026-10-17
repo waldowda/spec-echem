@@ -301,5 +301,70 @@ def test_the_pitt_row_is_ticked_when_its_steps_report(window):
     tab.show_segment = lambda *a, **k: None       # the plot is not under test
     row = tab._row_for_label["PITT"]
     assert not tab.sequence_list.item(row).text().startswith("✓")
+    # Steps now report as each one ends, so a middle step counts, not ticks...
     tab._show_finished_segment("PITT 0", pd.DataFrame())
+    text = tab.sequence_list.item(row).text()
+    assert text.startswith("●") and text.endswith("step 1 of 2 done")
+    # ...and the last planned step ticks it.
+    tab._show_finished_segment("PITT 1", pd.DataFrame())
     assert tab.sequence_list.item(row).text().startswith("✓")
+
+
+def test_run_pitt_segment_hands_over_every_step_but_the_last(tmp_path):
+    from spec_echem.experiment import Segment, run_pitt_segment
+    from spec_echem.data import DATA_TYPE_PITT
+    from spec_echem.fakes import FakePittPotentiostat, FakeSpectrometer
+    from spec_echem.settings import DEFAULT_SETTINGS
+
+    pytest.importorskip("h5py")
+    s = dict(DEFAULT_SETTINGS, pitt_enabled=True, pitt_start_v=0.1, pitt_stop_v=0.3,
+             pitt_step_mv=100.0, pitt_min_hold_s=0.1, pitt_max_hold_s=0.2,
+             pitt_fast_s=0.1, pitt_slow_interval_s=0.1, chrono_delta_time=0.05)
+    spec = FakeSpectrometer()
+    wl = spec.wavelengths()[1]
+    handed = []
+
+    def on_step_result(label, absorb):
+        handed.append((label, absorb.shape[1]))
+        return lambda: True
+
+    steps, path, record = run_pitt_segment(
+        spec, Segment("PITT", DATA_TYPE_PITT, 0, 3, 0.05, False),
+        np.full(wl.size, 100.0), np.full(wl.size, 40000.0), wl, tmp_path,
+        "20261017_pitt", s, FakePittPotentiostat(r_leak=3210.0),
+        on_step_result=on_step_result)
+    assert [label for label, _n in handed] == ["PITT 0", "PITT 1"]
+    assert all(n > 0 for _l, n in handed)                 # spectra, not empties
+    assert [label for label, _df in steps] == ["PITT 0", "PITT 1", "PITT 2"]
+    assert path is not None and path.exists()
+    assert all("display_wait_s" in st for st in record.steps[:-1])
+
+
+def test_the_live_plot_draws_the_running_pitt_step(window):
+    """It drew nothing during a PITT (2026-10-17): the Gamry's live_data() still
+    held the previous segment's curve, and nothing fed it the staircase."""
+    from types import SimpleNamespace
+    from spec_echem.data import DATA_TYPE_PITT
+    from spec_echem.experiment import Segment
+    from spec_echem.pitt import PittRecord
+
+    rec = PittRecord()
+    rec.echem_step += [0, 0, 0]
+    rec.echem_t_in_step += [0.1, 0.2, 0.3]
+    rec.echem_potential += [0.1, 0.1, 0.1]
+    rec.echem_current += [3e-6, 2e-6, 1e-6]
+
+    class Stale:
+        def live_data(self):
+            raise AssertionError("a PITT must not read the previous segment's curve")
+
+    tab = window.run_tab
+    tab._worker = SimpleNamespace(potentiostat=Stale(), pitt_record=rec)
+    tab._current_segment = Segment("PITT", DATA_TYPE_PITT, 0, 21, 0.1, True)
+    drawn = []
+    tab.live_canvas.update_live_line = lambda *a, **k: drawn.append(k.get("status"))
+    try:
+        tab._update_live_echem()
+    finally:
+        tab._worker = None
+    assert drawn and drawn[0].startswith("Step 1 of 21")

@@ -17,7 +17,7 @@ from spec_echem.data import (
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
     DATA_TYPE_PITT,
 )
-from spec_echem.pitt import pitt_plan
+from spec_echem.pitt import PittRecord, pitt_plan
 from spec_echem.logging_config import get_run_logger
 
 
@@ -112,6 +112,37 @@ def format_current(amps):
         if abs(a) >= scale:
             return f"{a / scale:+.3g} {unit}"
     return f"{a / 1e-12:+.3g} pA"
+
+
+def pitt_live(record, n_steps):
+    """The running PITT step for the live plot: (t_in_step, current, status), or None.
+
+    Reads a PittRecord that another thread is filling, so it takes one length for
+    all four lists and slices to it -- they can differ by one mid-append. NaN samples
+    (a Gamry gap just after a step) are dropped. Status, like live_status's:
+    "Step 3 of 21 / t = 4.2 s / E = +0.020 V / I = +3.41 µA".
+    """
+    if record is None:
+        return None
+    n = min(len(record.echem_step), len(record.echem_t_in_step),
+            len(record.echem_potential), len(record.echem_current))
+    if n == 0:
+        return None
+    steps = record.echem_step[:n]
+    k = steps[-1]
+    j = n
+    while j > 0 and steps[j - 1] == k:
+        j -= 1
+    t = np.asarray(record.echem_t_in_step[j:n], dtype=float)
+    v = np.asarray(record.echem_potential[j:n], dtype=float)
+    i = np.asarray(record.echem_current[j:n], dtype=float)
+    ok = np.isfinite(i) & np.isfinite(t)
+    if not ok.any():
+        return None
+    t, v, i = t[ok], v[ok], i[ok]
+    status = (f"Step {k + 1} of {n_steps}\nt = {t[-1]:.1f} s\nE = {v[-1]:+.3f} V\n"
+              f"I = {format_current(i[-1])}")
+    return t, i, status
 
 
 def live_status(is_cv, time, potential, current, n_cycles=1, start_v=None,
@@ -306,7 +337,8 @@ def run_one_segment(spec, segment, dark, ref, wavelengths,
 
 
 def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_path,
-                     settings, potentiostat, abort_event=None, stop_event=None):
+                     settings, potentiostat, abort_event=None, stop_event=None,
+                     on_step_result=None, record=None):
     """Run the whole PITT staircase, write its HDF5, and return each step's data.
 
     -> (steps, path, record), `steps` being [(label, absorbance DataFrame)] for every
@@ -316,6 +348,11 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
 
     HDF5 is the ONLY copy -- there is no ascii for a PITT -- so a failed write is an
     ERROR, never the quiet warning an additive .h5 gets beside its text files.
+
+    `on_step_result(label, absorbance)`, when given, is called as each step that is
+    not the last ends, and may return a `ready()` callable; the staircase holds the
+    setpoint, still sampling current, until it is true (see acquire_pitt). `record`
+    is passed through so a caller can read the samples live.
     """
     log = get_run_logger()
     plan = pitt_plan(settings)
@@ -324,9 +361,29 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
         log.info("PITT step %d of %d: %+.3f V (%s)", k + 1, len(plan),
                  step.potential, step.role)
 
+    def step_done(row):
+        # Never let the display stop a staircase: on any failure, skip the hold.
+        try:
+            tags = np.asarray(record.spectrum_step, dtype=int)
+            rows = np.flatnonzero(tags == row["index"])
+            if not rows.size:
+                return None
+            absorb = compute_absorbance(
+                [record.spectra[j] for j in rows], dark, ref, wavelengths,
+                [record.timestamps[j] for j in rows])
+            return on_step_result(f"PITT {row['index']}", absorb)
+        except Exception:  # noqa: BLE001
+            log.debug("PITT %d: could not hand the step to the display",
+                      row["index"], exc_info=True)
+            return None
+
+    if record is None:
+        record = PittRecord()
     record = acquire_pitt(spec, potentiostat, plan, settings, trigger=segment.trigger,
                           abort_event=abort_event, stop_event=stop_event,
-                          on_step=announce)
+                          on_step=announce,
+                          on_step_done=step_done if on_step_result else None,
+                          record=record)
     _use_hardware_echem(record, potentiostat)
     cutoff = float(settings["pitt_cutoff_pct"]) / 100.0
     for st in record.steps:
@@ -350,6 +407,11 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
                 "on that range.", st["index"], cutoff * st["peak_current_A"],
                 cutoff * 100, st["peak_current_A"], st["hold_s"],
                 cutoff * st["peak_current_A"])
+    waits = [st["display_wait_s"] for st in record.steps if "display_wait_s" in st]
+    if waits:
+        log.info("PITT: held %d step ends for the display, mean %.0f ms, max %.0f ms "
+                 "(setpoint held and current sampled throughout).", len(waits),
+                 1000.0 * float(np.mean(waits)), 1000.0 * max(waits))
     if not record.steps:
         return [], None, record
 

@@ -16,8 +16,8 @@ import copy
 from datetime import datetime
 from pathlib import Path
 
-from spec_echem.experiment import (build_segments, live_status, pitt_start_problems,
-                                   pitt_step_segments)
+from spec_echem.experiment import (build_segments, live_status, pitt_live,
+                                   pitt_start_problems, pitt_step_segments)
 from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
 from spec_echem.data import (write_run_metadata, segment_potential_text,
                              DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_PITT)
@@ -546,6 +546,19 @@ class RunTab(QWidget):
         worker, seg = self._worker, self._current_segment
         if worker is None or seg is None:
             return
+        if seg.data_type == DATA_TYPE_PITT:
+            # The staircase's own samples, not live_data(): the PITT drivers do not
+            # feed that, and on the Gamry it still held the PREVIOUS segment's curve.
+            try:
+                live = pitt_live(getattr(worker, "pitt_record", None), seg.num_points)
+            except Exception:  # noqa: BLE001 -- the plot skips a frame, never the GUI
+                return
+            if live is not None:
+                t, i, status = live
+                self.live_canvas.update_live_line(
+                    t, i, "Time in step (s)", "Current", title="PITT — live",
+                    y_unit="A", status=status)
+            return
         pot = worker.potentiostat
         # Never let the live plot take the GUI down: an unhandled exception in a Qt
         # timer slot aborts the application under PyQt5, and that is what an
@@ -597,16 +610,26 @@ class RunTab(QWidget):
         seg = self.win.segments_by_label.get(label)
         discarded = seg is not None and not seg.save
 
-        # A PITT's steps report as "PITT 0", "PITT 1", ... but the list has one
-        # "PITT" row, which therefore never got its tick (2026-10-17). The steps are
-        # reported only once the whole staircase has ended, so the first one marks it.
-        row_label = ("PITT" if seg is not None and seg.data_type == DATA_TYPE_PITT
-                     else label)
+        # A PITT's steps report as "PITT 0", "PITT 1", ... as each one ENDS, but the
+        # list has one "PITT" row, which therefore never got its tick (2026-10-17).
+        # It counts the steps and is ticked by the last planned one.
+        row_label = label
+        pitt_progress = None
+        if seg is not None and seg.data_type == DATA_TYPE_PITT:
+            row_label = "PITT"
+            whole = self.win.segments_by_label.get("PITT")
+            planned = whole.num_points if whole is not None else 0
+            if seg.run_number + 1 < planned:
+                pitt_progress = f"   step {seg.run_number + 1} of {planned} done"
         row = self._row_for_label.get(row_label)
         if row is not None:
             text = self._item_text.get(row_label, row_label)
-            self.sequence_list.item(row).setText(
-                ("✓  " + text + "  (data discarded)") if discarded else ("✓  " + text))
+            if pitt_progress is not None:
+                self.sequence_list.item(row).setText("●  " + text + pitt_progress)
+            else:
+                self.sequence_list.item(row).setText(
+                    ("✓  " + text + "  (data discarded)") if discarded
+                    else ("✓  " + text))
 
         # A discarded segment is shown live here as it happens — you still want to watch
         # it run — but it never enters win.results, which is the "data you have" view
