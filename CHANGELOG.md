@@ -27,6 +27,13 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **A long PITT now shows its progress (2026-10-17).** Each step's spectra are drawn
+  as the step ends; the staircase holds that setpoint until the drawing is done (a few
+  hundred ms, at most 5 s), still sampling current on every tick but taking no spectra,
+  so the step's charge has no gap and no spectrum is delayed. The hold is logged and
+  saved as the step's `display_wait_s`. The live plot shows the running step's current
+  against time with "Step n of N", and the PITT row counts "step n of N done". Before,
+  nothing was drawn until the whole staircase ended.
 - **Choose the Gamry at Connect (2026-10-09)** when more than one is on USB: a popup
   lists each as `section (name)`, the choice survives loading settings, and a run with
   several connected and none chosen stops with an error instead of taking the default.
