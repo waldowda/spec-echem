@@ -63,7 +63,7 @@ from spec_echem.acquisition import (SPECTRUM_OVERHEAD_S, potentiostat_poll_secon
 from spec_echem.experiment import build_segments
 from spec_echem.spectral_range import recommend_wavelength_range
 from gui.widgets.plot_canvas import MplCanvas
-from gui.forms import form_layout, fill_width
+from gui.forms import form_layout, fill_width, guard_scroll
 
 # Under the spec_echem package logger so setup actions — which all happen before any
 # run exists — land in the app log rather than vanishing.
@@ -97,6 +97,7 @@ class InstrumentTab(QWidget):
         self._last_test_abs = None       # same scan as absorbance, for Suggest
         self._lin_recommended = None    # integration time from the last linearity check
         self._build()
+        guard_scroll(self)
 
     def _mode_note(self):
         """A grey, wrapping, indented note under a potentiostat radio.
