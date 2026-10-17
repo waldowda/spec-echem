@@ -309,21 +309,19 @@ data.
 
 ### Backlog — wanted, not scheduled
 
-- [ ] **Interface 1010E current noise (2026-10-17) — not urgent.** A ~3.36 Hz component
-      (as sampled at 10 points/s; true frequency unknown) on the CURRENT only, the
-      potential steady to 0.01 mV, the same at 0 and 150 uA. Amplitude ~114 nA with the
-      trigger cable (`20261017_test3`), ~80 nA without (`_test5`); the Reference 600 shows
-      none (~7 nA, `_test4`). So the cable's ground loop (the 1010's pin 6 is earth)
-      adds a little, but the source is the 1010E or its cell setup. ~80 nA is <1% of a
-      film's tens of uA, but matters for sub-uA PITT cutoffs. Tests, each separating one
-      suspect:
-      1. Gamry Framework's own chrono on the 1010E, same dummy, fast sampling (~1 ms):
-         same oscillation = not our code, and its TRUE frequency names the source
-         (mains-related, a switching supply, a fan).
-      2. A different current range (100 uA, at +-0.1 V on 2 kohm): shrinks 10x = inside
-         the instrument; stays ~80 nA = real pickup through the cell leads/shielding.
-      3. Then, if it points at the instrument: Framework's self-test/calibration.
-      Analysis script: FFT band 3.2-3.55 Hz share and amplitude per hold/PITT step.
+- [x] **Interface 1010E current noise (2026-10-17) — FIXED (`dac3a43`).** Cause: spec-echem
+      never set the Gamry's I/V channel filters, so both ran at 200 kHz; the 1010E
+      aliased pickup into a 3.36 Hz +-114 nA wave. Now `test_*_filter(1/period)` as
+      Framework does (1 kHz; index 2 on the Ref 600, 3 on the 1010E). Hold noise 80.9 ->
+      3.8 nA on the 1010E (`20261017_duckling1`). Trigger cable was a minor contributor.
+- [ ] **Gamry "Noise Reject" equivalent.** Framework's Noise Reject at 0.1 s read ~4-5 nA
+      sd vs Fast's +-1 count. Not a Pstat call; find it on the curve/measurement side.
+      The 1010E already reaches ~4 nA with the filter alone; check the Ref 600 on its
+      600 uA range first -- it may not be needed.
+- [ ] **Autolab: the same check (2026-10-17).** Compare Ei-mode hold noise (chrono holds,
+      PITT) against NOVA on the same dummy, and see whether our setup sets the bandwidth
+      and integration time NOVA would. The CV runs NOVA's own procedure, so it cannot
+      drift. A 1 mV/s dummy CV in NOVA would also test the 10-07 jagged-CV explanation.
 
 - [ ] Richer models (joint polaron/pi-pi* fit with shared tau FIRST), same-sign
       prefactor option — see their sections.

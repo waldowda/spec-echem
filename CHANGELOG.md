@@ -112,7 +112,10 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   period (1 kHz at 10-100 points/s -- index 2 on the Reference 600, 3 on the 1010E),
   and spec-echem now does the same, from each segment's own sample period, and logs
   the filter with the current range. Framework read the same 2 kOhm and 3.2 kOhm holds
-  at ~4-5 nA sd in its Noise Reject mode. Not yet confirmed on the rig.
+  at ~4-5 nA sd in its Noise Reject mode. CONFIRMED the same day: the 1010E's hold
+  noise fell from 80.9 to 3.8 nA sd and the wave vanished (`20261017_duckling1`); the
+  Reference 600 on its 6 mA range went 34 -> 28 nA, about the same fraction of full
+  scale; cadence, triggering and R unchanged.
 - **A PITT on the GUI (2026-10-17):** its row in the sequence list never got its ✓,
   because the steps report as "PITT 0", "PITT 1", ... and the row is "PITT"; and tab 5
   showed a step's absorbance with no current or charge, because it read echem from the
