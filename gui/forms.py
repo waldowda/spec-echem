@@ -62,10 +62,10 @@ def fill_width(widget):
 
 
 class _ScrollGuard(QObject):
-    """Sends a scroll over an unclicked field to the page instead of the field."""
+    """Sends a scroll over a field to the page instead of the field."""
 
     def eventFilter(self, obj, event):
-        if event.type() != QEvent.Wheel or obj.hasFocus():
+        if event.type() != QEvent.Wheel:
             return False
         area = obj.parent()
         while area is not None and not isinstance(area, QAbstractScrollArea):
@@ -82,14 +82,17 @@ def guard_scroll(root):
     or not. On 2026-10-17 a current range chosen as 1 mA was saved and run as 10 nA,
     the top of the list, clipped at 110% on every point -- almost certainly a
     two-finger swipe up to Save Settings passing over the dropdown. A swipe
-    over a potential would change it just as silently. So a field takes scroll input
-    only once it has been clicked into, and otherwise the page scrolls.
+    over a potential would change it just as silently. So scrolling over a field
+    always scrolls the page and never changes the field, clicked into or not: the
+    first version allowed it once the field had focus, and on the Win11 rig a
+    dropdown still changed under a swipe. Values are set by clicking, typing or
+    the arrows.
 
     Covers the fields that exist when called; the tabs build theirs up front.
     """
     guard = _ScrollGuard(root)
     for cls in (QComboBox, QAbstractSpinBox):
         for field in root.findChildren(cls):
-            field.setFocusPolicy(Qt.StrongFocus)   # a scroll must not focus it either
+            field.setFocusPolicy(Qt.StrongFocus)   # nor may a scroll give it focus
             field.installEventFilter(guard)
     return guard
