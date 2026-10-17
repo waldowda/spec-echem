@@ -4,7 +4,7 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-10-09_
+_Last updated: 2026-10-17_
 
 ---
 
@@ -24,6 +24,17 @@ taken near equilibrium rather than mid-transient. HDF5 only, one group per step
 - Fixed on the way: a spurious Gamry OVERLOAD warning, every-other-tick spectra gaps,
   and Load Settings silently putting the Gamry on its 60 pA range.
 
+**2026-10-17 — the 1010E triggers, and a long PITT shows its progress.** With the
+trigger cable moved to the Interface 1010E, every segment and all 21 PITT steps
+triggered at 100.0 ms cadence, and a 2 kΩ dummy read 1999.8 Ω. Each PITT step is now
+drawn as it ends, the setpoint held (current still sampled, no spectra) for the
+188–406 ms the drawing takes; the live plot follows the running step. Also confirmed:
+the Connect popup's names and recovery from an abort mid-trigger-wait. Fixed: a
+trackpad swipe could change the setting under the pointer (a 1 mA range ran as
+10 nA); the PITT row's tick; tab 5's missing PITT current. Open, not urgent: the
+1010E puts a ~3.36 Hz (as sampled), ~80 nA component on its current reading that the
+Reference 600 does not (TODO backlog).
+
 **2026-10-09 — a second Gamry (Interface 1010E) on the same PC.** Connect now asks
 which Gamry to use, and the 1010E ran a CV at its own 1 mA range. No spectra with it
 yet: the Avantes trigger cable is on the Reference 600. Several bugs found and fixed
@@ -36,8 +47,9 @@ to ~118 mV — still well above equilibrium, so the PITT's return leg is the nex
 measurement. Also added: a live-plot readout (cycle, E, I) and a reference reminder at
 Start, both requested at the bench.
 
-**Next:** at the Autolab, confirm the count rule and test the cutoff on a slow series RC
-(τ = 1 s); then a real film, at the user's call. The PITT analysis (charge per step,
+**Next — the priority:** a PITT on a real film, with the return leg (kinetics vs
+hysteresis), on the Reference 600; a slow series RC (τ = 1 s) to see the cutoff end a
+step; the Autolab count rule still to confirm. The PITT analysis (charge per step,
 DOS) comes after. The HDF5 writer from the 2026-09-28 plan below has since been built
 (`docs/data-format.md` §4).
 
