@@ -170,18 +170,45 @@ through the whole app without instruments — useful for learning the layout.
 
 ### 2.1 Trigger Wiring
 
-| Gamry Ref-600 | Avantes DB26 connector |
-|---|---|
-| DIGOUT0 | Pin 6 (hardware trigger input) |
+The potentiostat starts each segment by raising its Digital Out 0 line; the Avantes waits for that
+edge before taking spectrum 0. One wire carries it:
 
-This wire should already be in place. If it has been disconnected, ask Dr. Waldow before
+| Gamry, 15-pin rear-panel D connector | Avantes DB26 connector |
+|---|---|
+| Pin 7 — Digital Out 0 | Pin 6 (hardware trigger input) |
+| Pin 6 — Ground | Ground |
+
+The Reference 600 ("Misc I/O") and the Interface 1010 ("User I/O") use the **same connector and
+the same pin numbers**, so one cable fits either. The cable is plugged into ONE potentiostat at a
+time: a run on the other one gets current but no spectra, and the log says
+"No trigger after 10 s ...". Choose the instrument the cable is on in the Connect popup.
+
+The two instruments are not electrically identical (from each manual's Appendix C, Table C-1):
+
+| | Reference 600 | Interface 1010 |
+|---|---|---|
+| Digital Out 0 (pin 7) | TTL, 330 Ω output impedance | CMOS; the input it drives must draw **< 10 µA** |
+| Pin 6 ground | Isolated from both floating ground and earth | **Earth** ground |
+| Connector shell | Floating ground | Floating ground |
+| Sync In / Sync Out (pins 3 / 4) | Present | Not listed |
+
+- **Drive strength.** The Reference 600 output holds near 5 V into an ordinary input (measured
+  0 ↔ 4.99 V on pin 7 vs pin 6, 2026-07-01). The 1010's is only specified into a high-impedance
+  input; if the Avantes input loads it, its high level can sag toward the ~2 V TTL threshold and
+  triggers may be missed intermittently. A multi-segment dummy-cell run with spectra on every
+  segment is the practical check; if any segment stalls, measure pin 7 vs pin 6 with the cable
+  plugged into the Avantes.
+- **Shield.** Both manuals warn that improper cables can compromise floating operation, recommend
+  against standard shielded 15-pin cables, and prefer a custom cable with the shield on **pin 6**,
+  not the shell. Their damage warning concerns high-energy cells with earth-grounded terminals.
+
+This wire should already be in place. If it has been disconnected, ask the instructor before
 reconnecting.
 
-> **TODO — cable preparation.** How this trigger cable is actually *built* (the Gamry-side
-> connector and which conductor carries DIGOUT0, the DB26 shell and pin 6 termination, ground /
-> shield, and cable length) is not yet written down. It lives only in Dr. Waldow's head and in the
-> one cable on the bench — so if it is ever damaged or a second rig is set up, this section is what
-> would be needed to rebuild it. **To be added.**
+> **TODO — cable preparation.** How this trigger cable is actually *built* (which conductor and
+> pin carry the signal at the DB26 end, where the shield is terminated, cable length) is not yet
+> written down beyond the pin map above. If it is ever damaged or a second cable is needed, this
+> section is what would be needed to rebuild it. **To be added.**
 
 ### 2.2 Power-On Order
 
