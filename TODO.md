@@ -16,14 +16,20 @@ data.
 
 ### Needs the rig
 
-- [ ] **Interface 1010E (2026-10-09; pinout checked 2026-10-17):** same connector
-      and pins as the Reference 600 (pin 7 Digital Out 0, pin 6 ground; `docs/sop.md`
-      §2.1), but its output is CMOS (< 10 uA load) where the 600's is TTL/330 ohm, and
-      its pin 6 is earth. Test: move the custom cable to the 1010E and run a
-      multi-segment dummy (10 kohm) run with spectra; every segment must trigger (no
-      "No trigger after 10 s"). Any stall -> meter pin 7 vs 6 with the Avantes
-      plugged in. Same session: confirm the named Connect popup and the code -5
-      recovery (`99f6134`) after an abort mid-wait.
+- [ ] **PITT on a real film — the priority (2026-10-17).** Now runs end to end on BOTH
+      Gamrys with a dummy, shows each step as it ends (a held setpoint while the GUI
+      draws, current sampled throughout, `display_wait_s` 188-406 ms on the Reference
+      600, spectra per step unchanged) and plots the running step live. On a resistor
+      every step is `max_hold` by design (constant E/R never decays). Next: a film, with
+      the return leg (kinetics vs hysteresis), and a slow series-RC dummy to see the
+      cutoff end a step. Use the Reference 600 for now (1010E noise item below).
+
+- [x] **Interface 1010E trigger (2026-10-17):** same connector and pins as the
+      Reference 600 (pin 7 Digital Out 0, pin 6 ground; `docs/sop.md` §2.1). With the
+      custom cable moved over, every segment and all 21 PITT steps triggered; cadence
+      100.0 ms; R = 1999.8 ohm on the 2 kohm dummy. Named Connect popup confirmed.
+- [ ] **Code -5 recovery** (`99f6134`): abort a run while it waits for the trigger,
+      then Start again -- it should just run. Not yet tried on purpose.
 
 - [ ] **First real-sample run — the gold standard.** Real film, real dark (lamp
       blocked) and reference (blank, lamp on), the full multi-cycle sequence in one
@@ -301,6 +307,22 @@ data.
 - [ ] GUI test targets still uncovered — see *Automated tests for the GUI layer*.
 
 ### Backlog — wanted, not scheduled
+
+- [ ] **Interface 1010E current noise (2026-10-17) — not urgent.** A ~3.36 Hz component
+      (as sampled at 10 points/s; true frequency unknown) on the CURRENT only, the
+      potential steady to 0.01 mV, the same at 0 and 150 uA. Amplitude ~114 nA with the
+      trigger cable (`20261017_test3`), ~80 nA without (`_test5`); the Reference 600 shows
+      none (~7 nA, `_test4`). So the cable's ground loop (the 1010's pin 6 is earth)
+      adds a little, but the source is the 1010E or its cell setup. ~80 nA is <1% of a
+      film's tens of uA, but matters for sub-uA PITT cutoffs. Tests, each separating one
+      suspect:
+      1. Gamry Framework's own chrono on the 1010E, same dummy, fast sampling (~1 ms):
+         same oscillation = not our code, and its TRUE frequency names the source
+         (mains-related, a switching supply, a fan).
+      2. A different current range (100 uA, at +-0.1 V on 2 kohm): shrinks 10x = inside
+         the instrument; stays ~80 nA = real pickup through the cell leads/shielding.
+      3. Then, if it points at the instrument: Framework's self-test/calibration.
+      Analysis script: FFT band 3.2-3.55 Hz share and amplitude per hold/PITT step.
 
 - [ ] Richer models (joint polaron/pi-pi* fit with shared tau FIRST), same-sign
       prefactor option — see their sections.
