@@ -28,8 +28,9 @@ data.
       Reference 600 (pin 7 Digital Out 0, pin 6 ground; `docs/sop.md` §2.1). With the
       custom cable moved over, every segment and all 21 PITT steps triggered; cadence
       100.0 ms; R = 1999.8 ohm on the 2 kohm dummy. Named Connect popup confirmed.
-- [ ] **Code -5 recovery** (`99f6134`): abort a run while it waits for the trigger,
-      then Start again -- it should just run. Not yet tried on purpose.
+- [x] **Code -5 recovery** (`99f6134`) CONFIRMED 2026-10-17: aborted a run on the
+      1010E while it waited for a trigger, switched to the Reference 600 without
+      restarting the app, and the next run armed, triggered and ran normally.
 
 - [ ] **First real-sample run — the gold standard.** Real film, real dark (lamp
       blocked) and reference (blank, lamp on), the full multi-cycle sequence in one
