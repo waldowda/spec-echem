@@ -102,8 +102,9 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   gives a wheel or two-finger trackpad scroll to whatever dropdown or number box is
   under the pointer, clicked or not. A 1 mA current range was saved and run as 10 nA,
   the top of the 1010E's list, almost certainly by a swipe up to Save Settings; a
-  potential could change the same way. On the Instrument and Parameters tabs a field
-  now takes scrolling only after it is clicked into, and otherwise the page scrolls.
+  potential could change the same way. On the Instrument and Parameters tabs scrolling
+  over a dropdown or number box now always scrolls the page and never changes the field,
+  clicked into or not; values are set by clicking, typing or the arrows.
 - **Settings were overwritten by half-filled tabs at every launch and Load Settings**
   (2026-10-09): filling the integration time collected every field before the rest
   were filled, so linearity start came up as 1e-05 ms and scan averages as 1.

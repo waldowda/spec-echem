@@ -3798,15 +3798,18 @@ def test_a_scroll_over_a_field_scrolls_the_page_instead(window):
     assert bar.value() < bar.maximum()
 
 
-def test_a_clicked_field_still_takes_the_scroll(window):
-    # The guard is "not unless you meant it", not "never": a focused field scrolls.
-    spin = window.parameters_tab._widgets["doping_potential_start"]
-    spin.setValue(0.2)
-    window.tabs.setCurrentWidget(window.parameters_tab)
-    QApplication.setActiveWindow(window)
-    spin.setFocus()
-    QApplication.processEvents()
-    if not spin.hasFocus():
-        pytest.skip("the offscreen platform would not give the field focus")
-    _scroll_up_over(spin, notches=1)
-    assert spin.value() != pytest.approx(0.2)
+def test_a_clicked_field_does_not_take_the_scroll_either(window):
+    # Choosing an item leaves the dropdown focused, and the swipe up to Save comes
+    # next -- so focus must not re-open the hazard. On the Win11 rig it did.
+    for field in (window.parameters_tab._widgets["doping_potential_start"],
+                  window.parameters_tab.gamry_range_combo):
+        window.tabs.setCurrentWidget(window.parameters_tab)
+        QApplication.setActiveWindow(window)
+        field.setFocus()
+        QApplication.processEvents()
+        if not field.hasFocus():
+            pytest.skip("the offscreen platform would not give the field focus")
+        before = field.text() if hasattr(field, "text") else field.currentIndex()
+        _scroll_up_over(field, notches=3)
+        after = field.text() if hasattr(field, "text") else field.currentIndex()
+        assert after == before, type(field).__name__
