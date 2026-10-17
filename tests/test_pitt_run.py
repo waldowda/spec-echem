@@ -377,3 +377,111 @@ def test_the_worker_emits_each_step_then_finishes(tmp_path):
     w.run()
     assert done == ["PITT 0", "PITT 1"]
     assert finished == ["done"]
+
+
+# --- showing each step as it ends (2026-10-17) -------------------------------
+
+def _run_held(s, ready_after=None, stop_on_hold=False, timeout=5.0):
+    """Run with an on_step_done that is ready after `ready_after` polls (None:
+    never). Records, per hold, the spectra taken and setpoints applied."""
+    import threading
+    clock = Clock()
+    stop = threading.Event()
+    spec = ClockedSpectrometer(clock)
+
+    class Watched(CostlyPot):
+        def pitt_set_potential(self, v):
+            self.set_at_calls = getattr(self, "set_at_calls", []) + [spec.calls]
+            return super().pitt_set_potential(v)
+
+    pot = Watched(clock=clock)
+    holds = []
+
+    def on_step_done(row):
+        hold = {"index": row["index"], "spectra_at_start": spec.calls,
+                "setpoints_at_start": len(pot.setpoints), "polls": 0}
+        holds.append(hold)
+        if stop_on_hold:
+            stop.set()
+
+        def ready():
+            hold["polls"] += 1
+            return ready_after is not None and hold["polls"] > ready_after
+        return ready
+
+    record = acquire_pitt(spec, pot, pitt_plan(s), s, stop_event=stop, clock=clock,
+                          sleep=clock.sleep, on_step_done=on_step_done,
+                          display_timeout_s=timeout)
+    return record, pot, holds
+
+
+def test_each_step_but_the_last_is_handed_over_before_the_next_setpoint():
+    record, pot, holds = _run_held(settings(), ready_after=3)
+    assert [h["index"] for h in holds] == [0, 1]             # 3 steps; not the last
+    # Handed over while the cell still sits at the step that just ended.
+    assert [h["setpoints_at_start"] for h in holds] == [1, 2]
+    assert record.completed
+    assert [v for v, _t in pot.setpoints] == pytest.approx([0.0, 0.1, 0.2])
+
+
+def test_the_hold_keeps_sampling_current_and_takes_no_spectra():
+    record, pot, holds = _run_held(settings(), ready_after=3)
+    # No spectrum between the hand-over and the next setpoint.
+    assert [h["spectra_at_start"] for h in holds] == pot.set_at_calls
+    for st in record.steps[:-1]:
+        k = st["index"]
+        t_after = [t for t, j in zip(record.echem_t_in_step, record.echem_step)
+                   if j == k and t > st["hold_s"]]
+        # One current sample per tick of the hold, labelled with the step just
+        # ended, so its charge has no gap; the hold time is recorded.
+        assert len(t_after) == 3
+        assert st["display_wait_s"] == pytest.approx(3 * 0.1, abs=0.1)
+        assert st["n_echem"] == sum(1 for j in record.echem_step if j == k)
+    assert "display_wait_s" not in record.steps[-1]
+
+
+def test_a_display_that_never_answers_holds_only_until_the_timeout():
+    record, _pot, _holds = _run_held(settings(), ready_after=None, timeout=1.0)
+    assert record.completed
+    for st in record.steps[:-1]:
+        assert 1.0 <= st["display_wait_s"] < 1.0 + 0.1 + SAMPLE_COST + 1e-9
+
+
+def test_stop_during_the_hold_ends_without_starting_the_next_step():
+    record, pot, holds = _run_held(settings(), ready_after=3, stop_on_hold=True)
+    assert len(holds) == 1
+    assert [v for v, _t in pot.setpoints] == pytest.approx([0.0])   # never stepped
+    assert not record.completed
+    assert [st["index"] for st in record.steps] == [0]
+    assert record.steps[0]["end_reason"] != END_STOPPED     # it ended on its own
+    assert [e for e, _t in pot.cell_events] == ["on", "off"]
+
+
+def test_without_a_display_hook_the_staircase_is_unchanged():
+    plain, _, _ = run(settings())
+    held, _, _ = _run_held(settings(), ready_after=0)
+    assert [st["hold_s"] for st in plain.steps] == pytest.approx(
+        [st["hold_s"] for st in held.steps])
+    assert [st["n_spectra"] for st in plain.steps] == [st["n_spectra"]
+                                                       for st in held.steps]
+
+
+def test_the_live_readout_shows_the_running_step_only():
+    from spec_echem.experiment import pitt_live
+    from spec_echem.pitt import PittRecord
+    assert pitt_live(None, 3) is None
+    rec = PittRecord()
+    assert pitt_live(rec, 3) is None
+    rec.echem_step += [0, 0, 1, 1, 1]
+    rec.echem_t_in_step += [0.1, 0.2, 0.0, 0.1, 0.2]
+    rec.echem_potential += [0.0, 0.0, 0.1, 0.1, 0.1]
+    rec.echem_current += [1e-6, 5e-7]     # mid-append: shorter than the rest
+    t, i, status = pitt_live(rec, 3)
+    # Sliced to the shortest list (2): still step 0.
+    assert list(t) == pytest.approx([0.1, 0.2]) and status.startswith("Step 1 of 3")
+    rec.echem_current += [float("nan"), 3e-6, 2e-6]
+    t, i, status = pitt_live(rec, 3)
+    assert list(t) == pytest.approx([0.1, 0.2])            # NaN sample dropped
+    assert list(i) == pytest.approx([3e-6, 2e-6])
+    assert status.splitlines() == ["Step 2 of 3", "t = 0.2 s", "E = +0.100 V",
+                                   "I = +2 µA"]

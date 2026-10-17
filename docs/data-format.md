@@ -317,6 +317,14 @@ samples the current FIRST after each change to keep that short (one sample, ~50 
 Autolab Ei mode: ~5% at τ = 1 s), and each step's `first_sample_s` in `pitt_steps_json`
 records how long it was, so an analysis can extrapolate or report what it missed.
 
+**A step's echem runs past `hold_s` when the GUI drew it** (since 2026-10-17). In the
+GUI each step is drawn as it ends, and the staircase holds that setpoint until the drawing
+is done — the current still sampled on every tick, no spectra — before the next step. Those
+samples belong to the step just ended (its `echem/time` exceeds `hold_s`), so its charge
+has no gap; the hold is that step's `display_wait_s` in `pitt_steps_json`, typically a few
+hundred ms and never more than 5 s. `hold_s` stays the time the end rule fired. The last
+step, and any run outside the GUI, has no `display_wait_s`.
+
 **No charge, as in §4.** dQ per step is derived, and is computed by the analysis.
 
 | | |

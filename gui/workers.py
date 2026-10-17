@@ -17,6 +17,7 @@ from qtpy.QtCore import QObject, Signal
 from spec_echem.data import segment_potential_text
 from spec_echem.data import DATA_TYPE_PITT
 from spec_echem.experiment import run_one_segment, run_pitt_segment
+from spec_echem.pitt import PittRecord
 from spec_echem.potentiostat import ConfigurationError
 from spec_echem.logging_config import get_run_logger
 
@@ -67,6 +68,8 @@ class AcquisitionWorker(QObject):
         self.abort_event = threading.Event()
         # Set by the GUI once it has finished drawing a completed segment.
         self.gui_idle = threading.Event()
+        # The running PITT's samples, filled in place, for the live current plot.
+        self.pitt_record = None
 
     def request_stop(self):
         self.stop_event.set()
@@ -150,16 +153,30 @@ class AcquisitionWorker(QObject):
                              seg.label, seg.num_points, seg.delta_time, seg.trigger)
 
                 if seg.data_type == DATA_TYPE_PITT:
-                    # One waveform, many steps. Each step's result is emitted only
-                    # AFTER the staircase ends: drawing on the GUI thread mid-run is
-                    # what opened 260-463 ms spectra gaps on 2026-09-25, and here it
-                    # would also delay the current samples dQ is integrated from.
-                    # The status pane gets a line per step instead (cheap).
+                    # One waveform, many steps, and possibly hours long, so each
+                    # step is shown as it ENDS -- never mid-step: drawing on the GUI
+                    # thread then is what opened 260-463 ms spectra gaps on
+                    # 2026-09-25. The staircase holds the setpoint, still sampling
+                    # current, until the drawing is done (acquire_pitt), so the
+                    # draw lands where nothing is being timed. The last step is
+                    # emitted after the staircase, like any segment.
+                    shown = set()
+
+                    def show_step(label, absorb_df):
+                        shown.add(label)
+                        self.gui_idle.clear()
+                        self.segment_done.emit(label, absorb_df)
+                        return self.gui_idle.is_set
+
+                    self.pitt_record = PittRecord()
                     steps, path, _record = run_pitt_segment(
                         self.spec, seg, self.dark, self.ref, self.wavelengths,
                         self.data_root, self.added_path, self.settings,
-                        self.potentiostat, self.abort_event, self.stop_event)
+                        self.potentiostat, self.abort_event, self.stop_event,
+                        on_step_result=show_step, record=self.pitt_record)
                     for label, absorb_df in steps:
+                        if label in shown:
+                            continue
                         self.gui_idle.clear()
                         self.segment_done.emit(label, absorb_df)
                     logger.info("PITT complete: %d steps -> %s", len(steps),

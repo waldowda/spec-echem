@@ -312,7 +312,8 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
 
 def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                  stop_event=None, clock=time.monotonic, sleep=time.sleep,
-                 on_step=None):
+                 on_step=None, on_step_done=None, record=None,
+                 display_timeout_s=5.0):
     """Run a whole PITT staircase as ONE continuous waveform. -> PittRecord
 
     A loop of its own rather than acquire_segment with options. That loop pumps the
@@ -330,11 +331,22 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     `pot` provides five things: pitt_prepare(v), fire(), pitt_sample() ->
     (t, potential, current), pitt_set_potential(v) and pitt_end(). `clock` and
     `sleep` are injectable so a test can run an hour-long staircase in milliseconds.
+
+    `on_step_done(step_row)` is called when a step that is not the last has ended,
+    with its row of record.steps. It may return a `ready()` callable: the loop then
+    HOLDS the setpoint until ready() is true (at most `display_timeout_s`) before the
+    next step, so the GUI can draw that step's spectra while nothing is being timed --
+    a staircase can run for hours, and drawing mid-step is what opened 260-463 ms
+    spectra gaps on 2026-09-25. The CURRENT keeps being sampled on every tick through
+    the hold (no spectra), labelled with the step just ended, so the step's charge
+    has no gap in it; the hold is recorded as the row's `display_wait_s`. Its
+    `hold_s` stays the time the end rule fired. `record`, when given, is filled in
+    place, so another thread can read the samples as they arrive.
     """
     from spec_echem.pitt import (END_ABORTED, END_FIXED, END_MAX_HOLD, END_STOPPED,
                                  ROLE_DEDOPE, PittRecord, spectrum_due, step_end_for)
 
-    record = PittRecord()
+    record = record if record is not None else PittRecord()
     if not plan:
         return record
     delta = float(settings["chrono_delta_time"])
@@ -398,6 +410,31 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                 if k == len(plan) - 1:
                     record.completed = True
                     break
+                ready = on_step_done(record.steps[-1]) if on_step_done else None
+                if ready is not None:
+                    t_wait = clock()
+                    while (not ready() and not _cut(abort_event)
+                           and clock() - t_wait < display_timeout_s):
+                        tick += 1
+                        deadline = anchor + tick * delta
+                        while not _cut(abort_event):
+                            remaining = deadline - clock()
+                            if remaining <= 0:
+                                break
+                            sleep(min(0.5e-3, remaining))
+                        t_pot, v, i = pot.pitt_sample()
+                        record.echem_time.append(float(t_pot))
+                        record.echem_t_in_step.append(clock() - step_start)
+                        record.echem_potential.append(float(v))
+                        record.echem_current.append(float(i))
+                        record.echem_step.append(k)
+                    record.steps[-1]["display_wait_s"] = float(clock() - t_wait)
+                    record.steps[-1]["n_echem"] = sum(
+                        1 for j in record.echem_step if j == k)
+                    # Stop or Abort during the hold: the step is complete, so end
+                    # here rather than step the cell to a potential nobody wants.
+                    if _cut(abort_event) or _cut(stop_event):
+                        break
                 k += 1
                 step = plan[k]
                 pot.pitt_set_potential(step.potential)
