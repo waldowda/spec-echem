@@ -3736,3 +3736,77 @@ def test_a_failing_live_data_cannot_take_the_gui_down(window):
         tab._update_live_echem()            # must not raise
     finally:
         tab._worker = None
+
+
+# --- scrolling the page must not change a field (2026-10-17) ---
+
+def _scroll_up_over(widget, notches=5):
+    """What a mouse wheel or a two-finger trackpad swipe sends to the field under it."""
+    from qtpy.QtCore import QPoint, QPointF, Qt as _Qt
+    from qtpy.QtGui import QWheelEvent
+    centre = QPointF(widget.width() / 2, widget.height() / 2)
+    for _ in range(notches):
+        event = QWheelEvent(centre, QPointF(widget.mapToGlobal(centre.toPoint())),
+                            QPoint(0, 0), QPoint(0, 120), _Qt.NoButton,
+                            _Qt.NoModifier, _Qt.NoScrollPhase, False)
+        QApplication.sendEvent(widget, event)
+
+
+def test_scrolling_over_the_current_range_does_not_change_it(window):
+    # A 1 mA range chosen, saved and run as 10 nA -- the top of the 1010E's list --
+    # almost certainly a swipe up to Save Settings passing over this dropdown.
+    combo = window.parameters_tab.gamry_range_combo
+    combo.setCurrentIndex(combo.count() - 2)    # well down the list, above "auto"
+    before = combo.currentIndex()
+    combo.clearFocus()
+    _scroll_up_over(combo)
+    assert combo.currentIndex() == before
+
+
+def test_scrolling_over_a_potential_does_not_change_it(window):
+    spin = window.parameters_tab._widgets["doping_potential_start"]
+    spin.setValue(0.2)
+    spin.clearFocus()
+    _scroll_up_over(spin)
+    assert spin.value() == pytest.approx(0.2)
+
+
+def test_scrolling_over_instrument_tab_fields_does_not_change_them(window):
+    from qtpy.QtWidgets import QAbstractSpinBox
+    spins = window.instrument_tab.findChildren(QAbstractSpinBox)
+    assert spins
+    for spin in spins:
+        spin.clearFocus()
+        before = spin.text()
+        _scroll_up_over(spin, notches=2)
+        assert spin.text() == before, spin.objectName() or type(spin).__name__
+
+
+def test_a_scroll_over_a_field_scrolls_the_page_instead(window):
+    from qtpy.QtWidgets import QScrollArea
+    tab = window.parameters_tab
+    area = tab.findChild(QScrollArea)
+    window.tabs.setCurrentWidget(tab)            # a hidden tab never lays out
+    window.resize(900, 500)                      # short enough that the form scrolls
+    QApplication.processEvents()
+    bar = area.verticalScrollBar()
+    assert bar.maximum() > 0
+    bar.setValue(bar.maximum())
+    combo = tab.gamry_range_combo
+    combo.clearFocus()
+    _scroll_up_over(combo)
+    assert bar.value() < bar.maximum()
+
+
+def test_a_clicked_field_still_takes_the_scroll(window):
+    # The guard is "not unless you meant it", not "never": a focused field scrolls.
+    spin = window.parameters_tab._widgets["doping_potential_start"]
+    spin.setValue(0.2)
+    window.tabs.setCurrentWidget(window.parameters_tab)
+    QApplication.setActiveWindow(window)
+    spin.setFocus()
+    QApplication.processEvents()
+    if not spin.hasFocus():
+        pytest.skip("the offscreen platform would not give the field focus")
+    _scroll_up_over(spin, notches=1)
+    assert spin.value() != pytest.approx(0.2)

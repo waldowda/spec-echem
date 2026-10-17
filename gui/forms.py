@@ -30,8 +30,9 @@ chosen on its merits rather than inherited:
                      left of every group and moves the labels when an unrelated row
                      changes width, which reads as a layout bug rather than a style.
 """
-from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QFormLayout, QSizePolicy
+from qtpy.QtCore import QCoreApplication, QEvent, QObject, Qt
+from qtpy.QtWidgets import (QAbstractScrollArea, QAbstractSpinBox, QComboBox,
+                            QFormLayout, QSizePolicy)
 
 
 def form_layout(parent=None):
@@ -58,3 +59,37 @@ def fill_width(widget):
     policy.setHorizontalPolicy(QSizePolicy.Expanding)
     widget.setSizePolicy(policy)
     return widget
+
+
+class _ScrollGuard(QObject):
+    """Sends a scroll over an unclicked field to the page instead of the field."""
+
+    def eventFilter(self, obj, event):
+        if event.type() != QEvent.Wheel or obj.hasFocus():
+            return False
+        area = obj.parent()
+        while area is not None and not isinstance(area, QAbstractScrollArea):
+            area = area.parent()
+        if area is not None:
+            QCoreApplication.sendEvent(area.viewport(), event)
+        return True
+
+
+def guard_scroll(root):
+    """Stop scrolling the page from changing the dropdowns and number boxes in it.
+
+    Qt hands a wheel or trackpad scroll to whatever field is under the pointer, focused
+    or not. On 2026-10-17 a current range chosen as 1 mA was saved and run as 10 nA,
+    the top of the list, clipped at 110% on every point -- almost certainly a
+    two-finger swipe up to Save Settings passing over the dropdown. A swipe
+    over a potential would change it just as silently. So a field takes scroll input
+    only once it has been clicked into, and otherwise the page scrolls.
+
+    Covers the fields that exist when called; the tabs build theirs up front.
+    """
+    guard = _ScrollGuard(root)
+    for cls in (QComboBox, QAbstractSpinBox):
+        for field in root.findChildren(cls):
+            field.setFocusPolicy(Qt.StrongFocus)   # a scroll must not focus it either
+            field.installEventFilter(guard)
+    return guard
