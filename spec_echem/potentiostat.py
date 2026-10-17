@@ -2327,6 +2327,7 @@ class _GamryPittRunner:
         self.range_full = None
         self.t_on = None
         self._overload_said = False
+        self._flag_noted = set()   # steps whose uncorroborated flag is logged
         self.thread = threading.Thread(target=self._run, name="gamry-pitt", daemon=True)
 
     # --- called from the PITT loop's thread -----------------------------------
@@ -2423,7 +2424,10 @@ class _GamryPittRunner:
                     "Gamry PITT: OVERLOAD at step %d, the current at %.0f%% of the "
                     "%.3g A range. Raise gamry_current_range.",
                     step, peak / full * 100, full)
-            else:
+            elif step not in self._flag_noted:
+                # Once per step: it is set on every point, and logging each harvest
+                # wrote 1,112 identical lines into one run log (20261017_test4).
+                self._flag_noted.add(step)
                 get_run_logger().debug(
                     "Gamry PITT step %d: acq_data flag field set at %.2g A (%.2f%% of "
                     "range) -- not corroborated by the current, not warned; values %s.",
