@@ -252,3 +252,54 @@ def test_a_pitt_steps_current_is_drawn_from_its_hdf5(window, tmp_path):
     tab._has_echem = False
     tab._plot_echem("PITT 1")
     assert tab._has_echem
+
+
+def test_the_analysis_tab_reads_a_pitt_steps_current_and_charge_from_hdf5(
+        window, tmp_path):
+    """Tab 5 showed a PITT step's absorbance with no current or charge (2026-10-17):
+    it read echem from the text files only, and a PITT is never text."""
+    from spec_echem.acquisition import acquire_pitt
+    from spec_echem.data import DATA_TYPE_PITT, write_pitt_h5
+    from spec_echem.experiment import Segment
+    from spec_echem.fakes import FakePittPotentiostat, FakeSpectrometer
+    from spec_echem.pitt import pitt_plan
+    from spec_echem.settings import DEFAULT_SETTINGS
+
+    s = dict(DEFAULT_SETTINGS, pitt_enabled=True, pitt_start_v=0.1, pitt_stop_v=0.2,
+             pitt_step_mv=100.0, pitt_min_hold_s=0.1, pitt_max_hold_s=0.2,
+             pitt_fast_s=0.1, pitt_slow_interval_s=0.1, chrono_delta_time=0.05)
+    spec = FakeSpectrometer()
+    wl = spec.wavelengths()[1]
+    record = acquire_pitt(spec, FakePittPotentiostat(r_leak=3210.0), pitt_plan(s), s)
+    write_pitt_h5(record, np.full(wl.size, 100.0), np.full(wl.size, 40000.0), wl,
+                  tmp_path, "20261004_pitt", settings=s)
+
+    window.run_folder = tmp_path / "20261004_pitt"
+    window.segments_by_label = {"PITT 1": Segment("PITT 1", DATA_TYPE_PITT, 1, 0,
+                                                  0.05, False)}
+    t, i, q = window.analysis_tab._echem_traces("PITT 1")
+    assert t is not None and len(t) == len(i) == len(q) > 1
+    assert np.all(i > 0) and q[-1] > 0          # charge accumulates from the current
+    assert "current" in window.analysis_tab._all_traces("PITT 1")
+
+
+def test_the_pitt_row_is_ticked_when_its_steps_report(window):
+    """The list has one 'PITT' row; the steps report as 'PITT 0', 'PITT 1', ... so
+    the row never got its tick, though the run had finished (2026-10-17)."""
+    import pandas as pd
+    from spec_echem.experiment import build_segments, pitt_step_segments
+    from spec_echem.settings import DEFAULT_SETTINGS
+
+    s = dict(DEFAULT_SETTINGS, pitt_enabled=True, pitt_start_v=0.1, pitt_stop_v=0.2,
+             pitt_step_mv=100.0)
+    tab = window.run_tab
+    segments = build_segments(s)
+    tab._fill_sequence(segments, s)
+    window.segments_by_label = {seg.label: seg for seg in segments}
+    for seg in pitt_step_segments(s):
+        window.segments_by_label[seg.label] = seg
+    tab.show_segment = lambda *a, **k: None       # the plot is not under test
+    row = tab._row_for_label["PITT"]
+    assert not tab.sequence_list.item(row).text().startswith("✓")
+    tab._show_finished_segment("PITT 0", pd.DataFrame())
+    assert tab.sequence_list.item(row).text().startswith("✓")

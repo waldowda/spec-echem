@@ -20,7 +20,7 @@ from spec_echem.experiment import (build_segments, live_status, pitt_start_probl
                                    pitt_step_segments)
 from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
 from spec_echem.data import (write_run_metadata, segment_potential_text,
-                             DATA_TYPE_CV, DATA_TYPE_DOPING)
+                             DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_PITT)
 from spec_echem.logging_config import (configure_run_logging, close_run_logging,
                                        get_run_logger, app_log_path)
 from spec_echem.potentiostat import make_potentiostat
@@ -597,9 +597,14 @@ class RunTab(QWidget):
         seg = self.win.segments_by_label.get(label)
         discarded = seg is not None and not seg.save
 
-        row = self._row_for_label.get(label)
+        # A PITT's steps report as "PITT 0", "PITT 1", ... but the list has one
+        # "PITT" row, which therefore never got its tick (2026-10-17). The steps are
+        # reported only once the whole staircase has ended, so the first one marks it.
+        row_label = ("PITT" if seg is not None and seg.data_type == DATA_TYPE_PITT
+                     else label)
+        row = self._row_for_label.get(row_label)
         if row is not None:
-            text = self._item_text.get(label, label)
+            text = self._item_text.get(row_label, row_label)
             self.sequence_list.item(row).setText(
                 ("✓  " + text + "  (data discarded)") if discarded else ("✓  " + text))
 
