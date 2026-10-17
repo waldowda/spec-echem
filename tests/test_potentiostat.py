@@ -2511,3 +2511,47 @@ def test_autolab_live_data_before_any_segment_is_prepared(monkeypatch):
     monkeypatch.setattr(potentiostat, "AUTOLAB_AVAILABLE", True)
     p = potentiostat.AutolabPotentiostat(_autolab_settings())
     assert p.live_data() is None
+
+
+def test_an_uncorroborated_gamry_pitt_flag_is_logged_once_per_step():
+    """The flag is set on every point; logging it per harvest wrote 1,112 identical
+    DEBUG lines into one run log (20261017_test4)."""
+    import logging
+    import numpy as np
+    from spec_echem.logging_config import get_run_logger
+    from spec_echem.potentiostat import _GamryPittRunner
+
+    runner = _GamryPittRunner({"chrono_delta_time": 0.1})
+    runner.range_full = 6e-3
+    runner.t_on = 0.0                  # set when the cell goes on
+    dtype = [("time", float), ("vf", float), ("im", float), ("overload", int)]
+
+    class Curve:
+        def __init__(self):
+            self.rows = []
+
+        def acq_data(self):
+            return np.array(self.rows, dtype=dtype)
+
+    records = []
+
+    class Grab(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    log = get_run_logger()
+    handler, level = Grab(), log.level
+    log.addHandler(handler)
+    log.setLevel(logging.DEBUG)
+    try:
+        for step in (0, 1):
+            curve, seen = Curve(), 0
+            for n in range(10):                     # ten harvests of one new point
+                curve.rows.append((0.1 * n, 0.1, 3e-5, 8191))
+                seen = runner._harvest(curve, step, 0.0, 0.0, seen)
+    finally:
+        log.removeHandler(handler)
+        log.setLevel(level)
+    noted = [m for m in records if "not corroborated" in m]
+    assert len(noted) == 2 and "step 0" in noted[0] and "step 1" in noted[1]
+    assert len(runner.points) == 20                 # every point still kept
