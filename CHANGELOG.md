@@ -105,6 +105,14 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Fixed
 
+- **The Gamry's current and voltage filters were never set (2026-10-17)**, so both
+  instruments ran at 200 kHz bandwidth. On the Interface 1010E that let pickup alias
+  into a 3.36 Hz, +-80-114 nA wave on the current; on the Reference 600 it showed as
+  28-43 nA of random noise. Gamry Framework sets each filter to suit the sample
+  period (1 kHz at 10-100 points/s -- index 2 on the Reference 600, 3 on the 1010E),
+  and spec-echem now does the same, from each segment's own sample period, and logs
+  the filter with the current range. Framework read the same 2 kOhm and 3.2 kOhm holds
+  at ~4-5 nA sd in its Noise Reject mode. Not yet confirmed on the rig.
 - **A PITT on the GUI (2026-10-17):** its row in the sequence list never got its ✓,
   because the steps report as "PITT 0", "PITT 1", ... and the row is "PITT"; and tab 5
   showed a step's absorbance with no current or charge, because it read echem from the

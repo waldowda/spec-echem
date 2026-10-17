@@ -2230,7 +2230,7 @@ def gamry_pitt(monkeypatch):
         monkeypatch.setattr(potentiostat, "TOOLKITPY_AVAILABLE", True)
         monkeypatch.setattr(potentiostat, "GAMRY_PITT_MIN_PERIOD_S", 0.01)
         monkeypatch.setattr(potentiostat, "initialize_pstat",
-                            lambda pstat, r=6e-3: ("6 mA (fixed)", 6e-3))
+                            lambda pstat, r=6e-3, **kw: ("6 mA (fixed)", 6e-3))
         return tk
     return make
 
@@ -2360,7 +2360,7 @@ def test_a_corroborated_overload_is_warned_once(gamry_pitt, monkeypatch, caplog)
     """Flagged AND the current near full scale: that one is believed."""
     gamry_pitt(tau=1e9, r_leak=3210.0)
     monkeypatch.setattr(potentiostat, "initialize_pstat",
-                        lambda pstat, r=6e-3: ("60 uA", 3.0e-5))   # 0.1 V/3210 ~ 31 uA
+                        lambda pstat, r=6e-3, **kw: ("60 uA", 3.0e-5))   # 0.1 V/3210 ~ 31 uA
     real = _GCurve.acq_data
 
     def flagged(self):
@@ -2555,3 +2555,82 @@ def test_an_uncorroborated_gamry_pitt_flag_is_logged_once_per_step():
     noted = [m for m in records if "not corroborated" in m]
     assert len(noted) == 2 and "step 0" in noted[0] and "step 1" in noted[1]
     assert len(runner.points) == 20                 # every point still kept
+
+
+# --- the measurement filters (2026-10-17) -------------------------------------
+
+class _FilterPstat(_FakePstat):
+    """A pstat with a model's filter ladder, answering test_*_filter as the probe
+    measured: Reference 600 [Off, 200kHz, 1kHz, 5Hz]; Interface 1010E [Off, 200KHz,
+    10KHz, 1KHz, 5Hz] -- the same 1 kHz is index 2 on one and 3 on the other."""
+
+    LADDERS = {
+        "ref600": (["Off", "200kHz", "1kHz", "5Hz"], {1: 3, 10: 2, 100: 2, 1000: 1}),
+        "ifc1010": (["Off", "200KHz", "10KHz", "1KHz", "5Hz"],
+                    {1: 4, 10: 3, 100: 3, 1000: 2}),
+    }
+
+    def __init__(self, model):
+        super().__init__()
+        self.labels, self.answers = self.LADDERS[model]
+        self.asked = []
+        self.ich_set = self.vch_set = None
+
+    def _answer(self, hz):
+        self.asked.append(hz)
+        return self.answers[min(self.answers, key=lambda k: abs(k - hz))]
+
+    def test_ich_filter(self, hz):
+        return self._answer(hz)
+
+    def test_vch_filter(self, hz):
+        return self._answer(hz)
+
+    def set_ich_filter(self, index):
+        self.ich_set = index
+
+    def set_vch_filter(self, index):
+        self.vch_set = index
+
+    def ich_filter_label(self, index):
+        return self.labels[index]
+
+
+@pytest.mark.parametrize("model, index", [("ref600", 2), ("ifc1010", 3)])
+def test_the_filters_are_set_as_framework_sets_them(stub_tkp, model, index):
+    """They were never set, so both instruments ran at index 1 = 200 kHz; on the
+    1010E that let pickup alias into a 3.36 Hz, +-80-114 nA current wave. Framework
+    asks test_*_filter(1 / sample period) and gets 1 kHz on both -- at a DIFFERENT
+    index on each, so the index must come from the instrument, never a constant."""
+    from spec_echem.potentiostat import initialize_pstat
+
+    p = _FilterPstat(model)
+    how, _full = initialize_pstat(p, 6.0e-3, sample_period_s=0.1)
+    assert p.asked == [pytest.approx(10.0)] * 2           # 1 / 0.1 s, both channels
+    assert p.ich_set == index and p.vch_set == index
+    assert how.endswith("I/V filter " + p.labels[index])  # logged every segment
+    assert p.labels[index].lower() == "1khz"
+
+
+def test_a_slow_sample_period_asks_for_a_slower_filter(stub_tkp):
+    from spec_echem.potentiostat import initialize_pstat
+
+    p = _FilterPstat("ifc1010")
+    initialize_pstat(p, 6.0e-3, sample_period_s=1.0)      # e.g. a 1 mV/s CV, 1 mV steps
+    assert p.asked[0] == pytest.approx(1.0) and p.ich_set == 4   # 5 Hz
+
+
+def test_the_sample_period_is_the_cv_step_time_or_the_hold_interval():
+    from spec_echem.data import DATA_TYPE_CV, DATA_TYPE_DOPING
+    from spec_echem.experiment import Segment
+    from spec_echem.potentiostat import ToolkitPotentiostat
+
+    pot = ToolkitPotentiostat.__new__(ToolkitPotentiostat)
+    pot.settings = {"cv_step_size": 10.0, "cv_scan_rate": 100.0}   # mV, mV/s
+    assert pot._sample_period(Segment("CV", DATA_TYPE_CV, 0, 1, 0.1, True)) == \
+        pytest.approx(0.1)
+    pot.settings = {"cv_step_size": 1.0, "cv_scan_rate": 1.0}
+    assert pot._sample_period(Segment("CV", DATA_TYPE_CV, 0, 1, 0.1, True)) == \
+        pytest.approx(1.0)
+    assert pot._sample_period(Segment("Doping 0", DATA_TYPE_DOPING, 0, 1, 0.25,
+                                      True)) == pytest.approx(0.25)
