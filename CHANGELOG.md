@@ -98,6 +98,11 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Fixed
 
+- **A PITT on the GUI (2026-10-17):** its row in the sequence list never got its ✓,
+  because the steps report as "PITT 0", "PITT 1", ... and the row is "PITT"; and tab 5
+  showed a step's absorbance with no current or charge, because it read echem from the
+  text files only and a PITT is saved to HDF5 only. Tab 5 now falls back to the .h5,
+  as tab 4 already did.
 - **Scrolling the page could change a setting under the pointer** (2026-10-17). Qt
   gives a wheel or two-finger trackpad scroll to whatever dropdown or number box is
   under the pointer, clicked or not. A 1 mA current range was saved and run as 10 nA,

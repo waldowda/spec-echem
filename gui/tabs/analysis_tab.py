@@ -27,7 +27,7 @@ from spec_echem.analysis import (
 )
 from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
                              DATA_TYPE_DOPING, DATA_TYPE_DEDOPING,
-                             DATA_TYPE_PREDEDOPING)
+                             DATA_TYPE_PREDEDOPING, h5_path, read_segment_echem_h5)
 from spec_echem.build_info import build_id
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
@@ -681,9 +681,17 @@ class AnalysisTab(QWidget):
         if seg is None or self.win.run_folder is None:
             return None, None, None
         path = echem_txt_path(self.win.run_folder, seg.data_type, seg.run_number)
-        if path is None or not path.exists():
-            return None, None, None
-        df = read_chrono(path)
+        if path is not None and path.exists():
+            df = read_chrono(path)
+        else:
+            # No text file: an "HDF5 only" run, or a PITT, which is never text -- so
+            # a PITT step showed absorbance here with no current or charge
+            # (2026-10-17). The Results tab already read the .h5; now this does too.
+            h5 = h5_path(self.win.run_folder, seg.data_type)
+            df = (read_segment_echem_h5(h5, seg.run_number, seg.data_type)
+                  if h5.exists() else None)
+            if df is None:
+                return None, None, None
         t = df["Corrected time (s)"].to_numpy(dtype=float)
         i = df["WE(1).Current (A)"].to_numpy(dtype=float)
         # Charge is the running integral — smoother than current, and the more
