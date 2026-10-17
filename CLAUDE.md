@@ -85,7 +85,7 @@ spec-echem/
 │   ├── sop.md                       # Standard operating procedure (GUI-first)
 │   └── inspect-run.md
 ├── examples/                        # Bench/validation scripts + identify_hardware.py
-├── tests/                           # Unit tests (929) — no hardware required
+├── tests/                           # Unit tests (946) — no hardware required
 ├── data/                            # Sample data directory
 ├── CHANGELOG.md                     # What changed between versions
 ├── STATUS.md                        # Human-readable project status + next steps
@@ -374,7 +374,11 @@ state (`MainWindow.gamry_section`), written into the settings at every collect, 
 Load Settings cannot drop it; none chosen with several connected is an ERROR. The
 1010E reports IERange 4..12 = 10 nA..1 A in decades, so ranges and advice always come
 from the instrument's own ladder. **The Avantes trigger is wired to ONE Gamry's
-DIGOUT0**; a run on the other gets no spectra and warns after 10 s.
+DIGOUT0**; a run on the other gets no spectra and warns after 10 s. Both use the same
+15-pin connector and pins (7 = Digital Out 0, 6 = ground; `docs/sop.md` §2.1), so one
+cable fits either, but the 1010's pin 6 is EARTH (the 600's is isolated) and its
+output is CMOS. The 1010E triggered every segment (2026-10-17) but shows a ~3.36 Hz
+(aliased) ~80-114 nA component on the CURRENT that the 600 does not -- TODO backlog.
 
 ### PITT staircase (data type 5) — runs on both rigs (2026-10-05)
 
@@ -387,6 +391,11 @@ loop, cell held on throughout), `data.write_pitt_h5` (HDF5 only, a group per ste
   `m_step` ignores it, so neither built-in staircase can end a step early. The cell
   stays on between curves. `pitt_sample()` must NEVER wait for a point. The saved
   echem is the instrument's own points, not the loop's samples.
+- **Each step is shown as it ENDS (2026-10-17):** `on_step_done` holds the setpoint
+  until the GUI has drawn (<= 5 s), sampling current every tick and taking NO spectra,
+  so the draw never lands mid-step and the step's charge has no gap. Recorded as
+  `display_wait_s` (188-406 ms on the rig). Never draw mid-step. The live plot reads
+  the worker's `pitt_record` (`pitt_live`), not `live_data()`.
 - PITT analysis (dQ per step, g(E)) is deliberately NOT built yet.
 
 ### Metrohm / Autolab rig — Python drives it; chrono runs from `Ei` (2026-09-09)
@@ -447,7 +456,7 @@ ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm
 
 ### Modularization — DONE
 `get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
-`data.py`; hardware is faked (`fakes.py`) so all 929 tests run with no instruments attached.
+`data.py`; hardware is faked (`fakes.py`) so all 946 tests run with no instruments attached.
 
 ### Settings: two layers, don't confuse them
 - **Experiment settings** (`settings.py`, `DEFAULT_SETTINGS`) — *this run*: sample, folder, CV
@@ -503,7 +512,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 929 tests total (928 pass, 1 skip; counted 2026-10-09);
+- **`gui/` coverage — no longer the gap it was.** 946 tests total (945 pass, 1 skip; counted 2026-10-17);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
