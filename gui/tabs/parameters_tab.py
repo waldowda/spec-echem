@@ -24,7 +24,7 @@ from spec_echem.acquisition import spectrum_cost_seconds
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
 from spec_echem.pitt import pitt_duration_bounds, pitt_plan, pitt_problems
 from gui.tabs.instrument_tab import _next_serial_path
-from gui.forms import form_layout, fill_width
+from gui.forms import form_layout, fill_width, guard_scroll
 
 POTENTIAL_NOTE = "  (Python mode drives these; External = reference)"
 
@@ -63,6 +63,7 @@ class ParametersTab(QWidget):
         self.win = main_window
         self._widgets = {}   # settings key -> widget
         self._build()
+        guard_scroll(self)
 
     # --- widget factories that register by settings key ---
 
