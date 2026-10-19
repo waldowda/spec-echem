@@ -292,7 +292,9 @@ matched. A step's group adds:
 /{step}/  attrs: role            "forward" | "return" | "dedope"
                  end_reason      "cutoff" | "max_hold" | "fixed" | "stopped" | "aborted"
                  hold_s          how long the step was held
-                 peak_current_A  the largest SAMPLED |I| in the step
+                 peak_current_A  the largest SAMPLED |I| in the step -- since 2026-10-19,
+                                 by default only from samples taken once the
+                                 potential had settled on the setpoint (below)
                  n_spectra
                  label           "PITT {step}"
                  potential_set   the step's setpoint, from the plan
@@ -316,6 +318,16 @@ sampled current, so whatever flowed between the setpoint change and the first sa
 samples the current FIRST after each change to keep that short (one sample, ~50 ms in
 Autolab Ei mode: ~5% at τ = 1 s), and each step's `first_sample_s` in `pitt_steps_json`
 records how long it was, so an analysis can extrapolate or report what it missed.
+
+**The peak, and so the cutoff, ignores the charging spike** (since 2026-10-19,
+`pitt_peak_settled`, on by default). Samples taken before the measured potential reached
+the setpoint -- within 0.5 mV of it, or within 0.3 mV of the sample before (stopped
+moving, for an instrument that settles a steady offset away) -- do not set the peak and
+cannot count towards the cutoff. They ARE saved, like every other sample. Each step in
+`pitt_steps_json` records `n_unsettled` (how many were left out), `peak_all_A` (the
+largest |I| of any sample) and `settle_fallback` (true when the potential had not settled
+by the minimum hold, after which every sample counted). With the setting off, or in a
+file written before it existed, `peak_current_A` is the largest of all samples.
 
 **A step's echem runs past `hold_s` when the GUI drew it** (since 2026-10-17). In the
 GUI each step is drawn as it ends, and the staircase holds that setpoint until the drawing

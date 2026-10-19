@@ -7,7 +7,7 @@ import pytest
 
 from spec_echem.pitt import (
     END_CUTOFF, END_MAX_HOLD, ROLE_DEDOPE, ROLE_FORWARD, ROLE_RETURN, SETTLE_SAMPLES,
-    StepEnd,
+    StepEnd, step_end_for,
     pitt_duration_bounds, pitt_plan, pitt_problems, pitt_step_potential,
     spectrum_due)
 from spec_echem.settings import DEFAULT_SETTINGS
@@ -203,6 +203,95 @@ def test_once_ended_a_step_stays_ended():
     end = StepEnd(cutoff_pct=1.0, min_hold_s=0.0, max_hold_s=1.0)
     end.feed(2.0, 1e-4)
     assert end.feed(3.0, 5e-4) == END_MAX_HOLD
+
+
+# --- the peak counts only once the potential has settled ----------------------
+# On the PGSTAT302N 2026-10-19 (20261019_test2, 5.2 kOhm in series with 1 uF and with
+# 1 MOhm || 1 uF; CR13_1uA; 10% cutoff) the first sample after each setpoint change
+# sat ~1 mV short of the setpoint and read 75 nA -- the tail of the charging spike --
+# then the potential was there and a 29 nA, tau 2.4 s decay followed. Taking 75 nA as
+# the peak ended the step at ~25% of the decay instead of 10%.
+
+def _rig_step(tau=2.4, until=20.0, offset_v=0.0, first_v=0.199005):
+    """(t, I, E) like step 2 of 20261019_test2: setpoint +0.2 V."""
+    import math
+    yield 0.05, 74.68e-9, first_v
+    t = 0.13
+    while t <= until + 1e-9:
+        yield t, 29.1e-9 * math.exp(-(t - 0.13) / tau), 0.2 + offset_v
+        t = round(t + 0.1, 6)
+
+
+def _run_rule(end, samples):
+    for t, i, v in samples:
+        if end.feed(t, i, v):
+            return t
+    return None
+
+
+def test_the_charging_spike_no_longer_sets_the_peak():
+    end = StepEnd(cutoff_pct=10.0, min_hold_s=2.0, max_hold_s=20.0,
+                  setpoint=0.2, settled_peak=True)
+    t_end = _run_rule(end, _rig_step())
+    assert end.reason == END_CUTOFF
+    assert end.peak == pytest.approx(29.1e-9)
+    assert end.peak_all == pytest.approx(74.68e-9)
+    assert end.n_unsettled == 1 and not end.settle_fallback
+    # 10% of 29.1 nA at 0.13 + tau ln 10 = 5.66 s, plus the settle samples.
+    assert t_end == pytest.approx(0.13 + 2.4 * 2.302585 + (SETTLE_SAMPLES - 1) * 0.1,
+                                  abs=0.11)
+
+
+def test_unticked_every_sample_counts_as_before():
+    """What the rig did: 10% of the 75 nA spike, ~4 s."""
+    end = StepEnd(cutoff_pct=10.0, min_hold_s=2.0, max_hold_s=20.0,
+                  setpoint=0.2, settled_peak=False)
+    t_end = _run_rule(end, _rig_step())
+    assert end.peak == pytest.approx(74.68e-9) and end.n_unsettled == 0
+    assert 3.0 < t_end < 4.5
+
+
+def test_a_steady_offset_from_the_setpoint_still_settles():
+    """The Reference 600 settles a steady +1.4 mV off its setpoint (20261017_test4):
+    outside SETPOINT_TOL_V, so it is the potential STOPPING that counts."""
+    end = StepEnd(cutoff_pct=10.0, min_hold_s=2.0, max_hold_s=20.0,
+                  setpoint=0.2, settled_peak=True)
+    _run_rule(end, _rig_step(offset_v=1.4e-3, first_v=0.2033))
+    assert end.reason == END_CUTOFF and not end.settle_fallback
+    # The spike sample, then the first on-offset sample (still 1.9 mV from the one
+    # before it); the third has stopped moving.
+    assert end.n_unsettled == 2
+
+
+def test_a_potential_that_never_settles_counts_from_the_minimum_hold():
+    import math
+    end = StepEnd(cutoff_pct=10.0, min_hold_s=2.0, max_hold_s=20.0,
+                  setpoint=0.2, settled_peak=True)
+    t = 0.0
+    while not end.feed(t, 1e-8 * math.exp(-t / 2.0), 0.202 + 0.005 * t):
+        t = round(t + 0.1, 6)
+    assert end.settle_fallback
+    assert end.n_unsettled == 20                  # 0.0 .. 1.9 s
+    assert end.reason == END_CUTOFF               # still judged, from 2 s on
+
+
+def test_without_a_potential_nothing_changes():
+    end = StepEnd(cutoff_pct=10.0, min_hold_s=2.0, max_hold_s=20.0,
+                  setpoint=0.2, settled_peak=True)
+    for t, i, _v in _rig_step():
+        if end.feed(t, i):
+            break
+    assert end.n_unsettled == 0 and end.peak == pytest.approx(74.68e-9)
+
+
+def test_the_setting_reaches_the_rule():
+    step = pitt_plan(settings(pitt_start_v=0.2, pitt_stop_v=0.2))[0]
+    on = step_end_for(step, settings(pitt_cutoff_pct=10.0))
+    off = step_end_for(step, settings(pitt_cutoff_pct=10.0, pitt_peak_settled=False))
+    assert DEFAULT_SETTINGS["pitt_peak_settled"] is True
+    _run_rule(on, _rig_step())
+    _run_rule(off, _rig_step())
+    assert on.n_unsettled == 1 and off.n_unsettled == 0
 
 
 # --- when a spectrum is due --------------------------------------------------

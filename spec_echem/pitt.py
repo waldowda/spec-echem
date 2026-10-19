@@ -47,6 +47,19 @@ END_ABORTED = "aborted"     # Abort pressed: likewise, immediately
 # does not.
 SETTLE_SAMPLES = 5
 
+# When the potential counts as SETTLED on the new setpoint, for the step's peak: within
+# SETPOINT_TOL_V of it, or within STILL_V of the previous sample (stopped moving). On
+# the PGSTAT302N 2026-10-19 (20261019_test2: 5.2 kOhm in series with 1 uF and with
+# 1 MOhm || 1 uF) the first sample after each setpoint change sat 1.0-1.5 mV short of
+# it, the capacitors still charging on an overloaded CR13_1uA, and read 75-78 nA
+# against a 29 nA decay -- the cutoff, a fraction of that 'peak', ended each step at
+# ~25% of the decay instead of 10%. One sample later the potential was there. Both
+# tests, because no single tolerance fits every instrument: the Autolab settles
+# 0.1-0.6 mV off its setpoint (a gain error), the Reference 600 a steady +1.4 mV off,
+# the Interface 1010E within 0.05 mV; sample-to-sample jitter is <= 0.15 mV.
+SETPOINT_TOL_V = 0.5e-3
+STILL_V = 0.3e-3
+
 # Absorbs binary float error only, as n_doping_cycles does: (0.7 - -0.5) / 0.01 is
 # 119.99999999999999, and that ladder must keep its last step.
 _FLOAT_SLACK = 1e-9
@@ -150,10 +163,17 @@ class StepEnd:
     the sampling -- the UDC4's Randles side settles in ~0.2 ms against ~50 ms samples
     -- the peak is just the DC floor, the cutoff is never met, and the max hold ends
     every step. That is the right answer: nothing resolvable relaxed.
+
+    With `settled_peak` and a `setpoint`, samples taken before the measured potential
+    has settled on the setpoint (SETPOINT_TOL_V / STILL_V) are left out of the peak
+    and cannot count towards the cutoff -- they are still recorded and saved. If the
+    potential has not settled by the minimum hold, every sample counts from then on
+    and `settle_fallback` says so. Without a potential, nothing changes.
     """
 
     def __init__(self, cutoff_pct, min_hold_s, max_hold_s,
-                 settle_samples=SETTLE_SAMPLES, resolution_a=None):
+                 settle_samples=SETTLE_SAMPLES, resolution_a=None,
+                 setpoint=None, settled_peak=False):
         self.fraction = float(cutoff_pct) / 100.0
         self.min_hold = float(min_hold_s)
         self.max_hold = float(max_hold_s)
@@ -165,6 +185,12 @@ class StepEnd:
         # judged settled, and runs to its max hold with `unresolved` set.
         self.resolution = float(resolution_a) if resolution_a else 0.0
         self.peak = 0.0
+        self.peak_all = 0.0      # the largest |I| of ANY sample, settled or not
+        self.n_unsettled = 0     # samples left out of the peak, potential not there
+        self.settle_fallback = False
+        self.setpoint = None if setpoint is None else float(setpoint)
+        self._settled = not settled_peak or self.setpoint is None
+        self._v_prev = None
         self.reason = None
         self._below = 0          # consecutive samples at or below the cutoff
 
@@ -174,17 +200,42 @@ class StepEnd:
         judged from these readings. Meaningful once the step has ended."""
         return self.resolution > 0 and self.fraction * self.peak < self.resolution
 
-    def feed(self, t_in_step, current):
+    def _check_settled(self, t_in_step, potential):
+        """Latch `_settled` once the potential is on the setpoint (or the minimum
+        hold has passed without it). Once settled, a step stays settled."""
+        if self._settled:
+            return
+        if potential is None:            # a caller with no potential to judge by
+            self._settled = True
+            return
+        v = float(potential)
+        if math.isfinite(v):
+            if abs(v - self.setpoint) <= SETPOINT_TOL_V or (
+                    self._v_prev is not None and abs(v - self._v_prev) <= STILL_V):
+                self._settled = True
+                return
+            self._v_prev = v
+        if t_in_step >= self.min_hold:
+            self._settled = True
+            self.settle_fallback = True
+
+    def feed(self, t_in_step, current, potential=None):
         """One sample. Returns END_CUTOFF / END_MAX_HOLD once over, else None."""
         if self.reason is not None:
             return self.reason
         magnitude = abs(float(current))
         if math.isfinite(magnitude):
-            self.peak = max(self.peak, magnitude)
-        if math.isfinite(magnitude) and magnitude <= self.fraction * self.peak:
-            self._below += 1
+            self.peak_all = max(self.peak_all, magnitude)
+        self._check_settled(t_in_step, potential)
+        if not self._settled:
+            if math.isfinite(magnitude):
+                self.n_unsettled += 1
         elif math.isfinite(magnitude):
-            self._below = 0      # one sample back above it starts the count again
+            self.peak = max(self.peak, magnitude)
+            if magnitude <= self.fraction * self.peak:
+                self._below += 1
+            else:
+                self._below = 0  # one sample back above it starts the count again
         if t_in_step >= self.max_hold:
             self.reason = END_MAX_HOLD
         elif (t_in_step >= self.min_hold and self._below >= self.settle_samples
@@ -240,7 +291,8 @@ class PittRecord:
             if getattr(self, name) is None:
                 setattr(self, name, [])
 
-    def close_step(self, step, t_start, t_end, reason, peak, unresolved=False):
+    def close_step(self, step, t_start, t_end, reason, peak, unresolved=False,
+                   rule=None):
         # When the first current sample landed after the setpoint changed. dQ is
         # integrated from the samples, so the charge before this is NOT in it --
         # the analysis can extrapolate back to 0, or at least say how much it missed.
@@ -257,6 +309,14 @@ class PittRecord:
             "n_spectra": sum(1 for k in self.spectrum_step if k == step.index),
             "n_echem": sum(1 for k in self.echem_step if k == step.index),
         })
+        if rule is not None:
+            # Samples taken before the potential reached the setpoint were left out
+            # of the peak (`pitt_peak_settled`); they are still in the saved echem.
+            self.steps[-1].update({
+                "peak_all_A": float(rule.peak_all),
+                "n_unsettled": int(rule.n_unsettled),
+                "settle_fallback": bool(rule.settle_fallback),
+            })
 
 
 def step_end_for(step, settings, resolution_a=None):
@@ -266,4 +326,6 @@ def step_end_for(step, settings, resolution_a=None):
         hold = float(settings["pitt_end_dedope_time_s"])
         return StepEnd(cutoff_pct=0.0, min_hold_s=hold, max_hold_s=hold)
     return StepEnd(settings["pitt_cutoff_pct"], settings["pitt_min_hold_s"],
-                   settings["pitt_max_hold_s"], resolution_a=resolution_a)
+                   settings["pitt_max_hold_s"], resolution_a=resolution_a,
+                   setpoint=step.potential,
+                   settled_peak=bool(settings.get("pitt_peak_settled", True)))
