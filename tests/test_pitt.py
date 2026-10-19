@@ -16,7 +16,7 @@ from spec_echem.settings import DEFAULT_SETTINGS
 def settings(**over):
     s = dict(DEFAULT_SETTINGS)
     s.update(pitt_start_v=-0.5, pitt_stop_v=0.7, pitt_step_mv=10.0,
-             pitt_return=False, pitt_end_dedope=False)
+             pitt_return=False, pitt_end_dedope=False, pitt_cutoff_enabled=True)
     s.update(over)
     return s
 

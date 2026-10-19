@@ -14,7 +14,8 @@ from gui.main_window import MainWindow                              # noqa: E402
 PITT_KEYS = ("pitt_enabled", "pitt_start_v", "pitt_stop_v", "pitt_step_mv",
              "pitt_return", "pitt_cutoff_pct", "pitt_min_hold_s", "pitt_max_hold_s",
              "pitt_fast_s", "pitt_slow_interval_s", "pitt_end_dedope",
-             "pitt_end_dedope_v", "pitt_end_dedope_time_s", "pitt_peak_settled")
+             "pitt_end_dedope_v", "pitt_end_dedope_time_s", "pitt_peak_settled",
+             "pitt_cutoff_enabled")
 
 
 @pytest.fixture(scope="module")
@@ -41,7 +42,7 @@ def test_every_pitt_setting_has_a_field_and_round_trips(window):
               "pitt_min_hold_s": 3.0, "pitt_max_hold_s": 90.0, "pitt_fast_s": 4.0,
               "pitt_slow_interval_s": 2.0, "pitt_end_dedope": True,
               "pitt_end_dedope_v": -0.6, "pitt_end_dedope_time_s": 45.0,
-              "pitt_peak_settled": False}
+              "pitt_peak_settled": False, "pitt_cutoff_enabled": True}
     tab.populate_from(chosen)
     out = {}
     tab.collect_into(out)
@@ -62,7 +63,8 @@ def test_the_estimate_counts_steps_and_brackets_the_time(window):
     tab = window.parameters_tab
     tab.populate_from({"pitt_start_v": 0.0, "pitt_stop_v": 0.2, "pitt_step_mv": 100.0,
                        "pitt_min_hold_s": 60.0, "pitt_max_hold_s": 120.0,
-                       "pitt_return": False, "pitt_end_dedope": False})
+                       "pitt_return": False, "pitt_end_dedope": False,
+                       "pitt_cutoff_enabled": True})
     text = tab.pitt_estimate.text()
     assert text.startswith("3 steps") and "3 min" in text and "6 min" in text
     assert "⚠" not in text
@@ -72,7 +74,7 @@ def test_stepping_back_down_warns_with_what_it_adds(window):
     tab = window.parameters_tab
     tab.populate_from({"pitt_start_v": 0.0, "pitt_stop_v": 0.2, "pitt_step_mv": 100.0,
                        "pitt_min_hold_s": 60.0, "pitt_max_hold_s": 120.0,
-                       "pitt_end_dedope": False})
+                       "pitt_end_dedope": False, "pitt_cutoff_enabled": True})
     tab._widgets["pitt_return"].setChecked(True)
     text = tab.pitt_estimate.text()
     assert "⚠" in text and "5 steps" in text
@@ -81,6 +83,7 @@ def test_stepping_back_down_warns_with_what_it_adds(window):
 
 def test_impossible_settings_are_said_live_not_at_start(window):
     tab = window.parameters_tab
+    tab._widgets["pitt_cutoff_enabled"].setChecked(True)
     tab._widgets["pitt_max_hold_s"].setValue(10.0)
     tab._widgets["pitt_min_hold_s"].setValue(50.0)
     assert "longer than its maximum" in tab.pitt_problems_label.text()
@@ -369,3 +372,29 @@ def test_the_live_plot_draws_the_running_pitt_step(window):
     finally:
         tab._worker = None
     assert drawn and drawn[0].startswith("Step 1 of 21")
+
+
+def test_the_cutoff_is_off_by_default_and_every_step_holds_the_full_time(window):
+    """Unticked, the current never ends a step: the % and the minimum hold do
+    nothing, so they are greyed, and the hold row says what it now means."""
+    from spec_echem.settings import DEFAULT_SETTINGS
+    assert DEFAULT_SETTINGS["pitt_cutoff_enabled"] is False
+    tab = window.parameters_tab
+    tab.populate_from(dict(DEFAULT_SETTINGS))
+    assert not tab._widgets["pitt_cutoff_enabled"].isChecked()
+    for key in ("pitt_cutoff_pct", "pitt_min_hold_s", "pitt_peak_settled"):
+        assert not tab._widgets[key].isEnabledTo(tab), key
+    assert tab._pitt_max_label.text() == "Hold each step for:"
+    tab.populate_from({"pitt_start_v": 0.0, "pitt_stop_v": 0.2, "pitt_step_mv": 100.0,
+                       "pitt_min_hold_s": 60.0, "pitt_max_hold_s": 120.0,
+                       "pitt_return": False, "pitt_end_dedope": False})
+    # Three steps of exactly 2 min: no range to bracket.
+    assert "between 6 min and 6 min" in tab.pitt_estimate.text()
+    # A minimum longer than the hold means nothing here, so it is not a problem.
+    tab._widgets["pitt_min_hold_s"].setValue(500.0)
+    assert not tab.pitt_problems_label.isVisibleTo(tab)
+
+    tab._widgets["pitt_cutoff_enabled"].setChecked(True)
+    for key in ("pitt_cutoff_pct", "pitt_min_hold_s", "pitt_peak_settled"):
+        assert tab._widgets[key].isEnabledTo(tab), key
+    assert tab._pitt_max_label.text() == "Maximum hold:"
