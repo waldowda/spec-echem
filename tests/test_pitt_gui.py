@@ -14,7 +14,7 @@ from gui.main_window import MainWindow                              # noqa: E402
 PITT_KEYS = ("pitt_enabled", "pitt_start_v", "pitt_stop_v", "pitt_step_mv",
              "pitt_return", "pitt_cutoff_pct", "pitt_min_hold_s", "pitt_max_hold_s",
              "pitt_fast_s", "pitt_slow_interval_s", "pitt_end_dedope",
-             "pitt_end_dedope_v", "pitt_end_dedope_time_s")
+             "pitt_end_dedope_v", "pitt_end_dedope_time_s", "pitt_peak_settled")
 
 
 @pytest.fixture(scope="module")
@@ -40,7 +40,8 @@ def test_every_pitt_setting_has_a_field_and_round_trips(window):
               "pitt_step_mv": 20.0, "pitt_return": True, "pitt_cutoff_pct": 2.5,
               "pitt_min_hold_s": 3.0, "pitt_max_hold_s": 90.0, "pitt_fast_s": 4.0,
               "pitt_slow_interval_s": 2.0, "pitt_end_dedope": True,
-              "pitt_end_dedope_v": -0.6, "pitt_end_dedope_time_s": 45.0}
+              "pitt_end_dedope_v": -0.6, "pitt_end_dedope_time_s": 45.0,
+              "pitt_peak_settled": False}
     tab.populate_from(chosen)
     out = {}
     tab.collect_into(out)

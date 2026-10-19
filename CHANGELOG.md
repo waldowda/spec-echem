@@ -27,6 +27,19 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **PITT: the peak counts only once the potential has settled (2026-10-19).** On the
+  PGSTAT302N, with a two-capacitor dummy (5.2 kOhm in series with 1 uF and with
+  1 MOhm || 1 uF) on CR13_1uA, the first sample after each setpoint change sat ~1 mV short
+  of the setpoint and read 75-78 nA, the tail of the charging spike, against a 29 nA,
+  tau ~2.2 s decay. Taken as the step's peak, it ended steps 2-4 at ~25% of the decay
+  rather than the 10% asked for. Samples before the potential reaches the setpoint
+  (within 0.5 mV, or stopped moving within 0.3 mV) no longer set the peak; they are still
+  saved, and each step records `n_unsettled`, `peak_all_A` and `settle_fallback`. A
+  checkbox, "Peak from settled samples only" (on by default), turns it off.
+  Replaying `20261019_test2` through both rules reproduces the rig's step ends exactly
+  with it off. **Same run: the first cutoff-ended steps on hardware** -- the cutoff
+  rule had only ever been seen ending steps in simulation; every fit gave tau 2.0-2.45 s
+  against ~2 s designed.
 - **A long PITT now shows its progress (2026-10-17).** Each step's spectra are drawn
   as the step ends; the staircase holds that setpoint until the drawing is done (a few
   hundred ms, at most 5 s), still sampling current on every tick but taking no spectra,
