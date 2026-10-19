@@ -195,15 +195,18 @@ DEFAULT_SETTINGS = {
     "pitt_stop_v": 0.7,             # V — a CEILING: the last step never passes it
     "pitt_step_mv": 10.0,           # mV between steps
     "pitt_return": False,           # also step back down to the start (doubles the time)
-    # A step ends when |I| falls to this % of the step's peak current, after the
-    # minimum hold -- or at the maximum hold, whichever comes first.
+    # Off (the default): every step holds for pitt_max_hold_s. On: a step ends when
+    # |I| falls to pitt_cutoff_pct of the step's peak current, after the minimum hold
+    # -- or at the maximum hold, whichever comes first.
+    "pitt_cutoff_enabled": False,
     "pitt_cutoff_pct": 1.0,
     # The peak counts only samples taken once the measured potential has reached the
     # setpoint, so a sample still on the charging spike cannot set the cutoff. Off =
     # every sample counts (the behaviour before 2026-10-19).
     "pitt_peak_settled": True,
     "pitt_min_hold_s": 5.0,         # s — no step ends sooner, so each gets its transient
-    "pitt_max_hold_s": 120.0,       # s — a step that reaches this is NOT at equilibrium
+    "pitt_max_hold_s": 120.0,       # s — every step's hold with the cutoff off; with it
+                                    # on, a step that reaches this is NOT at equilibrium
     "pitt_fast_s": 5.0,             # s — full spectrum rate from each step's start...
     "pitt_slow_interval_s": 1.0,    # s — ...then one spectrum this often
     "pitt_end_dedope": False,       # hold at pitt_end_dedope_v after the last step

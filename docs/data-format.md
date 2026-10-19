@@ -308,8 +308,11 @@ matched. A step's group adds:
 
 **Reading `end_reason`.** `cutoff` means the current fell to the set fraction of the
 step's peak after the minimum hold: settled. **`max_hold` means it did NOT** — that step
-is not at equilibrium, and the run log says by how much. `fixed` is the optional dedope at
-the end, held for a set time. `stopped` / `aborted` mark the step the user interrupted;
+is not at equilibrium, and the run log says by how much. `fixed` is a step held for a set time
+and not ended by the current: the optional dedope at the end always, and EVERY step when
+"End each step when the current has decayed to __ %" is unticked (`pitt_cutoff_enabled`,
+the default since 2026-10-19) -- each then holds for the hold time. A `fixed` step says
+nothing about equilibrium either way. `stopped` / `aborted` mark the step the user interrupted;
 every step before it, and that one, are kept.
 
 **The charge before the first sample is not in the data.** dQ is integrated from the

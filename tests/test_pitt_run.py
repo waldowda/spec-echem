@@ -67,7 +67,8 @@ def settings(**over):
     s.update(pitt_start_v=0.0, pitt_stop_v=0.2, pitt_step_mv=100.0,
              pitt_cutoff_pct=1.0, pitt_min_hold_s=2.0, pitt_max_hold_s=60.0,
              pitt_fast_s=2.0, pitt_slow_interval_s=1.0, pitt_return=False,
-             pitt_end_dedope=False, chrono_delta_time=0.1, pitt_end_dedope_v=-0.5)
+             pitt_end_dedope=False, chrono_delta_time=0.1, pitt_end_dedope_v=-0.5,
+             pitt_cutoff_enabled=True)
     s.update(over)
     return s
 
@@ -494,3 +495,16 @@ def test_each_step_records_what_was_left_out_of_its_peak():
     for s in record.steps:
         assert s["n_unsettled"] == 0 and s["settle_fallback"] is False
         assert s["peak_all_A"] == pytest.approx(s["peak_current_A"])
+
+
+
+def test_with_the_cutoff_off_every_step_runs_the_full_hold():
+    """The default. A cell that settles fast still holds every step for the hold
+    time, and the steps say 'fixed' -- not 'max_hold', which would read as a step
+    that failed to settle and log a warning for each."""
+    from spec_echem.pitt import END_FIXED
+    s = settings(pitt_cutoff_enabled=False, pitt_max_hold_s=4.0)
+    record, _, _ = run(s, r_series=1e3, c=1e-4)              # tau = 0.1 s
+    assert [st["end_reason"] for st in record.steps] == [END_FIXED] * 3
+    for st in record.steps:
+        assert st["hold_s"] == pytest.approx(4.0, abs=0.12)

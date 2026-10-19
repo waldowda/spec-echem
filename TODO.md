@@ -207,6 +207,8 @@ data.
       not the rule; a question for films with a leakage current: should the cutoff be
       judged against the settled floor rather than zero? The Gamry has not yet seen a
       cutoff-ended step at all (same series-RC idea).
+      **Since 2026-10-19 the cutoff is OFF by default** (fixed holds; tick "End each step
+      when the current has decayed to __ %"). Not yet seen on the rig in either state.
       **WEDNESDAY 2026-10-07 at the UW rig, in order:**
       1. `git pull`; check the build in the GUI title includes `ff38197` or later.
       2. Re-run test 3 exactly (CR10_1mA, +0.1 -> +0.2 V in 50 mV, min 2 s, max 5 s,

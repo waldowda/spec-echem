@@ -343,8 +343,8 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     `hold_s` stays the time the end rule fired. `record`, when given, is filled in
     place, so another thread can read the samples as they arrive.
     """
-    from spec_echem.pitt import (END_ABORTED, END_FIXED, END_MAX_HOLD, END_STOPPED,
-                                 ROLE_DEDOPE, PittRecord, spectrum_due, step_end_for)
+    from spec_echem.pitt import (END_ABORTED, END_STOPPED, PittRecord, spectrum_due,
+                                 step_end_for)
 
     record = record if record is not None else PittRecord()
     if not plan:
@@ -395,8 +395,6 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
             record.echem_step.append(k)
 
             reason = rule.feed(now - step_start, i, v)
-            if reason == END_MAX_HOLD and step.role == ROLE_DEDOPE:
-                reason = END_FIXED
             if _cut(abort_event):
                 reason = END_ABORTED
             elif reason is None and _cut(stop_event):

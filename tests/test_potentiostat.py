@@ -2120,7 +2120,8 @@ def test_test_3_replayed_runs_to_the_max_hold(pitt_autolab):
     s = _autolab_settings(autolab_current_range="CR10_1mA", pitt_start_v=0.1,
                           pitt_stop_v=0.1, pitt_step_mv=50.0, pitt_min_hold_s=0.2,
                           pitt_max_hold_s=0.6, pitt_fast_s=0.1,
-                          pitt_slow_interval_s=0.1, chrono_delta_time=0.02)
+                          pitt_slow_interval_s=0.1, chrono_delta_time=0.02,
+                          pitt_cutoff_enabled=True)
     p.settings.update(s)
     count = 1e-3 / 327_680
     ticks = []
@@ -2238,7 +2239,8 @@ def gamry_pitt(monkeypatch):
 def _gamry_settings(**over):
     s = dict(DEFAULT_SETTINGS, pitt_start_v=0.0, pitt_stop_v=0.2, pitt_step_mv=100.0,
              pitt_cutoff_pct=1.0, pitt_min_hold_s=0.05, pitt_max_hold_s=1.0,
-             pitt_fast_s=0.05, pitt_slow_interval_s=0.05, chrono_delta_time=0.01)
+             pitt_fast_s=0.05, pitt_slow_interval_s=0.05, chrono_delta_time=0.01,
+             pitt_cutoff_enabled=True)
     s.update(over)
     return s
 

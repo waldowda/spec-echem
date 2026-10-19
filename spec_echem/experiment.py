@@ -390,7 +390,9 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
         log.info("PITT %d at %+.3f V: %s after %.1f s, peak %.3g A, %d spectra",
                  st["index"], st["potential_set"], st["end_reason"], st["hold_s"],
                  st["peak_current_A"], st["n_spectra"])
-        if st.get("settle_fallback"):
+        if st["end_reason"] not in ("cutoff", "max_hold"):
+            pass                 # a fixed hold: the peak decided nothing
+        elif st.get("settle_fallback"):
             log.warning(
                 "PITT %d: the potential never settled on the setpoint before the "
                 "minimum hold, so every sample from then on counted towards the peak.",
