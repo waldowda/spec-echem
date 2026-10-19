@@ -4,7 +4,7 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-10-17_
+_Last updated: 2026-10-19_
 
 ---
 
@@ -16,8 +16,19 @@ set fraction of its peak (or at a maximum hold), so each step's spectra and char
 taken near equilibrium rather than mid-transient. HDF5 only, one group per step
 (`docs/data-format.md` §5).
 
-- **Autolab PGSTAT302N:** runs from the GUI. A cutoff below one count of the current
-  range is now never judged met; that fix still needs confirming on hardware.
+**2026-10-19 — the cutoff ends steps on real hardware, and is now opt-in** (Autolab,
+dummy cell with τ ≈ 2 s). The count-rule fix is confirmed (no step ends on zeros a range
+cannot resolve). The first steps ever ended by the current decaying showed that the
+sample right after a setpoint change could catch the charging spike and set a 3× peak;
+the peak now counts only samples taken once the potential has reached the setpoint
+(confirmed the same day). The current-based end is now a checkbox, **off by default**:
+"End each step when the current has decayed to [__] % of its peak". Unticked, every
+step holds for the full time (confirmed on the rig). Seen on the way: isolated ~5.5 nA
+dips in the Autolab's Ei current, each after a late sample (TODO, beside the NOVA
+comparison), and a few-nA floor that makes a 10% cutoff marginal on nA-scale decays.
+
+- **Autolab PGSTAT302N:** runs from the GUI. The count rule, the cutoff and the
+  settled-sample peak are all confirmed on hardware (2026-10-19).
 - **Gamry Reference 600:** runs from the GUI, one curve per step (neither built-in
   toolkitpy staircase can end a step early). On a 3.2 kΩ dummy: ~50 spectra per 5 s
   step at 0.10 s, the dummy's resistance recovered to ~1%.
@@ -48,8 +59,8 @@ measurement. Also added: a live-plot readout (cycle, E, I) and a reference remin
 Start, both requested at the bench.
 
 **Next — the priority:** a PITT on a real film, with the return leg (kinetics vs
-hysteresis), on the Reference 600; a slow series RC (τ = 1 s) to see the cutoff end a
-step; the Autolab count rule still to confirm. The PITT analysis (charge per step,
+hysteresis), on either rig; on the Gamry, a slow series RC (τ ≈ 1–2 s) to see the
+cutoff end a step there too. The PITT analysis (charge per step,
 DOS) comes after. The HDF5 writer from the 2026-09-28 plan below has since been built
 (`docs/data-format.md` §4).
 
