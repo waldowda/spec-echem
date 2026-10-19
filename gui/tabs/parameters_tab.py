@@ -466,20 +466,43 @@ class ParametersTab(QWidget):
             self._dspin("pitt_stop_v", -10.0, 10.0, 3, 0.05, " V"),
             "a ceiling: the last step never passes it"))
         form.addRow("Step:", self._dspin("pitt_step_mv", 0.1, 1000.0, 1, 1.0, " mV"))
-        form.addRow("Step ends at:", self._hint(
-            self._dspin("pitt_cutoff_pct", 0.01, 99.99, 2, 0.5, " %"),
-            "of the step's peak current. If that is below the current range's noise "
-            "floor (~3.5 nA on the finest ranges), steps end at the maximum hold."))
-        form.addRow(self._hint(
-            self._check("pitt_peak_settled", "Peak from settled samples only"),
-            "samples taken before the potential reaches the setpoint (the charging "
-            "spike) do not set the peak; they are still saved"))
-        form.addRow("Minimum hold:", self._hint(
+        # One sentence with the number inside it: "decayed" alone did not say to what.
+        # Unticked (the default) every step simply holds for the hold time.
+        cutoff_on = self._check("pitt_cutoff_enabled",
+                                "End each step when the current has decayed to")
+        cutoff_pct = self._dspin("pitt_cutoff_pct", 0.01, 99.99, 2, 0.5, " %")
+        sentence = QWidget()
+        row = QHBoxLayout(sentence)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(cutoff_on)
+        row.addWidget(cutoff_pct)
+        row.addWidget(QLabel("of its peak"))
+        row.addStretch(1)
+        form.addRow(sentence)
+        floor_note = QLabel("If that is below the current range's noise floor (~3.5 nA "
+                            "on the finest ranges), steps end at the maximum hold.")
+        floor_note.setWordWrap(True)
+        floor_note.setStyleSheet("color: #888;")
+        form.addRow(fill_width(floor_note))
+        settled = self._hint(
+            self._check("pitt_peak_settled",
+                        "Ignore samples taken before the potential reaches the setpoint"),
+            "the charging spike; they are still saved")
+        settled.layout().setContentsMargins(24, 0, 0, 0)
+        form.addRow(settled)
+        min_hold = self._hint(
             self._dspin("pitt_min_hold_s", 0.0, 100000.0, 1, 1.0, " s"),
-            "no step ends sooner, so each gets its transient"))
-        form.addRow("Maximum hold:", self._hint(
-            self._dspin("pitt_max_hold_s", 0.1, 100000.0, 1, 10.0, " s"),
-            "a step that reaches this is not at equilibrium"))
+            "no step ends sooner, so each gets its transient")
+        form.addRow("Minimum hold:", min_hold)
+        max_hold = self._hint(
+            self._dspin("pitt_max_hold_s", 0.1, 100000.0, 1, 10.0, " s"), "")
+        form.addRow("Maximum hold:", max_hold)
+        self._pitt_max_label = form.labelForField(max_hold)
+        self._pitt_max_hint = max_hold.findChild(QLabel)
+        self._pitt_cutoff_only = (cutoff_pct, floor_note, settled, min_hold,
+                                  form.labelForField(min_hold))
+        cutoff_on.toggled.connect(self._apply_pitt_cutoff_mode)
+        self._apply_pitt_cutoff_mode(cutoff_on.isChecked())
         form.addRow("Spectra at full rate for:", self._hint(
             self._dspin("pitt_fast_s", 0.0, 100000.0, 1, 1.0, " s"),
             "from each step's start; the current is sampled at full rate throughout"))
@@ -506,7 +529,8 @@ class ParametersTab(QWidget):
         form.addRow(self.pitt_problems_label)
 
         for key in ("pitt_enabled", "pitt_start_v", "pitt_stop_v", "pitt_step_mv",
-                    "pitt_cutoff_pct", "pitt_min_hold_s", "pitt_max_hold_s",
+                    "pitt_cutoff_enabled", "pitt_cutoff_pct", "pitt_min_hold_s",
+                    "pitt_max_hold_s",
                     "pitt_fast_s", "pitt_slow_interval_s", "pitt_return",
                     "pitt_end_dedope", "pitt_end_dedope_v", "pitt_end_dedope_time_s",
                     "chrono_delta_time"):
@@ -514,6 +538,21 @@ class ParametersTab(QWidget):
             signal = w.toggled if isinstance(w, QCheckBox) else w.valueChanged
             signal.connect(self._update_pitt_estimate)
         return group
+
+    def _apply_pitt_cutoff_mode(self, on):
+        """Grey what the cutoff alone uses, and say what the hold time means now."""
+        for w in self._pitt_cutoff_only:
+            w.setEnabled(on)
+        if on:
+            self._pitt_max_label.setText("Maximum hold:")
+            text = "a step that reaches this is not at equilibrium"
+        else:
+            self._pitt_max_label.setText("Hold each step for:")
+            text = "every step runs this long"
+        self._pitt_max_hint.setText(text)
+        # _hint capped the hint at its first text's width; let this one fit.
+        self._pitt_max_hint.setMaximumWidth(
+            self._pitt_max_hint.fontMetrics().boundingRect(text).width() + 8)
 
     def _pitt_settings(self):
         """The PITT fields as a settings dict, without touching win.settings."""

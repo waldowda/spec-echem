@@ -27,6 +27,11 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **PITT: the current-based step end is now a choice, OFF by default (2026-10-19).**
+  "End each step when the current has decayed to [10] % of its peak" -- one sentence
+  with the number in it. Unticked, every step holds for the hold time ("Hold each step
+  for:"), ends as `fixed`, and the %, minimum hold and settled-sample box grey out. Saved
+  settings without the key load with it off. Ticked, nothing changes.
 - **PITT: the peak counts only once the potential has settled (2026-10-19).** On the
   PGSTAT302N, with a two-capacitor dummy (5.2 kOhm in series with 1 uF and with
   1 MOhm || 1 uF) on CR13_1uA, the first sample after each setpoint change sat ~1 mV short

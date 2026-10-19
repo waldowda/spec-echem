@@ -31,7 +31,8 @@ ROLE_DEDOPE = "dedope"      # the optional hold at pitt_end_dedope_v at the end
 # equilibrium, and the analysis must be able to say so rather than guess.
 END_CUTOFF = "cutoff"       # |I| fell to the cutoff fraction of the step's peak
 END_MAX_HOLD = "max_hold"   # the cap ended it first
-END_FIXED = "fixed"         # the end dedope: a fixed hold, not ended by the current
+END_FIXED = "fixed"         # held for a set time, not ended by the current: the end
+                            # dedope always, every step when the cutoff is off
 END_STOPPED = "stopped"     # Stop pressed: this step cut short, the rest not run
 END_ABORTED = "aborted"     # Abort pressed: likewise, immediately
 # Stopped and aborted steps KEEP their data. A 30 s segment is cheap to discard; a
@@ -102,6 +103,12 @@ def pitt_plan(settings):
     return [PittStep(i, v, role) for i, (v, role) in enumerate(potentials)]
 
 
+def cutoff_enabled(settings):
+    """Does the current end a step? Off (the default), every step holds for the
+    maximum hold -- a fixed-time staircase."""
+    return bool(settings.get("pitt_cutoff_enabled", False))
+
+
 def pitt_step_potential(settings, index):
     """The setpoint of step `index`, or None when there is no such step."""
     plan = pitt_plan(settings)
@@ -118,7 +125,9 @@ def pitt_duration_bounds(settings):
     holds = [s for s in plan if s.role != ROLE_DEDOPE]
     dedope = sum(float(settings["pitt_end_dedope_time_s"])
                  for s in plan if s.role == ROLE_DEDOPE)
-    lo = len(holds) * float(settings["pitt_min_hold_s"]) + dedope
+    shortest = (settings["pitt_min_hold_s"] if cutoff_enabled(settings)
+                else settings["pitt_max_hold_s"])
+    lo = len(holds) * float(shortest) + dedope
     hi = len(holds) * float(settings["pitt_max_hold_s"]) + dedope
     return lo, hi
 
@@ -133,13 +142,13 @@ def pitt_problems(settings):
     if float(settings["pitt_step_mv"]) <= 0:
         out.append("The PITT step must be larger than 0 mV.")
     cutoff = float(settings["pitt_cutoff_pct"])
-    if not 0 < cutoff < 100:
+    if cutoff_enabled(settings) and not 0 < cutoff < 100:
         out.append(f"The PITT cutoff must be between 0 and 100% of the step's peak "
                    f"current; it is {cutoff:g}%.")
     lo, hi = float(settings["pitt_min_hold_s"]), float(settings["pitt_max_hold_s"])
     if lo < 0 or hi <= 0:
         out.append("The PITT hold times must be positive.")
-    elif lo > hi:
+    elif cutoff_enabled(settings) and lo > hi:
         out.append(f"The PITT minimum hold ({lo:g} s) is longer than its maximum "
                    f"({hi:g} s).")
     if float(settings["pitt_slow_interval_s"]) < float(settings["chrono_delta_time"]):
@@ -173,10 +182,13 @@ class StepEnd:
 
     def __init__(self, cutoff_pct, min_hold_s, max_hold_s,
                  settle_samples=SETTLE_SAMPLES, resolution_a=None,
-                 setpoint=None, settled_peak=False):
+                 setpoint=None, settled_peak=False, fixed=False):
         self.fraction = float(cutoff_pct) / 100.0
         self.min_hold = float(min_hold_s)
         self.max_hold = float(max_hold_s)
+        # A fixed hold: the step runs to max_hold and ends END_FIXED, never at the
+        # cutoff -- not a step that failed to settle, a step nobody asked to settle.
+        self.fixed = bool(fixed)
         self.settle_samples = int(settle_samples)
         # One count of the current range, when the driver knows it. A cutoff smaller
         # than this cannot be expressed by any reading: on the PGSTAT302N CR10_1mA
@@ -237,7 +249,7 @@ class StepEnd:
             else:
                 self._below = 0  # one sample back above it starts the count again
         if t_in_step >= self.max_hold:
-            self.reason = END_MAX_HOLD
+            self.reason = END_FIXED if self.fixed else END_MAX_HOLD
         elif (t_in_step >= self.min_hold and self._below >= self.settle_samples
               and not self.unresolved):
             self.reason = END_CUTOFF
@@ -321,10 +333,14 @@ class PittRecord:
 
 def step_end_for(step, settings, resolution_a=None):
     """The StepEnd rule for one step. The end dedope is a fixed hold: neither
-    minimum nor maximum, just its time, and the current never ends it early."""
+    minimum nor maximum, just its time, and the current never ends it early. With the
+    cutoff off, every other step is a fixed hold of the maximum hold time."""
     if step.role == ROLE_DEDOPE:
         hold = float(settings["pitt_end_dedope_time_s"])
-        return StepEnd(cutoff_pct=0.0, min_hold_s=hold, max_hold_s=hold)
+        return StepEnd(cutoff_pct=0.0, min_hold_s=hold, max_hold_s=hold, fixed=True)
+    if not cutoff_enabled(settings):
+        hold = float(settings["pitt_max_hold_s"])
+        return StepEnd(cutoff_pct=0.0, min_hold_s=hold, max_hold_s=hold, fixed=True)
     return StepEnd(settings["pitt_cutoff_pct"], settings["pitt_min_hold_s"],
                    settings["pitt_max_hold_s"], resolution_a=resolution_a,
                    setpoint=step.potential,
