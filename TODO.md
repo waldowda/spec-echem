@@ -191,9 +191,10 @@ data.
       and five zeros met a 1% cutoff no reading can express. Now a cutoff below one
       count of the range is never judged met (`AUTOLAB_COUNT_FRACTION`, StepEnd
       `resolution_a`, per-step `cutoff_unresolved`); the step runs to its max hold
-      and the log says the range is too coarse. **NOT yet confirmed on hardware**: the
-      user ran it after this and saw it 'working pretty well' but the log was not
-      captured, and whether that run had `ff38197` is unknown.
+      and the log says the range is too coarse. **✅ CONFIRMED ON HARDWARE 2026-10-19**
+      (`20261019_test1`, same Randles dummy, test 3's settings): all three forward steps
+      at max_hold with the 'finer than one count' note, none at cutoff; the step-end
+      display hold also ran on the Autolab (mean 224 ms, max 280 ms).
       **WEDNESDAY 2026-10-07 at the UW rig, in order:**
       1. `git pull`; check the build in the GUI title includes `ff38197` or later.
       2. Re-run test 3 exactly (CR10_1mA, +0.1 -> +0.2 V in 50 mV, min 2 s, max 5 s,
