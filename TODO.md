@@ -199,8 +199,14 @@ data.
       -(1 MOhm || 1 uF)-100-100-1 uF-5 kOhm-, CR13_1uA, 10%): every forward step at
       `cutoff`, tau 2.0-2.45 s fitted (designed ~2 s). It exposed the charging-spike
       sample setting the peak -- fixed the same day ('Peak from settled samples only',
-      on by default). **Not yet run on the rig with that fix**; the Gamry has not yet
-      seen a cutoff-ended step at all (same series-RC idea).
+      on by default). **Fix CONFIRMED on the rig the same day** (`20261019_test3`): steps
+      2-4 each left out 1 spike sample (74-84 nA) and took peaks of 27-36 nA, matching the
+      fitted decays. New: a steady +2-4 nA floor on the forward steps (fitted offset; leak
+      and/or CR13_1uA zero) is ~10% of those peaks, so a 10% cutoff was marginal -- one
+      step reached max hold, one took 14.7 s. A property of this dummy at these currents,
+      not the rule; a question for films with a leakage current: should the cutoff be
+      judged against the settled floor rather than zero? The Gamry has not yet seen a
+      cutoff-ended step at all (same series-RC idea).
       **WEDNESDAY 2026-10-07 at the UW rig, in order:**
       1. `git pull`; check the build in the GUI title includes `ff38197` or later.
       2. Re-run test 3 exactly (CR10_1mA, +0.1 -> +0.2 V in 50 mV, min 2 s, max 5 s,
