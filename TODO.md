@@ -337,6 +337,12 @@ data.
       PITT) against NOVA on the same dummy, and see whether our setup sets the bandwidth
       and integration time NOVA would. The CV runs NOVA's own procedure, so it cannot
       drift. A 1 mV/s dummy CV in NOVA would also test the 10-07 jagged-CV explanation.
+      Also on this list (2026-10-19, `20261019_test2/3`, CR13_1uA Ei samples): isolated
+      single-sample DIPS of a near-constant -5.5 to -6.4 nA below a smooth decay, ~1 per
+      100-200 samples, most after a late sample (gap 0.105-0.120 s); and in test2's
+      dedope a run of +1.6-1.9 nA steps after short gaps. Real in the data (the live plot
+      draws the recorded samples). <1% of a step's charge; one dip can only end a step
+      as the 5th consecutive sample. Does NOVA's own Ei sampling show them?
 
 - [ ] Richer models (joint polaron/pi-pi* fit with shared tau FIRST), same-sign
       prefactor option — see their sections.
