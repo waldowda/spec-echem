@@ -342,7 +342,11 @@ data.
       100-200 samples, most after a late sample (gap 0.105-0.120 s); and in test2's
       dedope a run of +1.6-1.9 nA steps after short gaps. Real in the data (the live plot
       draws the recorded samples). <1% of a step's charge; one dip can only end a step
-      as the 5th consecutive sample. Does NOVA's own Ei sampling show them?
+      as the 5th consecutive sample. `20261019_test4` (fixed holds, 10 s): every dip
+      past 1 s (7, each -5.2 to -5.9 nA) followed a late sample (gap >= 0.105 s); ~10%
+      of late samples dip, no on-time one does. Does NOVA's own Ei sampling show them?
+      **Also confirmed by test4: the opt-in cutoff OFF -- all 5 steps `fixed` at 10.0-10.1 s,
+      no warnings.**
 
 - [ ] Richer models (joint polaron/pi-pi* fit with shared tau FIRST), same-sign
       prefactor option — see their sections.
