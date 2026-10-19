@@ -485,3 +485,12 @@ def test_the_live_readout_shows_the_running_step_only():
     assert list(i) == pytest.approx([3e-6, 2e-6])
     assert status.splitlines() == ["Step 2 of 3", "t = 0.2 s", "E = +0.100 V",
                                    "I = +2 µA"]
+
+
+def test_each_step_records_what_was_left_out_of_its_peak():
+    """The fake holds the setpoint exactly, so nothing is left out -- but the fields
+    are there for the analysis, on every step."""
+    record, _, _ = run(settings(), r_series=1e3, c=1e-3)
+    for s in record.steps:
+        assert s["n_unsettled"] == 0 and s["settle_fallback"] is False
+        assert s["peak_all_A"] == pytest.approx(s["peak_current_A"])

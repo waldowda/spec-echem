@@ -394,7 +394,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
             record.echem_current.append(float(i))
             record.echem_step.append(k)
 
-            reason = rule.feed(now - step_start, i)
+            reason = rule.feed(now - step_start, i, v)
             if reason == END_MAX_HOLD and step.role == ROLE_DEDOPE:
                 reason = END_FIXED
             if _cut(abort_event):
@@ -404,7 +404,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
 
             if reason is not None:
                 record.close_step(step, step_start, now, reason, rule.peak,
-                                  rule.unresolved)
+                                  rule.unresolved, rule)
                 if reason in (END_ABORTED, END_STOPPED):
                     break
                 if k == len(plan) - 1:
@@ -456,7 +456,8 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
             if spectrum_due(t_in, last_spectrum, delta, fast_s, slow_s):
                 result = spec.measure(abort_event, None)
                 if result is None:            # abort arrived during the exposure
-                    record.close_step(step, step_start, clock(), END_ABORTED, rule.peak)
+                    record.close_step(step, step_start, clock(), END_ABORTED, rule.peak,
+                                      rule=rule)
                     break
                 timestamp_av, data = result
                 record.spectra.append(data)

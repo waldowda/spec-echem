@@ -470,6 +470,10 @@ class ParametersTab(QWidget):
             self._dspin("pitt_cutoff_pct", 0.01, 99.99, 2, 0.5, " %"),
             "of the step's peak current. If that is below the current range's noise "
             "floor (~3.5 nA on the finest ranges), steps end at the maximum hold."))
+        form.addRow(self._hint(
+            self._check("pitt_peak_settled", "Peak from settled samples only"),
+            "samples taken before the potential reaches the setpoint (the charging "
+            "spike) do not set the peak; they are still saved"))
         form.addRow("Minimum hold:", self._hint(
             self._dspin("pitt_min_hold_s", 0.0, 100000.0, 1, 1.0, " s"),
             "no step ends sooner, so each gets its transient"))

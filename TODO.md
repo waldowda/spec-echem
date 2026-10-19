@@ -195,6 +195,12 @@ data.
       (`20261019_test1`, same Randles dummy, test 3's settings): all three forward steps
       at max_hold with the 'finer than one count' note, none at cutoff; the step-end
       display hold also ran on the Autolab (mean 224 ms, max 280 ms).
+      **✅ CUTOFF ENDED STEPS ON HARDWARE 2026-10-19** (`20261019_test2`, PGSTAT302N,
+      -(1 MOhm || 1 uF)-100-100-1 uF-5 kOhm-, CR13_1uA, 10%): every forward step at
+      `cutoff`, tau 2.0-2.45 s fitted (designed ~2 s). It exposed the charging-spike
+      sample setting the peak -- fixed the same day ('Peak from settled samples only',
+      on by default). **Not yet run on the rig with that fix**; the Gamry has not yet
+      seen a cutoff-ended step at all (same series-RC idea).
       **WEDNESDAY 2026-10-07 at the UW rig, in order:**
       1. `git pull`; check the build in the GUI title includes `ff38197` or later.
       2. Re-run test 3 exactly (CR10_1mA, +0.1 -> +0.2 V in 50 mV, min 2 s, max 5 s,

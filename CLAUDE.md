@@ -85,7 +85,7 @@ spec-echem/
 │   ├── sop.md                       # Standard operating procedure (GUI-first)
 │   └── inspect-run.md
 ├── examples/                        # Bench/validation scripts + identify_hardware.py
-├── tests/                           # Unit tests (946) — no hardware required
+├── tests/                           # Unit tests (958) — no hardware required
 ├── data/                            # Sample data directory
 ├── CHANGELOG.md                     # What changed between versions
 ├── STATUS.md                        # Human-readable project status + next steps
@@ -396,6 +396,12 @@ loop, cell held on throughout), `data.write_pitt_h5` (HDF5 only, a group per ste
   so the draw never lands mid-step and the step's charge has no gap. Recorded as
   `display_wait_s` (188-406 ms on the rig). Never draw mid-step. The live plot reads
   the worker's `pitt_record` (`pitt_live`), not `live_data()`.
+- **The peak counts only SETTLED samples (2026-10-19, `pitt_peak_settled`):** a sample
+  before the measured E is within 0.5 mV of the setpoint, or within 0.3 mV of the last
+  sample, is saved but left out of the peak -- on the PGSTAT302N the first sample sat on
+  the charging spike and set a 3x peak. Do not use one setpoint tolerance alone: the
+  Reference 600 settles a steady +1.4 mV off. The cutoff ended steps on hardware the
+  same day (Autolab); not yet seen on a Gamry.
 - PITT analysis (dQ per step, g(E)) is deliberately NOT built yet.
 
 ### Metrohm / Autolab rig — Python drives it; chrono runs from `Ei` (2026-09-09)
@@ -456,7 +462,7 @@ ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm
 
 ### Modularization — DONE
 `get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
-`data.py`; hardware is faked (`fakes.py`) so all 946 tests run with no instruments attached.
+`data.py`; hardware is faked (`fakes.py`) so all 958 tests run with no instruments attached.
 
 ### Settings: two layers, don't confuse them
 - **Experiment settings** (`settings.py`, `DEFAULT_SETTINGS`) — *this run*: sample, folder, CV
@@ -512,7 +518,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 946 tests total (945 pass, 1 skip; counted 2026-10-17);
+- **`gui/` coverage — no longer the gap it was.** 958 tests total (957 pass, 1 skip; counted 2026-10-19);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
