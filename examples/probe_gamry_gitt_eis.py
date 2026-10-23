@@ -162,9 +162,13 @@ def part1(tkp, pstat):
         ac.say("  CiivCurve stops:     %s" % ", ".join(names))
     ac.say("")
     ac.say("  test_ie_range(I) for pulse-sized currents (the rung it would pick):")
+    # The instrument's own ladder: the Reference 600 table is wrong for a 1010E.
+    ladder = ac.safe(lambda: potentiostat.read_gamry_ladder(pstat)) or ()
     for amps in (1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4):
         idx = ac.safe(lambda a=amps: pstat.test_ie_range(a), "?")
-        full = potentiostat.gamry_range_full_scale(idx) if isinstance(idx, int) else None
+        full = next((f for i, f, _ in ladder if i == idx), None)
+        if full is None and isinstance(idx, int):
+            full = potentiostat.gamry_range_full_scale(idx)
         ac.say("    %.0e A -> IERange %s%s" % (amps, idx,
                                               (" (%.3g A full scale)" % full) if full else ""))
 
@@ -251,6 +255,15 @@ def open_filters_for(pstat, f_max):
     return before
 
 
+ICH_STATE = ("ich_offset_enable", "ich_offset", "ich_range", "ie_range", "ich_filter")
+
+
+def ich_state(pstat):
+    """The current-channel settings ReadZ may change and not put back."""
+    return {name: ac.safe(getattr(pstat, name), "?") if hasattr(pstat, name) else "n/a"
+            for name in ICH_STATE}
+
+
 def one_z(tkp, pstat, readz, zcurve, f, vac, vdc):
     t0 = time.perf_counter()
     ok = ac.safe(lambda: bool(readz.measure(f, vac, vdc)), False)
@@ -271,6 +284,8 @@ def part3(tkp, pstat, settings, args):
         pstat, settings.get("gamry_current_range", 6.0e-3), sample_period_s=PERIOD)
     ac.say("  range for the holds: %s" % how)
     pstat.set_voltage(vdc)
+    h1 = h2 = h3 = {}
+    state_before = state_after = state_reset = {}
     pstat.set_cell(True)
     try:
         h1 = run_curve(tkp, pstat, tkp.PSTATMODE, [vdc], [HOLD_PTS])
@@ -285,6 +300,7 @@ def part3(tkp, pstat, settings, args):
         if ie is not None:
             ac.safe(lambda: pstat.set_ie_range(ie))
         ac.say("  range for the sweep: IERange %s (for a %.3g A peak)" % (ie, i_peak))
+        state_before = ich_state(pstat)
         readz = tkp.ReadZ(pstat)
         for setter, value in (("set_gain", 1.0), ("set_inoise", 0.0), ("set_vnoise", 0.0),
                               ("set_ienoise", 0.0), ("set_zmod", est_z),
@@ -300,9 +316,21 @@ def part3(tkp, pstat, settings, args):
         timings = []
         for f in FREQS_HZ:
             timings.append((f,) + one_z(tkp, pstat, readz, zcurve, f, args.vac, vdc))
+        state_after = ich_state(pstat)
         ac.safe(lambda: pstat.set_ich_filter(filters_before[0]))
         ac.safe(lambda: pstat.set_vch_filter(filters_before[1]))
         h2 = run_curve(tkp, pstat, tkp.PSTATMODE, [vdc], [HOLD_PTS])
+        # 2026-10-23: the 'after' current read ~5x low on both Gamrys while E was
+        # right. Suspect: ReadZ's I-channel DC offset (set_idc) left switched on.
+        # Put the I channel back as it was before the sweep and hold once more.
+        ac.safe(lambda: pstat.set_ich_offset_enable(False))
+        ac.safe(lambda: pstat.set_ich_offset(0.0))
+        if state_before.get("ie_range") not in ("?", "n/a"):
+            ac.safe(lambda: pstat.set_ie_range(state_before["ie_range"]))
+        if state_before.get("ich_range") not in ("?", "n/a"):
+            ac.safe(lambda: pstat.set_ich_range(state_before["ich_range"]))
+        state_reset = ich_state(pstat)
+        h3 = run_curve(tkp, pstat, tkp.PSTATMODE, [vdc], [HOLD_PTS])
     finally:
         ac.safe(lambda: pstat.set_cell(False))
         ac.say("  cell OFF.")
@@ -332,13 +360,23 @@ def part3(tkp, pstat, settings, args):
             ac.say("  %s: %s" % (name, ", ".join("%.4g" % x for x in column(data, name))))
     ac.say("")
     ac.say("  holds around the sweep (median of each 2 s hold):")
-    for label, h in (("before", h1), ("after", h2)):
+    for label, h in (("before", h1), ("after", h2), ("reset", h3)):
         if h.get("err"):
             ac.say("    %-6s FAILED: %s" % (label, h["err"]))
         else:
             ac.say("    %-6s E %+.5f V   I %+.4e A   (%d points)"
                    % (label, median(h["vf"]), median(h["im"]), h["points"]))
     ac.say("  If 'after' matches 'before', a hold -> sweep -> hold step is glitch-free.")
+    ac.say("  'reset' = after the I-channel offset and ranges were put back as before.")
+    ac.say("")
+    ac.say("  I-channel settings   before sweep / after sweep / after reset:")
+    for name in ICH_STATE:
+        ac.say("    %-18s %s / %s / %s" % (name, state_before.get(name),
+                                         state_after.get(name), state_reset.get(name)))
+    for label, h in (("after", h2), ("reset", h3)):
+        im = h.get("im") or []
+        if im:
+            ac.say("  %s hold, every I (A): %s" % (label, ", ".join("%.3e" % x for x in im)))
 
 
 def main():
