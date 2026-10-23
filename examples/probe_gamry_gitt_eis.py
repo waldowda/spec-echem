@@ -36,6 +36,7 @@ rms); the measured AC amplitudes printed below settle which it is.
 
     conda activate SpecEchem32
     python examples/probe_gamry_gitt_eis.py                    # part 1 only
+    python examples/probe_gamry_gitt_eis.py --section NAME     # with several Gamrys
     python examples/probe_gamry_gitt_eis.py --energize --gitt
     python examples/probe_gamry_gitt_eis.py --energize --eis
     python examples/probe_gamry_gitt_eis.py --energize --gitt --eis
@@ -346,6 +347,8 @@ def main():
                     help="allow parts 2/3 to switch the cell on (DUMMY CELL ONLY)")
     ap.add_argument("--gitt", action="store_true", help="part 2: galvanostatic pulses")
     ap.add_argument("--eis", action="store_true", help="part 3: one ER-EIS step")
+    ap.add_argument("--section", default=None,
+                    help="which Gamry, when several are connected (part 1 lists them)")
     ap.add_argument("--rs", type=float, default=200.0, help="dummy series R (Ohm)")
     ap.add_argument("--rp", type=float, default=3010.0, help="dummy parallel R (Ohm)")
     ap.add_argument("--c", type=float, default=1e-6, help="dummy parallel C (F); 0 = none")
@@ -370,9 +373,15 @@ def main():
     settings = dict(DEFAULT_SETTINGS)
     settings.update(load_bench_defaults()[0])
     tkp.toolkitpy_init("spec-echem-gitt-eis-probe")
+    section = args.section or settings.get("gamry_section") or None
     pstat = None
     try:
-        pstat = potentiostat.open_gamry_pstat(settings.get("gamry_section") or None)
+        present = [str(x) for x in (ac.safe(tkp.enum_sections) or [])]
+        ac.say("  Gamrys connected: %s" % (", ".join(present) or "?"))
+        if not section and len(present) > 1:
+            raise RuntimeError("%d Gamrys are connected; rerun with --section NAME, "
+                               "one of the names above." % len(present))
+        pstat = potentiostat.open_gamry_pstat(section)
         part1(tkp, pstat)
         if args.energize and args.gitt:
             ac.say("\n*** Dummy only: %.0f + (%.0f || %.2g F). ***"
