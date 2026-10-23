@@ -32,6 +32,14 @@ Part 3, --fra (impedance via the PROVEN procedure route):
     python examples/probe_autolab_gitt_eis.py --energize --gitt --rp 10000 --rs 0 --c 0
     python examples/probe_autolab_gitt_eis.py --energize --fra
 
+Part 4, --fra-manual (impedance the way an ER-EIS staircase would do it):
+  hold --vdc in Ei mode (as the PITT does), then Instrument.Fra -- the SDK's manual
+  FRA control, found by part 1 on 2026-10-23 -- at 10 kHz, 1 kHz, 100 Hz, 10 Hz,
+  1 Hz. Does Start() block, how long per point, do Real/Imaginary match the dummy,
+  and does E_dc hold through it?
+
+    python examples/probe_autolab_gitt_eis.py --energize --fra-manual --rs 100 --rp R --c C
+
 Writes examples/probe_autolab_gitt_eis_report.txt (+ _fra.csv after --fra).
 """
 import argparse
@@ -105,12 +113,16 @@ def show_procedure(inst, path):
         ac.say("  could not load %s" % os.path.basename(path))
         return None
     idnames = ac.list_commands(proc)
+    # Every command: the FRA ones are FIA*, and the set-potential / wait ones
+    # carry the DC potential and hold time a sweep runs at.
     for idn in idnames:
         cmd = ac.safe(lambda i=idn: proc.Commands[i])
-        if cmd is not None and ("fra" in str(idn).lower() or "imp" in str(idn).lower()):
+        if cmd is not None and not str(idn).startswith(("Plots", "Hidden")):
             ac.dump_parameters(cmd, str(idn))
     fras = ac.safe(lambda: proc.FraCommands)
     dump_members(fras, "%s .FraCommands" % os.path.basename(path), max_items=60)
+    ac.say("  FraCommands names:   %s" % ac.safe(lambda: list(fras.Names)))
+    ac.say("  FraCommands IdNames: %s" % ac.safe(lambda: list(fras.IdNames)))
     for k, fc in enumerate(ac.safe(lambda: list(fras), []) or []):
         dump_members(fc, "FraCommands[%d]" % k, max_items=80)
         ac.dump_parameters(fc, "FraCommands[%d]" % k)
@@ -273,12 +285,92 @@ def part3(inst, args, found):
                   math.degrees(cmath.phase(z) - cmath.phase(ze))))
 
 
+# --- part 4 -----------------------------------------------------------------
+
+MANUAL_FREQS_HZ = (10000.0, 1000.0, 100.0, 10.0, 1.0)
+
+
+def fra_arrays(fra):
+    out = {}
+    for name in ("Frequecies", "Real", "Imaginary", "Modulus", "Phase"):   # sic, SDK spelling
+        out[name] = ac.safe(lambda n=name: [float(x) for x in getattr(fra, n)], []) or []
+    return out
+
+
+def part4(inst, args):
+    """ER-EIS the way a staircase would do it: hold E in Ei mode (as the PITT does),
+    then Instrument.Fra one frequency at a time -- no NOVA procedure."""
+    r_dc = args.rs + args.rp
+    i_dc = args.vdc / r_dc
+    i_peak = abs(i_dc) + 1.414 * args.vac / max(args.rs, 1.0)
+    rng = args.range or potentiostat.suggest_current_range(i_peak)
+    ac.rule("PART 4 -- MANUAL FRA (Instrument.Fra) at E_dc = %+.3f V, %.3f V amplitude"
+            % (args.vdc, args.vac))
+    if abs(args.vdc) > 0.5 * args.e_limit:
+        ac.say("  REFUSED: --vdc %.3f V is more than half the --e-limit." % args.vdc)
+        return
+    ac.say("  expected I_dc %.3e A; AC peak up to %.3e A -> range %s" % (i_dc, i_peak, rng))
+    ei, fra = inst.Ei, inst.Fra
+    rows = []
+    try:
+        potentiostat._set_ei_mode(ei, potentiostatic=True)
+        if rng:
+            potentiostat._set_current_range(ei, rng)
+        ei.Setpoint = float(args.vdc)
+        ac.switch_cell(inst, True)
+        time.sleep(2.0)
+        e, i = read_ei(inst)
+        ac.say("  after 2 s hold: E = %+.5f V, I = %+.4e A (expected %+.4e)" % (e, i, i_dc))
+        fra.Amplitude = float(args.vac)
+        ac.say("  Amplitude set %.4f, read back %s (V rms or peak? unconfirmed)"
+               % (args.vac, ac.safe(lambda: fra.Amplitude)))
+        ac.say("  WaveType %s, MinimumIntegrationTime %s s, MinimumIntegrationCycles %s"
+               % (ac.safe(lambda: fra.WaveType), ac.safe(lambda: fra.MinimumIntegrationTime),
+                  ac.safe(lambda: fra.MinimumIntegrationCycles)))
+        for f in MANUAL_FREQS_HZ:
+            fra.Frequency = float(f)
+            t0 = time.perf_counter()
+            fra.Start()
+            t_start = time.perf_counter() - t0
+            arr = fra_arrays(fra)
+            # If Start() does not block, the arrays may fill later: poll briefly.
+            while not arr["Modulus"] and time.perf_counter() - t0 < args.fra_point_timeout:
+                time.sleep(0.2)
+                arr = fra_arrays(fra)
+            e, i = read_ei(inst)
+            rows.append((f, t_start, time.perf_counter() - t0, arr, e, i))
+            ac.say("  f=%8.1f Hz  Start() %.2f s, results after %.2f s  E_dc %+.4f V  arrays: %s"
+                   % (f, t_start, rows[-1][2], e,
+                      {k: v[:4] for k, v in arr.items()}))
+    except Exception as exc:  # noqa: BLE001
+        ac.say("  *** STOPPED: %s: %s" % (type(exc).__name__, exc))
+    finally:
+        ac.cell_off_quietly(inst)
+    ac.say("")
+    ac.say("      f (Hz)     Z' meas    Z'' meas    |Z| expected   |Z| err   phase meas/exp (deg)")
+    for f, _ts, _tr, arr, _e, _i in rows:
+        if not (arr["Real"] and arr["Imaginary"]):
+            continue
+        z = complex(arr["Real"][-1], arr["Imaginary"][-1])
+        ze = expected_z(f, args.rs, args.rp, args.c)
+        ac.say("    %9.1f  %9.1f  %9.1f     %9.1f     %+6.1f%%   %+6.1f / %+6.1f"
+               % (f, z.real, z.imag, abs(ze), (abs(z) - abs(ze)) / abs(ze) * 100,
+                  math.degrees(cmath.phase(z)), math.degrees(cmath.phase(ze))))
+    ac.say("  (Z'' sign convention unconfirmed: a capacitor should show phase < 0)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--energize", action="store_true",
                     help="allow parts 2/3 to switch the cell on (DUMMY CELL ONLY)")
     ap.add_argument("--gitt", action="store_true", help="part 2: galvanostatic pulses")
     ap.add_argument("--fra", action="store_true", help="part 3: one impedance sweep")
+    ap.add_argument("--fra-manual", action="store_true",
+                    help="part 4: Instrument.Fra, one frequency at a time at --vdc")
+    ap.add_argument("--vdc", type=float, default=0.1, help="part 4 DC potential (V)")
+    ap.add_argument("--vac", type=float, default=0.01, help="part 4 AC amplitude (V)")
+    ap.add_argument("--fra-point-timeout", type=float, default=60.0,
+                    help="part 4: seconds to wait for one frequency's result")
     ap.add_argument("--rs", type=float, default=200.0, help="dummy series R (Ohm)")
     ap.add_argument("--rp", type=float, default=3010.0, help="dummy parallel R (Ohm)")
     ap.add_argument("--c", type=float, default=1e-6, help="dummy parallel C (F); 0 = none")
@@ -287,15 +379,15 @@ def main():
     ap.add_argument("--e-limit", type=float, default=0.5,
                     help="|E| at which part 2 stops (V)")
     ap.add_argument("--range", default=None,
-                    help="current range for part 2, e.g. CR11_100uA (else bench.ini)")
+                    help="current range for parts 2/4, e.g. CR11_100uA (else bench.ini / chosen)")
     ap.add_argument("--nox", default=None, help="the FRA procedure for part 3")
     ap.add_argument("--fra-timeout", type=float, default=1800.0,
                     help="seconds before part 3's sweep is aborted")
     args = ap.parse_args()
 
     ac.rule("GITT / ER-EIS ON THE AUTOLAB -- what the plan needs to know")
-    if (args.gitt or args.fra) and not args.energize:
-        ac.say("Parts 2/3 need --energize, with a DUMMY cell in. Running part 1 only.")
+    if (args.gitt or args.fra or args.fra_manual) and not args.energize:
+        ac.say("Parts 2-4 need --energize, with a DUMMY cell in. Running part 1 only.")
     settings, warnings = load_bench_defaults()
     for w in warnings:
         ac.say("  bench.ini: %s" % w)
@@ -311,6 +403,10 @@ def main():
             part2(inst, settings, args)
         if args.energize and args.fra:
             part3(inst, args, found)
+        if args.energize and args.fra_manual:
+            ac.say("\n*** Dummy only: %.0f + (%.0f || %.2g F). ***"
+                   % (args.rs, args.rp, args.c))
+            part4(inst, args)
     except Exception as exc:  # noqa: BLE001
         ac.say("\n*** STOPPED: %s: %s" % (type(exc).__name__, exc))
     finally:
