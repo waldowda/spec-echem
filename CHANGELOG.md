@@ -183,6 +183,15 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   structurally blind to it and logged zero drops through nine glitches. `.Signals` was also
   shown to fill *during* a run (0 → 1040 points), which makes the recorder a viable live
   source and is now the recommended fix. Neither fix is implemented yet.
+- **GITT and ER-EIS on dummy cells (2026-10-23), probes only, nothing built.**
+  `examples/probe_gamry_gitt_eis.py` and `examples/probe_autolab_gitt_eis.py` test what the
+  two planned PITT-like methods would need. On both Gamrys, galvanostatic pulses applied
+  the current within 0.2% and gave E = I x R within ~1%. `CiivCurve` can stop a pulse on
+  E; the PITT's `ChronoCurve` cannot. `ReadZ` impedance matched a Randles dummy within
+  0.7% and 0.1 deg. **`ReadZ` leaves the I/E range where it autoranged**, two rungs
+  down, so a potential hold after a sweep clips at about 109% of that range with no
+  error; restoring the range fixes it. On the Autolab, part 1 confirmed the FRA module
+  and a manual single-frequency `Instrument.Fra`; its energized tests are still to run.
 
 ---
 
