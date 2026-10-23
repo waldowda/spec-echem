@@ -35,6 +35,15 @@ data.
       `ChronoCurve`); the impedance API and its amplitude units; seconds per frequency;
       whether the PITT's 1 kHz channel filters cut a 10 kHz point; and whether a hold
       -> sweep -> hold step is glitch-free.
+      **Gamry, both instruments, 2026-10-23:** galvanostatic current applied to 0.2%,
+      E = I x R to ~1%; `CiivCurve` stops a pulse on E, `ChronoCurve` does not; ReadZ
+      matched the Randles dummy to 0.7% / 0.1 deg (0.3 s per point, 3 s at 1 Hz) and
+      works on the 1010E too; the 1 kHz filters did not change 10 kHz. **Open:** the
+      hold AFTER a sweep read the current ~5x low (E correct) on both -- suspected
+      ReadZ's I-channel DC offset left on; the probe now logs that state and adds a
+      reset hold. Rerun `--eis` on each. **Autolab:** part 1 confirmed the FRA32M and
+      a manual single-frequency `Instrument.Fra`; `--gitt`, `--fra-manual`, `--fra`
+      still to run.
 
 - [x] **Interface 1010E trigger (2026-10-17):** same connector and pins as the
       Reference 600 (pin 7 Digital Out 0, pin 6 ground; `docs/sop.md` §2.1). With the
