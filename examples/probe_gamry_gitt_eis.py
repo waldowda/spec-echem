@@ -320,9 +320,10 @@ def part3(tkp, pstat, settings, args):
         ac.safe(lambda: pstat.set_ich_filter(filters_before[0]))
         ac.safe(lambda: pstat.set_vch_filter(filters_before[1]))
         h2 = run_curve(tkp, pstat, tkp.PSTATMODE, [vdc], [HOLD_PTS])
-        # 2026-10-23: the 'after' current read ~5x low on both Gamrys while E was
-        # right. Suspect: ReadZ's I-channel DC offset (set_idc) left switched on.
-        # Put the I channel back as it was before the sweep and hold once more.
+        # 2026-10-23, both Gamrys: ReadZ autoranges and LEAVES the I/E range where its
+        # last (lowest) frequency put it, two rungs down. The 'after' hold then clips at
+        # ~109% of that range's full scale (E stays right). Restoring ie_range fixes it;
+        # the I-channel offset was never on. Put the I channel back and hold once more.
         ac.safe(lambda: pstat.set_ich_offset_enable(False))
         ac.safe(lambda: pstat.set_ich_offset(0.0))
         if state_before.get("ie_range") not in ("?", "n/a"):
