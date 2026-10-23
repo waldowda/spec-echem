@@ -38,10 +38,12 @@ data.
       **Gamry, both instruments, 2026-10-23:** galvanostatic current applied to 0.2%,
       E = I x R to ~1%; `CiivCurve` stops a pulse on E, `ChronoCurve` does not; ReadZ
       matched the Randles dummy to 0.7% / 0.1 deg (0.3 s per point, 3 s at 1 Hz) and
-      works on the 1010E too; the 1 kHz filters did not change 10 kHz. **Open:** the
-      hold AFTER a sweep read the current ~5x low (E correct) on both -- suspected
-      ReadZ's I-channel DC offset left on; the probe now logs that state and adds a
-      reset hold. Rerun `--eis` on each. **Autolab:** part 1 confirmed the FRA32M and
+      works on the 1010E too; the 1 kHz filters did not change 10 kHz. The hold AFTER
+      a sweep read the current ~5x low (E correct) on both: ReadZ autoranges and leaves
+      the I/E range two rungs down (8->6, 9->7), so the hold CLIPS at ~109% of that
+      range's full scale (every point identical). Restoring `ie_range` (and the
+      filters, which ReadZ also changes) after each sweep fixes it -- an ER-EIS runner
+      must do that. The I-channel offset was never on. **Autolab:** part 1 confirmed the FRA32M and
       a manual single-frequency `Instrument.Fra`; `--gitt`, `--fra-manual`, `--fra`
       still to run.
 
