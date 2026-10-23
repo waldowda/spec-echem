@@ -56,47 +56,13 @@ repository. Do not move them in, and do not quote their sample-identifying conte
 
 ---
 
-## Repository Structure
+## Repository Layout — the rules a listing won't tell you
 
-```
-spec-echem/
-├── spec_echem/                      # Core package — NO Qt, NO hardware imports
-│   ├── __init__.py
-│   ├── spectrometer.py              # AvantesSpectrometer class
-│   ├── potentiostat.py              # Gamry control (External + Python/toolkitpy)
-│   ├── acquisition.py, experiment.py  # Segment acquisition + orchestration
-│   ├── data.py, gamry_data.py       # Spectra + echem file writers/readers
-│   ├── linearity.py                 # Integration-time linearity fit + recommendation
-│   ├── spectral_range.py            # Wavelength-window recommendation
-│   ├── settings.py                  # Experiment settings dict (per-run)
-│   ├── bench.py                     # Bench defaults (per-rig), reads config/*.ini
-│   ├── build_info.py                # __version__ + build_id() — SINGLE source of the version
-│   ├── logging_config.py            # Per-run log file
-│   ├── fakes.py                     # Hardware fakes — the suite runs with no instruments
-│   └── globals.py                   # Global variables for Avantes SDK
-├── gui/                             # PyQt5 GUI (6 tabs); run via `python -m gui`
-├── config/                          # defaults.ini (tracked, lab-wide) + bench.ini (per-rig, ignored)
-├── notebooks/                       # Legacy Jupyter workflow (still functional)
-├── gamry/
-│   └── *.GSequence                  # Gamry sequence files with digital triggers
-├── docs/
-│   ├── manual.md                 # USER MANUAL — tabs + the maths behind every number
-│   ├── data-format.md               # Output file format specification (DO NOT CHANGE)
-│   ├── sop.md                       # Standard operating procedure (GUI-first)
-│   └── inspect-run.md
-├── examples/                        # Bench/validation scripts + identify_hardware.py
-├── tests/                           # Unit tests (960) — no hardware required
-├── data/                            # Sample data directory
-├── CHANGELOG.md                     # What changed between versions
-├── STATUS.md                        # Human-readable project status + next steps
-├── TODO.md                          # Task list / deferred cleanups
-├── README.md
-├── setup.py                         # Reads the version out of build_info.py — don't hardcode it
-├── requirements.txt
-└── .gitignore
-```
-
-New Python modules go in `spec_echem/`. Notebooks go in `notebooks/`. Gamry files in `gamry/`.
+- `spec_echem/` is the core package: **NO Qt, NO hardware imports** (the GUI lives in `gui/`).
+- `spec_echem/build_info.py` is the SINGLE source of the version; `setup.py` reads it — don't hardcode it.
+- `config/defaults.ini` is tracked (lab-wide); `config/bench.ini` is per-rig and git-ignored.
+- Hardware is faked in `spec_echem/fakes.py`, so the whole suite runs with no instruments.
+- New Python modules go in `spec_echem/`. Notebooks go in `notebooks/`. Gamry files in `gamry/`.
 
 ---
 
@@ -121,18 +87,11 @@ Three coordinated components:
 
 ## Dependencies
 
-```
-numpy>=1.19.0
-matplotlib>=3.3.0
-pandas>=1.3.0
-scipy>=1.5.0
-avaspec           # Avantes proprietary — NOT pip-installable, requires Avantes SDK + hardware
-EchemToolkitPy    # Gamry proprietary — NOT pip-installable, requires Gamry Framework install
-```
+`avaspec` and `EchemToolkitPy` are vendor modules, NOT pip-installable.
 
 **Multi-machine constraint:** `avaspec` and `EchemToolkitPy` are only present on machines with
 vendor hardware physically connected. Code touching these must handle missing imports gracefully
-(conditional imports or mock objects). Dean works across multiple computers.
+(conditional imports or mock objects).
 
 **avaspec.py setup (Win11 instrument machine):** Copy from
 `C:\AvaSpecX64-DLL_9.14.0.0\examples\PyQt5_simple\avaspec.py` to
@@ -150,14 +109,7 @@ Do NOT copy a fresh SDK file over this without reapplying these three edits.
 
 ### `spec_echem/spectrometer.py` — AvantesSpectrometer class
 
-| Method | Returns | Notes |
-|--------|---------|-------|
-| `init()` | `(measconfig, serial_number)` | Must call before measuring |
-| `set_integration_time(time)` | — | Time in **milliseconds** — passed straight to Avantes `m_IntegrationTime` (no conversion). e.g. `50` = 50 ms. Matches the `integration_time_ms` settings key. |
-| `set_scan_averages(n)` | — | Scans to average per measurement |
-| `measure()` | `(timestamp, spectrum)` | Single spectrum acquisition |
-| `wavelengths()` | `(_, wavelength_array)` | Calibration wavelengths |
-| `plot_data(wavelength, spectrum)` | — | Quick visualization |
+`set_integration_time()` takes **milliseconds**, passed straight to Avantes `m_IntegrationTime` (no conversion; matches the `integration_time_ms` settings key).
 
 ### Acquisition pipeline (modularization DONE — the notebook `get_spectra()` is legacy)
 
@@ -234,7 +186,6 @@ for `current_vs_time()` to work. Gamry and spec-echem output directories must ma
 
 ## Coding Conventions
 
-- `snake_case` for all function and variable names
 - Named constants for data types: `DATA_TYPE_CV = 1`, `DATA_TYPE_DOPING = 2`, etc.
 - Input validation with descriptive error messages
 - Debug output gated behind a `debug` flag
@@ -316,35 +267,12 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
 
   `conda activate SpecEchem32; python -m gui`. 32-bit PyQt5 install notes are in the Phase 2
   bullet below.
-- **Phase 1 (now):** 64-bit SpecEchem env. PyQt5 + QtPy + embedded matplotlib. No Gamry Python
-  control yet — `.GSequence` + hardware trigger; Python only drives the spectrometer.
 - **Phase 2 (EchemToolkitPy integration, CURRENT until Gamry ships 64-bit ~Sept 2026):** GUI runs in
   the **32-bit `SpecEchem32`** env (Python 3.7.13) to call `toolkitpy`. 32-bit PyQt5 is SOLVED —
   install with `pip install --only-binary=:all: "PyQt5==5.15.2" "PyQt5-sip==12.11.0"` (5.15.2 is the
   last self-contained release with a 32-bit win32 wheel that bundles Qt; newer PyQt5 pulls `PyQt5-Qt5`,
   which has no 32-bit wheel). Also needs qtpy/matplotlib/pandas. Python potentiostat control is
   implemented + hardware-validated in this env.
-- **Phase 3 (post Gamry 64-bit):** everything 64-bit; optionally swap to PySide6 via QtPy.
-- **Why QtPy abstraction:** keeps the binding swappable across these phases (PyQt5 now, PySide6 later)
-  with no code changes. PySide6 has no 32-bit Windows wheel, so PyQt5 is the binding for Phase 2.
-- **Why matplotlib not PyQtGraph:** all plots are post-segment/static, so PyQtGraph's live-update
-  edge is moot. matplotlib is one fewer dependency, familiar, publication-style, and works under
-  both PyQt5 and PySide6 via `FigureCanvasQTAgg`. Rendering happens on the GUI thread, never the
-  acquisition thread, so it cannot threaten the ~50 ms/spectrum timing budget. If live update is
-  ever wanted, throttled redraw (2–5 Hz) of in-memory data stays well within matplotlib's range —
-  PyQtGraph would only be needed for 30–60 Hz rendering, which human monitoring never requires.
-- **PySide6 version pin:** when migrating, pin below 6.9.1 (active regressions in 6.9.x)
-- **UI pattern:** tabbed layout (6 tabs: Instrument, Parameters, Run, Results, Analysis, Band Fits), not QWizard.
-- **Architecture:** thin GUI over current workflow first; swap in EchemToolkitPy backend later.
-  Threading: worker-object + `moveToThread()` (not QThread subclass).
-- **Potentiostat status (phase-aware):** keep a potentiostat status indicator in the layout, but in
-  the 32-bit phase Python CANNOT control or query the Gamry — the `.GSequence` file runs
-  autonomously and fires hardware triggers. Show it as "Gamry: standalone (runs from sequence file)"
-  in a neutral/disabled state now; it becomes a live green/red connection indicator when
-  EchemToolkitPy arrives. The real coordination today is a two-step manual sequence: (1) student
-  clicks Start → worker arms spectrometer and BLOCKS on the first trigger → UI shows "Armed — now
-  start the Gamry sequence"; (2) student starts the Gamry sequence manually → triggers fire →
-  collection proceeds. The UI must make this two-step start explicit so students aren't confused.
 - **Triggering stays Gamry-in-charge / Avantes-listening** — Gamry DIGOUT0 wired to the Avantes
   hardware trigger input. This arrangement is kept through the EchemToolkitPy migration.
 - **Doping-potential fields are mode-dependent:** in **External mode** they are documentation-only
@@ -354,7 +282,6 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
   `cv_limit2_v` / `cv_final_v`). Saved to the run metadata JSON in both modes.
 - **Logging:** one log file per run, named to match data folder and saved alongside data:
   `specechem_data/YYYYMMDD_Name/YYYYMMDD_Name.log`. DEBUG to file, INFO to UI status log.
-- **No live plot updates** — plots update post-segment only (simplifies threading)
 - **Stop vs Abort:** Stop finishes current acquisition cleanly; Abort is immediate (confirm dialog).
   NOTE: Abort must check `abort_event` inside the spectrometer measure poll loop, not just the
   acquisition loop — otherwise Abort won't respond while blocked waiting for a trigger (the most
@@ -362,6 +289,7 @@ Planned instrument control GUI to replace the Jupyter notebook workflow.
 - **Run metadata:** `write_run_metadata()` writes `{folder}/{folder}_metadata.json` at run start —
   `spec_echem_version` (the build id), sample name, electrolyte, notes, and a full settings snapshot,
   making each data folder self-documenting.
+- GUI design rationale (binding, plotting library, layout, threading pattern) is in `gui/CLAUDE.md`.
 
 ### More than one Gamry on one PC (2026-10-09)
 
@@ -462,10 +390,6 @@ VRS2048CL-EVO. **Closed 2026-09-04 as not worth changing:** measured with the la
 ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm edge and 0 past
 1150 — silicon QE ends by ~1050 nm, so the existing window already reaches past usable signal.
 >1100 nm needs an InGaAs detector, not a config change. See `docs/bench-2026-09-04.md`.
-
-### Modularization — DONE
-`get_spectra()` is out of the notebooks and split across `acquisition.py` / `experiment.py` /
-`data.py`; hardware is faked (`fakes.py`) so all 960 tests run with no instruments attached.
 
 ### Settings: two layers, don't confuse them
 - **Experiment settings** (`settings.py`, `DEFAULT_SETTINGS`) — *this run*: sample, folder, CV
