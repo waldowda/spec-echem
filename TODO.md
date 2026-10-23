@@ -24,6 +24,18 @@ data.
       the return leg (kinetics vs hysteresis), and a slow series-RC dummy to see the
       cutoff end a step. Use the Reference 600 for now (1010E noise item below).
 
+- [ ] **GITT and ER-EIS probes, on dummies, alongside the PITT film work (2026-10-23).**
+      Both are planned as siblings of the PITT staircase (GITT: galvanostatic pulses
+      with 0 A relaxation; ER-EIS: a hold then an impedance sweep at each potential),
+      built step by step when needed; plan kept outside the repo. Before any building:
+      `examples/probe_gamry_gitt_eis.py` (`--energize --gitt` / `--eis`) and
+      `examples/probe_autolab_gitt_eis.py` (`--energize --gitt` / `--fra`). Part 1 of
+      each is read-only. They answer: does E follow I x R in galvanostat mode; can the
+      instrument stop a pulse on E (Gamry `CiivCurve.set_stop_v_max` vs the PITT's
+      `ChronoCurve`); the impedance API and its amplitude units; seconds per frequency;
+      whether the PITT's 1 kHz channel filters cut a 10 kHz point; and whether a hold
+      -> sweep -> hold step is glitch-free.
+
 - [x] **Interface 1010E trigger (2026-10-17):** same connector and pins as the
       Reference 600 (pin 7 Digital Out 0, pin 6 ground; `docs/sop.md` §2.1). With the
       custom cable moved over, every segment and all 21 PITT steps triggered; cadence
