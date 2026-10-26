@@ -53,9 +53,10 @@ data.
       cell setup (2026-10-26):** on DummyCell 2 circuit (c), 100 Ohm + (1 kOhm || 1 uF),
       10 mV should drive ~9-100 uA AC; it saw ~1 uA, and ~50 uV AC potential. Both
       channels near zero: the AC signal likely never reaches the cell (generator or
-      its internal link) -- a hardware/configuration fault.
-      Next: check NOVA's hardware setup lists the module as FRA32M; send Metrohm the
-      failed TestFRA data; ask earlier EIS users when it last worked. Once a NOVA sweep reads 10 kOhm: rerun `--fra` (NOVA's procedure: 50 freqs 100 kHz-0.1 Hz,
+      its internal link) -- a hardware/configuration fault. NOVA's hardware setup does
+      list the FRA32M, and turning on NOVA's "FRA32M input" switch (found off) did NOT
+      help. Next: send Metrohm the failed TestFRA data; ask earlier EIS users when it
+      last worked. Once a NOVA sweep reads 10 kOhm: rerun `--fra` (NOVA's procedure: 50 freqs 100 kHz-0.1 Hz,
       251 s; results fill in DURING the sweep), `--fra --fra-vdc 0.1`, `--fra-manual`,
       and a Randles for the sign convention.
 
