@@ -46,10 +46,13 @@ data.
       must do that. The I-channel offset was never on. **Autolab (2026-10-26):** galvanostatic Ei works
       (E/(IxR) 0.998/0.999; Setpoint reads back in amps; ~-16 nA at 0 A on 100 uA).
       Every impedance sweep was noise -- manual `Instrument.Fra`, NOVA's procedure from
-      Python, AND NOVA itself -- because the FRA32M's front cables were not connected:
-      X, Y, V go to the potentiostat's monitor-cable BNCs (V -> V in, X <- E out,
-      Y <- i out, to be confirmed against the manual), and the X cable is MISSING.
-      Get the cable, then rerun `--fra` (NOVA's procedure: 50 freqs 100 kHz-0.1 Hz,
+      Python, AND NOVA itself -- so the cause is below this code. NOT the loose front
+      cables: per the FRA32M manual, the front X/Y (50 Ohm inputs) and V (generator
+      monitor) are for EXTERNAL transfer functions only; cell impedance is internal.
+      Don't wire them to the monitor BNCs. Next: NOVA's FRA32M test procedure on the
+      Autolab dummy cell 2; check the FRA command for an external-input setting
+      (`FIAMeasurement` param [4] is an unexplained bool); ask earlier EIS users or
+      Metrohm. Once a NOVA sweep reads 10 kOhm: rerun `--fra` (NOVA's procedure: 50 freqs 100 kHz-0.1 Hz,
       251 s; results fill in DURING the sweep), `--fra --fra-vdc 0.1`, `--fra-manual`,
       and a Randles for the sign convention.
 
