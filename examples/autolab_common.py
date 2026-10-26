@@ -367,8 +367,11 @@ def report_signals(sig):
         if not vals:
             say(f"    {key:<24} 0 pts")
             continue
-        say(f"    {key:<24} {len(vals):>6} pts   "
-            f"first={vals[0]:.6g}  last={vals[-1]:.6g}")
+        try:
+            ends = f"first={vals[0]:.6g}  last={vals[-1]:.6g}"
+        except (TypeError, ValueError):     # a text or object channel, not numbers
+            ends = f"first={str(vals[0])[:30]!r}  last={str(vals[-1])[:30]!r}"
+        say(f"    {key:<24} {len(vals):>6} pts   {ends}")
 
 
 def write_csv(sig, path):

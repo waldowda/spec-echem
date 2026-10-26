@@ -24,6 +24,8 @@ Part 3, --fra (impedance via the PROVEN procedure route):
   with its own defaults, which part 1 lists first. Reports how long it took (the
   number an ER-EIS duration estimate needs), every recorded channel, and Z against
   the dummy's expected Z where the frequency and Z columns can be found.
+  --fra-vdc V runs it at V instead of its own 0 V (the ER-EIS route: one sweep per
+  step), and every 20 s it prints whether results are filling in during the sweep.
 
     >> A DUMMY CELL ONLY, never a film. Give the dummy's values: --rs, --rp, --c
        for a Randles circuit, or --rs 0 --rp R --c 0 for a plain resistor. <<
@@ -247,10 +249,34 @@ def part3(inst, args, found):
     proc = show_procedure(inst, path)
     if proc is None:
         return
+    if args.fra_vdc is not None:
+        # The ER-EIS route: the same procedure, run at each step's DC potential.
+        if abs(args.fra_vdc) > 0.5 * args.e_limit:
+            ac.say("  REFUSED: --fra-vdc %.3f V is more than half the --e-limit." % args.fra_vdc)
+            return
+        cmd = ac.safe(lambda: proc.Commands["FHSetSetpointPotential"])
+        if cmd is None or not ac.set_param(cmd, 0, float(args.fra_vdc), "DC potential (V)"):
+            ac.say("  could not set the DC potential; not running.")
+            return
     ac.say("")
-    ac.say("  *** Running %s with ITS OWN defaults on the dummy. ***" % os.path.basename(path))
+    ac.say("  *** Running %s on the dummy at %s. ***"
+           % (os.path.basename(path),
+              "its own 0 V" if args.fra_vdc is None else "%+.3f V" % args.fra_vdc))
+    shown = [0.0]
+
+    def progress(inst_, proc_, elapsed):
+        # Does the result fill in DURING the sweep? A progress display needs that.
+        if elapsed - shown[0] < 20.0:
+            return
+        shown[0] = elapsed
+        cmd = ac.safe(lambda: proc_.Commands["FIAMeasPotentiostatic"])
+        sigs = ac.safe(lambda: cmd.Signals) if cmd is not None else None
+        n = ac.safe(lambda: max(len(list(s.ValueAsObject)) for s in sigs), "?") \
+            if sigs is not None else "?"
+        ac.say("    t=%4.0f s  longest FIAMeasPotentiostatic signal so far: %s pts"
+               % (elapsed, n))
     try:
-        elapsed = ac.run(proc, inst, poll=0.5, timeout=args.fra_timeout)
+        elapsed = ac.run(proc, inst, poll=0.5, timeout=args.fra_timeout, watch=progress)
     finally:
         ac.cell_off_quietly(inst)
     ac.say("  -> %.0f s for the whole sweep" % elapsed)
@@ -263,8 +289,26 @@ def part3(inst, args, found):
     for k, fc in enumerate(ac.safe(lambda: list(proc.FraCommands), []) or []):
         for key, vals in ac.read_signals(fc).items():
             sig["Fra[%d].%s" % (k, key)] = vals
+    # 2026-10-26: one channel came back as text, which crashed the report before the
+    # CSV was written and lost the sweep. Save the numeric channels FIRST.
+    num, other = {}, {}
+    for key, vals in sig.items():
+        try:
+            num[key] = [float(v) for v in vals]
+        except (TypeError, ValueError):
+            other[key] = vals
+    # Rows run to the shortest column, so keep the columns as long as the frequency
+    # one (a stray 1-value channel would otherwise cut the CSV to one row).
+    f_any = find_column(num, "freq")
+    n_rows = len(num[f_any]) if f_any else max((len(v) for v in num.values()), default=0)
+    ac.write_csv({k: v for k, v in num.items() if len(v) == n_rows},
+                 os.path.join(HERE, "probe_autolab_gitt_eis_fra.csv"))
     ac.report_signals(sig)
-    ac.write_csv(sig, os.path.join(HERE, "probe_autolab_gitt_eis_fra.csv"))
+    for key, vals in other.items():
+        text = "".join(vals) if all(isinstance(v, str) and len(v) == 1 for v in vals) \
+            else repr(list(vals)[:10])
+        ac.say("  non-numeric %s: %s" % (key, text[:200]))
+    sig = num
 
     f_key = find_column(sig, "freq")
     re_key = find_column(sig, "z'", exclude="z''") or find_column(sig, "zreal") or find_column(sig, "real")
@@ -381,6 +425,8 @@ def main():
     ap.add_argument("--range", default=None,
                     help="current range for parts 2/4, e.g. CR11_100uA (else bench.ini / chosen)")
     ap.add_argument("--nox", default=None, help="the FRA procedure for part 3")
+    ap.add_argument("--fra-vdc", type=float, default=None,
+                    help="part 3: run the procedure at this DC potential (V) instead of 0 V")
     ap.add_argument("--fra-timeout", type=float, default=1800.0,
                     help="seconds before part 3's sweep is aborted")
     args = ap.parse_args()
