@@ -49,10 +49,11 @@ data.
       Python, AND NOVA itself -- so the cause is below this code. NOT the loose front
       cables: per the FRA32M manual, the front X/Y (50 Ohm inputs) and V (generator
       monitor) are for EXTERNAL transfer functions only; cell impedance is internal.
-      Don't wire them to the monitor BNCs. Next: NOVA's FRA32M test procedure on the
-      Autolab dummy cell 2; check the FRA command for an external-input setting
-      (`FIAMeasurement` param [4] is an unexplained bool); ask earlier EIS users or
-      Metrohm. Once a NOVA sweep reads 10 kOhm: rerun `--fra` (NOVA's procedure: 50 freqs 100 kHz-0.1 Hz,
+      Don't wire them to the monitor BNCs. **NOVA's own TestFRA FAILED on its dummy
+      cell setup (2026-10-26):** the AC current was ~1 uA but the measured AC potential
+      only ~50 uV, ~300x below the 10 mV applied -- a hardware/configuration fault.
+      Next: check NOVA's hardware setup lists the module as FRA32M; send Metrohm the
+      failed TestFRA data; ask earlier EIS users when it last worked. Once a NOVA sweep reads 10 kOhm: rerun `--fra` (NOVA's procedure: 50 freqs 100 kHz-0.1 Hz,
       251 s; results fill in DURING the sweep), `--fra --fra-vdc 0.1`, `--fra-manual`,
       and a Randles for the sign convention.
 
