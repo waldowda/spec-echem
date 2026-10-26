@@ -43,9 +43,15 @@ data.
       the I/E range two rungs down (8->6, 9->7), so the hold CLIPS at ~109% of that
       range's full scale (every point identical). Restoring `ie_range` (and the
       filters, which ReadZ also changes) after each sweep fixes it -- an ER-EIS runner
-      must do that. The I-channel offset was never on. **Autolab:** part 1 confirmed the FRA32M and
-      a manual single-frequency `Instrument.Fra`; `--gitt`, `--fra-manual`, `--fra`
-      still to run.
+      must do that. The I-channel offset was never on. **Autolab (2026-10-26):** galvanostatic Ei works
+      (E/(IxR) 0.998/0.999; Setpoint reads back in amps; ~-16 nA at 0 A on 100 uA).
+      Every impedance sweep was noise -- manual `Instrument.Fra`, NOVA's procedure from
+      Python, AND NOVA itself -- because the FRA32M's front cables were not connected:
+      X, Y, V go to the potentiostat's monitor-cable BNCs (V -> V in, X <- E out,
+      Y <- i out, to be confirmed against the manual), and the X cable is MISSING.
+      Get the cable, then rerun `--fra` (NOVA's procedure: 50 freqs 100 kHz-0.1 Hz,
+      251 s; results fill in DURING the sweep), `--fra --fra-vdc 0.1`, `--fra-manual`,
+      and a Randles for the sign convention.
 
 - [x] **Interface 1010E trigger (2026-10-17):** same connector and pins as the
       Reference 600 (pin 7 Digital Out 0, pin 6 ground; `docs/sop.md` §2.1). With the
