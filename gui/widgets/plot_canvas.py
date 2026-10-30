@@ -416,6 +416,16 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
+    def show_potential_vs_time(self, df, title=None):
+        """A GITT step: potential vs time (E vs t). The current is the setting in a
+        galvanostat; the potential is what was measured."""
+        self._xlabel, self._ylabel = "Time in step (s)", "Potential (V)"
+        self._new_axes()
+        self.ax.plot(df["Corrected time (s)"].values, df[POTENTIAL_COL].values,
+                     lw=1.0, color="#1f77b4")
+        self._decorate(title)
+        self.draw_idle()
+
     def update_live_line(self, x, y, xlabel, ylabel, title=None, y_unit=None,
                          status=None):
         """Incremental live echem trace mid-run (red = running). Reuses ONE Line2D

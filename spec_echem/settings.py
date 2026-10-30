@@ -214,6 +214,31 @@ DEFAULT_SETTINGS = {
     # with a different default).
     "pitt_end_dedope_v": -0.5,      # V
     "pitt_end_dedope_time_s": 30.0, # s — that hold, a fixed time
+
+    # --- GITT: galvanostatic titration (spec_echem/gitt.py) ---
+    # Off by default, like the PITT, and runs after it when both are ticked. HDF5
+    # only, one group per titration step (pulse + its relaxation at 0 A, cell on).
+    "gitt_enabled": False,
+    "gitt_current_ua": 1.0,         # uA during each pulse; + oxidises (p-dopes)
+    "gitt_pulse_s": 10.0,           # s — each pulse
+    "gitt_n_pulses": 20,
+    "gitt_relax_s": 60.0,           # s — each relaxation at 0 A (the maximum, with
+                                    # the dE/dt rule on)
+    "gitt_initial_rest_s": 60.0,    # s at 0 A before the first pulse, for E0; 0 = none
+    # The potential window. NOT optional: a galvanostat drives E wherever it must, so
+    # a film out of capacity goes to compliance. Leaving it ENDS THE RUN.
+    "gitt_e_min_v": -0.6,           # V
+    "gitt_e_max_v": 0.8,            # V
+    # |I| x pulse x N may not exceed this. The charge is set exactly by the plan, so
+    # this catches a units slip (uA typed as mA) before Start, not mid-run.
+    "gitt_max_charge_mc": 1.0,      # mC
+    # Off (the default): every relaxation runs gitt_relax_s. On: it ends once dE/dt,
+    # fitted over the last gitt_relax_window_s, stays below the threshold.
+    "gitt_relax_settle_enabled": False,
+    "gitt_relax_dvdt_uv_s": 10.0,   # uV/s
+    "gitt_relax_window_s": 10.0,    # s
+    "gitt_fast_s": 5.0,             # s — full spectrum rate after a pulse starts and ends
+    "gitt_slow_interval_s": 1.0,    # s — otherwise one spectrum this often
 }
 
 

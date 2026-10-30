@@ -60,6 +60,33 @@ data.
       251 s; results fill in DURING the sweep), `--fra --fra-vdc 0.1`, `--fra-manual`,
       and a Randles for the sign convention.
 
+- [ ] **GITT is BUILT (2026-10-29) -- test it on dummies, then a film.** A separate
+      experiment beside the PITT, sharing its loop, file layout and display
+      (`spec_echem/gitt.py`, data type 6, `{folder}_gitt.h5`, `docs/data-format.md` §6).
+      Tested only against fakes so far. **Test with a Randles cell whose capacitor is
+      big enough to see.** The UDC4's Randles side is 3010 Ohm || 1 uF: tau = 3 ms,
+      over before the first 0.1 s sample, so it would look like a resistor. Use about
+      **1000 uF** (an electrolytic is fine for + pulses: + lead toward WE, keep E under
+      ~1 V; its leakage acts like a few-MOhm resistor across it):
+      1. **Series RC**, 1 kOhm + 1000 uF, +10 uA, 10 s pulses, 30 s relax, 3 pulses,
+         window -0.1 to +0.5 V. Expect a 10 mV IR step at each pulse start and end, a
+         10 mV/s ramp during each pulse (I / C), and a flat relaxation: a 100 mV
+         staircase. Discharge the capacitor between runs.
+      2. **Randles**: add 10 kOhm across the capacitor (tau = 10 s). The relaxation
+         decays back with tau = 10 s. Tick the dE/dt rule: relaxations end `relaxed`,
+         before the 30 s.
+      3. **Window stop**: run 1 with the upper limit at +0.15 V. The run must END in
+         the 2nd pulse with `e_limit`, cell off. On the Gamry the log says whether the
+         instrument's `CiivCurve` stop or Python's check got there first.
+         `set_stop_v_min` has NOT been tried on hardware (only `v_max` was): repeat
+         with -10 uA and a lower limit.
+      4. **Autolab**: the same three. Start warns about the 0 A offset only when it
+         matters (10 uA should be quiet; try 0.2 uA to see it). Check
+         `pulse_s_applied` in `gitt_steps_json`: Python times the pulse there, so it
+         is up to one tick long.
+      Not built: a return leg, an end dedope, the analysis (dQ, relaxed E, IR drop,
+      D_ion from the film thickness already on the Parameters tab).
+
 - [x] **Interface 1010E trigger (2026-10-17):** same connector and pins as the
       Reference 600 (pin 7 Digital Out 0, pin 6 ground; `docs/sop.md` §2.1). With the
       custom cable moved over, every segment and all 21 PITT steps triggered; cadence

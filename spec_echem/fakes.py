@@ -561,3 +561,90 @@ class FakePittPotentiostat:
         if self.cell_on:
             self.cell_events.append(("off", self.clock()))
         self.cell_on = False
+
+
+class FakeGittPotentiostat:
+    """A galvanostat for the GITT loop: R_s in series with C, optionally || R_p.
+
+    E = e0 + I * R_s + V_c, with dV_c/dt = I / C - V_c / (R_p C). With no R_p the
+    capacitor only charges, so E ramps linearly at I / C during a pulse and steps
+    down by I * R_s at its end -- the RC-dummy check for a GITT. With R_p (a Randles
+    cell) the relaxation decays back toward e0. Each step's pulse is applied for
+    step.pulse_s from the moment the step starts, then 0 A, as the drivers do.
+
+    Records the cell's state and every step it was given, so a test can check the
+    cell was never off mid-run.
+    """
+
+    supports_gitt = True
+
+    def __init__(self, r_series=1e3, c=1e-3, r_parallel=None, e0=0.0,
+                 clock=time.monotonic):
+        self.r_series, self.c, self.r_parallel, self.e0 = r_series, c, r_parallel, e0
+        self.clock = clock
+        self.cell_on = False
+        self.cell_events = []                  # ("on"/"off", time)
+        self.steps = []                        # (current, pulse_s, time) as applied
+        self._step = None
+        self._t_step = None
+        self._t_on = None
+        self._vc = 0.0
+        self._t_vc = None
+
+    def _current(self, t):
+        if not self.cell_on or self._step is None:
+            return 0.0
+        return self._step.current if t - self._t_step < self._step.pulse_s else 0.0
+
+    def _advance(self, t, i):
+        dt = t - self._t_vc
+        if dt <= 0:
+            return
+        if self.r_parallel:
+            tau = self.r_parallel * self.c
+            target = i * self.r_parallel
+            self._vc = target + (self._vc - target) * np.exp(-dt / tau)
+        else:
+            self._vc += i * dt / self.c
+        self._t_vc = t
+
+    def _update(self, now):
+        """Bring V_c to `now`, splitting at the pulse's end if it was crossed."""
+        if self._t_vc is None:
+            self._t_vc = now
+            return
+        if self._step is not None and self.cell_on:
+            t_end = self._t_step + self._step.pulse_s
+            if self._t_vc < t_end < now:
+                self._advance(t_end, self._step.current)
+        self._advance(now, self._current(now - 1e-12) if now > self._t_vc else 0.0)
+
+    def gitt_prepare(self, step):
+        self._step = step
+
+    def fire(self):
+        self.cell_on = True
+        self._t_on = self._t_step = self._t_vc = self.clock()
+        self.cell_events.append(("on", self._t_on))
+        self.steps.append((self._step.current, self._step.pulse_s, self._t_on))
+
+    def gitt_next(self, step):
+        if not self.cell_on:
+            raise RuntimeError("step changed with the cell off")
+        now = self.clock()
+        self._update(now)
+        self._step, self._t_step = step, now
+        self.steps.append((step.current, step.pulse_s, now))
+
+    def pitt_sample(self):
+        now = self.clock()
+        if not self.cell_on:
+            return now - (self._t_on or now), float("nan"), 0.0
+        self._update(now)
+        i = self._current(now)
+        return now - self._t_on, self.e0 + i * self.r_series + self._vc, float(i)
+
+    def pitt_end(self):
+        if self.cell_on:
+            self.cell_events.append(("off", self.clock()))
+        self.cell_on = False
