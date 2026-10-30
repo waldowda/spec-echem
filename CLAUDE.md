@@ -338,6 +338,9 @@ loop, cell held on throughout), `data.write_pitt_h5` (HDF5 only, a group per ste
 
 ### GITT (data type 6) — built 2026-10-29, fakes only so far
 
+The probe results it rests on (both Gamrys, the Autolab, impedance too):
+[`docs/bench-2026-10-26.md`](docs/bench-2026-10-26.md).
+
 `spec_echem/gitt.py`; runs through `acquire_pitt(..., kind="gitt")`, so PITT fixes
 reach it. One step = a pulse + its 0 A relaxation (cell on), so the display hold at a
 step's end is always at 0 A — never hold mid-pulse.
