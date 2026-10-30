@@ -13,10 +13,11 @@ import numpy as np
 from spec_echem.acquisition import acquire_pitt, acquire_segment
 from spec_echem.data import (
     compute_absorbance, write_spectra_file, write_echem_file, write_segment_h5,
-    write_pitt_h5,
+    write_gitt_h5, write_pitt_h5,
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
-    DATA_TYPE_PITT,
+    DATA_TYPE_GITT, DATA_TYPE_PITT,
 )
+from spec_echem.gitt import gitt_plan
 from spec_echem.pitt import PittRecord, pitt_plan
 from spec_echem.logging_config import get_run_logger
 
@@ -145,6 +146,34 @@ def pitt_live(record, n_steps):
     return t, i, status
 
 
+def gitt_live(record, n_steps):
+    """The running GITT step for the live plot: (t_in_step, potential, status), or
+    None. The POTENTIAL, not the current: in a galvanostat the current is the
+    setting and E is the measurement. Reads the record as pitt_live does.
+    "Step 3 of 21 / t = 4.2 s / E = +0.020 V / I = +3.41 µA"."""
+    if record is None:
+        return None
+    n = min(len(record.echem_step), len(record.echem_t_in_step),
+            len(record.echem_potential), len(record.echem_current))
+    if n == 0:
+        return None
+    steps = record.echem_step[:n]
+    k = steps[-1]
+    j = n
+    while j > 0 and steps[j - 1] == k:
+        j -= 1
+    t = np.asarray(record.echem_t_in_step[j:n], dtype=float)
+    v = np.asarray(record.echem_potential[j:n], dtype=float)
+    i = np.asarray(record.echem_current[j:n], dtype=float)
+    ok = np.isfinite(v) & np.isfinite(t)
+    if not ok.any():
+        return None
+    t, v, i = t[ok], v[ok], i[ok]
+    status = (f"Step {k + 1} of {n_steps}\nt = {t[-1]:.1f} s\nE = {v[-1]:+.3f} V\n"
+              f"I = {format_current(i[-1])}")
+    return t, v, status
+
+
 def live_status(is_cv, time, potential, current, n_cycles=1, start_v=None,
                 limit1_v=None):
     """The live plot's readout: where the segment is now.
@@ -213,6 +242,11 @@ def build_segments(settings):
         segments.append(Segment("PITT", DATA_TYPE_PITT, 0, len(pitt_plan(settings)),
                                 chrono_delta, trigger))
 
+    # After the PITT, the same way: one segment, num_points counting titration steps.
+    if settings.get("gitt_enabled", False):
+        segments.append(Segment("GITT", DATA_TYPE_GITT, 0, len(gitt_plan(settings)),
+                                chrono_delta, trigger))
+
     return segments
 
 
@@ -225,6 +259,15 @@ def pitt_step_segments(settings):
     delta = settings["chrono_delta_time"]
     return [Segment(f"PITT {step.index}", DATA_TYPE_PITT, step.index, 0, delta,
                     False) for step in pitt_plan(settings)]
+
+
+def gitt_step_segments(settings):
+    """One Segment per planned GITT step, 'GITT 0' ..., as pitt_step_segments."""
+    if not settings.get("gitt_enabled", False):
+        return []
+    delta = settings["chrono_delta_time"]
+    return [Segment(f"GITT {step.index}", DATA_TYPE_GITT, step.index, 0, delta,
+                    False) for step in gitt_plan(settings)]
 
 
 def run_one_segment(spec, segment, dark, ref, wavelengths,
@@ -362,20 +405,7 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
                  step.potential, step.role)
 
     def step_done(row):
-        # Never let the display stop a staircase: on any failure, skip the hold.
-        try:
-            tags = np.asarray(record.spectrum_step, dtype=int)
-            rows = np.flatnonzero(tags == row["index"])
-            if not rows.size:
-                return None
-            absorb = compute_absorbance(
-                [record.spectra[j] for j in rows], dark, ref, wavelengths,
-                [record.timestamps[j] for j in rows])
-            return on_step_result(f"PITT {row['index']}", absorb)
-        except Exception:  # noqa: BLE001
-            log.debug("PITT %d: could not hand the step to the display",
-                      row["index"], exc_info=True)
-            return None
+        return _show_step(record, row, "PITT", dark, ref, wavelengths, on_step_result)
 
     if record is None:
         record = PittRecord()
@@ -438,15 +468,162 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
     if path is None:
         log.error("PITT: no file was written for this staircase (see above).")
 
+    return _step_results(record, "PITT", dark, ref, wavelengths), path, record
+
+
+def _step_absorbance(record, index, dark, ref, wavelengths):
+    """One step's absorbance from its tagged spectra, or None if it took none."""
     tags = np.asarray(record.spectrum_step, dtype=int)
-    steps = []
+    rows = np.flatnonzero(tags == index)
+    if not rows.size:
+        return None
+    return compute_absorbance([record.spectra[j] for j in rows], dark, ref,
+                              wavelengths, [record.timestamps[j] for j in rows])
+
+
+def _show_step(record, row, label, dark, ref, wavelengths, on_step_result):
+    """Hand a finished step to the display; its ready() callable, or None.
+    Never lets the display stop a run: on any failure, skip the hold."""
+    try:
+        absorb = _step_absorbance(record, row["index"], dark, ref, wavelengths)
+        if absorb is None:
+            return None
+        return on_step_result(f"{label} {row['index']}", absorb)
+    except Exception:  # noqa: BLE001
+        get_run_logger().debug("%s %d: could not hand the step to the display",
+                               label, row["index"], exc_info=True)
+        return None
+
+
+def _step_results(record, label, dark, ref, wavelengths):
+    """[(label, absorbance)] for every step that took a spectrum, in order."""
+    out = []
     for st in record.steps:
-        rows = np.flatnonzero(tags == st["index"])
-        if rows.size:
-            steps.append((f"PITT {st['index']}", compute_absorbance(
-                [record.spectra[j] for j in rows], dark, ref, wavelengths,
-                [record.timestamps[j] for j in rows])))
-    return steps, path, record
+        absorb = _step_absorbance(record, st["index"], dark, ref, wavelengths)
+        if absorb is not None:
+            out.append((f"{label} {st['index']}", absorb))
+    return out
+
+
+def run_gitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_path,
+                     settings, potentiostat, abort_event=None, stop_event=None,
+                     on_step_result=None, record=None):
+    """Run the whole GITT, write its HDF5, and return each step's data.
+
+    The GITT twin of run_pitt_segment, through the same loop (acquire_pitt with
+    kind="gitt"). -> (steps, path, record). Whatever was collected is written on
+    Stop, Abort or a potential outside the window, with the step that ended it
+    marked in its end_reason. HDF5 is the only copy, so a failed write is an ERROR.
+    """
+    from spec_echem.gitt import END_E_LIMIT, END_RELAXED
+    from spec_echem.pitt import END_MAX_HOLD
+    log = get_run_logger()
+    plan = gitt_plan(settings)
+
+    def announce(k, step):
+        if step.pulse_s > 0:
+            log.info("GITT step %d of %d: %+.4g A for %g s, then 0 A", k + 1,
+                     len(plan), step.current, step.pulse_s)
+        else:
+            log.info("GITT step %d of %d: rest at 0 A", k + 1, len(plan))
+
+    def step_done(row):
+        return _show_step(record, row, "GITT", dark, ref, wavelengths, on_step_result)
+
+    if record is None:
+        record = PittRecord()
+    record = acquire_pitt(spec, potentiostat, plan, settings, trigger=segment.trigger,
+                          abort_event=abort_event, stop_event=stop_event,
+                          on_step=announce,
+                          on_step_done=step_done if on_step_result else None,
+                          record=record, kind="gitt")
+    _use_hardware_echem(record, potentiostat)
+    pulses = getattr(potentiostat, "gitt_pulse_actual", dict)() or {}
+    for st in record.steps:
+        if st["index"] in pulses:
+            st["pulse_s_applied"] = float(pulses[st["index"]])
+        log.info("GITT %d: %s after %.1f s, last E %+.4f V, %d spectra", st["index"],
+                 st["end_reason"], st["hold_s"], st["e_last_V"], st["n_spectra"])
+        if st["end_reason"] == END_E_LIMIT:
+            log.warning(
+                "GITT STOPPED at step %d: the potential (last read %+.4f V) left the "
+                "window %+.3f to %+.3f V, so the cell was switched off and no further "
+                "pulse was applied. Every step up to here is saved.", st["index"],
+                st["e_last_V"], float(settings["gitt_e_min_v"]),
+                float(settings["gitt_e_max_v"]))
+        elif st["end_reason"] == END_MAX_HOLD:
+            log.warning(
+                "GITT %d did not relax: dE/dt was still %.3g \u00b5V/s (threshold %g) "
+                "when the %g s relaxation ended. Its last potential is NOT an "
+                "equilibrium one.", st["index"], st["relax_dvdt_V_s"] * 1e6,
+                float(settings["gitt_relax_dvdt_uv_s"]), float(settings["gitt_relax_s"]))
+        elif st["end_reason"] == END_RELAXED:
+            log.info("GITT %d relaxed: dE/dt %.3g \u00b5V/s.", st["index"],
+                     st["relax_dvdt_V_s"] * 1e6)
+    if not record.steps:
+        return [], None, record
+
+    path = None
+    try:
+        path = write_gitt_h5(record, dark, ref, wavelengths, data_root, added_path,
+                             settings=settings,
+                             compression=settings.get("hdf5_compression", 0))
+    except Exception:  # noqa: BLE001 -- the only copy: say so as loudly as possible
+        log.exception("GITT: the HDF5 file could NOT be written, and it is the only "
+                      "copy of this titration's data.")
+    if path is None:
+        log.error("GITT: no file was written for this titration (see above).")
+    return _step_results(record, "GITT", dark, ref, wavelengths), path, record
+
+
+def gitt_start_problems(settings):
+    """Why a run with the GITT ticked cannot start, or [] when it can -- the
+    settings, a driver that cannot run one, the pulse against the Autolab's
+    ranges, and a missing h5py (HDF5 is the only copy)."""
+    if not settings.get("gitt_enabled", False):
+        return []
+    from spec_echem.data import H5PY_AVAILABLE
+    from spec_echem.gitt import gitt_current_a, gitt_problems, gitt_range_problem
+    from spec_echem.potentiostat import (gitt_autolab_range, gitt_supported,
+                                         range_full_scale_a)
+    out = list(gitt_problems(settings))
+    mode = (settings.get("potentiostat_mode") or "external").lower()
+    if not gitt_supported(mode):
+        why = {
+            "external": "In External mode the sequence file owns the waveform, so "
+                        "Python cannot set the current.",
+        }.get(mode, f"The {mode!r} driver cannot run one.")
+        out.append(f"This potentiostat cannot run a GITT. {why}")
+    elif mode == "autolab" and gitt_current_a(settings) != 0:
+        rng = gitt_autolab_range(settings)
+        problem = gitt_range_problem(gitt_current_a(settings),
+                                     range_full_scale_a(rng) if rng else 0.0)
+        if rng is None:
+            out.append("No Autolab current range carries a pulse this large.")
+        elif problem:
+            out.append(problem)
+    if not H5PY_AVAILABLE:
+        out.append("A GITT is saved to HDF5 only, and h5py is not installed in this "
+                   "environment, so nothing would be saved.")
+    return out
+
+
+def gitt_start_concerns(settings):
+    """Things the scientist should know before a GITT starts, but may accept. []
+    when there are none. Never a reason to refuse."""
+    if not settings.get("gitt_enabled", False):
+        return []
+    from spec_echem.gitt import autolab_offset_concern, gitt_current_a
+    from spec_echem.potentiostat import gitt_autolab_range, range_full_scale_a
+    out = []
+    if (settings.get("potentiostat_mode") or "").lower() == "autolab":
+        rng = gitt_autolab_range(settings)
+        concern = autolab_offset_concern(
+            gitt_current_a(settings), range_full_scale_a(rng) if rng else None,
+            float(settings["gitt_pulse_s"]), float(settings["gitt_relax_s"]))
+        if concern:
+            out.append(concern)
+    return out
 
 
 def pitt_start_problems(settings):

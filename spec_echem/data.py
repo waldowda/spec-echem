@@ -43,6 +43,9 @@ DATA_TYPE_PREDEDOPING = 4
 # thousands of spectra, and the downstream reader files anything whose name contains
 # "spectra(" as a doping step, so a text file here would be misread, not ignored.
 DATA_TYPE_PITT = 5
+# A galvanostatic titration (spec_echem/gitt.py): HDF5 ONLY, for the same reasons,
+# one group per titration step (pulse + relaxation).
+DATA_TYPE_GITT = 6
 
 
 def segment_potential(settings, data_type, run_number):
@@ -263,7 +266,7 @@ def discover_run_h5(run_folder):
     for data_type, base in (
             (DATA_TYPE_CV, "CV"), (DATA_TYPE_PREDEDOPING, "Pre-dedoping"),
             (DATA_TYPE_DOPING, "Doping"), (DATA_TYPE_DEDOPING, "Dedoping"),
-            (DATA_TYPE_PITT, "PITT")):
+            (DATA_TYPE_PITT, "PITT"), (DATA_TYPE_GITT, "GITT")):
         path = folder / _h5_filename_for(data_type, folder.name)
         if not path.is_file():
             continue
@@ -294,6 +297,8 @@ def segment_sort_key(data_type, run_number):
         return (1, run_number, 0)
     if data_type == DATA_TYPE_PITT:
         return (3, run_number, 0)                          # after the whole ladder
+    if data_type == DATA_TYPE_GITT:
+        return (4, run_number, 0)                          # after the PITT
     sub = 0 if data_type == DATA_TYPE_DOPING else 1       # doping before dedoping
     return (2, run_number, sub)
 
@@ -497,6 +502,7 @@ def _h5_filename_for(data_type, added_path):
         DATA_TYPE_DEDOPING:    f'{added_path}_dedoping.h5',
         DATA_TYPE_PREDEDOPING: f'{added_path}_prededoping.h5',
         DATA_TYPE_PITT:        f'{added_path}_pitt.h5',
+        DATA_TYPE_GITT:        f'{added_path}_gitt.h5',
     }[data_type]
 
 
@@ -506,6 +512,7 @@ _H5_TYPE_NAME = {
     DATA_TYPE_DEDOPING: "Dedoping",
     DATA_TYPE_PREDEDOPING: "Pre-dedoping",
     DATA_TYPE_PITT: "PITT",
+    DATA_TYPE_GITT: "GITT",
 }
 
 H5_SCHEMA_VERSION = "1"
@@ -738,12 +745,52 @@ def write_pitt_h5(record, dark, ref, wavelengths, data_root, added_path,
     same folder is replaced rather than merged, so stale steps cannot survive into a
     shorter one. Returns the path, or None without h5py.
     """
+    return _write_steps_h5(
+        record, dark, ref, wavelengths, data_root, added_path, DATA_TYPE_PITT,
+        "PITT", "pitt", lambda st: {"role": st["role"],
+                                    "end_reason": st["end_reason"],
+                                    "hold_s": st["hold_s"],
+                                    "peak_current_A": st["peak_current_A"]},
+        settings=settings, compression=compression)
+
+
+def write_gitt_h5(record, dark, ref, wavelengths, data_root, added_path,
+                  settings=None, compression=0):
+    """Write a GITT to `{added_path}_gitt.h5`, ONE GROUP PER TITRATION STEP.
+
+    The PITT's layout (write_pitt_h5), with the step's current in place of a
+    potential:
+
+      attrs  role, end_reason, hold_s, current_set_A, pulse_s, pulse_s_applied
+             (the pulse as the driver applied it, when it says), n_spectra
+      echem/time               s since THIS step began; the pulse is t < pulse_s
+      echem/time_potentiostat  the potentiostat's clock, continuous across steps
+
+    and at the root `gitt_steps_json` and `gitt_completed`. No dQ, relaxed E or
+    D_ion is stored: all are derived from the echem, and the analysis is not built.
+    """
+    def attrs(st):
+        out = {"role": st["role"], "end_reason": st["end_reason"],
+               "hold_s": st["hold_s"], "current_set_A": st["current_set_A"],
+               "pulse_s": st["pulse_s"]}
+        if st.get("pulse_s_applied") is not None:
+            out["pulse_s_applied"] = st["pulse_s_applied"]
+        return out
+
+    return _write_steps_h5(
+        record, dark, ref, wavelengths, data_root, added_path, DATA_TYPE_GITT,
+        "GITT", "gitt", attrs, settings=settings, compression=compression)
+
+
+def _write_steps_h5(record, dark, ref, wavelengths, data_root, added_path, data_type,
+                    label, key, step_attrs, settings=None, compression=0):
+    """One group per step of a continuous run (PITT or GITT); see write_pitt_h5."""
     if not H5PY_AVAILABLE:
         _warn_h5py_missing_once()
         return None
     folder = resolve_data_root(data_root) / added_path
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / _h5_filename_for(DATA_TYPE_PITT, added_path)
+    path = folder / _h5_filename_for(data_type, added_path)
     if path.exists():
         path.unlink()
 
@@ -759,9 +806,8 @@ def write_pitt_h5(record, dark, ref, wavelengths, data_root, added_path,
             # Only possible when Abort lands between a setpoint change and that
             # step's first spectrum. Kept in the step table, said in the log.
             get_run_logger().warning(
-                "PITT step %d (%+.3f V) ended (%s) before its first spectrum; "
-                "it is in the step table but has no group.",
-                k, step["potential_set"], step["end_reason"])
+                "%s step %d ended (%s) before its first spectrum; it is in the step "
+                "table but has no group.", label, k, step["end_reason"])
             continue
         spectra = [record.spectra[j] for j in rows]
         stamps = [record.timestamps[j] for j in rows]
@@ -770,15 +816,12 @@ def write_pitt_h5(record, dark, ref, wavelengths, data_root, added_path,
         echem = _StepEchem(np.asarray(record.echem_t_in_step, dtype=float)[e],
                            np.asarray(record.echem_potential, dtype=float)[e],
                            np.asarray(record.echem_current, dtype=float)[e])
+        extra = dict(step_attrs(step), n_spectra=int(rows.size))
         write_segment_h5(
             absorb.to_numpy(), np.asarray(spectra), dark, ref, wl, stamps, echem,
-            DATA_TYPE_PITT, k, data_root, added_path,
-            segment=_StepSegment(f"PITT {k}", int(rows.size), delta, k == 0),
-            settings=settings, compression=compression,
-            extra_attrs={"role": step["role"], "end_reason": step["end_reason"],
-                         "hold_s": step["hold_s"],
-                         "peak_current_A": step["peak_current_A"],
-                         "n_spectra": int(rows.size)})
+            data_type, k, data_root, added_path,
+            segment=_StepSegment(f"{label} {k}", int(rows.size), delta, k == 0),
+            settings=settings, compression=compression, extra_attrs=extra)
         written.append((k, e))
 
     if not written:
@@ -787,13 +830,16 @@ def write_pitt_h5(record, dark, ref, wavelengths, data_root, added_path,
         t_pot = np.asarray(record.echem_time, dtype=float)
         for k, e in written:
             # write_segment_h5 labels echem/time for a segment; here it is per step.
+            pitt = data_type == DATA_TYPE_PITT
             f[str(k)]["echem"]["time"].attrs["description"] = (
-                "s since this step's setpoint was applied (the PITT loop's clock)")
+                "s since this step's setpoint was applied (the PITT loop's clock)"
+                if pitt else "s since this step began; its pulse is t < pulse_s")
             _h5_dataset(f[str(k)]["echem"], "time_potentiostat", t_pot[e], units="s",
                         description="the potentiostat's clock, continuous across "
-                                    "every step of the staircase")
-        f.attrs["pitt_steps_json"] = json.dumps(record.steps)
-        f.attrs["pitt_completed"] = bool(record.completed)
+                                    "every step of the "
+                                    + ("staircase" if pitt else "titration"))
+        f.attrs[f"{key}_steps_json"] = json.dumps(record.steps)
+        f.attrs[f"{key}_completed"] = bool(record.completed)
     return path
 
 

@@ -72,6 +72,14 @@ class PittStep:
     potential: float    # V, the setpoint
     role: str           # ROLE_*
 
+    @property
+    def setpoint(self):
+        return self.potential
+
+    def fields(self):
+        """This step's columns in the step table (gitt.GittStep has its own)."""
+        return {"potential_set": self.potential}
+
 
 def pitt_plan(settings):
     """Every step the staircase will hold, in run order. -> [PittStep]
@@ -255,6 +263,13 @@ class StepEnd:
             self.reason = END_CUTOFF
         return self.reason
 
+    def row_fields(self):
+        """This rule's columns in the step table: samples left out of the peak
+        (`pitt_peak_settled`) are still in the saved echem."""
+        return {"peak_all_A": float(self.peak_all),
+                "n_unsettled": int(self.n_unsettled),
+                "settle_fallback": bool(self.settle_fallback)}
+
 
 def spectrum_due(t_in_step, t_last, delta_time, fast_s, slow_interval_s):
     """Is a spectrum due now? Full rate for `fast_s` after a step starts, then one
@@ -310,25 +325,25 @@ class PittRecord:
         # the analysis can extrapolate back to 0, or at least say how much it missed.
         firsts = [t for t, k in zip(self.echem_t_in_step, self.echem_step)
                   if k == step.index]
-        self.steps.append({
-            "first_sample_s": float(firsts[0]) if firsts else float("nan"),
-            "index": step.index, "potential_set": step.potential, "role": step.role,
+        row = {"first_sample_s": float(firsts[0]) if firsts else float("nan"),
+               "index": step.index}
+        row.update(step.fields())          # potential_set, or a GITT's current_set_A
+        row.update({
+            "role": step.role,
             "hold_s": float(t_end - t_start), "end_reason": reason,
             "peak_current_A": float(peak),
+        })
+        if unresolved is not None:         # None: a rule with no current cutoff
             # True when the cutoff was below one count of the current range, so the
             # step could not be judged settled whatever the cell did.
-            "cutoff_unresolved": bool(unresolved),
+            row["cutoff_unresolved"] = bool(unresolved)
+        row.update({
             "n_spectra": sum(1 for k in self.spectrum_step if k == step.index),
             "n_echem": sum(1 for k in self.echem_step if k == step.index),
         })
         if rule is not None:
-            # Samples taken before the potential reached the setpoint were left out
-            # of the peak (`pitt_peak_settled`); they are still in the saved echem.
-            self.steps[-1].update({
-                "peak_all_A": float(rule.peak_all),
-                "n_unsettled": int(rule.n_unsettled),
-                "settle_fallback": bool(rule.settle_fallback),
-            })
+            row.update(rule.row_fields())
+        self.steps.append(row)
 
 
 def step_end_for(step, settings, resolution_a=None):

@@ -27,6 +27,19 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **GITT, a galvanostatic titration beside the PITT (2026-10-29).** Current pulses, each
+  followed by a relaxation at 0 A with the cell left on. It runs after the PITT, on the
+  Gamry or the Autolab, through the PITT's loop, with one HDF5 group per step in
+  `{folder}_gitt.h5` (data type 6, `docs/data-format.md` §6).
+  - **Safety:** a potential window ends the run; the Gamry also stops the pulse in the
+    instrument (`CiivCurve`). A charge cap, checked at Start, catches a units slip.
+  - **Current range:** chosen from the pulse on both instruments.
+  - **Relaxation end:** an opt-in dE/dt rule, off by default.
+  - **Warnings:** Start warns when the Autolab's 0 A offset is large next to the pulse.
+  - **Live plot:** shows the potential, not the current.
+
+  Tested on fakes only; dummy-cell tests are in TODO. No analysis yet. PITT behaviour
+  and its file are unchanged.
 - **PITT: the current-based step end is now a choice, OFF by default (2026-10-19).**
   "End each step when the current has decayed to [10] % of its peak" -- one sentence
   with the number in it. Unticked, every step holds for the hold time ("Hold each step

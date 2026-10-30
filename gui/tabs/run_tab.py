@@ -16,11 +16,14 @@ import copy
 from datetime import datetime
 from pathlib import Path
 
-from spec_echem.experiment import (build_segments, live_status, pitt_live,
-                                   pitt_start_problems, pitt_step_segments)
+from spec_echem.experiment import (build_segments, gitt_live, gitt_start_concerns,
+                                   gitt_start_problems, gitt_step_segments,
+                                   live_status, pitt_live, pitt_start_problems,
+                                   pitt_step_segments)
 from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
 from spec_echem.data import (write_run_metadata, segment_potential_text,
-                             DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_PITT)
+                             DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_GITT,
+                             DATA_TYPE_PITT)
 from spec_echem.logging_config import (configure_run_logging, close_run_logging,
                                        get_run_logger, app_log_path)
 from spec_echem.potentiostat import make_potentiostat
@@ -261,7 +264,16 @@ class RunTab(QWidget):
             lines.append("    Current range:  "
                          + ("auto" if str(rng).lower() == "auto" else f"{float(rng):.3e} A"))
 
-        concerns = []
+        gitt = [seg for seg in segments if seg.data_type == DATA_TYPE_GITT]
+        if gitt:
+            lines.append(f"    GITT:  {gitt[0].num_points} step(s), "
+                         f"{float(settings['gitt_current_ua']):+g} \u00b5A for "
+                         f"{float(settings['gitt_pulse_s']):g} s, then "
+                         f"{float(settings['gitt_relax_s']):g} s at 0 A; stops outside "
+                         f"{float(settings['gitt_e_min_v']):+.3f} to "
+                         f"{float(settings['gitt_e_max_v']):+.3f} V")
+
+        concerns = list(gitt_start_concerns(settings))
         ref_line, ref_concern = reference_notes(getattr(self.win, "ref_info", None),
                                                 sample, datetime.now())
         lines.append(ref_line)
@@ -321,13 +333,19 @@ class RunTab(QWidget):
         segments = build_segments(settings)
         if not segments:
             QMessageBox.warning(self, "Nothing to run",
-                                "Enable at least one step (CV / pre-dedoping / doping / PITT) on the Parameters tab.")
+                                "Enable at least one step (CV / pre-dedoping / doping / PITT / GITT) on the Parameters tab.")
             return
         pitt_blocked = pitt_start_problems(settings)
         if pitt_blocked:
             QMessageBox.warning(self, "PITT cannot run",
                                 "\n\n".join(pitt_blocked)
                                 + "\n\nUntick PITT on the Parameters tab to run the rest.")
+            return
+        gitt_blocked = gitt_start_problems(settings)
+        if gitt_blocked:
+            QMessageBox.warning(self, "GITT cannot run",
+                                "\n\n".join(gitt_blocked)
+                                + "\n\nUntick GITT on the Parameters tab to run the rest.")
             return
 
         # Guard against silently overwriting a previous run. The writers use
@@ -418,7 +436,7 @@ class RunTab(QWidget):
         # A PITT runs as one segment but reports one result per STEP ("PITT 0", ...),
         # so each step is registered too: every lookup by label -- potentials in the
         # dropdowns, the Results and Analysis tabs -- then works with no special case.
-        for seg in pitt_step_segments(settings):
+        for seg in pitt_step_segments(settings) + gitt_step_segments(settings):
             self.win.segments_by_label[seg.label] = seg
 
         # Clear results from any previous run / loaded folder so the Results tab shows
@@ -559,6 +577,18 @@ class RunTab(QWidget):
                     t, i, "Time in step (s)", "Current", title="PITT — live",
                     y_unit="A", status=status)
             return
+        if seg.data_type == DATA_TYPE_GITT:
+            # The POTENTIAL: in a galvanostat the current is the setting.
+            try:
+                live = gitt_live(getattr(worker, "pitt_record", None), seg.num_points)
+            except Exception:  # noqa: BLE001 -- the plot skips a frame, never the GUI
+                return
+            if live is not None:
+                t, v, status = live
+                self.live_canvas.update_live_line(
+                    t, v, "Time in step (s)", "Potential", title="GITT — live",
+                    y_unit="V", status=status)
+            return
         pot = worker.potentiostat
         # Never let the live plot take the GUI down: an unhandled exception in a Qt
         # timer slot aborts the application under PyQt5, and that is what an
@@ -615,9 +645,9 @@ class RunTab(QWidget):
         # It counts the steps and is ticked by the last planned one.
         row_label = label
         pitt_progress = None
-        if seg is not None and seg.data_type == DATA_TYPE_PITT:
-            row_label = "PITT"
-            whole = self.win.segments_by_label.get("PITT")
+        if seg is not None and seg.data_type in (DATA_TYPE_PITT, DATA_TYPE_GITT):
+            row_label = "PITT" if seg.data_type == DATA_TYPE_PITT else "GITT"
+            whole = self.win.segments_by_label.get(row_label)
             planned = whole.num_points if whole is not None else 0
             if seg.run_number + 1 < planned:
                 pitt_progress = f"   step {seg.run_number + 1} of {planned} done"

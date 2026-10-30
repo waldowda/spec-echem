@@ -2636,3 +2636,314 @@ def test_the_sample_period_is_the_cv_step_time_or_the_hold_interval():
         pytest.approx(1.0)
     assert pot._sample_period(Segment("Doping 0", DATA_TYPE_DOPING, 0, 1, 0.25,
                                       True)) == pytest.approx(0.25)
+
+
+# --- GITT on the Autolab: Ei galvanostatic, the pulse ended by the loop ----------
+
+def _gitt_autolab_settings(**over):
+    s = _autolab_settings(gitt_current_ua=10.0, gitt_pulse_s=0.05, gitt_n_pulses=2,
+                          gitt_relax_s=0.1, gitt_initial_rest_s=0.0,
+                          gitt_e_min_v=-1.0, gitt_e_max_v=1.0, gitt_fast_s=0.05,
+                          gitt_slow_interval_s=0.05, chrono_delta_time=0.01)
+    s.update(over)
+    return s
+
+
+@pytest.fixture
+def gitt_autolab(autolab, monkeypatch):
+    modes = []
+    monkeypatch.setattr(potentiostat, "_set_ei_mode",
+                        lambda ei, potentiostatic=True: modes.append(
+                            "pstat" if potentiostatic else "gstat"))
+    ranges = []
+    monkeypatch.setattr(potentiostat, "_set_current_range",
+                        lambda ei, name: ranges.append(name))
+    p, inst = autolab(settings=_gitt_autolab_settings())
+    return p, inst, modes, ranges
+
+
+def test_both_python_drivers_say_they_can_run_a_gitt():
+    assert potentiostat.gitt_supported("autolab")
+    assert potentiostat.gitt_supported("python")
+    assert not potentiostat.gitt_supported("external")
+
+
+def test_the_gitt_range_carries_the_pulse_with_headroom():
+    s = _gitt_autolab_settings(gitt_current_ua=10.0)
+    assert potentiostat.gitt_autolab_range(s) == "CR11_100uA"     # 10 uA > 0.8 x 10 uA
+    s["gitt_current_ua"] = -5.0
+    assert potentiostat.gitt_autolab_range(s) == "CR12_10uA"
+
+
+def test_the_autolab_gitt_starts_galvanostatic_with_the_pulse_set_and_the_cell_open(
+        gitt_autolab):
+    from spec_echem.gitt import gitt_plan
+    p, inst, modes, ranges = gitt_autolab
+    p.gitt_prepare(gitt_plan(p.settings)[0])
+    assert modes == ["gstat"] and ranges == ["CR11_100uA"]
+    assert inst.Ei.Setpoint == pytest.approx(10e-6)
+    assert inst.Ei.Cell is False
+
+
+def test_a_rest_step_opens_at_zero_amps(gitt_autolab):
+    from spec_echem.gitt import gitt_plan
+    p, inst, _modes, _ranges = gitt_autolab
+    p.settings["gitt_initial_rest_s"] = 1.0
+    p.gitt_prepare(gitt_plan(p.settings)[0])
+    assert inst.Ei.Setpoint == 0.0
+
+
+def test_the_first_sample_after_the_pulse_writes_zero_amps(gitt_autolab):
+    from spec_echem.gitt import gitt_plan
+    p, inst, _modes, _ranges = gitt_autolab
+    p.gitt_prepare(gitt_plan(p.settings)[0])
+    p.fire()
+    p.pitt_sample()
+    assert inst.Ei.Setpoint == pytest.approx(10e-6)        # still pulsing
+    time.sleep(0.06)
+    p.pitt_sample()
+    assert inst.Ei.Setpoint == 0.0 and inst.Ei.Cell is True
+    assert 0.05 <= p.gitt_pulse_actual()[0] < 0.2
+
+
+def test_the_autolab_gitt_ends_with_the_cell_off_and_potentiostatic(gitt_autolab):
+    from spec_echem.gitt import gitt_plan
+    p, inst, modes, _ranges = gitt_autolab
+    p.gitt_prepare(gitt_plan(p.settings)[0])
+    p.fire()
+    p.pitt_end()
+    assert inst.Ei.Cell is False
+    assert modes == ["gstat", "pstat"]
+
+
+def test_a_current_that_does_not_take_stops_the_gitt(gitt_autolab):
+    from spec_echem.gitt import gitt_plan
+    p, inst, _modes, _ranges = gitt_autolab
+    p.gitt_prepare(gitt_plan(p.settings)[0])
+    p.fire()
+
+    class Halved:
+        def __init__(self, ei):
+            self.__dict__["_ei"] = ei
+        def __getattr__(self, name):
+            return getattr(self._ei, name)
+        def __setattr__(self, name, value):
+            setattr(self._ei, name, value / 2 if name == "Setpoint" else value)
+
+    inst.Ei = Halved(inst.Ei)
+    with pytest.raises(RuntimeError, match="did not take"):
+        p.gitt_next(gitt_plan(p.settings)[1])
+
+
+def test_a_whole_gitt_runs_on_the_autolab_driver(gitt_autolab):
+    from spec_echem.acquisition import acquire_pitt
+    from spec_echem.fakes import FakeSpectrometer
+    from spec_echem.gitt import gitt_plan
+    p, inst, modes, _ranges = gitt_autolab
+    written = []
+    real = p._gitt_write_current
+    p._gitt_write_current = lambda a: (written.append(a), real(a))[1]
+    record = acquire_pitt(FakeSpectrometer(), p, gitt_plan(p.settings), p.settings,
+                          kind="gitt")
+    assert record.completed and len(record.steps) == 2
+    assert written == pytest.approx([10e-6, 0.0, 10e-6, 0.0])
+    assert sorted(p.gitt_pulse_actual()) == [0, 1]
+    assert inst.Ei.Cell is False and modes[-1] == "pstat"
+
+
+def test_the_python_window_ends_an_autolab_gitt(gitt_autolab):
+    """No instrument stop on the Autolab: the loop's own check, every sample."""
+    from spec_echem.acquisition import acquire_pitt
+    from spec_echem.fakes import FakeSpectrometer
+    from spec_echem.gitt import END_E_LIMIT, gitt_plan
+    p, inst, _modes, _ranges = gitt_autolab
+    p.settings.update(gitt_e_max_v=0.5, gitt_pulse_s=1.0)
+    inst.Ei.true_potential = 0.7
+    record = acquire_pitt(FakeSpectrometer(), p, gitt_plan(p.settings), p.settings,
+                          kind="gitt")
+    assert record.steps[0]["end_reason"] == END_E_LIMIT
+    assert not record.completed and inst.Ei.Cell is False
+
+
+# --- GITT on the Gamry: one CiivCurve per step, [I] then [0 A] ---------------------
+
+class _GSig2:
+    def __init__(self, period, values, repeats, mode):
+        self.period, self.values, self.repeats, self.mode = period, values, repeats, mode
+
+    def at(self, k):
+        for v, n in zip(self.values, self.repeats):
+            if k < n:
+                return v
+            k -= n
+        return self.values[-1]
+
+
+class _GPstat2:
+    def __init__(self, tk):
+        self.tk, self.pending, self.signal = tk, None, None
+    def set_ctrl_mode(self, m): self.tk.events.append(("mode", m))
+    def set_voltage(self, v): pass
+    def set_cell(self, on): self.tk.events.append("cell on" if on else "cell off")
+    def set_digital_out(self, value, mask):
+        self.tk.events.append("edge high" if value else "edge low")
+    def signal_array2_new(self, bias, cycles, period, values, repeats, bm, cm):
+        return _GSig2(period, list(values), list(repeats), cm)
+    def set_signal_array2(self, sig): self.pending = sig
+    def init_signal(self):
+        self.signal = self.pending
+        self.tk.events.append(("init", tuple(self.signal.values)))
+
+
+class _CiivCurve:
+    """A resistor in galvanostatic mode: vf = I x R. Honours StopAt on vf."""
+    def __init__(self, tk, pstat, n):
+        self.tk, self.pstat, self.sig, self.t0, self.n_final = tk, pstat, None, None, None
+        self.v_max = self.v_min = None
+        self.delay = 1
+    def set_stop_v_max(self, on, v): self.v_max = v if on else None
+    def set_stop_v_min(self, on, v): self.v_min = v if on else None
+    def set_stop_at_delay_v_max(self, n): self.delay = n
+    def set_stop_at_delay_v_min(self, n): pass
+    def run(self, auto):
+        self.sig = self.pstat.signal
+        self.t0 = time.perf_counter()
+        self.tk.curves.append((tuple(self.sig.values), tuple(self.sig.repeats)))
+    def _total(self):
+        return sum(self.sig.repeats)
+    def _stop_index(self):
+        beyond = 0
+        for k in range(self._total()):
+            vf = self.sig.at(k) * self.tk.r
+            if (self.v_max is not None and vf > self.v_max) or (
+                    self.v_min is not None and vf < self.v_min):
+                beyond += 1
+                if beyond >= self.delay:
+                    return k + 1
+            else:
+                beyond = 0
+        return None
+    def _n(self):
+        n = min(int((time.perf_counter() - self.t0) / self.sig.period), self._total())
+        stop = self._stop_index()
+        return min(n, stop) if stop is not None else n
+    def running(self):
+        stop = self._stop_index()
+        return self.n_final is None and self._n() < (stop or self._total())
+    def stop(self):
+        self.n_final = self._n()
+    def acq_data(self):
+        n = self.n_final if self.n_final is not None else self._n()
+        P = self.sig.period
+        rows = [((k + 1) * P, self.sig.at(k) * self.tk.r, self.sig.at(k), 0)
+                for k in range(n)]
+        return np.array(rows, dtype=[("time", float), ("vf", float), ("im", float),
+                                     ("overload", int)])
+
+
+class _GTk2:
+    PSTATMODE, GSTATMODE, BIAS_NONE = 1, 2, 0
+    def __init__(self, r=1e4):
+        self.r = r
+        self.events, self.curves, self.closed = [], [], 0
+    def toolkitpy_init(self, name): pass
+    def toolkitpy_close(self): self.closed += 1
+    def Pstat(self, name): return _GPstat2(self)
+    def CiivCurve(self, pstat, n): return _CiivCurve(self, pstat, n)
+    def pstat_is_valid(self, pstat): return True
+
+
+@pytest.fixture
+def gamry_gitt(monkeypatch):
+    def make(**tk_kw):
+        tk = _GTk2(**tk_kw)
+        monkeypatch.setattr(potentiostat, "tkp", tk)
+        monkeypatch.setattr(potentiostat, "TOOLKITPY_AVAILABLE", True)
+        monkeypatch.setattr(potentiostat, "GAMRY_PITT_MIN_PERIOD_S", 0.01)
+        ranges = []
+        monkeypatch.setattr(potentiostat, "initialize_pstat",
+                            lambda pstat, r=6e-3, **kw: (ranges.append(r),
+                                                         ("fixed", r))[1])
+        return tk, ranges
+    return make
+
+
+def _gamry_gitt_settings(**over):
+    s = dict(DEFAULT_SETTINGS, gitt_current_ua=10.0, gitt_pulse_s=0.05,
+             gitt_n_pulses=2, gitt_relax_s=0.1, gitt_initial_rest_s=0.0,
+             gitt_e_min_v=-1.0, gitt_e_max_v=1.0, gitt_fast_s=0.05,
+             gitt_slow_interval_s=0.05, chrono_delta_time=0.01)
+    s.update(over)
+    return s
+
+
+def _run_gamry_gitt(s):
+    from spec_echem.acquisition import acquire_pitt
+    from spec_echem.fakes import FakeSpectrometer
+    from spec_echem.gitt import gitt_plan
+    p = potentiostat.ToolkitPotentiostat(s)
+    return p, acquire_pitt(FakeSpectrometer(), p, gitt_plan(s), s, kind="gitt")
+
+
+def test_the_gamry_gitt_runs_one_pulse_then_zero_curve_per_step(gamry_gitt):
+    tk, ranges = gamry_gitt()
+    p, record = _run_gamry_gitt(_gamry_gitt_settings())
+    assert record.completed and len(record.steps) == 2
+    assert ("mode", tk.GSTATMODE) in tk.events
+    assert ranges == [pytest.approx(30e-6)]                 # 3 x the pulse
+    # 0 A on the DAC before the cell goes on, and the cell on once, off once.
+    seq = [e for e in tk.events if e in ("cell on", "cell off")
+           or (isinstance(e, tuple) and e[0] == "init")]
+    assert seq[0] == ("init", (0.0,)) and seq[1] == "cell on"
+    assert seq[-1] == "cell off" and seq.count("cell on") == 1
+    for values, repeats in tk.curves:
+        assert values == pytest.approx((10e-6, 0.0)) and repeats[0] == 5
+    assert p.gitt_pulse_actual() == pytest.approx({0: 0.05, 1: 0.05})
+
+
+def test_the_instrument_potential_stop_ends_the_run_with_the_cell_off(gamry_gitt):
+    """10 uA into 100 kOhm is 1 V, past a 0.5 V window: CiivCurve ends the pulse."""
+    from spec_echem.gitt import END_E_LIMIT
+    tk, _ranges = gamry_gitt(r=1e5)
+    s = _gamry_gitt_settings(gitt_e_max_v=0.5, gitt_pulse_s=0.2)
+    p, record = _run_gamry_gitt(s)
+    assert record.steps[-1]["end_reason"] == END_E_LIMIT
+    assert not record.completed
+    assert len(tk.curves) == 1                              # no second pulse
+    assert "cell off" in tk.events
+    points = p.pitt_hardware_echem()
+    assert len(points) <= potentiostat.GAMRY_GITT_STOP_DELAY_PTS + 1
+
+
+def test_a_curve_cut_short_switches_the_cell_off_on_the_curve_thread(gamry_gitt):
+    """Whichever sees it first, Python's window check or the instrument's stop, the
+    cell goes off. This is the instrument's path: a curve that ended early means
+    StopAt fired, and the runner zeroes the DAC and opens the cell at once."""
+    from spec_echem.gitt import GittStep
+    tk, _ranges = gamry_gitt(r=1e5)
+    r = potentiostat._GamryGittRunner(_gamry_gitt_settings(gitt_e_max_v=0.5))
+    pstat = tk.Pstat("PSTAT")
+    r._setup(pstat)
+    step = GittStep(1, 10e-6, 0.2, "titration")
+    curve, _sig, _t = r._new_curve(pstat, step)
+    time.sleep(0.1)
+    tk.events.clear()
+    assert r._after_curve_ended(pstat, curve, step) is None
+    assert r.e_stopped and r.e_stop_v == pytest.approx(1.0)
+    assert tk.events == [("init", (0.0,)), "cell off"]
+    assert r._new_curve(pstat, step)[0] is None             # nothing more runs
+
+
+def test_a_curve_that_ran_its_length_carries_on_at_zero_amps(gamry_gitt):
+    from spec_echem.gitt import GittStep
+    tk, _ranges = gamry_gitt(r=1e3)
+    r = potentiostat._GamryGittRunner(_gamry_gitt_settings(gitt_relax_s=0.01))
+    r.n_tail = 2
+    pstat = tk.Pstat("PSTAT")
+    r._setup(pstat)
+    step = GittStep(1, 10e-6, 0.02, "titration")
+    curve, _sig, _t = r._new_curve(pstat, step)
+    time.sleep(0.1)
+    nxt = r._after_curve_ended(pstat, curve, step)
+    assert nxt.current == 0.0 and nxt.pulse_s == 0.0 and nxt.index == 1
+    assert not r.e_stopped and "cell off" not in tk.events

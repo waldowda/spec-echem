@@ -154,6 +154,7 @@ a second copy.
 | 3 | Dedoping | `dedopingspectra(N).txt` |
 | 4 | Pre-dedoping | `prededopingspectra(N).txt` |
 | 5 | PITT staircase | **HDF5 only**: `{folder}_pitt.h5`, one group per step — no text file of any kind (see `docs/data-format.md` §5) |
+| 6 | GITT titration | **HDF5 only**: `{folder}_gitt.h5`, one group per pulse + relaxation (see `docs/data-format.md` §6) |
 
 N = `run_number`. **Note: parentheses in filenames are literal** — `spectra(0).txt` not `spectra_0.txt`.
 
@@ -335,6 +336,21 @@ loop, cell held on throughout), `data.write_pitt_h5` (HDF5 only, a group per ste
   warning). Test helpers that exercise the cutoff must set it True.
 - PITT analysis (dQ per step, g(E)) is deliberately NOT built yet.
 
+### GITT (data type 6) — built 2026-10-29, fakes only so far
+
+`spec_echem/gitt.py`; runs through `acquire_pitt(..., kind="gitt")`, so PITT fixes
+reach it. One step = a pulse + its 0 A relaxation (cell on), so the display hold at a
+step's end is always at 0 A — never hold mid-pulse.
+- **Gamry:** `_GamryGittRunner`, one `CiivCurve` per step built as `[I] x n` then
+  `[0 A]`, so the INSTRUMENT times the pulse. Its StopAt on E ends a pulse;
+  `ChronoCurve`'s does not. The DAC is zeroed before cell-on. The range is chosen as
+  3 x |I|, not `gamry_current_range`.
+- **Autolab:** Ei GALVANOSTATIC, so `Setpoint` is in amps. The first `pitt_sample()`
+  at or after `pulse_s` writes 0 A (Python timing, ±1 tick). `pitt_end()` restores
+  potentiostatic. The E window is Python's only. The range comes from the pulse
+  (`gitt_autolab_range`).
+- **The E window ENDS THE RUN** (`e_limit`), as does the driver's `gitt_e_stopped()`.
+
 ### Metrohm / Autolab rig — Python drives it; chrono runs from `Ei` (2026-09-09)
 
 **Read [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md) first** (the first film
@@ -445,7 +461,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 960 tests total (959 pass, 1 skip; counted 2026-10-19);
+- **`gui/` coverage — no longer the gap it was.** 1027 tests total (1026 pass, 1 skip; counted 2026-10-29);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
