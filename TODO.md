@@ -60,7 +60,8 @@ data.
       251 s; results fill in DURING the sweep), `--fra --fra-vdc 0.1`, `--fra-manual`,
       and a Randles for the sign convention.
 
-- [ ] **GITT is BUILT (2026-10-29) -- test it on dummies, then a film.** A separate
+- [ ] **GITT is BUILT (2026-10-29) -- test it on dummies, then a film.** Probe results
+      behind it: `docs/bench-2026-10-26.md`. A separate
       experiment beside the PITT, sharing its loop, file layout and display
       (`spec_echem/gitt.py`, data type 6, `{folder}_gitt.h5`, `docs/data-format.md` §6).
       Tested only against fakes so far. **Test with a Randles cell whose capacitor is

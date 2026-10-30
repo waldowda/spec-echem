@@ -4,11 +4,38 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-10-19_
+_Last updated: 2026-10-29_
 
 ---
 
-## PITT — an equilibrium potential staircase, running on both rigs (2026-10-04/05) — newest
+## GITT — a galvanostatic titration beside the PITT (2026-10-29) — newest
+
+**Built, tested on fakes only.** Current pulses, each followed by a relaxation at 0 A
+with the cell left on. It is a separate experiment, ticked on the Parameters tab, that
+runs after the PITT and reuses the PITT's loop, display and per-step HDF5 file
+(`{folder}_gitt.h5`, data type 6, `docs/data-format.md` §6).
+- **The potential window ends the run.** On the Gamry, the instrument also stops the
+  pulse itself (`CiivCurve`).
+- **A charge cap** catches a units slip at Start.
+- **Autolab warning:** Start warns when the 0 A offset is large next to the pulse.
+- **Opt-in dE/dt rule:** can end a relaxation early.
+
+Groundwork, dummy probes on 2026-10-23 and 2026-10-26 (`docs/bench-2026-10-26.md`):
+- **Galvanostatic mode works on all three instruments.** The applied current is within
+  0.2%, and E = I × R to about 1%.
+- **Gamry impedance (ReadZ) works on both Gamrys**, matching a Randles dummy to 0.7%.
+  ReadZ leaves the current range lower than before the sweep, so it must be restored
+  afterwards.
+- **The Autolab's FRA32M fails NOVA's own module test**, so Autolab impedance waits on
+  Metrohm.
+
+**Next:** dummy-cell tests on both rigs (a Randles cell with about 1000 µF, so the
+relaxation is slow enough to see; the plan is in TODO), then a film. Not built: a
+return leg, an end dedope, the GITT analysis, and ER-EIS (still a plan).
+
+---
+
+## PITT — an equilibrium potential staircase, running on both rigs (2026-10-04/05)
 
 **A new segment type for density-of-states work:** step the gate potential in small
 increments with the cell held on, and end each step when the current has decayed to a
