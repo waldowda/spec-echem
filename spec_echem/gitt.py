@@ -39,8 +39,9 @@ RELAX_SKIP_S = 1.0
 
 # The Autolab's current at a 0 A setpoint, as a fraction of the range's full scale.
 # MEASURED on the PGSTAT302N: -16 nA on CR11_100uA (2026-10-26, 10 kOhm) and +1.6 uA
-# on CR09_10mA (2026-09-11). Both are 1.6e-4 of full scale. Not yet measured on a
-# Gamry, so no Gamry concern is raised from it.
+# on CR09_10mA (2026-09-11). Both are 1.6e-4 of full scale. The Gamrys read ~1 nA at
+# 0 A (2026-10-23: 1.7e-6 of full scale on the Reference 600, 3.5e-7 on the 1010E),
+# ~100x less, so no Gamry concern is raised. docs/bench-2026-10-26.md.
 AUTOLAB_ZERO_OFFSET_FRACTION = 1.6e-4
 
 # Absorbs binary float error, as pitt._FLOAT_SLACK does.

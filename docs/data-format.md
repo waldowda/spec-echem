@@ -411,10 +411,12 @@ first sample at or after `pulse_s` writes 0 A. So the pulse is up to one sample 
 long, and `pulse_s_applied` records it. The Autolab's window check is Python's only.
 
 **Not stored, by design:** ΔQ per pulse, the relaxed potentials, the IR drop and D_ion.
-All are derived from the echem, and the analysis is not built yet. The Autolab reads a
-small current at a 0 A setpoint (about 1.6e-4 of the range's full scale, measured), so
-the relaxations are not exactly at zero current. Start warns when that is large next to
-the pulse.
+All are derived from the echem, and the analysis is not built yet.
+
+**The relaxations are not exactly at zero current.** The Autolab reads a small current
+at a 0 A setpoint, about 1.6e-4 of the range's full scale (measured), and Start warns
+when that is large next to the pulse. The Gamrys read about 1 nA, roughly 100× less
+relative to full scale. See `docs/bench-2026-10-26.md`.
 
 | | |
 |---|---|
