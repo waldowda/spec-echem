@@ -26,7 +26,8 @@ from spec_echem.analysis import (cv_probe_wavelength, probe_wavelength, density_
 from spec_echem.data import (
     echem_txt_path, read_spectra_absorbance, discover_run_segments,
     discover_run_h5, read_segment_h5, DATA_TYPE_CV,
-    DATA_TYPE_DOPING, DATA_TYPE_PITT, segment_potential_text, segment_potential,
+    DATA_TYPE_DOPING, DATA_TYPE_GITT, DATA_TYPE_PITT, segment_potential_text,
+    segment_potential,
     segment_sort_key, h5_path, read_segment_echem_h5,
 )
 from spec_echem.experiment import Segment
@@ -741,6 +742,8 @@ class ResultsTab(QWidget):
             if seg.data_type == DATA_TYPE_CV:
                 self.echem_canvas.show_cv(read_cv(path) if df is None else df,
                                           title=label)
+            elif seg.data_type == DATA_TYPE_GITT and df is not None:
+                self.echem_canvas.show_potential_vs_time(df, title=label)
             else:
                 self.echem_canvas.show_chrono(read_chrono(path) if df is None else df,
                                               title=label)
@@ -994,9 +997,9 @@ class ResultsTab(QWidget):
         if prefer_h5 and by_h5:
             return by_h5, "HDF5"
         if by_text:
-            # A PITT is written to HDF5 ONLY, so a text-first load would drop it
-            # without a word. Its steps come from the .h5 whichever source won.
-            pitt = [seg for seg in by_h5 if seg[1] == DATA_TYPE_PITT]
+            # A PITT or GITT is written to HDF5 ONLY, so a text-first load would
+            # drop it without a word. Its steps come from the .h5 whichever won.
+            pitt = [seg for seg in by_h5 if seg[1] in (DATA_TYPE_PITT, DATA_TYPE_GITT)]
             merged = sorted(by_text + pitt, key=lambda seg: segment_sort_key(seg[1],
                                                                               seg[2]))
             return merged, "text"

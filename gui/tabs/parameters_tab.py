@@ -22,6 +22,8 @@ from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES, GAMRY_CURRENT_RANGE
                                      is_high_current_range)
 from spec_echem.acquisition import spectrum_cost_seconds
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
+from spec_echem.gitt import (gitt_duration_bounds, gitt_plan, gitt_planned_charge_c,
+                             gitt_problems)
 from spec_echem.pitt import pitt_duration_bounds, pitt_plan, pitt_problems
 from gui.tabs.instrument_tab import _next_serial_path
 from gui.forms import form_layout, fill_width, guard_scroll
@@ -438,6 +440,7 @@ class ParametersTab(QWidget):
         layout.addWidget(dope_group)
 
         layout.addWidget(self._build_pitt_group())
+        layout.addWidget(self._build_gitt_group())
 
         layout.addStretch()
         self._wire_shared_hints()
@@ -538,6 +541,126 @@ class ParametersTab(QWidget):
             signal = w.toggled if isinstance(w, QCheckBox) else w.valueChanged
             signal.connect(self._update_pitt_estimate)
         return group
+
+    def _build_gitt_group(self):
+        """GITT: current pulses, each followed by a relaxation at 0 A, after the PITT.
+
+        Built like the PITT group: every number is the scientist's, and the estimate,
+        the planned charge and anything that would stop Start update as they type.
+        """
+        group = QGroupBox("GITT \u2014 galvanostatic titration  (Python mode only)")
+        form = form_layout(group)
+        form.addRow(self._check("gitt_enabled", "Include GITT (runs after the PITT)"))
+        note = QLabel("Saved as HDF5 only, one group per step (a pulse and its "
+                      "relaxation). The cell stays on at 0 A between pulses.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #888;")
+        form.addRow(fill_width(note))
+        form.addRow("Pulse current:", self._hint(
+            self._dspin("gitt_current_ua", -100000.0, 100000.0, 3, 0.1, " \u00b5A"),
+            "+ oxidises (dopes a p-type film), \u2212 reduces"))
+        form.addRow("Pulse length:",
+                    self._dspin("gitt_pulse_s", 0.1, 100000.0, 1, 1.0, " s"))
+        form.addRow("Number of pulses:", self._ispin("gitt_n_pulses", 1, 10000))
+        relax = self._hint(
+            self._dspin("gitt_relax_s", 0.1, 100000.0, 1, 10.0, " s"), "")
+        form.addRow("Relax at 0 A for:", relax)
+        self._gitt_relax_label = form.labelForField(relax)
+        self._gitt_relax_hint = relax.findChild(QLabel)
+        form.addRow("Rest before the first pulse:", self._hint(
+            self._dspin("gitt_initial_rest_s", 0.0, 100000.0, 1, 10.0, " s"),
+            "at 0 A, for the starting potential; 0 = none"))
+        form.addRow("Stop below (vs Vref):",
+                    self._dspin("gitt_e_min_v", -10.0, 10.0, 3, 0.05, " V"))
+        form.addRow("Stop above (vs Vref):", self._hint(
+            self._dspin("gitt_e_max_v", -10.0, 10.0, 3, 0.05, " V"),
+            "the run ENDS if the potential leaves this window"))
+        form.addRow("Charge cap:", self._hint(
+            self._dspin("gitt_max_charge_mc", 0.001, 10000.0, 3, 0.1, " mC"),
+            "all pulses together; catches a units slip"))
+        settle_on = self._check("gitt_relax_settle_enabled",
+                                "End a relaxation early once dE/dt is below")
+        dvdt = self._dspin("gitt_relax_dvdt_uv_s", 0.01, 100000.0, 2, 1.0, " \u00b5V/s")
+        sentence = QWidget()
+        row = QHBoxLayout(sentence)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(settle_on)
+        row.addWidget(dvdt)
+        row.addStretch(1)
+        form.addRow(sentence)
+        window = self._hint(
+            self._dspin("gitt_relax_window_s", 0.1, 100000.0, 1, 1.0, " s"),
+            "dE/dt is a straight-line fit over this much of the relaxation")
+        form.addRow("dE/dt fitted over:", window)
+        self._gitt_settle_only = (dvdt, window, form.labelForField(window))
+        settle_on.toggled.connect(self._apply_gitt_settle_mode)
+        self._apply_gitt_settle_mode(settle_on.isChecked())
+        form.addRow("Spectra at full rate for:", self._hint(
+            self._dspin("gitt_fast_s", 0.0, 100000.0, 1, 1.0, " s"),
+            "after each pulse starts and after it ends"))
+        form.addRow("Then one spectrum every:",
+                    self._dspin("gitt_slow_interval_s", 0.01, 10000.0, 2, 0.5, " s"))
+
+        self.gitt_estimate = fill_width(QLabel())
+        self.gitt_estimate.setWordWrap(True)
+        self.gitt_estimate.setStyleSheet("color: #888;")
+        form.addRow(self.gitt_estimate)
+        self.gitt_problems_label = fill_width(QLabel())
+        self.gitt_problems_label.setWordWrap(True)
+        self.gitt_problems_label.setStyleSheet("color: #b00;")
+        form.addRow(self.gitt_problems_label)
+
+        for key in ("gitt_enabled", "gitt_current_ua", "gitt_pulse_s", "gitt_n_pulses",
+                    "gitt_relax_s", "gitt_initial_rest_s", "gitt_e_min_v",
+                    "gitt_e_max_v", "gitt_max_charge_mc", "gitt_relax_settle_enabled",
+                    "gitt_relax_dvdt_uv_s", "gitt_relax_window_s", "gitt_fast_s",
+                    "gitt_slow_interval_s", "chrono_delta_time", "film_thickness_nm",
+                    "film_area_cm2"):
+            w = self._widgets.get(key)
+            if w is None:
+                continue
+            signal = w.toggled if isinstance(w, QCheckBox) else w.valueChanged
+            signal.connect(self._update_gitt_estimate)
+        return group
+
+    def _apply_gitt_settle_mode(self, on):
+        """Grey what the dE/dt rule alone uses, and say what the relax time means."""
+        for w in self._gitt_settle_only:
+            w.setEnabled(on)
+        if on:
+            self._gitt_relax_label.setText("Maximum relaxation:")
+            text = "a relaxation that reaches this did not relax"
+        else:
+            self._gitt_relax_label.setText("Relax at 0 A for:")
+            text = "every relaxation runs this long"
+        self._gitt_relax_hint.setText(text)
+        self._gitt_relax_hint.setMaximumWidth(
+            self._gitt_relax_hint.fontMetrics().boundingRect(text).width() + 8)
+
+    def _update_gitt_estimate(self, *_):
+        """Steps, time, and the charge the pulses will pass -- per volume of film
+        when its size is set (Parameters: film thickness and area)."""
+        s = self._pitt_settings()
+        problems = gitt_problems(s)
+        self.gitt_problems_label.setText("\n".join(problems))
+        self.gitt_problems_label.setVisible(bool(problems))
+        if problems:
+            self.gitt_estimate.setText("")
+            return
+        n = len(gitt_plan(s))
+        lo, hi = gitt_duration_bounds(s)
+        q = gitt_planned_charge_c(s)
+        if lo == hi:
+            text = f"{n} steps, {self._duration_text(hi)}"
+        else:
+            text = (f"{n} steps, between {self._duration_text(lo)} and "
+                    f"{self._duration_text(hi)}")
+        text += f"; {q * 1e3:.3g} mC in all"
+        volume = (float(s.get("film_thickness_nm") or 0) * 1e-7
+                  * float(s.get("film_area_cm2") or 0))
+        if volume > 0:
+            text += f" = {q / volume:.3g} C/cm\u00b3 of film"
+        self.gitt_estimate.setText(text)
 
     def _apply_pitt_cutoff_mode(self, on):
         """Grey what the cutoff alone uses, and say what the hold time means now."""
@@ -757,6 +880,7 @@ class ParametersTab(QWidget):
         if not folder.text().strip():
             folder.setText(datetime.now().strftime("%Y%m%d_"))
         self._update_pitt_estimate()
+        self._update_gitt_estimate()
 
         # A loaded file can change the mode and the spectrometer settings, so the
         # shared rows and the floor hint are only right if they follow it.

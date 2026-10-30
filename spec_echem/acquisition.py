@@ -313,8 +313,14 @@ def acquire_segment(spec, num_echem_points, delta_time=0.100, trigger=False,
 def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                  stop_event=None, clock=time.monotonic, sleep=time.sleep,
                  on_step=None, on_step_done=None, record=None,
-                 display_timeout_s=5.0):
+                 display_timeout_s=5.0, kind="pitt"):
     """Run a whole PITT staircase as ONE continuous waveform. -> PittRecord
+
+    `kind="gitt"` runs a GITT (spec_echem/gitt.py) through the same loop: the plan
+    is GittSteps, each step ends by its GittStepEnd, spectra follow
+    gitt_spectrum_due, and the driver is told each step through gitt_prepare(step)
+    and gitt_next(step) in place of a potential. A step ending END_E_LIMIT ends the
+    run, as Stop does, keeping everything collected.
 
     A loop of its own rather than acquire_segment with options. That loop pumps the
     potentiostat once per SPECTRUM, and in Ei mode the pump IS the electrochemistry
@@ -343,6 +349,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     `hold_s` stays the time the end rule fired. `record`, when given, is filled in
     place, so another thread can read the samples as they arrive.
     """
+    from spec_echem.gitt import END_E_LIMIT, gitt_spectrum_due, gitt_step_end_for
     from spec_echem.pitt import (END_ABORTED, END_STOPPED, PittRecord, spectrum_due,
                                  step_end_for)
 
@@ -353,13 +360,38 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     # One count of the potentiostat's current range, when its driver can say. Below
     # it no cutoff can be expressed (see StepEnd.resolution).
     resolution = getattr(pot, "current_resolution_a", lambda: None)()
-    fast_s = float(settings["pitt_fast_s"])
-    slow_s = float(settings["pitt_slow_interval_s"])
+    if kind == "gitt":
+        fast_s = float(settings["gitt_fast_s"])
+        slow_s = float(settings["gitt_slow_interval_s"])
+        end_for = gitt_step_end_for
+        prepare, advance = pot.gitt_prepare, pot.gitt_next
+        # The instrument's own potential stop (the Gamry's CiivCurve), when it has
+        # one: it ends the run even if no sample beyond the window reached the loop.
+        halted = getattr(pot, "gitt_e_stopped", lambda: False)
+
+        def due(step, t_in, t_last):
+            return gitt_spectrum_due(step, t_in, t_last, delta, fast_s, slow_s)
+    else:
+        fast_s = float(settings["pitt_fast_s"])
+        slow_s = float(settings["pitt_slow_interval_s"])
+        end_for = step_end_for
+
+        def halted():
+            return False
+
+        def prepare(step):
+            pot.pitt_prepare(step.potential)
+
+        def advance(step):
+            pot.pitt_set_potential(step.potential)
+
+        def due(step, t_in, t_last):
+            return spectrum_due(t_in, t_last, delta, fast_s, slow_s)
 
     def _cut(flag):
         return flag is not None and flag.is_set()
 
-    pot.pitt_prepare(plan[0].potential)
+    prepare(plan[0])
     try:
         # Spectrum 0 is triggered exactly as a segment's is: fire() switches the cell
         # on and raises the edge from INSIDE measure(), after the detector is armed.
@@ -375,7 +407,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
         k = 0
         step = plan[0]
         step_start = anchor = clock()
-        rule = step_end_for(step, settings, resolution)
+        rule = end_for(step, settings, resolution)
         timestamp_av, data = result
         record.spectra.append(data)
         record.timestamps.append(timestamp_av / 1e5)
@@ -395,6 +427,8 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
             record.echem_step.append(k)
 
             reason = rule.feed(now - step_start, i, v)
+            if reason is None and halted():
+                reason = END_E_LIMIT
             if _cut(abort_event):
                 reason = END_ABORTED
             elif reason is None and _cut(stop_event):
@@ -403,7 +437,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
             if reason is not None:
                 record.close_step(step, step_start, now, reason, rule.peak,
                                   rule.unresolved, rule)
-                if reason in (END_ABORTED, END_STOPPED):
+                if reason in (END_ABORTED, END_STOPPED, END_E_LIMIT):
                     break
                 if k == len(plan) - 1:
                     record.completed = True
@@ -435,9 +469,9 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                         break
                 k += 1
                 step = plan[k]
-                pot.pitt_set_potential(step.potential)
+                advance(step)
                 step_start = clock()
-                rule = step_end_for(step, settings, resolution)
+                rule = end_for(step, settings, resolution)
                 last_spectrum = None
                 if on_step is not None:
                     on_step(k, step)
@@ -451,10 +485,11 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                 continue
 
             t_in = clock() - step_start
-            if spectrum_due(t_in, last_spectrum, delta, fast_s, slow_s):
+            if due(step, t_in, last_spectrum):
                 result = spec.measure(abort_event, None)
                 if result is None:            # abort arrived during the exposure
                     record.close_step(step, step_start, clock(), END_ABORTED, rule.peak,
+                                      None if rule.unresolved is None else False,
                                       rule=rule)
                     break
                 timestamp_av, data = result

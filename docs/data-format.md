@@ -17,8 +17,9 @@ Each experiment segment produces a **spectra** file (always) and, in Python mode
 Gamry Framework writes its own `.DTA`, converted separately by
 `notebooks/gamry_dta_conversion.ipynb`.
 
-**The one exception is a PITT staircase ([§5](#5-pitt-staircase--hdf5-only)), which writes
-HDF5 only** — no spectra or echem text file of any kind.
+**The exceptions are a PITT staircase ([§5](#5-pitt-staircase--hdf5-only)) and a GITT
+([§6](#6-gitt-titration--hdf5-only)), which write HDF5 only** — no spectra or echem text
+file of any kind.
 
 ---
 
@@ -349,3 +350,76 @@ step, and any run outside the GUI, has no `display_wait_s`.
 | `spec_echem.data.read_segment_echem_h5(path, step)` | a step's echem, in the text readers' column names |
 | `spec_echem.data.discover_run_h5(folder)` | finds the steps, after the doping ladder |
 | `spec_echem.pitt` | the plan, the step-end rule and the spectrum cadence that produced the file |
+
+---
+
+## 6. GITT titration — HDF5 ONLY
+
+Data type **6** (since 2026-10-29). A galvanostatic titration (GITT): current pulses, each
+followed by a relaxation at 0 A with the cell left ON, read electrically and optically.
+The galvanostatic sibling of §5, written the same way, to one file and nothing else:
+
+```
+{folder}/{folder}_gitt.h5
+```
+
+Not text, for §5's reasons. **One group per titration STEP**: a pulse and the relaxation
+after it. An optional first step is a rest at 0 A before any pulse, giving the starting
+potential. The cell ran as one continuous waveform, and the data is split by the step
+each sample was tagged with, as in §5. A step's group is §4's layout plus:
+
+```
+/{step}/  attrs: role             "rest" | "titration"
+                 end_reason       "fixed" | "relaxed" | "max_hold" | "e_limit"
+                                  | "stopped" | "aborted"
+                 hold_s           how long the step ran, pulse + relaxation
+                 current_set_A    the pulse current from the plan (+ oxidises); 0 at rest
+                 pulse_s          the pulse length from the plan; 0 at rest
+                 pulse_s_applied  the pulse as the driver applied it, when it says
+                 n_spectra
+                 label            "GITT {step}"
+                 (no potential_set: the potential is the measurement here)
+
+    echem/time               s since THIS step began; its pulse is time < pulse_s
+    echem/time_potentiostat  the potentiostat's clock, continuous across all steps
+
+/ (root) attrs:  gitt_steps_json   every step that RAN, in order, with how it ended
+                 gitt_completed    every planned step ran to its own end
+```
+
+**Reading `end_reason`.**
+- `fixed`: the relaxation ran its set time. That is every step when "End a relaxation
+  early once dE/dt is below" is unticked (`gitt_relax_settle_enabled`, the default).
+- `relaxed`: dE/dt fell below the threshold. It is a straight-line fit over the last
+  `gitt_relax_window_s` of the relaxation, skipping its first 1 s, and must hold for 5
+  samples in a row.
+- `max_hold`: with that rule on, the relaxation ran out first. Its last potential is
+  **not** an equilibrium one.
+- **`e_limit`: the potential left the window** (`gitt_e_min_v` to `gitt_e_max_v`). The
+  cell was switched off there and **the run ended**. Every step up to and including that
+  one is kept.
+- `stopped` / `aborted`: as in §5.
+
+Each row of `gitt_steps_json` also carries `e_last_V`, the last potential the step
+sampled, and `relax_dvdt_V_s`, the last dE/dt fitted (NaN with the rule off).
+
+**How the pulse is timed differs by instrument.** On a Gamry, the instrument times it:
+each step is one curve of `[I] × n` then `[0 A]`, sampled on its own clock. So
+`pulse_s_applied` is a whole number of sample periods, and a `CiivCurve` stop on the
+potential also ends a pulse inside the instrument. On the Autolab, Python times it: the
+first sample at or after `pulse_s` writes 0 A. So the pulse is up to one sample tick
+long, and `pulse_s_applied` records it. The Autolab's window check is Python's only.
+
+**Not stored, by design:** ΔQ per pulse, the relaxed potentials, the IR drop and D_ion.
+All are derived from the echem, and the analysis is not built yet. The Autolab reads a
+small current at a 0 A setpoint (about 1.6e-4 of the range's full scale, measured), so
+the relaxations are not exactly at zero current. Start warns when that is large next to
+the pulse.
+
+| | |
+|---|---|
+| `spec_echem.data.write_gitt_h5(record, ...)` | the writer, sharing §5's per-step code |
+| `spec_echem.data.read_segment_h5(path, step)` | a step's absorbance, as for any segment |
+| `spec_echem.data.read_segment_echem_h5(path, step)` | a step's echem, in the text readers' column names |
+| `spec_echem.data.discover_run_h5(folder)` | finds the steps, after the PITT |
+| `spec_echem.gitt` | the plan, the limits, the step-end rule and the spectrum cadence |

@@ -15,8 +15,9 @@ import time
 from qtpy.QtCore import QObject, Signal
 
 from spec_echem.data import segment_potential_text
-from spec_echem.data import DATA_TYPE_PITT
-from spec_echem.experiment import run_one_segment, run_pitt_segment
+from spec_echem.data import DATA_TYPE_GITT, DATA_TYPE_PITT
+from spec_echem.experiment import (run_gitt_segment, run_one_segment,
+                                   run_pitt_segment)
 from spec_echem.pitt import PittRecord
 from spec_echem.potentiostat import ConfigurationError
 from spec_echem.logging_config import get_run_logger
@@ -68,7 +69,7 @@ class AcquisitionWorker(QObject):
         self.abort_event = threading.Event()
         # Set by the GUI once it has finished drawing a completed segment.
         self.gui_idle = threading.Event()
-        # The running PITT's samples, filled in place, for the live current plot.
+        # The running PITT or GITT samples, filled in place, for the live plot.
         self.pitt_record = None
 
     def request_stop(self):
@@ -142,6 +143,13 @@ class AcquisitionWorker(QObject):
                                 ps["pitt_step_mv"],
                                 ", and back" if ps.get("pitt_return") else "",
                                 ", then dedope" if ps.get("pitt_end_dedope") else "")
+                elif seg.data_type == DATA_TYPE_GITT:
+                    gs = self.settings
+                    logger.info("GITT: %d steps, %+g \u00b5A for %g s then %g s at 0 A, "
+                                "window %+.3f to %+.3f V", seg.num_points,
+                                gs["gitt_current_ua"], gs["gitt_pulse_s"],
+                                gs["gitt_relax_s"], gs["gitt_e_min_v"],
+                                gs["gitt_e_max_v"])
                 elif pot_settings:
                     text = segment_potential_text(pot_settings, seg.data_type,
                                                   seg.run_number)
@@ -152,7 +160,7 @@ class AcquisitionWorker(QObject):
                 logger.debug("%s: %d points @ %.4gs, trigger=%s",
                              seg.label, seg.num_points, seg.delta_time, seg.trigger)
 
-                if seg.data_type == DATA_TYPE_PITT:
+                if seg.data_type in (DATA_TYPE_PITT, DATA_TYPE_GITT):
                     # One waveform, many steps, and possibly hours long, so each
                     # step is shown as it ENDS -- never mid-step: drawing on the GUI
                     # thread then is what opened 260-463 ms spectra gaps on
@@ -169,7 +177,9 @@ class AcquisitionWorker(QObject):
                         return self.gui_idle.is_set
 
                     self.pitt_record = PittRecord()
-                    steps, path, _record = run_pitt_segment(
+                    run_steps = (run_gitt_segment if seg.data_type == DATA_TYPE_GITT
+                                 else run_pitt_segment)
+                    steps, path, _record = run_steps(
                         self.spec, seg, self.dark, self.ref, self.wavelengths,
                         self.data_root, self.added_path, self.settings,
                         self.potentiostat, self.abort_event, self.stop_event,
@@ -179,7 +189,7 @@ class AcquisitionWorker(QObject):
                             continue
                         self.gui_idle.clear()
                         self.segment_done.emit(label, absorb_df)
-                    logger.info("PITT complete: %d steps -> %s", len(steps),
+                    logger.info("%s complete: %d steps -> %s", seg.label, len(steps),
                                 path.name if path is not None else "NOT SAVED")
                     # Kept either way; the run still ends as the user asked it to.
                     if self.abort_event.is_set():

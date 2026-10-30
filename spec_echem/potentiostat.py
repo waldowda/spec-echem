@@ -1005,6 +1005,15 @@ def suggest_current_range(peak_a, headroom=0.8):
     return best
 
 
+def gitt_autolab_range(settings):
+    """The Autolab current range for a GITT: the finest that carries the pulse with
+    the usual headroom. Chosen from the pulse, not autolab_current_range, because
+    in a galvanostat the range IS the applied current's scale -- it is part of the
+    experiment, not a measuring choice."""
+    from spec_echem.gitt import gitt_current_a
+    return suggest_current_range(abs(gitt_current_a(settings)))
+
+
 def _set_current_range(ei, name):
     """Fix the current range, or leave the instrument's own if not configured.
 
@@ -1146,6 +1155,8 @@ class AutolabPotentiostat(Potentiostat):
         # program holding the instrument) left it unset, and the AttributeError in
         # the timer closed the whole GUI (2026-10-10).
         self._ei_mode = False
+        self._gitt = None           # a GITT's pulse in progress (gitt_prepare)
+        self.gitt_pulses = {}       # step index -> the pulse as applied, s
         self._live_samples = []     # (t, E, I) scalars accumulated by pump()
         self._bad_samples = 0       # refresh failed, or the pair straddled one
         self._pre_latch_samples = 0  # read before the latch had ever been loaded
@@ -1400,6 +1411,8 @@ class AutolabPotentiostat(Potentiostat):
         """
         inst = self._inst
         origin = self._t_cell_on
+        if self._gitt is not None:
+            self._gitt_end_pulse_if_due()
         refreshed = sample_ei(inst)
         pair = self._read_ei_pair(inst) if refreshed else None
         t = time.perf_counter() - origin if origin is not None else 0.0
@@ -1439,6 +1452,91 @@ class AutolabPotentiostat(Potentiostat):
             _set_cell(self._inst, False)
         except Exception as exc:  # noqa: BLE001
             get_run_logger().warning("Autolab: could not switch the cell off: %s", exc)
+        if self._gitt is not None:
+            # Back to potentiostatic, cell already off, so nothing after a GITT
+            # inherits a galvanostat.
+            self._gitt = None
+            try:
+                _set_ei_mode(self._inst.Ei, potentiostatic=True)
+            except Exception as exc:  # noqa: BLE001
+                get_run_logger().warning(
+                    "Autolab: could not set Ei back to potentiostatic after the GITT: "
+                    "%s", exc)
+
+    # --- GITT: the same loop, galvanostatic -----------------------------------
+    #
+    # Ei in GALVANOSTATIC mode: Setpoint is then a current in amperes (read back in
+    # amps on the PGSTAT302N, 9.9945 uA for 10, 2026-10-26). Each step writes the
+    # pulse current; the first pitt_sample() at or after pulse_s writes 0 A, cell
+    # still on, so the pulse is timed by this loop to within one tick -- the actual
+    # length is kept in gitt_pulses. The Autolab has no instrument-side potential
+    # stop here: the window is Python's, checked on every sample (gitt.GittStepEnd),
+    # and pitt_end() switches the cell off.
+    supports_gitt = True
+
+    def gitt_prepare(self, step):
+        """Galvanostatic mode, the range for the pulse, the first setpoint: cell OPEN."""
+        if self._inst is None:
+            raise RuntimeError("Autolab not open: call open() before a GITT.")
+        self._ei_mode = True
+        self._aborted = False
+        self._overloaded = False
+        self._t_cell_on = None
+        self.gitt_pulses = {}
+        rng = gitt_autolab_range(self.settings)
+        self._gitt = {"range": rng, "full": range_full_scale_a(rng or "")}
+        ei = self._inst.Ei
+        _set_ei_mode(ei, potentiostatic=False)
+        _set_current_range(ei, rng)
+        back = self._gitt_start(step, t0=None)
+        get_run_logger().info(
+            "Autolab GITT: galvanostatic, range %s, first step %+.4g A (read back "
+            "%+.4g A) for %g s; cell still open.", rng, step.current, back,
+            step.pulse_s)
+
+    def gitt_next(self, step):
+        """The next titration step: its pulse current, the cell LEFT ON."""
+        self._gitt_start(step, t0=time.perf_counter())
+
+    def _gitt_start(self, step, t0):
+        """Write the step's opening current. A step with no pulse opens at 0 A."""
+        amps = step.current if step.pulse_s > 0 else 0.0
+        back = self._gitt_write_current(amps)
+        # t0 None: the pulse starts when fire() switches the cell on.
+        self._gitt.update(step=step, t0=t0, on=step.pulse_s > 0)
+        return back
+
+    def _gitt_write_current(self, amps):
+        """Write and READ BACK a current. The DAC snaps, so the check is 1% of the
+        current or 0.1% of full scale, whichever is larger; a miss beyond that is an
+        ignored write and stops the run (its finally switches the cell off)."""
+        ei = self._inst.Ei
+        ei.Setpoint = float(amps)
+        back = float(ei.Setpoint)
+        full = self._gitt.get("full") or 0.0
+        tol = max(0.01 * abs(amps), 1e-3 * full, 1e-12)
+        if abs(back - float(amps)) > tol:
+            raise RuntimeError(
+                f"Autolab Ei.Setpoint did not take: wrote {amps:g} A, read back "
+                f"{back:g} A (further than {tol:.2g} A).")
+        return back
+
+    def _gitt_end_pulse_if_due(self):
+        g = self._gitt
+        if not g.get("on"):
+            return
+        t0 = g["t0"] if g["t0"] is not None else self._t_cell_on
+        if t0 is None:
+            return                          # cell not on yet
+        now = time.perf_counter()
+        if now - t0 >= g["step"].pulse_s:
+            self._gitt_write_current(0.0)
+            g["on"] = False
+            self.gitt_pulses[g["step"].index] = time.perf_counter() - t0
+
+    def gitt_pulse_actual(self):
+        """{step index: the pulse as applied, s}, setpoint write to setpoint write."""
+        return dict(self.gitt_pulses)
 
     def stop(self):
         self._aborted = True
@@ -2275,6 +2373,14 @@ class AutolabPotentiostat(Potentiostat):
                 "electrochemistry.", label, floor, peak)
 
 
+def gitt_supported(mode):
+    """Can the driver for this potentiostat_mode run a GITT? From the CLASS, as
+    pitt_supported is."""
+    cls = {"external": ExternalPotentiostat, "python": ToolkitPotentiostat,
+           "autolab": AutolabPotentiostat}.get((mode or "external").lower())
+    return bool(getattr(cls, "supports_gitt", False))
+
+
 def pitt_supported(mode):
     """Can the driver for this potentiostat_mode run a PITT staircase? Answered
     from the CLASS, so it never constructs a driver -- the Gamry one refuses to exist
@@ -2397,6 +2503,19 @@ class _GamryPittRunner:
 
     # --- the curve thread ----------------------------------------------------
 
+    def _setup(self, pstat):
+        """Control mode, hardware setup and the first potential, cell still off."""
+        pstat.set_ctrl_mode(tkp.PSTATMODE)
+        self.how, self.range_full = initialize_pstat(
+            pstat, self.settings.get("gamry_current_range", 6.0e-3),
+            sample_period_s=self.period)
+        pstat.set_voltage(self.v0)
+
+    def _after_curve_ended(self, pstat, curve, v):
+        """What to run when a curve ends before Python ended its step: the same
+        target, so the hold carries on. None runs nothing more."""
+        return v
+
     def _new_curve(self, pstat, v):
         signal = pstat.signal_array2_new(
             0.0, 1, self.period, [float(v)], [self.repeats],
@@ -2421,6 +2540,8 @@ class _GamryPittRunner:
             pass
 
     def _harvest(self, curve, step, t_run, t_step0, seen):
+        if curve is None:
+            return seen
         data = curve.acq_data()
         if data is None or getattr(data, "dtype", None) is None or not data.dtype.names:
             return seen
@@ -2467,11 +2588,7 @@ class _GamryPittRunner:
         try:
             tkp.toolkitpy_init("spec-echem-pitt")
             pstat = open_gamry_pstat(self.settings.get("gamry_section") or None)
-            pstat.set_ctrl_mode(tkp.PSTATMODE)
-            self.how, self.range_full = initialize_pstat(
-                pstat, self.settings.get("gamry_current_range", 6.0e-3),
-                sample_period_s=self.period)
-            pstat.set_voltage(self.v0)
+            self._setup(pstat)
             self.built.set()
             self.armed.wait()
             if self.stop_flag.is_set():
@@ -2496,11 +2613,15 @@ class _GamryPittRunner:
                     step, v = want
                     curve, keep, t_run = self._new_curve(pstat, v)
                     t_step0, seen = t_run, 0
-                elif not curve.running():
+                elif curve is not None and not curve.running():
                     # Ran out before Python ended the step: hold on, same potential,
                     # same step, its clock carried on through t_step0.
                     self._harvest(curve, step, t_run, t_step0, seen)
-                    curve, keep, t_run = self._new_curve(pstat, v)
+                    v = self._after_curve_ended(pstat, curve, v)
+                    if v is None:
+                        curve = None                 # nothing more to run
+                    else:
+                        curve, keep, t_run = self._new_curve(pstat, v)
                     seen = 0
                 time.sleep(0.02)
             self._stop_curve(curve)
@@ -2524,6 +2645,101 @@ class _GamryPittRunner:
             self.built.set()                     # never leave start() waiting
             with self.cond:
                 self.cond.notify_all()
+
+
+# Points beyond the potential limit before CiivCurve's StopAt ends the curve. The
+# dummy probe (2026-10-23, both Gamrys) used 3 and the pulse ended at 4 of 30.
+GAMRY_GITT_STOP_DELAY_PTS = 3
+
+
+class _GamryGittRunner(_GamryPittRunner):
+    """The Gamry side of a GITT: the PITT runner in galvanostatic mode.
+
+    One CiivCurve per titration step, built as [I] x n_pulse then [0 A] x n_tail, so
+    the INSTRUMENT times the pulse on its own clock and the relaxation follows with
+    no gap; Python ends the step after the relaxation. CiivCurve's StopAt on the
+    potential ends a pulse in the instrument when E leaves the window -- found on
+    both Gamrys 2026-10-23 (ChronoCurve's StopAt does not). When a curve ends early
+    the cell is switched OFF here, on the curve thread, without waiting for the
+    loop, and `e_stopped` tells the loop to end the run.
+    """
+
+    def __init__(self, settings):
+        super().__init__(settings)
+        from spec_echem.gitt import gitt_current_a
+        self.pulse_a = gitt_current_a(settings)
+        self.e_min = float(settings["gitt_e_min_v"])
+        self.e_max = float(settings["gitt_e_max_v"])
+        longest = max(float(settings.get("gitt_relax_s", 60.0)),
+                      float(settings.get("gitt_initial_rest_s", 0.0)))
+        self.n_tail = int(math.ceil((longest + 5.0) / self.period))
+        self.expected = None        # points the running curve was built to record
+        self.e_stopped = False
+        self.e_stop_v = float("nan")
+        self.gitt_pulses = {}       # step index -> the pulse as applied, s
+
+    def _setup(self, pstat):
+        """Galvanostatic, a range for the pulse, and 0 A on the DAC before cell-on."""
+        pstat.set_ctrl_mode(tkp.GSTATMODE)
+        # 3 x the pulse, as the dummy probe ran it (applied within 0.2%); the
+        # instrument takes the rung at or above that. The range is the applied
+        # current's scale here, so it comes from the pulse, not gamry_current_range.
+        self.how, self.range_full = initialize_pstat(
+            pstat, 3.0 * abs(self.pulse_a), sample_period_s=self.period)
+        self._zero_signal = self._signal(pstat, [0.0], [1])
+        pstat.set_signal_array2(self._zero_signal)
+        pstat.init_signal()
+
+    def _signal(self, pstat, values, repeats):
+        return pstat.signal_array2_new(
+            0.0, 1, self.period, [float(x) for x in values], [int(n) for n in repeats],
+            getattr(tkp, "BIAS_NONE", 0), tkp.GSTATMODE)
+
+    def _new_curve(self, pstat, step):
+        if self.e_stopped:
+            return None, None, time.perf_counter()
+        n_pulse = int(round(step.pulse_s / self.period)) if step.pulse_s > 0 else 0
+        values, repeats = [0.0], [self.n_tail]
+        if n_pulse:
+            values, repeats = [step.current, 0.0], [n_pulse, self.n_tail]
+            self.gitt_pulses[step.index] = n_pulse * self.period
+        signal = self._signal(pstat, values, repeats)
+        pstat.set_signal_array2(signal)
+        pstat.init_signal()
+        self.expected = sum(repeats)
+        curve = tkp.CiivCurve(pstat, self.expected + 50)
+        curve.set_stop_v_max(True, self.e_max)
+        curve.set_stop_at_delay_v_max(GAMRY_GITT_STOP_DELAY_PTS)
+        curve.set_stop_v_min(True, self.e_min)
+        curve.set_stop_at_delay_v_min(GAMRY_GITT_STOP_DELAY_PTS)
+        t_run = time.perf_counter()
+        curve.run(True)
+        return curve, signal, t_run
+
+    def _after_curve_ended(self, pstat, curve, step):
+        """Ran its full length: carry on at 0 A. Ended early: the potential stop --
+        DAC to 0 A, cell OFF now, and the loop told."""
+        data = curve.acq_data()
+        n = 0 if data is None else len(data)
+        if self.expected is not None and n >= self.expected - 1:
+            from spec_echem.gitt import GittStep
+            return GittStep(step.index, 0.0, 0.0, step.role)
+        try:
+            self.e_stop_v = float(data["vf"][-1]) if n else float("nan")
+        except Exception:  # noqa: BLE001 -- the cell goes off whatever this says
+            pass
+        self.e_stopped = True
+        try:
+            pstat.set_signal_array2(self._zero_signal)
+            pstat.init_signal()
+        finally:
+            pstat.set_cell(False)
+        get_run_logger().warning(
+            "Gamry GITT: the instrument ended step %d at %d of %d points, last E "
+            "%+.4f V (window %+.3f to %+.3f V) -- the potential stop. Cell switched "
+            "OFF.", step.index, n, self.expected, self.e_stop_v, self.e_min,
+            self.e_max)
+        return None
 
 
 class ToolkitPotentiostat(Potentiostat):
@@ -2706,7 +2922,42 @@ class ToolkitPotentiostat(Potentiostat):
             return
         runner.finish()
         self._pitt_points = list(runner.points)
+        self._gitt_pulses = dict(getattr(runner, "gitt_pulses", {}))
         self._device_lost = self._device_lost or runner.lost
+
+    # --- GITT: the PITT runner in galvanostatic mode ---------------------------
+    supports_gitt = True
+
+    def gitt_prepare(self, step):
+        """Start the Gamry thread for a GITT: galvanostatic, 0 A, cell OFF."""
+        self._pitt_points = []
+        self._gitt_pulses = {}
+        self._pitt_runner = _GamryGittRunner(self.settings)
+        self._pitt_runner.start(step)
+        get_run_logger().info(
+            "Gamry GITT on %s: galvanostatic, pulse %+.4g A, current range %s, one "
+            "curve per step at %.3f s, potential stop %+.3f to %+.3f V in the "
+            "instrument; cell still open.",
+            self.settings.get("gamry_section") or "the default Gamry",
+            self._pitt_runner.pulse_a, self._pitt_runner.how, self._pitt_runner.period,
+            self._pitt_runner.e_min, self._pitt_runner.e_max)
+
+    def gitt_next(self, step):
+        """The next titration step: this curve stopped, the next one started."""
+        self._pitt_runner.next_step(step)
+
+    def gitt_e_stopped(self):
+        """True once the instrument's potential stop has ended a curve."""
+        runner = self._pitt_runner
+        return bool(runner is not None and getattr(runner, "e_stopped", False))
+
+    def gitt_pulse_actual(self):
+        """{step index: the pulse as applied, s} -- whole sample periods, timed by
+        the instrument."""
+        runner = self._pitt_runner
+        if runner is not None:
+            return dict(getattr(runner, "gitt_pulses", {}))
+        return dict(getattr(self, "_gitt_pulses", {}) or {})
 
     def pitt_hardware_echem(self):
         """Every point the curves recorded, as (step, t_in_step, t_since_cell_on,
