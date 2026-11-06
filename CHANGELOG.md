@@ -31,6 +31,8 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   - Results tab: a **show line** box next to the wavelength. Unticked, the red wavelength
     line is left off the spectra plot and off its exported figure; the wavelength is
     still followed.
+    The Export window has the same choice as a **Wavelength line** box, so the line can
+    be dropped from a figure without closing it.
   - Every **Save figure…** button under a plot is now **Export…**. The same dialog always
     offered the data as CSV and Igor, and users read the old label as "picture only".
   - Analysis tab: a **Cursor (read x, y)** box under the trace plot. It marks the data
