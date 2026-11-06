@@ -25,7 +25,8 @@ from spec_echem.analysis import MODELS, fit_band
 from spec_echem.data import DATA_TYPE_CV, DATA_TYPE_DOPING
 from gui.segment_labels import prepare_segment_combo, segment_display
 from gui.widgets.plot_canvas import MplCanvas
-from gui.widgets.figure_dialog import open_figure_dialog, PlotToolbar
+from gui.widgets.figure_dialog import (EXPORT_LABEL, EXPORT_TIP, open_figure_dialog,
+                                       PlotToolbar)
 from gui.forms import form_layout
 
 # Which tau quantities each model actually has. A single generic "tau" curve hid the
@@ -206,10 +207,8 @@ class BandTab(QWidget):
         # here -- it goes through the preview, which renders at a chosen size rather
         # than at whatever this widget happens to be.
         self.toolbar = PlotToolbar(self.canvas, plot_box)
-        self.save_fig_btn = QPushButton("Save figure…")
-        self.save_fig_btn.setToolTip(
-            "Preview this plot at a fixed publication size and save it,\n"
-            "with the numbers behind it as a CSV.")
+        self.save_fig_btn = QPushButton(EXPORT_LABEL)
+        self.save_fig_btn.setToolTip(EXPORT_TIP)
         self.save_fig_btn.clicked.connect(self.on_save_figure)
         plot_layout.addWidget(self.toolbar)
         plot_layout.addWidget(self.canvas)
@@ -275,7 +274,7 @@ class BandTab(QWidget):
         # the status line explains it, but a saved figure that will be stamped
         # should carry its own explanation.
         open_figure_dialog(self, self.canvas, self.win, self._figure_basename(),
-                           "Save band figure", note=self._sign_note or None)
+                           "Export band", note=self._sign_note or None)
 
     def _figure_basename(self):
         """Names WHICH plot it is. The two look nothing alike and answer different

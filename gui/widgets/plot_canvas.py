@@ -315,6 +315,119 @@ class MplCanvas(FigureCanvasQTAgg):
             frame = frame[(wl >= lo) & (wl <= hi)]
         return frame
 
+    # --- data cursor --------------------------------------------------------
+    #
+    # Requested 2026-11-06 for the Analysis tab's traces vs time: toggle a cursor
+    # that reads off x and y as the mouse moves. It SNAPS to the nearest plotted
+    # point, so the numbers are data rather than the mouse's position. Drawn only on
+    # this widget: an export re-runs the recorded draw into a fresh figure, so the
+    # cursor can never end up in a saved figure or its CSV.
+
+    DATA_PREFERENCE_PX = 12.0
+
+    def set_readout(self, on):
+        """Turn the data cursor on or off."""
+        on = bool(on)
+        if on and getattr(self, "_readout_cids", None) is None:
+            self._readout_cids = (
+                self.mpl_connect("motion_notify_event", self._on_readout_motion),
+                self.mpl_connect("figure_leave_event", lambda _e: self._clear_readout()),
+            )
+        elif not on and getattr(self, "_readout_cids", None) is not None:
+            for cid in self._readout_cids:
+                self.mpl_disconnect(cid)
+            self._readout_cids = None
+            self._clear_readout()
+
+    def readout_on(self):
+        return getattr(self, "_readout_cids", None) is not None
+
+    def _clear_readout(self):
+        """Remove the cursor's dot and label, if they are still on this figure."""
+        removed = False
+        for name in ("_readout_dot", "_readout_text"):
+            artist = getattr(self, name, None)
+            setattr(self, name, None)
+            if artist is not None and artist.figure is self.fig:
+                artist.remove()
+                removed = True
+        self._readout_key = None
+        if removed:
+            self.draw_idle()
+
+    def nearest_point(self, ax, px, py):
+        """(x, y) of the plotted point under the pixel (px, py) on `ax`, or None.
+
+        Follows the mouse's x, as a cursor on a trace vs time should: on each line,
+        the point nearest in x; of those, the one nearest the mouse vertically.
+        Nearest in a straight line was tried first and jumped back to an earlier
+        time whenever the mouse sat below a steep rise. Measured in pixels; only
+        lines in data coordinates count, so an axhline at zero is not data.
+
+        Measured points beat a drawn curve: a line with no markers (a fit) only
+        wins when it is clearly closer, by DATA_PREFERENCE_PX. Otherwise a fit drawn
+        through the data read out the model, not the measurement.
+        """
+        best = None
+        for line in ax.get_lines():
+            if line is getattr(self, "_readout_dot", None):
+                continue
+            if line.get_transform() is not ax.transData:
+                continue
+            x = np.asarray(line.get_xdata(), dtype=float)
+            y = np.asarray(line.get_ydata(), dtype=float)
+            ok = np.isfinite(x) & np.isfinite(y)
+            if not ok.any():
+                continue
+            x, y = x[ok], y[ok]
+            pts = ax.transData.transform(np.column_stack([x, y]))
+            k = int(np.argmin(np.abs(pts[:, 0] - px)))
+            dy = abs(float(pts[k, 1]) - py)
+            if line.get_marker() in (None, "None", "none", ""):
+                dy += self.DATA_PREFERENCE_PX
+            if best is None or dy < best[0]:
+                best = (dy, float(x[k]), float(y[k]))
+        return None if best is None else (best[1], best[2])
+
+    def _on_readout_motion(self, event):
+        ax = event.inaxes
+        if self._rendering or ax is None or ax.figure is not self.fig:
+            self._clear_readout()
+            return
+        hit = self.nearest_point(ax, event.x, event.y)
+        if hit is None:
+            self._clear_readout()
+            return
+        x, y = hit
+        if getattr(self, "_readout_key", None) == (id(ax), x, y):
+            return          # same point: skip the redraw
+        dot, text = getattr(self, "_readout_dot", None), getattr(self, "_readout_text", None)
+        if dot is None or dot.axes is not ax or dot.figure is not self.fig:
+            self._clear_readout()
+            (dot,) = ax.plot([x], [y], "o", ms=7, mfc="none", mec="#d62728",
+                             mew=1.5, zorder=10)
+            text = ax.annotate("", xy=(x, y), xytext=(8, 8),
+                               textcoords="offset points", fontsize=8, zorder=11,
+                               bbox=dict(boxstyle="round,pad=0.25", fc="white",
+                                         ec="#d62728", alpha=0.9))
+            self._readout_dot, self._readout_text = dot, text
+        dot.set_data([x], [y])
+        # Shared x: the residual panel has no x-label of its own.
+        xlabel = ax.get_xlabel() or self.ax.get_xlabel() or "x"
+        ylabel = ax.get_ylabel() or "y"
+        text.set_text(f"{xlabel}: {x:.6g}\n{ylabel}: {y:.6g}")
+        text.xy = (x, y)
+        # Label on the side away from the nearer edge,
+        # and below the point in the upper half, so it stays inside the axes.
+        # In axes fractions, so a log axis is judged as it is drawn.
+        fx, fy = ax.transAxes.inverted().transform(ax.transData.transform((x, y)))
+        right, upper = fx > 0.6, fy > 0.5
+        text.set_position((-8 if right else 8, -8 if upper else 8))
+        text.set_ha("right" if right else "left")
+        text.set_va("top" if upper else "bottom")
+        self._readout_key = (id(ax), x, y)
+        self.draw_idle()
+
     def draw_idle(self, *args, **kwargs):
         # Nothing to repaint while pointed at an offscreen figure: the widget is not
         # what is being drawn. Every draw method ends with this call.

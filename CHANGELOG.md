@@ -27,6 +27,18 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **Usability changes from the first sessions with students (2026-11-06).**
+  - Results tab: a **show line** box next to the wavelength. Unticked, the red wavelength
+    line is left off the spectra plot and off its exported figure; the wavelength is
+    still followed.
+  - Every **Save figure…** button under a plot is now **Export…**. The same dialog always
+    offered the data as CSV and Igor, and users read the old label as "picture only".
+  - Analysis tab: a **Cursor (read x, y)** box under the trace plot. It marks the data
+    point at the mouse's time and shows its time and value. Measured points win over
+    the fit curve drawn through them. Drawn on screen only, never exported.
+  - Parameters tab: the **run time** of everything selected, at the top, updated as
+    values change (a range when a PITT or GITT step can end early; setup between
+    segments not counted).
 - **GITT, a galvanostatic titration beside the PITT (2026-10-29).** Current pulses, each
   followed by a relaxation at 0 A with the cell left on. It runs after the PITT, on the
   Gamry or the Autolab, through the PITT's loop, with one HDF5 group per step in

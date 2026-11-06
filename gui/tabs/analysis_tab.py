@@ -31,7 +31,8 @@ from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
 from spec_echem.build_info import build_id
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
-from gui.widgets.figure_dialog import open_figure_dialog, save_figure
+from gui.widgets.figure_dialog import (EXPORT_LABEL, EXPORT_TIP, open_figure_dialog,
+                                       save_figure)
 from gui.segment_labels import (prepare_segment_combo, segment_display,
                                 DROPDOWN_DECIMALS)
 from gui.forms import form_layout
@@ -277,7 +278,7 @@ class AnalysisTab(QWidget):
         # The ONE save-all in the application, and it is bounded: the three traces of
         # the segment on screen plus the ladder. Tab 4 deliberately has none, because
         # 4 views x N segments has no obviously right definition of "all".
-        self.save_all_btn = QPushButton("Save all figures…")
+        self.save_all_btn = QPushButton("Export all figures…")
         self.save_all_btn.setToolTip(
             "Write this segment's three fits and the ladder to the run's\n"
             "figures folder, each with its data as a CSV.")
@@ -353,7 +354,16 @@ class AnalysisTab(QWidget):
         fit_layout = QVBoxLayout(fit_box)
         fit_layout.setContentsMargins(0, 0, 0, 0)
         fit_layout.addWidget(self.fit_canvas)
-        fit_layout.addLayout(self._save_row(self.fit_canvas, "fit", "Save fit figure"))
+        fit_row = self._save_row(self.fit_canvas, "fit", "Export fit")
+        # Requested 2026-11-06: read values off the trace. Off by default; it is
+        # drawn on screen only and never reaches an export.
+        self.cursor_check = QCheckBox("Cursor (read x, y)")
+        self.cursor_check.setToolTip(
+            "Mark the data point nearest the mouse and show its time and value.\n"
+            "On screen only: it is never part of an exported figure or its data.")
+        self.cursor_check.toggled.connect(self.fit_canvas.set_readout)
+        fit_row.insertWidget(0, self.cursor_check)
+        fit_layout.addLayout(fit_row)
         split.addWidget(fit_box)
 
         plot_box = QWidget()
@@ -442,7 +452,7 @@ class AnalysisTab(QWidget):
                                        ylabel="mean relaxation time (s)")
         plot_layout.addWidget(self.ladder_canvas)
         plot_layout.addLayout(
-            self._save_row(self.ladder_canvas, "ladder", "Save ladder figure"))
+            self._save_row(self.ladder_canvas, "ladder", "Export ladder"))
         split.addWidget(plot_box)
 
         layout.addWidget(split, stretch=1)
@@ -542,10 +552,8 @@ class AnalysisTab(QWidget):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.addStretch()
-        button = QPushButton("Save figure…")
-        button.setToolTip(
-            "Preview this plot at a fixed publication size and save it,\n"
-            "with the numbers behind it as a CSV.")
+        button = QPushButton(EXPORT_LABEL)
+        button.setToolTip(EXPORT_TIP)
         button.clicked.connect(
             lambda: open_figure_dialog(self, canvas, self.win,
                                        self._figure_basename(basename), title))
