@@ -28,10 +28,10 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 ### Added
 
 - **Usability changes from the first sessions with students (2026-11-06).**
-  - Results tab: a **show line** box next to the wavelength. Unticked, the red wavelength
-    line is left off the spectra plot and off its exported figure; the wavelength is
+  - Results tab: a **show cursor** box next to the wavelength. Unticked, the red wavelength
+    cursor is left off the spectra plot and off its exported figure; the wavelength is
     still followed.
-    The Export window has the same choice as a **Wavelength line** box, so the line can
+    The Export window has the same choice as a **Cursor** box, so the cursor can
     be dropped from a figure without closing it.
   - Every **Save figure…** button under a plot is now **Export…**. The same dialog always
     offered the data as CSV and Igor, and users read the old label as "picture only".
