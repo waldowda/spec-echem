@@ -41,6 +41,10 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   - Saved file names say which fit they hold: an Analysis absorbance fit names its
     wavelength (`Doping0_absorbance_850nm_exp`), and band figures and band CSVs name
     their wavelength range and model (`Doping0_band_831-931nm_biexp`).
+  - Band Fits ladder: a potential where no fit passed review is still drawn. The
+    axis was scaled to the passed fits only, so a biexp ladder with 3 of 2160 passing
+    showed nothing at 4 of 6 dedoping potentials. Such a rung now counts in the
+    scaling through the median of its flagged values.
   - Parameters tab: the **run time** of everything selected, at the top, updated as
     values change (a range when a PITT or GITT step can end early; setup between
     segments not counted).

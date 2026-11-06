@@ -939,3 +939,32 @@ def test_rendering_the_ladder_for_export_does_not_touch_the_status_line(window):
 
     assert tab.status.text() == before
     assert tab.status.text().count("Not shown") == 1
+
+
+def test_a_potential_with_no_passed_fit_still_shows_on_the_ladder(window):
+    """Seen 2026-11-06: a biexp ladder where 3 of 2160 wavelengths passed was scaled
+    to those 3, and 4 of 6 dedoping potentials showed nothing at all."""
+    import numpy as np
+    import pandas as pd
+    from matplotlib.figure import Figure
+
+    class _Band:
+        def __init__(self, taus, ok):
+            self._frame = pd.DataFrame({"tau": taus, "ok": ok})
+
+        def table(self):
+            return self._frame.copy()
+
+    passing = _Band([1.00, 1.05, 1.10], [True, True, True])
+    flagged = _Band([2.0, 2.1, 2.2, 5000.0], [False] * 4)   # one wild fit
+    entries = [("Dedoping 0", 0.4, "dedoping", passing),
+               ("Dedoping 1", 0.5, "dedoping", flagged)]
+    tab = window.band_tab
+    tab.log_check.setChecked(False)
+    ax = Figure().subplots()
+    offscreen = tab._strip(ax, entries, np.array([0.4, 0.5]), "exp")
+
+    lo, hi = ax.get_ylim()
+    assert lo < 1.0 and hi > 2.2          # the flagged rung is on the axes...
+    assert hi < 100.0                     # ...and the wild fit did not set the scale
+    assert offscreen == 1                 # it is counted instead
