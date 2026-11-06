@@ -1142,3 +1142,46 @@ def test_a_real_band_beside_a_small_gap_is_still_found():
     keep &= ~((wl >= 700.0) & (wl <= 701.0))                       # far side of the band
     chosen = wl[_band_extremum(np.where(keep, delta, -np.inf), keep)]
     assert abs(chosen - 780.0) < 5.0, chosen
+
+
+# 2026-11-06: biexp on single-exponential data returned tau1 = tau2 with huge
+# cancelling amplitudes, flagged only as "uncertainty too large".
+
+def test_biexp_on_single_exponential_data_says_try_exp():
+    from spec_echem.analysis import fit_transient
+    rng = np.random.default_rng(3)
+    t = np.arange(0.0, 60.0, 0.1)
+    y = 0.51 - 0.42 * np.exp(-t / 0.75) + rng.normal(0, 0.002, t.size)
+    fit = fit_transient(t, y, "biexp")
+    assert fit.needs_review
+    assert "single-exponential" in fit.reason and "try exp" in fit.reason
+    assert "carries" in fit.reason          # this data takes the tiny-component branch
+    assert fit.params is not None          # the numbers are still there to look at
+    assert fit_transient(t, y, "exp").ok
+
+
+def test_two_separate_taus_are_not_called_single_exponential():
+    from spec_echem.analysis import fit_transient
+    t = np.arange(0.0, 60.0, 0.1)
+    y = 0.5 - 0.3 * np.exp(-t / 0.8) - 0.2 * np.exp(-t / 8.0)
+    fit = fit_transient(t, y, "biexp")
+    assert fit.ok, fit.reason
+
+
+def test_biexp_with_equal_taus_says_try_exp():
+    """The branch the real film took: both taus the same, amplitudes cancelling."""
+    import spec_echem.analysis as an
+    t = np.arange(0.0, 60.0, 0.1)
+    y = 0.51 - 0.42 * np.exp(-t / 0.75)
+    real = an.curve_fit
+    # Hand back the degenerate answer seen on the bench, with its covariance.
+    def fake(*a, **k):
+        p = np.array([0.5133, -41.6464, 1.158, 41.2314, 1.1628])
+        return p, np.diag([1e-8, 4.3e5, 24.9, 4.3e5, 25.2]) ** 2
+    an.curve_fit = fake
+    try:
+        fit = an.fit_transient(t, y, "biexp")
+    finally:
+        an.curve_fit = real
+    assert fit.needs_review
+    assert "the two taus are the same" in fit.reason and "try exp" in fit.reason
