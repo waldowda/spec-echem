@@ -323,6 +323,11 @@ def test_save_all_writes_the_traces_and_the_ladder_with_their_data(app, tmp_path
     assert any(f.startswith("ladder_") for f in figures), figures
     assert not any("Doping" in f and "ladder" in f for f in figures), figures
     assert any("absorbance" in f for f in figures)
+    # The absorbance fit names the wavelength it was fitted at (2026-11-06): two fits
+    # of one segment at different wavelengths must not share a name.
+    wl_fit = tab._fit_wl["Doping 0"]
+    assert f"Doping0_absorbance_{wl_fit:.0f}nm_" in " ".join(figures), figures
+    assert not any("current" in f and "nm" in f for f in figures), figures
     # Every figure has its numbers beside it, under the same stem.
     for png in (run / "figures").glob("*.png"):
         assert png.with_suffix(".csv").exists(), f"{png.name} has no CSV"

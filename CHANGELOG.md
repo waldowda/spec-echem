@@ -38,6 +38,9 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   - Analysis tab: a **Cursor (read x, y)** box under the trace plot. It marks the data
     point at the mouse's time and shows its time and value. Measured points win over
     the fit curve drawn through them. Drawn on screen only, never exported.
+  - Saved file names say which fit they hold: an Analysis absorbance fit names its
+    wavelength (`Doping0_absorbance_850nm_exp`), and band figures and band CSVs name
+    their wavelength range and model (`Doping0_band_831-931nm_biexp`).
   - Parameters tab: the **run time** of everything selected, at the top, updated as
     values change (a range when a PITT or GITT step can end early; setup between
     segments not counted).

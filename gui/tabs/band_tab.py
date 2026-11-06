@@ -280,11 +280,20 @@ class BandTab(QWidget):
         """Names WHICH plot it is. The two look nothing alike and answer different
         questions, so a folder holding both must not call them the same thing."""
         if self._showing == "ladder" and self._ladder:
-            return f"band_ladder_{self._ladder[0][3].model}"
+            band = self._ladder[0][3]
+            return f"band_ladder{self._span_text(band)}_{band.model}"
         model = (self._band.model if self._band is not None
                  else self.model_combo.currentData())
         label = (self._shown_label or "band").replace(" ", "")
-        return f"{label}_band_{model}"
+        return f"{label}_band{self._span_text(self._band)}_{model}"
+
+    @staticmethod
+    def _span_text(band):
+        """The fitted wavelength range for a file name, e.g. "_831-931nm". Two bands
+        of one segment are different results and must not share a name (2026-11-06)."""
+        if band is None or not len(band.wavelengths):
+            return ""
+        return f"_{band.wavelengths.min():.0f}-{band.wavelengths.max():.0f}nm"
 
     def _remember_segment(self, *_):
         """Hold the chosen segment OUTSIDE the widget.
@@ -951,8 +960,8 @@ class BandTab(QWidget):
             return
         # By what is SHOWING: after Fit all, selecting one segment puts that
         # segment's table here, and naming it "all segments" would be false.
-        base = ("band_all_segments" if self._showing == "ladder"
-                else f"{(self._shown_label or 'band').replace(' ', '')}_band")
+        base = (self._figure_basename().replace("band_ladder", "band_all_segments")
+                if self._showing == "ladder" else self._figure_basename())
         path, _ = QFileDialog.getSaveFileName(
             self, "Save band fits", f"{base}.csv", "CSV (*.csv)")
         if not path:
