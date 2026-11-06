@@ -893,6 +893,20 @@ class BandTab(QWidget):
                     band.table()["ok"].to_numpy(dtype=bool)]
                  for name, _l in columns for _a, _b, _c, band in entries
                  if name in band.table()] or [np.array([np.nan])])
+            # A rung with NO passed fit still gets onto the axes, through the
+            # median of its rejected values (2026-11-06): scaled to the passed fits
+            # alone, a biexp ladder where 3 of 2160 passed drew 4 of 6 dedoping
+            # potentials with nothing on them. The median, not every value, so one
+            # wild fit still cannot flatten the plot.
+            for _a, _b, _c, band in entries:
+                frame = band.table()
+                if frame["ok"].to_numpy(dtype=bool).any():
+                    continue
+                for name, _l in columns:
+                    if name in frame:
+                        y = frame[name].to_numpy(dtype=float)
+                        if np.isfinite(y).any():
+                            passed = np.append(passed, np.nanmedian(y))
             passed = passed[np.isfinite(passed)]
             if ax.get_yscale() == "log":
                 # Multiplicative padding, and only over POSITIVE values: on a log
