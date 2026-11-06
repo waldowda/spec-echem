@@ -49,6 +49,21 @@ FIT_MAX_TAU_SPANS = 10.0
 # police marginal fits. A flagged fit is still shown with its numbers.
 FIT_MIN_TAU_SAMPLES = 1.0
 
+# A biexp whose two taus come out within this ratio has not found two processes.
+# Seen 2026-11-06 on a real film: every wavelength of a band returned tau1 = tau2
+# (1.158 and 1.163 s) with amplitudes of -41.6 and +41.2 cancelling to the 0.42
+# that actually changed. Exp fitted the same data cleanly and stretched settled at
+# beta = 1.00. The fits were flagged only as "uncertainty too large", which does not
+# tell a student what to do next.
+BIEXP_SAME_TAU_RATIO = 1.2
+
+# The other way a biexp says "one process": a component carrying almost none of the
+# change, with a tau it cannot pin down (on synthetic single-exponential data, 0.1-1%
+# of the amplitude and tau = 4-207 s). Only NAMED when the fit already failed the
+# uncertainty check -- a small slow component that IS well determined is real
+# physics (a slow leak into the bipolaron) and still passes.
+BIEXP_TINY_FRACTION = 0.05
+
 
 # --- the models -------------------------------------------------------------
 # The same three OECT_processing's banded_fits offers, so a fit done here and one done in Jupyter
@@ -769,7 +784,21 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
             result,
             f"mean relaxation time ({mean_tau:.3g} s) exceeds "
             f"{FIT_MAX_TAU_SPANS:g}x the {span:.3g} s window - not measurable from it")
+    if model == "biexp":
+        fast, slow = float(result.params[2]), float(result.params[4])
+        if fast > 0 and slow / fast < BIEXP_SAME_TAU_RATIO:
+            return _rejected(
+                result, f"the two taus are the same ({fast:.4g} and {slow:.4g} s): "
+                        f"the data looks single-exponential - try exp")
     if tau_sd > FIT_SD_REJECT_FRACTION * abs(tau):
+        if model == "biexp":
+            b1, b2 = abs(float(result.params[1])), abs(float(result.params[3]))
+            share = min(b1, b2) / (b1 + b2) if b1 + b2 > 0 else 0.0
+            if share < BIEXP_TINY_FRACTION:
+                return _rejected(
+                    result, f"one component carries {100 * share:.1f}% of the change "
+                            f"(tau = {tau:.4g} +/- {tau_sd:.4g}): the data looks "
+                            f"single-exponential - try exp")
         return _rejected(
             result, f"uncertainty too large (tau = {tau:.4g} +/- {tau_sd:.4g})")
     return result

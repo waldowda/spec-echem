@@ -45,6 +45,11 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
     axis was scaled to the passed fits only, so a biexp ladder with 3 of 2160 passing
     showed nothing at 4 of 6 dedoping potentials. Such a rung now counts in the
     scaling through the median of its flagged values.
+  - A biexp fit that found only one process now says so: "the two taus are the
+    same ... the data looks single-exponential - try exp", or, when one component
+    carries under 5% of the change and its tau is undetermined, "one component
+    carries N% of the change ... try exp". Before, both read only "uncertainty too
+    large". A small slow component that is well determined still passes.
   - Parameters tab: the **run time** of everything selected, at the top, updated as
     values change (a range when a PITT or GITT step can end early; setup between
     segments not counted).
