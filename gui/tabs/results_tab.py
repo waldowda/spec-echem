@@ -147,11 +147,11 @@ class ResultsTab(QWidget):
         # Requested 2026-11-06: the red line is drawn INTO the plot, so a saved figure
         # carried it. Off hides it on screen and in the export; the wavelength itself
         # is unchanged and still drives the other views.
-        self.show_wl_line = QCheckBox("show line")
+        self.show_wl_line = QCheckBox("show cursor")
         self.show_wl_line.setChecked(True)
         self.show_wl_line.setToolTip(
-            "Draw the red line at the followed wavelength. Untick it to leave the\n"
-            "line out of an exported figure; the wavelength is still followed.")
+            "Draw the red cursor at the followed wavelength. Untick it to leave the\n"
+            "cursor out of an exported figure; the wavelength is still followed.")
         self.show_wl_line.toggled.connect(self.on_segment_changed)
         view_row.addWidget(self.show_wl_line)
 
