@@ -893,8 +893,8 @@ def test_the_saved_name_follows_the_plot_not_the_controls(window, monkeypatch):
     tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 2"))
     tab.model_combo.setCurrentIndex(tab.model_combo.findData("biexp"))
 
-    assert tab._figure_basename() == "Doping0_band_exp"
-    assert _suggested_csv_name(tab, monkeypatch) == "Doping0_band.csv"
+    assert tab._figure_basename() == "Doping0_band_480-540nm_exp"
+    assert _suggested_csv_name(tab, monkeypatch) == "Doping0_band_480-540nm_exp.csv"
 
 
 def test_a_stored_fit_is_titled_with_the_window_it_was_fitted_over(window):
@@ -912,11 +912,11 @@ def test_a_stored_fit_is_titled_with_the_window_it_was_fitted_over(window):
 def test_one_segment_shown_after_fit_all_is_not_saved_as_all_segments(window, monkeypatch):
     tab = _ready(window)
     tab.on_fit_all()
-    assert _suggested_csv_name(tab, monkeypatch) == "band_all_segments.csv"
+    assert _suggested_csv_name(tab, monkeypatch) == "band_all_segments_480-540nm_exp.csv"
 
     tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 1"))
     assert tab._showing == "one"
-    assert _suggested_csv_name(tab, monkeypatch) == "Doping1_band.csv"
+    assert _suggested_csv_name(tab, monkeypatch) == "Doping1_band_480-540nm_exp.csv"
 
 
 def test_rendering_the_ladder_for_export_does_not_touch_the_status_line(window):

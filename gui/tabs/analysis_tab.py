@@ -575,8 +575,15 @@ class AnalysisTab(QWidget):
         model = self.model_combo.currentData()
         if suffix == "ladder":
             return f"ladder_{model}"
-        label = (self._current_label() or "plot").replace(" ", "")
-        return f"{label}_{suffix}_{model}"
+        raw = self._current_label()
+        label = (raw or "plot").replace(" ", "")
+        # The wavelength the absorbance was fitted AT: two fits of one segment at
+        # 520 and 800 nm are different results and must not share a name (2026-11-06).
+        wl = self._fit_wl.get(raw) if suffix == "absorbance" else None
+        if suffix == "absorbance" and wl is None:
+            wl = self._wavelength
+        at = f"_{wl:.0f}nm" if wl is not None else ""
+        return f"{label}_{suffix}{at}_{model}"
 
     def _segment_display(self, label, decimals=3):
         """'Doping 5  (+0.700 V)'. The ladder plots against potential, so the segment
