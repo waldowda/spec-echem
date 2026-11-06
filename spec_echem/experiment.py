@@ -17,8 +17,8 @@ from spec_echem.data import (
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
     DATA_TYPE_GITT, DATA_TYPE_PITT,
 )
-from spec_echem.gitt import gitt_plan
-from spec_echem.pitt import PittRecord, pitt_plan
+from spec_echem.gitt import gitt_duration_bounds, gitt_plan
+from spec_echem.pitt import PittRecord, pitt_duration_bounds, pitt_plan
 from spec_echem.logging_config import get_run_logger
 
 
@@ -248,6 +248,27 @@ def build_segments(settings):
                                 chrono_delta, trigger))
 
     return segments
+
+
+def run_duration_bounds(settings):
+    """(shortest, longest, n_segments): the measuring time of the whole run, in s.
+
+    Requested 2026-11-06, so a run can be planned. A CV or a chrono hold lasts
+    exactly its spectra; a PITT or GITT has a range, because a step may end early.
+    Measuring time only: the setup between segments is not counted.
+    """
+    lo = hi = 0.0
+    segments = build_segments(settings)
+    for seg in segments:
+        if seg.data_type == DATA_TYPE_PITT:
+            a, b = pitt_duration_bounds(settings)
+        elif seg.data_type == DATA_TYPE_GITT:
+            a, b = gitt_duration_bounds(settings)
+        else:
+            a = b = max(seg.num_points - 1, 0) * seg.delta_time
+        lo += a
+        hi += b
+    return lo, hi, len(segments)
 
 
 def pitt_step_segments(settings):

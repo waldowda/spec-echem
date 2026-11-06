@@ -34,7 +34,7 @@ from spec_echem.experiment import Segment
 from spec_echem.gamry_data import (read_cv, read_chrono, POTENTIAL_COL,
                                    CURRENT_COL)
 from gui.widgets.plot_canvas import MplCanvas
-from gui.widgets.figure_dialog import open_figure_dialog
+from gui.widgets.figure_dialog import EXPORT_LABEL, EXPORT_TIP, open_figure_dialog
 from gui.segment_labels import (prepare_segment_combo, segment_display,
                                 DROPDOWN_DECIMALS)
 from gui.forms import form_layout
@@ -144,6 +144,16 @@ class ResultsTab(QWidget):
         view_row.addWidget(self.at_label)
         view_row.addWidget(self.analysis_wl)
         view_row.addWidget(self.wl_auto)
+        # Requested 2026-11-06: the red line is drawn INTO the plot, so a saved figure
+        # carried it. Off hides it on screen and in the export; the wavelength itself
+        # is unchanged and still drives the other views.
+        self.show_wl_line = QCheckBox("show line")
+        self.show_wl_line.setChecked(True)
+        self.show_wl_line.setToolTip(
+            "Draw the red line at the followed wavelength. Untick it to leave the\n"
+            "line out of an exported figure; the wavelength is still followed.")
+        self.show_wl_line.toggled.connect(self.on_segment_changed)
+        view_row.addWidget(self.show_wl_line)
 
         # DOS-only controls. Outside the doping range the current is double-layer
         # charging, not the distribution being measured -- on one CV, 42% of every
@@ -206,7 +216,7 @@ class ResultsTab(QWidget):
             "Modulation views are sampling.")
         abs_layout.addWidget(self.canvas)
         abs_layout.addLayout(self._save_row(
-            self.canvas, "absorbance", "Save absorbance figure"))
+            self.canvas, "absorbance", "Export absorbance"))
         plots.addWidget(abs_box)
 
         echem_box = QGroupBox("Electrochemistry")
@@ -214,7 +224,7 @@ class ResultsTab(QWidget):
         self.echem_canvas = MplCanvas(xlabel="Potential (V)", ylabel="Current (A)")
         echem_layout.addWidget(self.echem_canvas)
         echem_layout.addLayout(self._save_row(
-            self.echem_canvas, "echem", "Save echem figure"))
+            self.echem_canvas, "echem", "Export echem"))
         plots.addWidget(echem_box)
 
         plots.setStretchFactor(0, 1)
@@ -279,10 +289,8 @@ class ResultsTab(QWidget):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.addStretch()
-        button = QPushButton("Save figure…")
-        button.setToolTip(
-            "Preview this plot at a fixed publication size and save it,\n"
-            "with the numbers behind it as a CSV.")
+        button = QPushButton(EXPORT_LABEL)
+        button.setToolTip(EXPORT_TIP)
         button.clicked.connect(
             lambda: open_figure_dialog(self, canvas, self.win,
                                        self._figure_basename(basename), title))
@@ -367,6 +375,9 @@ class ResultsTab(QWidget):
                        getattr(self, "wl_auto", None)):
             if widget is not None:
                 widget.setVisible(view != "dos")
+        # The line is only drawn on the spectra view.
+        if getattr(self, "show_wl_line", None) is not None:
+            self.show_wl_line.setVisible(view == "spectra")
         return view
 
     def on_segment_changed(self, *_):
@@ -392,7 +403,8 @@ class ResultsTab(QWidget):
             self.canvas.show_absorbance(
                 absorb_df, title=self._segment_title(label),
                 wl_min=self.wl_min.value(), wl_max=self.wl_max.value(),
-                mark_wl=self._chosen_wavelength(absorb_df, label),
+                mark_wl=(self._chosen_wavelength(absorb_df, label)
+                         if self.show_wl_line.isChecked() else None),
             )
         self._plot_echem(label)
 

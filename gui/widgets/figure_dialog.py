@@ -79,6 +79,14 @@ def preset_rc(pt):
 DISPLAY_DPI = 100
 
 
+# The button under every plot. Was "Save figure…", which read as "save the picture"
+# only; users missed that the same dialog writes the data as CSV and Igor
+# (reported 2026-11-06). One label and tooltip for every tab.
+EXPORT_LABEL = "Export…"
+EXPORT_TIP = ("Export this plot: the figure (PNG, PDF, SVG or TIFF) at a fixed\n"
+              "publication size, the numbers behind it as a CSV, or an Igor (.itx) file.")
+
+
 class PlotToolbar(NavigationToolbar2QT):
     """Home / pan / zoom only -- used BOTH in this dialog and on the live tabs.
 
@@ -104,7 +112,7 @@ class FigureDialog(QDialog):
     run_id    -- names the run in the provenance line
     """
 
-    def __init__(self, parent, canvas, draw, title="Save figure",
+    def __init__(self, parent, canvas, draw, title="Export",
                  csv=None, basename="figure", out_dir=None, run_id=None,
                  note=None, matrix=None):
         super().__init__(parent)
@@ -393,7 +401,7 @@ def save_figure(canvas, draw, path, preset=DEFAULT_PRESET, dpi=300,
     return written
 
 
-def open_figure_dialog(parent, canvas, win, basename, title="Save figure",
+def open_figure_dialog(parent, canvas, win, basename, title="Export",
                        note=None):
     """Open the preview for whatever `canvas` last drew.
 

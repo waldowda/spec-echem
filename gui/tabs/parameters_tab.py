@@ -6,6 +6,7 @@ round-trips the full settings dict via JSON. The doping/dedoping/prededoping
 potential fields are recorded for reference in External mode but DRIVE the run
 in Python mode — each section header states this once (POTENTIAL_NOTE).
 """
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -25,12 +26,15 @@ from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
 from spec_echem.gitt import (gitt_duration_bounds, gitt_plan, gitt_planned_charge_c,
                              gitt_problems)
 from spec_echem.pitt import pitt_duration_bounds, pitt_plan, pitt_problems
+from spec_echem.experiment import run_duration_bounds
 from gui.tabs.instrument_tab import _next_serial_path
 from gui.forms import form_layout, fill_width, guard_scroll
 
 POTENTIAL_NOTE = "  (Python mode drives these; External = reference)"
 
 
+
+logger = logging.getLogger(__name__)
 
 def _combo_index(combo, value):
     """The item to select for a loaded settings value.
@@ -150,6 +154,14 @@ class ParametersTab(QWidget):
         btn_row.addWidget(self.load_btn)
         btn_row.addWidget(self.save_btn)
         btn_row.addStretch()
+        # Requested 2026-11-06: the whole run's length, so it can be planned. Pinned
+        # here, above the scrolling form, and updated as any value changes.
+        self.total_time_label = QLabel()
+        self.total_time_label.setToolTip(
+            "Time spent measuring, from the steps that are included. A PITT or GITT\n"
+            "step can end early, so those give a range. The setup between\n"
+            "segments is not counted.")
+        btn_row.addWidget(self.total_time_label)
         outer.addLayout(btn_row)
 
         self.lock_note = QLabel(
@@ -444,6 +456,8 @@ class ParametersTab(QWidget):
 
         layout.addStretch()
         self._wire_shared_hints()
+        self._wire_total_time()
+        self._update_total_time()
 
     def _build_pitt_group(self):
         """PITT: an equilibrium potential staircase, after the doping ladder.
@@ -684,6 +698,33 @@ class ParametersTab(QWidget):
         self.collect_into(s)
         return s
 
+    def _wire_total_time(self):
+        """Every field can change the run's length, so every field updates it."""
+        for w in self._widgets.values():
+            if isinstance(w, QCheckBox):
+                w.toggled.connect(self._update_total_time)
+            elif isinstance(w, (QDoubleSpinBox, QSpinBox)):
+                w.valueChanged.connect(self._update_total_time)
+            elif isinstance(w, QComboBox):
+                w.currentIndexChanged.connect(self._update_total_time)
+
+    def _update_total_time(self, *_):
+        try:
+            lo, hi, n = run_duration_bounds(self._pitt_settings())
+        except Exception:  # noqa: BLE001 -- a half-typed value must not break the tab
+            logger.debug("no run-time estimate", exc_info=True)
+            self.total_time_label.setText("")
+            return
+        if n == 0:
+            self.total_time_label.setText("Nothing selected to run")
+            return
+        segs = f"{n} segment{'s' if n != 1 else ''}"
+        if round(lo) == round(hi):
+            when = self._duration_text(hi)
+        else:
+            when = f"{self._duration_text(lo)} to {self._duration_text(hi)}"
+        self.total_time_label.setText(f"<b>Run time: {when}</b> ({segs})")
+
     @staticmethod
     def _duration_text(seconds):
         if seconds < 120:
@@ -881,6 +922,7 @@ class ParametersTab(QWidget):
             folder.setText(datetime.now().strftime("%Y%m%d_"))
         self._update_pitt_estimate()
         self._update_gitt_estimate()
+        self._update_total_time()
 
         # A loaded file can change the mode and the spectrometer settings, so the
         # shared rows and the floor hint are only right if they follow it.
