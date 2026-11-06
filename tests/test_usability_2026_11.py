@@ -235,3 +235,27 @@ def test_the_cursor_reads_the_data_not_the_fit_drawn_through_it():
     canvas.draw()
     px, py = canvas.ax.transData.transform((1.0, 2.05))         # ON the fit
     assert canvas.nearest_point(canvas.ax, px, py) == (1.0, 2.0)
+
+
+def test_the_export_window_can_leave_the_line_out(win, tmp_path):
+    """Seen 2026-11-06: the line was still in an export -- the Results-tab box was
+    not where anyone looked. The Export window now offers it too."""
+    from gui.widgets.figure_dialog import FigureDialog
+    tab = _load_one_segment(win, tmp_path)
+    tab.view_combo.setCurrentIndex(tab.view_combo.findData("spectra"))
+    canvas = tab.canvas
+    dialog = FigureDialog(win, canvas, canvas.last_draw(),
+                          draw_unmarked=canvas.last_draw_unmarked())
+    assert not dialog.line_check.isHidden() and dialog.line_check.isChecked()
+    assert _vlines(dialog._fig)
+    dialog.line_check.setChecked(False)
+    assert _vlines(dialog._fig) == []                  # what Save writes
+    assert canvas._last_draw[2]["mark_wl"] is not None  # the screen is untouched
+    dialog.close()
+
+    # No line on the plot, no box offered.
+    tab.show_wl_line.setChecked(False)
+    assert canvas.last_draw_unmarked() is None
+    dialog = FigureDialog(win, canvas, canvas.last_draw(), draw_unmarked=None)
+    assert dialog.line_check.isHidden()
+    dialog.close()

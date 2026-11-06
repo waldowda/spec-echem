@@ -225,6 +225,17 @@ class MplCanvas(FigureCanvasQTAgg):
             self._last_draw = None
             self._custom_draw = (draw, data)
 
+    def last_draw_unmarked(self):
+        """last_draw() with the red wavelength line left out, or None when the last
+        plot has no such line. Lets the Export window offer the line as a choice."""
+        if self._custom_draw is not None or self._last_draw is None:
+            return None
+        method, args, kwargs = self._last_draw
+        if kwargs.get("mark_wl") is None:
+            return None
+        kwargs = dict(kwargs, mark_wl=None)
+        return lambda: method(self, *args, **kwargs)
+
     def last_draw(self):
         """A zero-argument callable that re-draws the last plot, or None."""
         if self._custom_draw is not None:

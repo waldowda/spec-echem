@@ -114,7 +114,7 @@ class FigureDialog(QDialog):
 
     def __init__(self, parent, canvas, draw, title="Export",
                  csv=None, basename="figure", out_dir=None, run_id=None,
-                 note=None, matrix=None):
+                 note=None, matrix=None, draw_unmarked=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
@@ -128,6 +128,10 @@ class FigureDialog(QDialog):
         # gets it widened by _table(). Both are the SAME numbers, so they cannot
         # disagree about what the figure showed.
         self._matrix = matrix
+        # The same plot without the red wavelength line, when it has one. The box for
+        # it lives HERE as well as on the Results tab: on 2026-11-06 the line was
+        # still in an export because the Results-tab box was not where anyone looked.
+        self._draw_unmarked = draw_unmarked
         self._fig = None
         self._preview = None
         self._build()
@@ -168,6 +172,12 @@ class FigureDialog(QDialog):
         self.provenance_check = QCheckBox("Stamp run and build on the figure")
         self.provenance_check.toggled.connect(self._render)
         opts.addWidget(self.provenance_check)
+        self.line_check = QCheckBox("Wavelength line")
+        self.line_check.setToolTip("Draw the red line at the followed wavelength.")
+        self.line_check.setChecked(True)
+        self.line_check.toggled.connect(self._render)
+        self.line_check.setVisible(self._draw_unmarked is not None)
+        opts.addWidget(self.line_check)
         opts.addStretch()
         layout.addLayout(opts)
 
@@ -219,7 +229,9 @@ class FigureDialog(QDialog):
         # are drawn from the same defaults and must not inherit this.
         with matplotlib.rc_context(preset_rc(pt)):
             self._fig = self._canvas.render_to_figure(
-                self._draw, figsize=size, dpi=DISPLAY_DPI,
+                (self._draw if self._draw_unmarked is None
+                 or self.line_check.isChecked() else self._draw_unmarked),
+                figsize=size, dpi=DISPLAY_DPI,
                 footnote=self.provenance_text())
 
         preview = FigureCanvasQTAgg(self._fig)
@@ -423,6 +435,7 @@ def open_figure_dialog(parent, canvas, win, basename, title="Export",
         csv=(lambda: canvas.last_data()) if frame is not None else None,
         matrix=canvas.last_matrix(),
         basename=basename,
+        draw_unmarked=canvas.last_draw_unmarked(),
         out_dir=(run_folder / "figures") if run_folder is not None else None,
         run_id=run_folder.name if run_folder is not None else None,
         note=note)
