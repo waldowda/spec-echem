@@ -4,11 +4,30 @@ A short, human-readable snapshot of where the project is and what's next, so the
 isn't lost between sessions. Task-level detail lives in [`TODO.md`](TODO.md); design context
 in [`CLAUDE.md`](CLAUDE.md); output formats in [`docs/data-format.md`](docs/data-format.md).
 
-_Last updated: 2026-10-29_
+_Last updated: 2026-11-06_
 
 ---
 
-## GITT — a galvanostatic titration beside the PITT (2026-10-29) — newest
+## First real-sample sessions with students, and what they asked for (2026-11-05/06) — newest
+
+The code ran a full doping/dedoping ladder on a real film with students and a
+colleague (2026-11-05). Their requests, built and pushed on 2026-11-06 (1069 tests):
+- **Usability:** a **show cursor** box for the red wavelength line, also in the Export
+  window; **Export…** on every plot; a data cursor on the Analysis traces; the run's
+  length on the Parameters tab; saved file names that say which segment, trace,
+  wavelength, band and model they hold; film thickness and area in the run log.
+- **Fits:** the band ladder shows every potential, even with no passing fit; a biexp
+  that found one process says "try exp".
+- **Analysis, below the fit plot, now two tabs.** **Kinetics** is the ladder, with a
+  Plot dropdown: mean τ, τ, β, ratio. **Charge** shows charge (raw and leak-corrected),
+  carrier and charge density, bleach vs density, and Q out/Q in per step. Steps not at
+  equilibrium are ringed, never removed. On that run: 70–126 C/cm³, matching the
+  user's hand calculation.
+- **Open:** the charge before the first current sample (~11–12% by extrapolation) is
+  not counted, and it is the user's call (TODO § Charge tab). Rig check of all of
+  the above.
+
+## GITT — a galvanostatic titration beside the PITT (2026-10-29)
 
 **Built, tested on fakes only.** Current pulses, each followed by a relaxation at 0 A
 with the cell left on. It is a separate experiment, ticked on the Parameters tab, that

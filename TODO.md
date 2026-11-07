@@ -675,23 +675,15 @@ not from experience with Igor. Four rounds of bench feedback were needed to get 
 far, each one catching something that looked right in the file and wrong on screen.
 Expect the same of any addition, and check it in Igor rather than by reading.
 
-## macOS console: "has active key-value observers (KVO)" — WATCHING, not fixed
+## macOS console: "has active key-value observers (KVO)" — FIXED 2026-11-06 (`160b9e3`)
 
-Seen on the Mac 2026-10-01, naming `QPushButtonClassWindow`. Qt's Cocoa backend
-reporting that it recreated a widget's native NSWindow; no frame of ours is in it,
-and it does not appear on Win11.
-
-**Hypothesis, unverified:** native-sibling promotion. A matplotlib FigureCanvas is a
-native widget and Qt promotes its siblings to native too, which recreates their
-window. The counts fit — 2 messages on a tab 4 launch, which has exactly 2
-`Save figure…` buttons beside canvases; 1 on the Band Fits tab, which has 1.
-
-**Not acted on, deliberately.** The warning is benign in practice, and the offscreen
-Qt platform falls back to Fusion with no Cocoa, so neither the symptom nor a fix can
-be reproduced in a test. The plausible mitigation is to wrap each save row in its own
-container widget so the button is not a direct sibling of the canvas — about five
-lines, and one launch would show whether the messages stop. The user is gathering more
-evidence first.
+Seen on the Mac from 2026-10-01, naming `QPushButtonClassWindow`. The cause was in the
+Export window: its CSV/Igor buttons (and later its Cursor box) were made visible
+BEFORE being added to a layout. A parentless widget made visible is a top-level
+window; adding it to the layout then recreated that window, and Cocoa logged the
+warning. They are now parented at construction. The user confirmed the message
+stopped. It could not be reproduced here (it needs a Cocoa window observer), so the
+evidence is the user's machine. Rule: give a widget its parent before setVisible().
 
 ## Sanitising the repository history — the user, 2026-09-15, future
 
@@ -830,6 +822,28 @@ sub-floor requests are refused, not clamped.
       "Lower Start, or attenuate the light", and on a rig that saturates at the minimum
       exposure the first half is impossible. Worth detecting that Start is already at the
       floor and saying only the half that can be acted on.
+
+## Charge tab — open items (2026-11-06)
+
+Built 2026-11-06 (`16b5e84`, `f2d02e0`): Analysis → Charge, per doping/dedoping step.
+See `docs/manual.md` § The Charge tab.
+
+- [ ] **The charge before the first current sample is not counted — the user's call.**
+      The first Ei sample lands ~0.08–0.09 s after the cell switches on, at the
+      current's peak. On the 2026-11-05 run, extrapolating each step's exp fit back to
+      switch-on puts the missing head at ~11–12% of Q (0.17 of 1.59 mC at +0.4 V,
+      0.38 of 3.12 mC at +0.9 V). Hand calculations from the same files share it. An
+      overestimate if the true early current is resistance-limited. Options: an
+      "extrapolated head" column; a corrected Q; or the hardware integrator question
+      (PITT section). Same issue as PITT's `first_sample_s`.
+- [ ] **Check on the rig** with a fresh run: every view, the CSV, and a step that
+      genuinely fails the 5 tau or drift check.
+- [ ] **Export all figures** writes the fit traces and the Kinetics ladder, not the
+      Charge plots. Add them if wanted.
+- [ ] **Per-monomer doping level** was offered and not chosen: needs film density and
+      monomer mass as inputs.
+- [ ] On the 2026-11-05 run, doping +0.9 V: exp passes at only 8/180 wavelengths of
+      831–931 nm (tau 17–180 s). Look at that trace.
 
 ## In-GUI analysis — open items (2026-09-14)
 

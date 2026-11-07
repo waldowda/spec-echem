@@ -100,6 +100,11 @@ it. A fit whose SD is a large fraction of τ is flagged rather than printed as a
 
 ### τ vs potential, with a ratio toggle
 
+> **2026-11-06:** the toggle is now a **Plot** dropdown on the **Kinetics** tab:
+> mean τ, raw τ, β (stretched fits) and the ratio, each with a 95% CI. A **Charge**
+> tab sits beside it: charge, carrier and charge density, bleach and Q out/Q in per
+> step, from `spec_echem/charge.py`. Described in `docs/manual.md` § The Charge tab.
+
 - **individual** — τ_abs, τ_current, τ_charge overlaid vs potential
 - **ratio** — τ_abs / τ_current vs potential: does the optical response track charge injection, or
   lag it, and does that change with doping level?
