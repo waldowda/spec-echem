@@ -172,7 +172,7 @@ class FigureDialog(QDialog):
         self.provenance_check = QCheckBox("Stamp run and build on the figure")
         self.provenance_check.toggled.connect(self._render)
         opts.addWidget(self.provenance_check)
-        self.line_check = QCheckBox("Cursor")
+        self.line_check = QCheckBox("Cursor", self)
         self.line_check.setToolTip("Draw the red cursor at the followed wavelength.")
         self.line_check.setChecked(True)
         self.line_check.toggled.connect(self._render)
@@ -182,10 +182,13 @@ class FigureDialog(QDialog):
         layout.addLayout(opts)
 
         buttons = QHBoxLayout()
+        # Parented at construction: setVisible() on a parentless widget makes it a
+        # top-level window, and adding it to the layout then recreates that window --
+        # macOS logged "has active key-value observers (KVO)!" on every Export.
         self.save_btn = QPushButton("Save figure…")
         self.save_btn.clicked.connect(self.on_save_figure)
         buttons.addWidget(self.save_btn)
-        self.csv_btn = QPushButton("Save data (CSV)…")
+        self.csv_btn = QPushButton("Save data (CSV)…", self)
         self.csv_btn.clicked.connect(self.on_save_csv)
         # Hidden, not disabled: a dead control invites a click and explains nothing.
         # A spectra view gets one too. It was masked on the grounds that the block is
@@ -199,7 +202,7 @@ class FigureDialog(QDialog):
         # what the figure showed. Waves plus a Display and nothing else: Igor's
         # formatting is the reason for exporting to it, and generated ModifyGraph
         # calls would be guesses at conventions the user already has.
-        self.itx_btn = QPushButton("Save Igor (.itx)…")
+        self.itx_btn = QPushButton("Save Igor (.itx)…", self)
         self.itx_btn.setToolTip(
             "The data behind this plot as Igor waves, with a Display command so it\n"
             "opens as a graph. Styling is left to Igor.")
