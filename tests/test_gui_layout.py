@@ -3813,3 +3813,14 @@ def test_a_clicked_field_does_not_take_the_scroll_either(window):
         _scroll_up_over(field, notches=3)
         after = field.text() if hasattr(field, "text") else field.currentIndex()
         assert after == before, type(field).__name__
+
+
+def test_the_run_log_names_the_film(ready_window, monkeypatch, tmp_path):
+    """Requested 2026-11-06: thickness and area were only in the metadata JSON."""
+    window, started = ready_window
+    window.settings.update(film_thickness_nm=123.0, film_area_cm2=2.4)
+    monkeypatch.setattr(window, "collect_settings", lambda: dict(window.settings))
+    window.run_tab.on_start()
+    assert started
+    log = next((tmp_path / "20260903_smoke").glob("*_log.log")).read_text()
+    assert "Film: thickness 123.0 nm, immersed area 2.4 cm2" in log
