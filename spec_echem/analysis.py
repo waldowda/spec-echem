@@ -593,6 +593,27 @@ class FitResult:
             return None
         return float(student_t.ppf(0.975, dof) * sd)
 
+    def ci95(self, sd):
+        """Half-width of the 95% interval for a parameter with this SD, on the same
+        Student t as mean_tau_ci95, so every quantity on the ladder is bracketed the
+        same way."""
+        if sd is None or self.params is None:
+            return None
+        dof = self.n - len(self.params)
+        if dof < 1:
+            return None
+        return float(student_t.ppf(0.975, dof) * sd)
+
+    @property
+    def tau_ci95(self):
+        return self.ci95(self.tau_sd)
+
+    @property
+    def beta_ci95(self):
+        if self.beta is None or self.sd is None:
+            return None
+        return self.ci95(float(self.sd[3]))
+
     def residual_split(self, time, values):
         """(noise, systematic, fraction_of_swing) for the residual over the window.
 
