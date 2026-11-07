@@ -115,6 +115,15 @@ TRACES = ("absorbance", "current", "charge")
 # rather than two unrelated series.
 TRACE_COLORS = {"absorbance": "#1f77b4", "current": "#ff7f0e", "charge": "#2ca02c"}
 
+# What the Kinetics plot draws against potential. beta was asked for 2026-11-06; it
+# exists only for a stretched fit, and the plot says so rather than drawing nothing.
+LADDER_QUANTITIES = (
+    ("mean tau", "mean_tau"),
+    ("tau", "tau"),
+    ("beta", "beta"),
+    ("tau(abs) / tau(current)", "ratio"),
+)
+
 TRACE_UNITS = {
     "absorbance": "Absorbance",
     "current": "Current (A)",
@@ -368,12 +377,17 @@ class AnalysisTab(QWidget):
 
         plot_box = QWidget()
         plot_layout = QVBoxLayout(plot_box)
-        self.ratio_check = QCheckBox("show tau(abs) / tau(current) ratio")
-        self.ratio_check.setToolTip(
-            "Ratio uses MEAN relaxation times, not raw tau — for a stretched\n"
-            "exponential the raw tau is not the physical timescale.\n"
-            "A potential with a failed fit leaves a gap rather than being skipped.")
-        self.ratio_check.toggled.connect(self._draw_ladder)
+        self.ladder_quantity = QComboBox()
+        for text, key in LADDER_QUANTITIES:
+            self.ladder_quantity.addItem(text, key)
+        self.ladder_quantity.setToolTip(
+            "What to plot against potential.\n"
+            "mean tau: <tau>, the physical timescale for every model.\n"
+            "tau: the raw fitted tau (for biexp, the slower one).\n"
+            "beta: the stretch, from a stretched fit only.\n"
+            "Ratio uses MEAN relaxation times; a potential with a failed fit leaves\n"
+            "a gap rather than being skipped.")
+        self.ladder_quantity.currentIndexChanged.connect(self._draw_ladder)
 
         toggles = QHBoxLayout()
         toggles.addWidget(QLabel("Show:"))
@@ -402,7 +416,8 @@ class AnalysisTab(QWidget):
         toggles.addSpacing(16)
         toggles.addWidget(self.log_y_check)
         toggles.addSpacing(16)
-        toggles.addWidget(self.ratio_check)
+        toggles.addWidget(QLabel("Plot:"))
+        toggles.addWidget(self.ladder_quantity)
         toggles.addStretch()
         plot_layout.addLayout(toggles)
 
@@ -584,7 +599,7 @@ class AnalysisTab(QWidget):
             # name and overwrote each other (2026-11-06).
             suffix = self._shown_trace()
         if suffix == "ladder":
-            return f"ladder_{model}"
+            return f"ladder_{self.ladder_quantity.currentData()}_{model}"
         raw = self._current_label()
         label = (raw or "plot").replace(" ", "")
         # The wavelength the absorbance was fitted AT: two fits of one segment at
@@ -1163,7 +1178,8 @@ class AnalysisTab(QWidget):
         fitted so far -- so it builds as segments are fitted, not only at the end."""
         # The ratio view draws no rings, so there is nothing for this to hide. Leaving
         # the box live there would be a control that silently does nothing.
-        self.hide_flagged_check.setEnabled(not self.ratio_check.isChecked())
+        quantity = self.ladder_quantity.currentData()
+        self.hide_flagged_check.setEnabled(quantity != "ratio")
         rows = []
         no_rung = []
         for i in range(self.segment_combo.count()):
@@ -1241,7 +1257,7 @@ class AnalysisTab(QWidget):
                 "marker": "o" if direction == "doping" else "s",
             }
 
-        if self.ratio_check.isChecked():
+        if quantity == "ratio":
             for direction in ("doping", "dedoping"):
                 vals, errs, present = [np.nan] * len(xs), [np.nan] * len(xs), False
                 for x, d, _label, fits in rows:
@@ -1278,9 +1294,8 @@ class AnalysisTab(QWidget):
                         fit = fits[trace]
                         # Plotted and ringed, never dropped. A gap would be the
                         # software deciding the scientist should not see a result.
-                        vals[at[x]] = (fit.mean_tau if fit.mean_tau is not None
-                                       else np.nan)
-                        ci = fit.mean_tau_ci95
+                        value, ci = _ladder_value(fit, quantity)
+                        vals[at[x]] = np.nan if value is None else value
                         errs[at[x]] = np.nan if ci is None else ci
                         if not fit.ok:
                             flagged[at[x]] = True
@@ -1298,13 +1313,22 @@ class AnalysisTab(QWidget):
                         # Everything in this series was flagged and is now hidden --
                         # keeping it would put an entry in the legend that draws
                         # nothing. The footnote still counts the points.
-                        if hide_flagged and not np.any(np.isfinite(vals)):
+                        if ((hide_flagged or quantity == "beta")
+                                and not np.any(np.isfinite(vals))):
+                            # Hidden, or no such number: beta from an exp fit.
                             continue
                         add(name, vals, trace, direction, errs)
                         if any(flagged) and not hide_flagged:
                             flags[name] = flagged
-            ylabel = "mean relaxation time (s)"
+            ylabel = {"mean_tau": "mean relaxation time (s)",
+                      "tau": "tau (s)",
+                      "beta": "beta (stretch)"}[quantity]
             title = f"Kinetics vs potential - {probe} (95% CI)"
+            if quantity == "beta" and not series:
+                self.ladder_canvas.show_message(
+                    "beta comes only from a stretched fit.\n"
+                    "Choose Model: stretched and fit again.")
+                return
             if hidden:
                 excluded.append(f"{hidden} flagged point(s) hidden")
 
@@ -1330,6 +1354,16 @@ class AnalysisTab(QWidget):
                                        title=title, styles=styles, yerr=errors,
                                        flags=flags, footnote=footnote,
                                        logy=self.log_y_check.isChecked())
+
+
+def _ladder_value(fit, quantity):
+    """(value, 95% half-width) of one fit for the Kinetics plot; None where the fit
+    has no such number (beta from an exp fit, or a fit that did not converge)."""
+    if quantity == "tau":
+        return fit.tau, fit.tau_ci95
+    if quantity == "beta":
+        return fit.beta, fit.beta_ci95
+    return fit.mean_tau, fit.mean_tau_ci95
 
 
 class AllFitsDialog(QDialog):

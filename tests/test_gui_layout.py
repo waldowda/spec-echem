@@ -773,8 +773,8 @@ def test_the_ladder_plot_waits_for_a_fit(analysis_window):
     tab = analysis_window.analysis_tab
     tab._draw_ladder()          # nothing fitted yet — must not raise
     tab.on_fit_segment()
-    tab.ratio_check.setChecked(True)    # and the toggle must not raise either
-    tab.ratio_check.setChecked(False)
+    tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("ratio"))    # and the toggle must not raise either
+    tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("mean_tau"))
 
 
 # --- Tab 4: the live views ---------------------------------------------------
@@ -2027,16 +2027,16 @@ def test_hide_flagged_is_disabled_in_the_ratio_view(ladder_window):
     """It rings nothing, so a live checkbox there would do nothing silently."""
     tab = ladder_window.analysis_tab
     assert tab.hide_flagged_check.isEnabled()
-    tab.ratio_check.setChecked(True)
+    tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("ratio"))
     assert not tab.hide_flagged_check.isEnabled()
-    tab.ratio_check.setChecked(False)
+    tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("mean_tau"))
     assert tab.hide_flagged_check.isEnabled()
 
 
 def test_the_range_still_applies_to_the_ratio_view(ladder_window):
     """Unlike hiding flagged points, the potential window is meaningful there."""
     tab = ladder_window.analysis_tab
-    tab.ratio_check.setChecked(True)
+    tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("ratio"))
     tab.range_check.setChecked(True)
     tab.range_lo.setValue(0.40)
     assert "outside +0.400 to +0.700 V" in _ladder_footnote(tab)
@@ -3824,3 +3824,52 @@ def test_the_run_log_names_the_film(ready_window, monkeypatch, tmp_path):
     assert started
     log = next((tmp_path / "20260903_smoke").glob("*_log.log")).read_text()
     assert "Film: thickness 123.0 nm, immersed area 2.4 cm2" in log
+
+
+# --- beta and raw tau on the Kinetics plot (requested 2026-11-06) --------------------
+
+def _ladder_y(tab):
+    import numpy as np
+    return [np.asarray(l.get_ydata(), dtype=float) for l in tab.ladder_canvas.ax.get_lines()
+            if len(l.get_ydata()) > 1]
+
+
+def test_beta_from_an_exp_fit_says_where_beta_comes_from(ladder_window):
+    tab = ladder_window.analysis_tab
+    tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("beta"))
+    shown = " ".join(" ".join(t.get_text().split()) for t in tab.ladder_canvas.ax.texts)
+    assert "only from a stretched fit" in shown
+
+
+def test_beta_is_plotted_from_stretched_fits(ladder_window):
+    import numpy as np
+    from spec_echem.analysis import FitResult
+    tab = ladder_window.analysis_tab
+    betas = {}
+    for n, label in enumerate(sorted(tab._fits)):
+        beta = 0.5 + 0.1 * n
+        betas[label] = beta
+        tab._fits[label] = {"absorbance": FitResult(
+            "stretched", params=np.array([0.0, 1.0, 4.0, beta]),
+            sd=np.array([0.01, 0.01, 0.1, 0.02]), cov=np.diag([1e-4, 1e-4, 1e-2, 4e-4]),
+            ok=True, n=100)}
+    tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("beta"))
+    assert "beta" in tab.ladder_canvas.ax.get_ylabel()
+    ys = _ladder_y(tab)
+    assert any(np.allclose(np.sort(y[np.isfinite(y)]), sorted(betas.values())) for y in ys)
+    assert tab._figure_basename("ladder").startswith("ladder_beta_")
+
+
+def test_raw_tau_differs_from_mean_tau_for_a_stretched_fit(ladder_window):
+    import numpy as np
+    from spec_echem.analysis import FitResult
+    tab = ladder_window.analysis_tab
+    for label in tab._fits:
+        tab._fits[label] = {"absorbance": FitResult(
+            "stretched", params=np.array([0.0, 1.0, 4.0, 0.5]),
+            sd=np.array([0.01, 0.01, 0.1, 0.02]), cov=np.diag([1e-4, 1e-4, 1e-2, 4e-4]),
+            ok=True, n=100)}
+    tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("tau"))
+    assert np.allclose(np.nanmax(_ladder_y(tab)[0]), 4.0)
+    tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("mean_tau"))
+    assert np.allclose(np.nanmax(_ladder_y(tab)[0]), 8.0)    # (tau/beta)*gamma(1/beta)
