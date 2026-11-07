@@ -73,6 +73,14 @@ def carrier_density(charge_c, area_cm2, thickness_nm):
     return abs(float(charge_c)) / (E_CHARGE_C * volume_cm3)
 
 
+def charge_density(charge_c, area_cm2, thickness_nm):
+    """|Q| / (area * thickness), in C per cm^3; None without a film size. The same
+    number as carrier_density times e, in the units an electrochemist reports."""
+    if not area_cm2 or not thickness_nm or charge_c is None:
+        return None
+    return abs(float(charge_c)) / (float(area_cm2) * float(thickness_nm) * 1e-7)
+
+
 def bleach_fraction(a_end, a0):
     """(A0 - A) / A0: the fraction of the neutral absorbance lost. Positive for a
     bleach, negative where the absorbance GREW (a polaron wavelength)."""
@@ -86,6 +94,7 @@ class StepCharge:
 
     def __init__(self, label, potential, direction, duration, q_raw, q_corrected,
                  leak_current, carriers_raw=None, carriers_corrected=None,
+                 charge_density_raw=None, charge_density_corrected=None,
                  a_end=None, a0=None, bleach=None, at_equilibrium=True,
                  reasons=(), checked=()):
         self.label = label
@@ -97,6 +106,8 @@ class StepCharge:
         self.leak_current = leak_current
         self.carriers_raw = carriers_raw
         self.carriers_corrected = carriers_corrected
+        self.charge_density_raw = charge_density_raw
+        self.charge_density_corrected = charge_density_corrected
         self.a_end = a_end
         self.a0 = a0
         self.bleach = bleach
@@ -171,6 +182,8 @@ def analyse_step(label, potential, direction, time, current, absorbance_time=Non
         label, potential, direction, duration, q_raw, q_corrected, leak,
         carriers_raw=carrier_density(q_raw, area_cm2, thickness_nm),
         carriers_corrected=carrier_density(q_corrected, area_cm2, thickness_nm),
+        charge_density_raw=charge_density(q_raw, area_cm2, thickness_nm),
+        charge_density_corrected=charge_density(q_corrected, area_cm2, thickness_nm),
         a_end=a_end, a0=a0, bleach=bleach, at_equilibrium=not reasons,
         reasons=reasons, checked=checked)
 

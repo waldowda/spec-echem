@@ -151,7 +151,7 @@ says how *fast* a film switched at each potential, this says how *much*.
 
 | Control | Purpose |
 |---|---|
-| **Plot** | **Charge vs potential**, **Carrier density vs potential**, **Bleach vs carrier density**, or **Q out / Q in vs potential**. |
+| **Plot** | **Charge vs potential**, **Carrier density vs potential**, **Charge density vs potential**, **Bleach vs carrier density**, **Bleach vs charge density**, or **Q out / Q in vs potential**. |
 | **Bleach at / neutral peak** | The wavelength the bleach is read at. **neutral peak** uses the strongest absorption of the neutral film, the band that bleaches. At a polaron wavelength the "bleach" comes out negative, because that band grows. |
 | **Equilibrium: last … s** | The end of each step. Absorbance and current are averaged over it, drift is measured over it, and its mean current is the leak (below). |
 | **move < … %** | A step is ringed if its absorbance or current still moved by more than this share of the step's whole change over that last span. |
@@ -169,6 +169,8 @@ What each number is:
 - **Carrier density** is |Q| / (e × area × thickness), with the film size **this run
   recorded**. An older run that recorded none uses the Parameters tab, and the plot
   footnote says which.
+- **Charge density** is |Q| / (area × thickness), in C/cm³: the same quantity as the
+  carrier density times e, in the units an electrochemist usually reports.
 - **Bleach** is (A₀ − A) / A₀ at the chosen wavelength, with A at the end of the step and
   A₀ the neutral film at the end of pre-dedoping (or, with no pre-dedoping, the first
   spectra of the first doping step). The bleach plot has doping steps only: a dedoping
