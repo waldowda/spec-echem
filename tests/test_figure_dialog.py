@@ -371,7 +371,8 @@ def test_the_single_export_is_named_after_the_trace_on_screen(app, tmp_path,
                         lambda parent, canvas, w, basename, title: names.append(basename))
     from qtpy.QtWidgets import QPushButton
     from gui.widgets.figure_dialog import EXPORT_LABEL
-    buttons = [b for b in tab.findChildren(QPushButton) if b.text() == EXPORT_LABEL]
+    buttons = [b for b in tab.findChildren(QPushButton) if b.text() == EXPORT_LABEL
+               and not tab.charge_panel.isAncestorOf(b)]
     for i in range(len(at.TRACES)):
         tab.table.selectRow(i)
         for button in buttons:

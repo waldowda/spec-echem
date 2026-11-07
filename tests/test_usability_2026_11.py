@@ -94,8 +94,8 @@ def test_no_button_under_a_plot_still_says_save_figure(win):
     from gui.widgets.figure_dialog import EXPORT_LABEL
     texts = [b.text() for b in win.findChildren(QPushButton)]
     assert not any(t.startswith("Save figure") for t in texts)
-    # Results x2, Analysis x2, Band fits x1.
-    assert texts.count(EXPORT_LABEL) == 5
+    # Results x2, Analysis x3 (fit, Kinetics, Charge), Band fits x1.
+    assert texts.count(EXPORT_LABEL) == 6
     tips = {b.toolTip() for b in win.findChildren(QPushButton) if b.text() == EXPORT_LABEL}
     assert len(tips) == 1 and "CSV" in tips.pop()
 
