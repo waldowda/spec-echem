@@ -137,9 +137,49 @@ Fitting, after a run.
 | **Fit segment / Fit all segments** | Fits absorbance, current and charge. |
 | **Fit table** | One row per trace; **click a row to plot it**. Columns follow the model the fits were made with: `exp` τ; `biexp` τ1, τ2; `stretched` τ, β; and always ⟨τ⟩ with its 95% CI, which is what the ladder plots. Each value's SD is on its tooltip. Amplitudes and the offset are in the plot legend and in **All fits…**. |
 | **All fits…** | Every fit in the run, one row per segment per trace. Carries **every fitted parameter with its SD** — the columns follow whichever model was used — plus y(0), ⟨τ⟩, its 95% CI, the point count and the residual split. **Copy as CSV** / **Save CSV…**. |
+| **Kinetics / Charge tabs** | Two views under the fit plot. **Kinetics** is the ladder of fit results against potential. **Charge** is the charge each step moved; see below. |
+| **Plot** (Kinetics) | What the ladder draws: **mean tau** (⟨τ⟩, the physical timescale for every model), **tau** (the raw fitted τ; for `biexp` the slower one), **beta** (from a `stretched` fit only; otherwise the plot says so), or **tau(abs) / tau(current)**. Every value carries its 95% CI. |
 | **Show / log y** | Which traces appear on the ladder, and whether its y-axis is logarithmic. **charge** starts unticked: its ⟨τ⟩ typically runs ~100× the others and flattens them. It is still fitted and in the table. |
 | **hide flagged points** | Leave the ringed needs-review points off the ladder, so both axes scale to the fits you trust. Off by default. Does nothing in the ratio view, which rings nothing, so it is disabled there. |
 | **potential range** | Restrict the ladder to a span of potentials. Off by default; while off, the boxes show the span plotted, so ticking it removes nothing until you move an end. A rung counts as inside if its measured potential is within 10 mV of the range. |
+
+### The Charge tab
+
+For each doping and dedoping step: the charge that flowed, the carrier density that
+makes, and how much of the neutral absorption it bleached. Where the Kinetics ladder
+says how *fast* a film switched at each potential, this says how *much*.
+
+| Control | Purpose |
+|---|---|
+| **Plot** | **Charge vs potential**, **Carrier density vs potential**, **Bleach vs carrier density**, or **Q out / Q in vs potential**. |
+| **Bleach at / neutral peak** | The wavelength the bleach is read at. **neutral peak** uses the strongest absorption of the neutral film, the band that bleaches. At a polaron wavelength the "bleach" comes out negative, because that band grows. |
+| **Equilibrium: last … s** | The end of each step. Absorbance and current are averaged over it, drift is measured over it, and its mean current is the leak (below). |
+| **move < … %** | A step is ringed if its absorbance or current still moved by more than this share of the step's whole change over that last span. |
+| **step ≥ … × tau** | ...or if the step was shorter than this many relaxation times (5 τ = 99.3% complete). Uses the Kinetics fits of absorbance and current that passed review; a step not yet fitted gets only the drift check, and the table says which checks were made. |
+| **Save table (CSV)…** | Every number for every step, with the film size and A₀ it used. |
+
+What each number is:
+
+- **Charge** is the integral of the current over the step. In the usual sequence every
+  doping step starts from the dedoped film, so a doping step's charge is already the
+  total needed to reach that potential; nothing is added up across steps.
+- **Leak-corrected** charge subtracts a steady side-reaction current: the mean current
+  over the step's last few seconds, times the step's length. Raw and corrected are both
+  drawn, so the size of the correction is visible.
+- **Carrier density** is |Q| / (e × area × thickness), with the film size **this run
+  recorded**. An older run that recorded none uses the Parameters tab, and the plot
+  footnote says which.
+- **Bleach** is (A₀ − A) / A₀ at the chosen wavelength, with A at the end of the step and
+  A₀ the neutral film at the end of pre-dedoping (or, with no pre-dedoping, the first
+  spectra of the first doping step). The bleach plot has doping steps only: a dedoping
+  step ends neutral, so its point would put a neutral film at the charge it removed.
+- **Q out / Q in** is the leak-corrected charge of each dedoping step over its doping
+  step's. Below 1, charge stayed in the film or went to a side reaction.
+
+These are equilibrium values only if the step got there. A step that fails either check
+is **ringed, never removed**, and the table gives the reason. Two checks, because each
+misses something: a slow step (τ = 20 s in a 60 s hold) moves only ~1.5% in its last 5 s
+and passes the drift check, yet is only 95% complete.
 
 The fit plot shows the data, the fitted curve, and a **residual panel above** (the
 convention in XPS/NMR/IR fitting). The residuals are the point: an exponential and a

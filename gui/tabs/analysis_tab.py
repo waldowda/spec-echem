@@ -13,7 +13,7 @@ import pathlib
 
 import numpy as np
 from qtpy.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, QComboBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, QComboBox, QTabWidget,
     QDoubleSpinBox, QPushButton, QCheckBox, QTableWidget, QTableWidgetItem,
     QSplitter, QMessageBox, QHeaderView, QDialog, QApplication,
     QScrollArea,
@@ -31,6 +31,7 @@ from spec_echem.data import (echem_txt_path, segment_potential, DATA_TYPE_CV,
 from spec_echem.build_info import build_id
 from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
+from gui.tabs.charge_panel import ChargePanel
 from gui.widgets.figure_dialog import (EXPORT_LABEL, EXPORT_TIP, open_figure_dialog,
                                        save_figure)
 from gui.segment_labels import (prepare_segment_combo, segment_display,
@@ -468,7 +469,13 @@ class AnalysisTab(QWidget):
         plot_layout.addWidget(self.ladder_canvas)
         plot_layout.addLayout(
             self._save_row(self.ladder_canvas, "ladder", "Export ladder"))
-        split.addWidget(plot_box)
+        # Tabs below the fit plot (requested 2026-11-06): Kinetics is the ladder of
+        # fit results as it always was; Charge sits beside it.
+        self.lower_tabs = QTabWidget()
+        self.lower_tabs.addTab(plot_box, "Kinetics")
+        self.charge_panel = ChargePanel(self)
+        self.lower_tabs.addTab(self.charge_panel, "Charge")
+        split.addWidget(self.lower_tabs)
 
         layout.addWidget(split, stretch=1)
         self._sync_model_formula()
@@ -657,6 +664,7 @@ class AnalysisTab(QWidget):
             if i >= 0:
                 self.segment_combo.setCurrentIndex(i)
         self.segment_combo.blockSignals(False)
+        self.charge_panel.request_refresh()
         self.on_segment_changed()
 
     def _sync_wavelength_range(self):
@@ -771,6 +779,7 @@ class AnalysisTab(QWidget):
         self._wavelength = None
         self.fit_canvas.show_message("Fit a segment to see the data and its fit.")
         self.ladder_canvas.show_message("Fit a segment to build this plot.")
+        self.charge_panel.request_refresh()
 
     def on_segment_changed(self, *_):
         label = self._current_label()
@@ -1178,6 +1187,9 @@ class AnalysisTab(QWidget):
         fitted so far -- so it builds as segments are fitted, not only at the end."""
         # The ratio view draws no rings, so there is nothing for this to hide. Leaving
         # the box live there would be a control that silently does nothing.
+        # Every change of fits passes through here, and the Charge tab's
+        # equilibrium check reads those fits.
+        self.charge_panel.request_refresh()
         quantity = self.ladder_quantity.currentData()
         self.hide_flagged_check.setEnabled(quantity != "ratio")
         rows = []

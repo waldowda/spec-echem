@@ -27,6 +27,16 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **Analysis: Kinetics and Charge tabs under the fit plot (2026-11-06).**
+  - The ladder moves into a **Kinetics** tab and gains a **Plot** dropdown: mean tau,
+    raw tau, **beta** (stretched fits; it was not plottable before) and the
+    tau(abs)/tau(current) ratio, all with 95% intervals.
+  - A new **Charge** tab (`spec_echem/charge.py`, `gui/tabs/charge_panel.py`): charge
+    per step, raw and leak-corrected; carrier density from the run's own film size;
+    bleach (A0 - A)/A0 at the neutral peak, A0 from pre-dedoping; and Q out / Q in.
+    A step is ringed, never removed, if it lasted under 5 tau or its absorbance or
+    current still moved over its last 5 s (both thresholds editable). Table saves as
+    CSV. Documented in `docs/manual.md`.
 - **Usability changes from the first sessions with students (2026-11-06).**
   - Results tab: a **show cursor** box next to the wavelength. Unticked, the red wavelength
     cursor is left off the spectra plot and off its exported figure; the wavelength is
