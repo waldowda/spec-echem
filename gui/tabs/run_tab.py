@@ -428,6 +428,11 @@ class RunTab(QWidget):
         self.log(f"Logging to {log_path.name}")
         get_run_logger().info("Spectrometer: %s", instruments["spectrometer"])
         get_run_logger().info("Potentiostat: %s", instruments["potentiostat"])
+        # Also in the metadata JSON; here so the log alone says what film it was
+        # (requested 2026-11-06).
+        get_run_logger().info("Film: thickness %s nm, immersed area %s cm2",
+                              settings.get("film_thickness_nm"),
+                              settings.get("film_area_cm2"))
 
         # Expose the run folder + segment map so the Results tab can find each
         # segment's echem file (written next to the spectra in Python mode).

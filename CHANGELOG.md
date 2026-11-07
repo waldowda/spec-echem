@@ -53,6 +53,8 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
     carries under 5% of the change and its tau is undetermined, "one component
     carries N% of the change ... try exp". Before, both read only "uncertainty too
     large". A small slow component that is well determined still passes.
+  - The run log names the film: "Film: thickness N nm, immersed area N cm2", beside
+    the instruments at the top. It was only in the metadata JSON.
   - Parameters tab: the **run time** of everything selected, at the top, updated as
     values change (a range when a PITT or GITT step can end early; setup between
     segments not counted).
