@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from spec_echem.charge import (E_CHARGE_C, analyse_step, bleach_fraction,
+                               charge_density,
                                carrier_density, integrate, reversibility, tail_drift)
 
 T = np.arange(0.0, 60.0 + 1e-9, 0.1)
@@ -92,3 +93,12 @@ def test_the_tau_check_catches_what_drift_alone_misses():
                             mean_taus={"absorbance": tau})
     assert "absorbance still moving" not in drift_only.reason
     assert not with_tau.at_equilibrium
+
+
+def test_charge_density_is_carrier_density_times_e():
+    # 1 mC into 1e-5 cm^3 = 100 C/cm^3.
+    assert charge_density(1e-3, 1.0, 100.0) == pytest.approx(100.0)
+    assert charge_density(-1e-3, 1.0, 100.0) == pytest.approx(100.0)
+    assert charge_density(1e-3, 1.0, 0.0) is None
+    assert charge_density(1e-3, 1.0, 100.0) == pytest.approx(
+        E_CHARGE_C * carrier_density(1e-3, 1.0, 100.0))

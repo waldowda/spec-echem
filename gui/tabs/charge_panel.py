@@ -27,9 +27,21 @@ from gui.widgets.figure_dialog import EXPORT_LABEL, EXPORT_TIP, open_figure_dial
 VIEWS = (
     ("Charge vs potential", "charge"),
     ("Carrier density vs potential", "density"),
+    ("Charge density vs potential", "charge_density"),
     ("Bleach vs carrier density", "bleach"),
+    ("Bleach vs charge density", "bleach_charge"),
     ("Q out / Q in vs potential", "reversibility"),
 )
+
+# Which StepCharge fields each density view reads: (raw, leak-corrected).
+DENSITY_FIELDS = {
+    "density": ("carriers_raw", "carriers_corrected"),
+    "charge_density": ("charge_density_raw", "charge_density_corrected"),
+}
+DENSITY_LABELS = {
+    "density": ("Carrier density", "cm$^{-3}$"),
+    "charge_density": ("Charge density", "C cm$^{-3}$"),
+}
 
 DIRECTION_STYLE = {
     "doping": {"color": "#1f77b4", "marker": "o", "linestyle": "-"},
@@ -40,6 +52,7 @@ RING = {"marker": "o", "ms": 11, "mfc": "none", "mec": "#e07b00", "mew": 1.6,
 
 COLUMNS = ("segment", "doped_to_V", "direction", "duration_s", "Q_raw_mC",
            "Q_corrected_mC", "leak_uA", "carriers_raw_cm3", "carriers_corrected_cm3",
+           "charge_density_raw_C_cm3", "charge_density_corrected_C_cm3",
            "A_end", "A0", "bleach", "at_equilibrium", "reason")
 
 
@@ -281,7 +294,7 @@ class ChargePanel(QWidget):
         curves, xlabel, ylabel, title = self._curves(view, steps)
         flagged = sum(1 for s in steps if not s.at_equilibrium)
         footnote = "; ".join(self._notes)
-        if view == "bleach":
+        if view in ("bleach", "bleach_charge"):
             footnote += ("; doping steps only: a dedoping step ends neutral "
                          "(its bleach is in the table)")
         if flagged:
@@ -338,36 +351,45 @@ class ChargePanel(QWidget):
                     f"{direction}: leak-corrected",
                     flagged_pairs=[(s.potential, 1e3 * s.q_corrected)
                                    for s in ring_key])
-            elif view == "density":
-                add(direction, [(s.potential, s.carriers_raw) for s in group],
+            elif view in ("density", "charge_density"):
+                raw, corr = DENSITY_FIELDS[view]
+                add(direction, [(s.potential, getattr(s, raw)) for s in group],
                     f"{direction}: raw", {"alpha": 0.45})
-                add(direction, [(s.potential, s.carriers_corrected) for s in group],
+                add(direction, [(s.potential, getattr(s, corr)) for s in group],
                     f"{direction}: leak-corrected",
-                    flagged_pairs=[(s.potential, s.carriers_corrected)
+                    flagged_pairs=[(s.potential, getattr(s, corr))
                                    for s in ring_key])
-            elif view == "bleach" and direction == "doping":
+            elif view in ("bleach", "bleach_charge") and direction == "doping":
+                corr = DENSITY_FIELDS["density" if view == "bleach"
+                                      else "charge_density"][1]
                 # Doping only. A dedoping step ENDS neutral, so its bleach (~0)
                 # describes the film after the charge came out, while its x would be
                 # the charge removed -- a neutral film drawn at 7e20 cm-3. Its bleach
                 # is still in the table.
                 add(direction,
-                    [(s.carriers_corrected, s.bleach) for s in group],
+                    [(getattr(s, corr), s.bleach) for s in group],
                     f"{direction}", {"linestyle": "none"},
-                    flagged_pairs=[(s.carriers_corrected, s.bleach)
+                    flagged_pairs=[(getattr(s, corr), s.bleach)
                                    for s in ring_key])
 
         if view == "charge":
             return curves, "Potential doped to (V)", "Charge (mC)", "Charge per step"
-        if view == "density":
+        no_size = ([], "", "", "No film size: set the film thickness and area "
+                               "on the Parameters tab.")
+        if view in ("density", "charge_density"):
             if not any(s.carriers_corrected for s in steps):
-                return ([], "", "", "No film size: set the film thickness and area "
-                                    "on the Parameters tab.")
-            return (curves, "Potential doped to (V)", "Carrier density (cm$^{-3}$)",
-                    "Carrier density per step")
+                return no_size
+            name, unit = DENSITY_LABELS[view]
+            return (curves, "Potential doped to (V)", f"{name} ({unit})",
+                    f"{name} per step")
         if not any(s.bleach is not None for s in steps):
             return [], "", "", "No neutral spectrum to take A0 from."
-        return (curves, "Carrier density, leak-corrected (cm$^{-3}$)",
-                "Bleach (A0 - A) / A0", "Bleach vs carrier density")
+        if not any(s.carriers_corrected for s in steps):
+            return no_size
+        name, unit = DENSITY_LABELS["density" if view == "bleach"
+                                    else "charge_density"]
+        return (curves, f"{name}, leak-corrected ({unit})",
+                "Bleach (A0 - A) / A0", f"Bleach vs {name.lower()}")
 
     # --- table and export ------------------------------------------------------
 
@@ -382,6 +404,8 @@ class ChargePanel(QWidget):
                 "leak_uA": 1e6 * s.leak_current,
                 "carriers_raw_cm3": s.carriers_raw,
                 "carriers_corrected_cm3": s.carriers_corrected,
+                "charge_density_raw_C_cm3": s.charge_density_raw,
+                "charge_density_corrected_C_cm3": s.charge_density_corrected,
                 "A_end": s.a_end, "A0": s.a0, "bleach": s.bleach,
                 "at_equilibrium": s.at_equilibrium, "reason": s.reason})
         return out

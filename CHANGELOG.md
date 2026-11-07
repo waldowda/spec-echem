@@ -32,8 +32,10 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
     raw tau, **beta** (stretched fits; it was not plottable before) and the
     tau(abs)/tau(current) ratio, all with 95% intervals.
   - A new **Charge** tab (`spec_echem/charge.py`, `gui/tabs/charge_panel.py`): charge
-    per step, raw and leak-corrected; carrier density from the run's own film size;
-    bleach (A0 - A)/A0 at the neutral peak, A0 from pre-dedoping; and Q out / Q in.
+    per step, raw and leak-corrected; carrier density (cm^-3) and charge density
+    (C/cm^3) from the run's own film size;
+    bleach (A0 - A)/A0 at the neutral peak against either density, A0 from
+    pre-dedoping; and Q out / Q in.
     A step is ringed, never removed, if it lasted under 5 tau or its absorbance or
     current still moved over its last 5 s (both thresholds editable). Table saves as
     CSV. Documented in `docs/manual.md`.

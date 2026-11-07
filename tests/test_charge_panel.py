@@ -180,3 +180,20 @@ def test_the_bleach_plot_has_doping_steps_only(run):
     series = set(panel.canvas.last_data()["series"])
     assert series == {"doping"}
     assert "Dedoping 0" in {r["segment"] for r in panel.rows()}     # still tabled
+
+
+def test_charge_density_views_use_q_over_volume(run):
+    panel = _panel(run)
+    rows = {r["segment"]: r for r in panel.rows()}
+    volume = 2.0 * 100.0 * 1e-7
+    assert rows["Doping 1"]["charge_density_corrected_C_cm3"] == pytest.approx(
+        1e-3 * rows["Doping 1"]["Q_corrected_mC"] / volume, rel=1e-9)
+    panel.view_combo.setCurrentIndex(panel.view_combo.findData("charge_density"))
+    assert "C cm" in panel.canvas.ax.get_ylabel()
+    panel.view_combo.setCurrentIndex(panel.view_combo.findData("bleach_charge"))
+    data = panel.canvas.last_data()
+    assert set(data["series"]) == {"doping"}
+    expected = sorted(r["charge_density_corrected_C_cm3"] for r in rows.values()
+                      if r["direction"] == "doping")
+    assert np.allclose(sorted(data["x"]), expected)
+    assert "Charge density" in panel.canvas.ax.get_xlabel()
