@@ -560,6 +560,11 @@ class AnalysisTab(QWidget):
         row.addWidget(button)
         return row
 
+    def _shown_trace(self):
+        """The trace the fit plot shows: the selected row of the fit table."""
+        row = self.table.currentRow()
+        return TRACES[row] if 0 <= row < len(TRACES) else TRACES[0]
+
     def _figure_basename(self, suffix):
         """The name a saved figure gets. ONE definition, used by the per-figure
         save and by Save all figures.
@@ -573,6 +578,11 @@ class AnalysisTab(QWidget):
         the same number and the two files would otherwise overwrite each other.
         """
         model = self.model_combo.currentData()
+        if suffix == "fit":
+            # The Export button under the fit plot: name the trace ON it. It passed
+            # "fit" itself, so absorbance, current and charge all saved under one
+            # name and overwrote each other (2026-11-06).
+            suffix = self._shown_trace()
         if suffix == "ladder":
             return f"ladder_{model}"
         raw = self._current_label()
@@ -1003,8 +1013,7 @@ class AnalysisTab(QWidget):
         if not label:
             self.fit_canvas.show_message("No segment selected.")
             return
-        row = self.table.currentRow()
-        trace = TRACES[row] if 0 <= row < len(TRACES) else TRACES[0]
+        trace = self._shown_trace()
 
         traces = self._all_traces(label)
         if trace not in traces:

@@ -341,6 +341,47 @@ def test_save_all_writes_the_traces_and_the_ladder_with_their_data(app, tmp_path
     assert not pd.read_csv(csv, comment="#").empty
 
 
+def test_the_single_export_is_named_after_the_trace_on_screen(app, tmp_path,
+                                                             monkeypatch):
+    """Reported 2026-11-06: Export under the fit plot passed "fit" as the name, so
+    absorbance, current and charge all saved as one file."""
+    import gui.tabs.analysis_tab as at
+    from gui.main_window import MainWindow
+    from spec_echem.data import (DATA_TYPE_DOPING, write_echem_file, EchemData)
+    from spec_echem.experiment import Segment
+
+    win = MainWindow()
+    t = np.linspace(0.0, 20.0, 60)
+    wl = np.linspace(400.0, 1100.0, 40)
+    a = 0.02 + np.outer(np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2),
+                        0.5 * (1.0 - np.exp(-t / 4.0)))
+    win.results = {"Doping 0": pd.DataFrame(a, index=wl, columns=t)}
+    win.segments_by_label = {
+        "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 60, 0.1, True)}
+    write_echem_file(EchemData(time=t, potential=np.full(60, 0.3),
+                               current=3.0e-5 * np.exp(-t / 4.0)),
+                     DATA_TYPE_DOPING, 0, tmp_path, "20250710_run")
+    win.run_folder = tmp_path / "20250710_run"
+    tab = win.analysis_tab
+    tab.refresh_segments()
+    tab.on_fit_all()
+
+    names = []
+    monkeypatch.setattr(at, "open_figure_dialog",
+                        lambda parent, canvas, w, basename, title: names.append(basename))
+    from qtpy.QtWidgets import QPushButton
+    from gui.widgets.figure_dialog import EXPORT_LABEL
+    buttons = [b for b in tab.findChildren(QPushButton) if b.text() == EXPORT_LABEL]
+    for i in range(len(at.TRACES)):
+        tab.table.selectRow(i)
+        for button in buttons:
+            button.click()
+    names = [n for n in names if not n.startswith("ladder")]    # the other plot
+    assert len(set(names)) == len(at.TRACES), names
+    for trace, name in zip(at.TRACES, names):
+        assert trace in name, (trace, name)
+
+
 def test_save_all_restores_the_trace_that_was_on_screen(app, tmp_path, monkeypatch):
     """It drives the real plotting path, so it must put the view back."""
     import gui.tabs.analysis_tab as at
