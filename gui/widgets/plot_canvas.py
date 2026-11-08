@@ -884,9 +884,14 @@ class MplCanvas(FigureCanvasQTAgg):
             if errs[0] is None and errs[1] is None:
                 self.ax.plot(x_arr, y_arr, label=str(label), **{"lw": 1.2, **style})
             else:
-                self.ax.errorbar(x_arr, y_arr, xerr=errs[0], yerr=errs[1],
-                                 label=str(label), capsize=2, elinewidth=0.8,
-                                 **{"lw": 1.2, **style})
+                # Dark and drawn OVER the markers: most bars are shorter than a
+                # symbol, and in the series' own color they vanished inside it.
+                _line, caps, bars = self.ax.errorbar(
+                    x_arr, y_arr, xerr=errs[0], yerr=errs[1], label=str(label),
+                    capsize=2, elinewidth=0.9, ecolor="0.15",
+                    **{"lw": 1.2, **style})
+                for artist in tuple(caps) + tuple(bars):
+                    artist.set_zorder(_line.get_zorder() + 0.5)
         if logy:
             # Non-positive points cannot be drawn on a log axis; matplotlib drops
             # them. The caller states how many, so they are not silently lost.

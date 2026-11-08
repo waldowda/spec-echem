@@ -61,6 +61,48 @@ COLUMNS = ("segment", "doped_to_V", "direction", "duration_s", "Q_raw_mC",
            "charge_density_u_C_cm3", "A_end", "A0", "bleach", "bleach_u",
            "at_equilibrium", "reason")
 
+COLUMN_TIPS = {
+    "segment": "The step.",
+    "doped_to_V": "The potential the film was doped to. A dedoping step is placed at\n"
+                  "its doping step's potential.",
+    "direction": "doping or dedoping.",
+    "duration_s": "Length of the step's current record.",
+    "Q_raw_mC": "Integral of the measured current over the step (trapezoid rule),\n"
+                "nothing subtracted.",
+    "Q_corrected_mC": "Q raw minus the leak (the mean current over the last span).\n"
+                      "Whether the leak flowed all step or grew from zero is not\n"
+                      "known, so this is the MIDPOINT: Q raw - 3/4 x leak x duration.",
+    "Q_u_mC": "Uncertainty of Q corrected, drawn as the error bars: background,\n"
+              "integration and noise below, in quadrature. A rough 95% range.\n"
+              "Film size and the head charge are NOT in it.",
+    "Q_head_max_mC": "Charge before the first current sample, which no sample covers\n"
+                     "and which is NOT in Q. From the run log's cell-ON timing, an\n"
+                     "exponential run back: an UPPER bound (the real early current\n"
+                     "is capped by the cell resistance). Empty without that timing.",
+    "leak_uA": "Mean current over the last span: a side reaction (e.g. oxygen),\n"
+               "or the step not quite finished.",
+    "u_background_mC": "Half the gap between 'leak all step' and 'leak grew from zero':\n"
+                       "1/4 x |leak| x duration. Dominates on low-charge steps.",
+    "u_integration_mC": "Integral from every sample vs every other sample. Large when\n"
+                        "the fast first second is undersampled.",
+    "u_noise_mC": "2 sigma of the last span's scatter, on the integral and on the\n"
+                  "leak. Usually tiny.",
+    "carriers_raw_cm3": "|Q raw| / (e x area x thickness).",
+    "carriers_corrected_cm3": "|Q corrected| / (e x area x thickness).",
+    "carriers_u_cm3": "From Q_u alone; the film-size +-% is in the footnote.",
+    "charge_density_raw_C_cm3": "|Q raw| / (area x thickness).",
+    "charge_density_corrected_C_cm3": "|Q corrected| / (area x thickness).",
+    "charge_density_u_C_cm3": "From Q_u alone; the film-size +-% is in the footnote.",
+    "A_end": "Absorbance at the bleach wavelength, averaged over the last span.",
+    "A0": "The neutral film's absorbance there (end of pre-dedoping).",
+    "bleach": "(A0 - A_end) / A0. A dedoping step should end near 0; what it ends\n"
+              "at is a floor under every bleach (in the footnote).",
+    "bleach_u": "2 x the standard error of A_end and A0, from block averages\n"
+                "(neighbouring spectra drift together). Not the floor.",
+    "at_equilibrium": "False = ringed on the plots. Every number is still shown.",
+    "reason": "Why a step was ringed, or which checks it passed.",
+}
+
 ERRORBAR_NOTE = ("error bars: background model (steady vs grown from zero), "
                  "integration check and 2-sigma noise, combined")
 
@@ -119,14 +161,18 @@ class ChargePanel(QWidget):
         self.tail_spin = self._spin(" s", 0.5, 600.0, DEFAULT_TAIL_S, 1)
         self.tail_spin.setToolTip(
             "The end of each step: its absorbance and current are averaged over\n"
-            "this span, the drift is measured over it, and the mean current here is\n"
-            "the leak subtracted for the corrected charge.")
+            "this span and the drift is measured over it. The mean current here is\n"
+            "the leak: the corrected charge takes it as either flowing all step or\n"
+            "growing from zero, and uses the midpoint (Q raw - 3/4 x leak x time).")
         checks.addWidget(self.tail_spin)
         checks.addWidget(QLabel("move <"))
         self.drift_spin = self._spin(" %", 0.1, 50.0, 100 * DEFAULT_DRIFT_FRACTION, 1)
         self.drift_spin.setToolTip(
             "A step is flagged if its absorbance or current still moved by more\n"
-            "than this share of the step's whole change over that last span.")
+            "than this share of the step's whole change over that last span.\n"
+            "Also always checked (fixed at 5%): whether the current at the end is\n"
+            "still changing so fast that, over the whole step, it would be more\n"
+            "than 5% of the charge.")
         checks.addWidget(self.drift_spin)
         checks.addWidget(QLabel("and step ≥"))
         self.tau_spin = self._spin(" × tau", 1.0, 20.0, DEFAULT_TAU_MULTIPLE, 1)
@@ -145,6 +191,11 @@ class ChargePanel(QWidget):
         plot_layout.setContentsMargins(0, 0, 0, 0)
         self.canvas = MplCanvas(self, xlabel="Potential doped to (V)",
                                 ylabel="Charge (mC)")
+        self.canvas.setToolTip(
+            "Error bars (dark): the corrected charge's uncertainty -- background\n"
+            "model, integration check and 2-sigma noise. Film size and the charge\n"
+            "before the first current sample are NOT in them; the footnote and\n"
+            "the table give those. Hover the table headers for every column.")
         plot_layout.addWidget(self.canvas)
         buttons = QHBoxLayout()
         buttons.addStretch()
@@ -163,6 +214,8 @@ class ChargePanel(QWidget):
 
         self.table = QTableWidget(0, len(COLUMNS), self)
         self.table.setHorizontalHeaderLabels(COLUMNS)
+        for c, key in enumerate(COLUMNS):
+            self.table.horizontalHeaderItem(c).setToolTip(COLUMN_TIPS[key])
         self.table.verticalHeader().setVisible(False)
         split.addWidget(self.table)
         layout.addWidget(split)
@@ -391,8 +444,7 @@ class ChargePanel(QWidget):
             return ""
         parts = [f"{key[0]} +-{biggest[key]:.2g}" for key in ("yerr", "xerr")
                  if key in biggest]
-        return ("largest bars: " + ", ".join(parts)
-                + " (smaller ones hide inside the symbols)")
+        return "largest bars: " + ", ".join(parts)
 
     def _footnote(self, view, steps, flagged, curves=()):
         """A SHORT footnote for this view; the full notes go with the CSV.
@@ -461,7 +513,7 @@ class ChargePanel(QWidget):
                 pairs.append((s.potential, r, reversibility_u(d, s)))
                 if r is not None and not (s.at_equilibrium and d.at_equilibrium):
                     ring.append((s.potential, r))
-            add("doping", pairs, "|Q dedoping| / Q doping (leak-corrected)",
+            add("doping", pairs, "|Q dedoping| / Q doping (corrected, midpoint)",
                 flagged_pairs=ring)
             return (curves, "Potential doped to (V)", "Q out / Q in",
                     "Charge recovered on dedoping" if curves else
@@ -476,7 +528,7 @@ class ChargePanel(QWidget):
                     f"{direction}: raw", {"alpha": 0.45})
                 add(direction, [(s.potential, 1e3 * s.q_corrected, 1e3 * s.q_u)
                                 for s in group],
-                    f"{direction}: leak-corrected",
+                    f"{direction}: corrected (midpoint)",
                     flagged_pairs=[(s.potential, 1e3 * s.q_corrected)
                                    for s in ring_key])
             elif view in ("density", "charge_density"):
@@ -485,7 +537,7 @@ class ChargePanel(QWidget):
                     f"{direction}: raw", {"alpha": 0.45})
                 add(direction, [(s.potential, getattr(s, corr), getattr(s, unc))
                                 for s in group],
-                    f"{direction}: leak-corrected",
+                    f"{direction}: corrected (midpoint)",
                     flagged_pairs=[(s.potential, getattr(s, corr))
                                    for s in ring_key])
             elif view in ("bleach", "bleach_charge") and direction == "doping":
@@ -518,7 +570,7 @@ class ChargePanel(QWidget):
             return no_size
         name, unit = DENSITY_LABELS["density" if view == "bleach"
                                     else "charge_density"]
-        return (curves, f"{name}, leak-corrected ({unit})",
+        return (curves, f"{name}, corrected ({unit})",
                 "Bleach (A0 - A) / A0", f"Bleach vs {name.lower()}")
 
     # --- table and export ------------------------------------------------------
