@@ -207,7 +207,7 @@ def test_corrected_charge_carries_error_bars_into_the_plot_and_csv_data(run):
     assert all(r["Q_u_mC"] is not None and r["Q_u_mC"] >= 0 for r in rows.values())
     panel.view_combo.setCurrentIndex(panel.view_combo.findData("charge"))
     data = panel.canvas.last_data()
-    corrected = data[data["series"] == "doping: leak-corrected"]
+    corrected = data[data["series"] == "doping: corrected (midpoint)"]
     assert np.allclose(sorted(corrected["y_err"]),
                        sorted(r["Q_u_mC"] for r in rows.values()
                               if r["direction"] == "doping"))
@@ -283,3 +283,13 @@ def test_the_footnote_gives_the_largest_bar(run):
     footnote = panel.canvas._last_draw[2]["footnote"]
     assert f"largest bars: y +-{data['y_err'].max():.2g}" in footnote
     assert f", x +-{data['x_err'].max():.2g}" in footnote
+
+
+def test_every_table_column_explains_itself(run):
+    from gui.tabs.charge_panel import COLUMNS, COLUMN_TIPS
+    panel = _panel(run)
+    assert set(COLUMN_TIPS) == set(COLUMNS)
+    for c in range(panel.table.columnCount()):
+        assert panel.table.horizontalHeaderItem(c).toolTip()
+    assert "MIDPOINT" in COLUMN_TIPS["Q_corrected_mC"]
+    assert "midpoint" in panel.tail_spin.toolTip()

@@ -194,13 +194,16 @@ growing more negative at 60 s.)
 
 #### Uncertainties
 
+Hover any column header in the table for what that column is. The legend's
+**corrected (midpoint)** is the leak-corrected charge described above.
+
 | Column | What it is |
 |---|---|
 | **Q_u_mC** | The ± drawn as error bars: the background model (above), the **integration check** (the integral from every sample against every other sample — large when a fast first second is undersampled) and **noise** (2σ of the last few seconds' scatter, on the integral and on the leak), in quadrature. Half-ranges are bounds, not standard deviations, so read it as a rough 95% range. |
 | **u_background_mC, u_integration_mC, u_noise_mC** | The three parts, so you can see which one dominates. On a low step it is the background (±6% at 0.0 V on one run); noise is usually under 0.1%. |
 | **Q_head_max_mC** | The charge **before the first current sample**, which no sample covers and which is **not in Q**. The cell switches on some 0.1 s before the first sample, while the current is at its largest. The time comes from the run log's timing lines (Autolab runs; on other runs the column is empty and the footnote says so), and an exponential through the first three samples is run back over it. The real current just after switch-on is capped by the cell resistance, so this is an **upper bound**. Dedoping decays faster, so its share is larger (~15% against ~10% for doping on one run), and **Q out / Q in reads low** by roughly the difference. |
 | **carriers_u, charge_density_u** | From Q_u alone. |
-| *(error bars)* | Most are smaller than the plot symbols, so they look missing. The footnote gives the largest bar on the plot ("largest bars: y ±…, x ±…"); the table has every one. |
+| *(error bars)* | Dark, and drawn over the symbols: most are shorter than a symbol and in the series' own color they vanished inside it. The footnote gives the largest bar on the plot ("largest bars: y ±…, x ±…"); the table has every one. |
 | **bleach_u** | 2× the standard error of A at the end of the step and of A₀, from block averages (neighbouring spectra drift together, so the plain standard error is too small). |
 
 Two things are kept **out** of the error bars, because they move every point the same
