@@ -3884,3 +3884,17 @@ def test_raw_tau_differs_from_mean_tau_for_a_stretched_fit(ladder_window):
     assert np.allclose(np.nanmax(_ladder_y(tab)[0]), 4.0)
     tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("mean_tau"))
     assert np.allclose(np.nanmax(_ladder_y(tab)[0]), 8.0)    # (tau/beta)*gamma(1/beta)
+
+
+def test_the_manual_opens_from_every_tab(window):
+    """Requested 2026-11-08: the manual could not be reached from the app."""
+    from gui.widgets.manual_dialog import MANUAL_PATH
+    assert window.tabs.cornerWidget() is window.manual_btn
+    window.manual_btn.click()
+    dialog = window._manual_dialog
+    assert dialog.isVisible()
+    text = dialog.browser.toPlainText()
+    assert MANUAL_PATH.is_file() and "The Charge tab" in text
+    window.manual_btn.click()                      # reused, not a second window
+    assert window._manual_dialog is dialog
+    dialog.close()
