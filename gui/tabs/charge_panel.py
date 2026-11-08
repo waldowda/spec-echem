@@ -19,7 +19,9 @@ from qtpy.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
 from qtpy.QtCore import Qt
 
 from spec_echem.charge import (DEFAULT_DRIFT_FRACTION, DEFAULT_TAIL_S,
-                               DEFAULT_TAU_MULTIPLE, analyse_step, reversibility)
+                               DEFAULT_TAU_MULTIPLE, analyse_step, block_sem,
+                               film_rel_u, first_sample_delays, reversibility,
+                               reversibility_u, two_sig_fig_u)
 from spec_echem.data import DATA_TYPE_DEDOPING, DATA_TYPE_DOPING, DATA_TYPE_PREDEDOPING
 from gui.widgets.plot_canvas import MplCanvas
 from gui.widgets.figure_dialog import EXPORT_LABEL, EXPORT_TIP, open_figure_dialog
@@ -33,10 +35,11 @@ VIEWS = (
     ("Q out / Q in vs potential", "reversibility"),
 )
 
-# Which StepCharge fields each density view reads: (raw, leak-corrected).
+# Which StepCharge fields each density view reads: (raw, leak-corrected, its +-).
 DENSITY_FIELDS = {
-    "density": ("carriers_raw", "carriers_corrected"),
-    "charge_density": ("charge_density_raw", "charge_density_corrected"),
+    "density": ("carriers_raw", "carriers_corrected", "carriers_u"),
+    "charge_density": ("charge_density_raw", "charge_density_corrected",
+                       "charge_density_u"),
 }
 DENSITY_LABELS = {
     "density": ("Carrier density", "cm$^{-3}$"),
@@ -51,9 +54,19 @@ RING = {"marker": "o", "ms": 11, "mfc": "none", "mec": "#e07b00", "mew": 1.6,
         "linestyle": "none"}
 
 COLUMNS = ("segment", "doped_to_V", "direction", "duration_s", "Q_raw_mC",
-           "Q_corrected_mC", "leak_uA", "carriers_raw_cm3", "carriers_corrected_cm3",
+           "Q_corrected_mC", "Q_u_mC", "Q_head_max_mC", "leak_uA",
+           "u_background_mC", "u_integration_mC", "u_noise_mC",
+           "carriers_raw_cm3", "carriers_corrected_cm3", "carriers_u_cm3",
            "charge_density_raw_C_cm3", "charge_density_corrected_C_cm3",
-           "A_end", "A0", "bleach", "at_equilibrium", "reason")
+           "charge_density_u_C_cm3", "A_end", "A0", "bleach", "bleach_u",
+           "at_equilibrium", "reason")
+
+ERRORBAR_NOTE = ("error bars: background model (steady vs grown from zero), "
+                 "integration check and 2-sigma noise, combined")
+
+
+def _milli(value):
+    return None if value is None else 1e3 * value
 
 
 class ChargePanel(QWidget):
@@ -182,16 +195,48 @@ class ChargePanel(QWidget):
     # --- data ----------------------------------------------------------------
 
     def _film(self):
-        """(thickness_nm, area_cm2, where they came from)."""
+        """(thickness_nm, area_cm2, u_thickness_nm, u_area_cm2, where they came
+        from). An uncertainty of 0 -- or one an older run never recorded -- means
+        two significant figures."""
         recorded = self.win.label_settings() or {}
         thickness = recorded.get("film_thickness_nm")
         area = recorded.get("film_area_cm2")
         if thickness and area:
-            return float(thickness), float(area), "this run"
-        live = self.win.settings
-        return (float(live.get("film_thickness_nm") or 0.0),
-                float(live.get("film_area_cm2") or 0.0),
-                "the Parameters tab (this run did not record them)")
+            source = recorded
+            where = "this run"
+        else:
+            source = self.win.settings
+            where = "the Parameters tab (this run did not record them)"
+        return (float(source.get("film_thickness_nm") or 0.0),
+                float(source.get("film_area_cm2") or 0.0),
+                float(source.get("film_thickness_u_nm") or 0.0),
+                float(source.get("film_area_u_cm2") or 0.0), where)
+
+    def _film_note(self, thickness, area, u_t, u_a):
+        """The film-size uncertainty, one scale for every density point."""
+        rel = film_rel_u(thickness, area, u_t, u_a)
+        if rel is None:
+            return None
+        auto = [name for name, u in (("thickness", u_t), ("area", u_a)) if not u]
+        how = f" ({' and '.join(auto)} to 2 sig. figs)" if auto else ""
+        return (f"film volume +-{100 * rel:.1f}%: thickness +-"
+                f"{u_t or two_sig_fig_u(thickness):g} nm, area +-"
+                f"{u_a or two_sig_fig_u(area):g} cm2{how}; one scale for every "
+                f"density, not in the error bars")
+
+    def _head_delays(self):
+        """{label: seconds from cell ON to the first current sample}, from the run
+        log beside the data. {} when there is no log or it has no such lines."""
+        folder = getattr(self.win, "run_folder", None)
+        if folder is None:
+            return {}
+        folder = pathlib.Path(folder)
+        try:
+            text = (folder / f"{folder.name}_log.log").read_text(
+                encoding="utf-8", errors="replace")
+        except OSError:
+            return {}
+        return first_sample_delays(text)
 
     def _segments(self):
         """(label, segment) for every doping and dedoping step, in run order."""
@@ -204,7 +249,8 @@ class ChargePanel(QWidget):
         return out
 
     def _neutral(self, segments):
-        """(A0 spectrum, wavelengths, where it came from), or (None, None, reason).
+        """(A0 spectrum, wavelengths, where it came from, the spectra it averaged),
+        or (None, None, reason, None).
 
         The pre-dedoping step's end is the neutral film. Without one, the first
         spectra of the first doping step: it starts from the dedoped state too."""
@@ -216,14 +262,15 @@ class ChargePanel(QWidget):
                 keep = t >= t[-1] - self.tail_spin.value()
                 return (df.values[:, keep].mean(axis=1),
                         np.asarray(df.index.values, dtype=float),
-                        "end of pre-dedoping")
+                        "end of pre-dedoping", df.values[:, keep])
         for label, seg in segments:
             if seg.data_type == DATA_TYPE_DOPING:
                 df = self.win.results[label]
                 return (df.values[:, :3].mean(axis=1),
                         np.asarray(df.index.values, dtype=float),
-                        f"start of {label} (no pre-dedoping in this run)")
-        return None, None, "no neutral spectrum"
+                        f"start of {label} (no pre-dedoping in this run)",
+                        df.values[:, :3])
+        return None, None, "no neutral spectrum", None
 
     def _bleach_row(self, a0, wl):
         """The pixel bleach is read at: the neutral peak, or the box."""
@@ -248,11 +295,14 @@ class ChargePanel(QWidget):
         """Every step's StepCharge, in run order. Sets self.steps and self._notes."""
         self._stale = False
         segments = self._segments()
-        thickness, area, film_source = self._film()
-        a0_spectrum, wl, a0_source = self._neutral(segments)
+        thickness, area, u_t, u_a, film_source = self._film()
+        a0_spectrum, wl, a0_source, a0_block = self._neutral(segments)
         row = self._bleach_row(a0_spectrum, wl) if a0_spectrum is not None else None
         a0 = float(a0_spectrum[row]) if row is not None else None
+        a0_sem = block_sem(a0_block[row]) if row is not None else None
+        a0_u = 2.0 * a0_sem if a0_sem is not None else None
         tail = self.tail_spin.value()
+        delays = self._head_delays()
 
         steps = []
         for label, seg in segments:
@@ -270,14 +320,39 @@ class ChargePanel(QWidget):
                 area_cm2=area, thickness_nm=thickness,
                 mean_taus=self._mean_taus(label), tail_s=tail,
                 drift_fraction=self.drift_spin.value() / 100.0,
-                tau_multiple=self.tau_spin.value()))
+                tau_multiple=self.tau_spin.value(), a0_u=a0_u,
+                head_delay_s=delays.get(label)))
             steps[-1].run_number = seg.run_number
         self.steps = steps
+        self._film_info = (thickness, area, film_rel_u(thickness, area, u_t, u_a),
+                           "this run" if film_source == "this run"
+                           else "Parameters tab")
+        self._a0_info = (a0, float(wl[row])) if a0 is not None else None
         notes = [f"film {thickness:g} nm x {area:g} cm2 from {film_source}"]
+        film_note = self._film_note(thickness, area, u_t, u_a)
+        if film_note:
+            notes.append(film_note)
         if a0 is not None:
-            notes.append(f"A0 = {a0:.3f} at {float(wl[row]):.1f} nm, {a0_source}")
+            a0_text = f" +- {a0_u:.2g}" if a0_u is not None else ""
+            notes.append(f"A0 = {a0:.3f}{a0_text} at {float(wl[row]):.1f} nm, "
+                         f"{a0_source}")
         else:
             notes.append(a0_source)
+        notes.append(ERRORBAR_NOTE)
+        if any(s.q_head_max is not None for s in steps):
+            notes.append("Q_head_max: charge before the first current sample (cell ON "
+                         "to first sample, from the run log), an exponential run back: "
+                         "an upper bound, NOT in Q")
+        elif steps:
+            notes.append("no cell-ON timing in the run log: the charge before the "
+                         "first current sample is not estimated (and not in Q)")
+        ends = [s.bleach for s in steps
+                if s.direction == "dedoping" and s.bleach is not None]
+        self._floor = (min(ends), max(ends)) if ends else None
+        if ends:
+            notes.append(f"dedoping steps end at bleach {min(ends):.3f} to "
+                         f"{max(ends):.3f} (0 = back to A0): baseline drift plus "
+                         f"charge left in, a floor under every bleach")
         self._notes = notes
         return steps
 
@@ -293,30 +368,60 @@ class ChargePanel(QWidget):
         view = self.view_combo.currentData()
         curves, xlabel, ylabel, title = self._curves(view, steps)
         flagged = sum(1 for s in steps if not s.at_equilibrium)
-        footnote = "; ".join(self._notes)
-        if view in ("bleach", "bleach_charge"):
-            footnote += ("; doping steps only: a dedoping step ends neutral "
-                         "(its bleach is in the table)")
-        if flagged:
-            footnote += (f"; {flagged} step(s) ringed: not at equilibrium "
-                         f"(reason in the table)")
+        footnote = self._footnote(view, steps, flagged)
         if not curves:
             self.canvas.show_message(title)
             return
         self.canvas.plot_multi_xy(curves, xlabel, ylabel, title=title,
                                   footnote=footnote, footnote_warn=bool(flagged))
 
+    def _footnote(self, view, steps, flagged):
+        """A SHORT footnote for this view; the full notes go with the CSV.
+
+        Every note on every plot took half the figure (2026-11-08)."""
+        thickness, area, rel, where = self._film_info
+        bleach_view = view in ("bleach", "bleach_charge")
+        parts = []
+        if view != "charge" and view != "reversibility":
+            film = f"film {thickness:g} nm x {area:g} cm2 ({where})"
+            if rel is not None:
+                film += f", volume +-{100 * rel:.1f}% not in the bars"
+            parts.append(film)
+        if bleach_view:
+            if self._a0_info:
+                parts.append("A0 %.3f at %.0f nm" % self._a0_info)
+            parts.append("doping steps only (dedoping ends neutral; see the table)")
+            if self._floor:
+                parts.append("dedoping ends at bleach %.3f to %.3f" % self._floor)
+        parts.append("bars: background model, integration, noise")
+        heads = any(s.q_head_max is not None for s in steps)
+        if view == "reversibility" and heads:
+            parts.append("the charge before the first sample is not in Q and is larger "
+                         "on dedoping, so this ratio reads low (Q_head_max)")
+        elif not bleach_view:
+            parts.append("Q leaves out the charge before the first current sample"
+                         + (" (Q_head_max in the table)" if heads else
+                            " (not estimated: no timing in the run log)"))
+        if flagged:
+            parts.append(f"{flagged} step(s) ringed: not at equilibrium "
+                         f"(reason in the table)")
+        return "; ".join(parts)
+
     def _curves(self, view, steps):
         """(curves, xlabel, ylabel, title) for plot_multi_xy."""
         curves = []
 
         def add(direction, pairs, label, style=None, flagged_pairs=()):
-            pairs = [(x, y) for x, y in pairs if x is not None and y is not None]
+            """pairs: (x, y) or (x, y, y_err) or (x, y, y_err, x_err)."""
+            pairs = [tuple(p) + (None,) * (4 - len(p)) for p in pairs
+                     if p[0] is not None and p[1] is not None]
             if pairs:
-                pairs.sort()
-                xs, ys = zip(*pairs)
+                pairs.sort(key=lambda p: p[0])
+                xs, ys, yerr, xerr = zip(*pairs)
+                errs = {key: err for key, err in (("yerr", yerr), ("xerr", xerr))
+                        if any(e is not None for e in err)}
                 curves.append((xs, ys, label, {**DIRECTION_STYLE[direction],
-                                               **(style or {})}))
+                                               **(style or {}), **errs}))
             ring = [(x, y) for x, y in flagged_pairs if x is not None and y is not None]
             if ring:
                 xs, ys = zip(*ring)
@@ -331,7 +436,7 @@ class ChargePanel(QWidget):
             for s in by_dir["dedoping"]:
                 d = dopes.get(s.run_number)
                 r = reversibility(d, s)
-                pairs.append((s.potential, r))
+                pairs.append((s.potential, r, reversibility_u(d, s)))
                 if r is not None and not (s.at_equilibrium and d.at_equilibrium):
                     ring.append((s.potential, r))
             add("doping", pairs, "|Q dedoping| / Q doping (leak-corrected)",
@@ -347,27 +452,30 @@ class ChargePanel(QWidget):
             if view == "charge":
                 add(direction, [(s.potential, 1e3 * s.q_raw) for s in group],
                     f"{direction}: raw", {"alpha": 0.45})
-                add(direction, [(s.potential, 1e3 * s.q_corrected) for s in group],
+                add(direction, [(s.potential, 1e3 * s.q_corrected, 1e3 * s.q_u)
+                                for s in group],
                     f"{direction}: leak-corrected",
                     flagged_pairs=[(s.potential, 1e3 * s.q_corrected)
                                    for s in ring_key])
             elif view in ("density", "charge_density"):
-                raw, corr = DENSITY_FIELDS[view]
+                raw, corr, unc = DENSITY_FIELDS[view]
                 add(direction, [(s.potential, getattr(s, raw)) for s in group],
                     f"{direction}: raw", {"alpha": 0.45})
-                add(direction, [(s.potential, getattr(s, corr)) for s in group],
+                add(direction, [(s.potential, getattr(s, corr), getattr(s, unc))
+                                for s in group],
                     f"{direction}: leak-corrected",
                     flagged_pairs=[(s.potential, getattr(s, corr))
                                    for s in ring_key])
             elif view in ("bleach", "bleach_charge") and direction == "doping":
-                corr = DENSITY_FIELDS["density" if view == "bleach"
-                                      else "charge_density"][1]
+                _raw, corr, unc = DENSITY_FIELDS["density" if view == "bleach"
+                                                 else "charge_density"]
                 # Doping only. A dedoping step ENDS neutral, so its bleach (~0)
                 # describes the film after the charge came out, while its x would be
                 # the charge removed -- a neutral film drawn at 7e20 cm-3. Its bleach
                 # is still in the table.
                 add(direction,
-                    [(getattr(s, corr), s.bleach) for s in group],
+                    [(getattr(s, corr), s.bleach, s.bleach_u, getattr(s, unc))
+                     for s in group],
                     f"{direction}", {"linestyle": "none"},
                     flagged_pairs=[(getattr(s, corr), s.bleach)
                                    for s in ring_key])
@@ -401,12 +509,19 @@ class ChargePanel(QWidget):
                 "segment": s.label, "doped_to_V": s.potential,
                 "direction": s.direction, "duration_s": s.duration,
                 "Q_raw_mC": 1e3 * s.q_raw, "Q_corrected_mC": 1e3 * s.q_corrected,
+                "Q_u_mC": _milli(s.q_u), "Q_head_max_mC": _milli(s.q_head_max),
                 "leak_uA": 1e6 * s.leak_current,
+                "u_background_mC": _milli(s.u_background),
+                "u_integration_mC": _milli(s.u_integration),
+                "u_noise_mC": _milli(s.u_noise),
                 "carriers_raw_cm3": s.carriers_raw,
                 "carriers_corrected_cm3": s.carriers_corrected,
+                "carriers_u_cm3": s.carriers_u,
                 "charge_density_raw_C_cm3": s.charge_density_raw,
                 "charge_density_corrected_C_cm3": s.charge_density_corrected,
+                "charge_density_u_C_cm3": s.charge_density_u,
                 "A_end": s.a_end, "A0": s.a0, "bleach": s.bleach,
+                "bleach_u": s.bleach_u,
                 "at_equilibrium": s.at_equilibrium, "reason": s.reason})
         return out
 

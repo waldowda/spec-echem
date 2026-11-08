@@ -199,6 +199,15 @@ class ParametersTab(QWidget):
                                 "coated area BELOW the electrolyte line, one side. "
                                 "Default 1.6 = 2 cm immersed × 0.8 cm wide. Check "
                                 "the depth each run. 0 = unknown → DOS shows dQ/dV"))
+        for key, label, decimals, step, suffix in (
+                ("film_thickness_u_nm", "Thickness ±:", 1, 1.0, " nm"),
+                ("film_area_u_cm2", "Area ±:", 4, 0.01, " cm²")):
+            spin = self._dspin(key, 0.0, 100000.0, decimals=decimals, step=step,
+                               suffix=suffix)
+            spin.setSpecialValueText("2 sig. figs")
+            sform.addRow(label, self._hint(
+                spin, "for the Charge tab's densities; at 0, half a unit in "
+                      "the 2nd significant figure (150 → ±5)"))
 
         # Notes — full width, taller
         sform.addRow(QLabel("Notes:"))

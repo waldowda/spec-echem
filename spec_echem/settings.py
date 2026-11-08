@@ -79,6 +79,10 @@ DEFAULT_SETTINGS = {
     # nothing supports.
     "film_thickness_nm": 150.0,
     "film_area_cm2": 1.6,
+    # Their uncertainties, for the Charge tab's densities. 0 = "known to two
+    # significant figures" (half a unit in the second: 150 -> +-5, 1.6 -> +-0.05).
+    "film_thickness_u_nm": 0.0,
+    "film_area_u_cm2": 0.0,
 
     # --- Trigger ---
     "trigger": True,

@@ -3818,12 +3818,23 @@ def test_a_clicked_field_does_not_take_the_scroll_either(window):
 def test_the_run_log_names_the_film(ready_window, monkeypatch, tmp_path):
     """Requested 2026-11-06: thickness and area were only in the metadata JSON."""
     window, started = ready_window
-    window.settings.update(film_thickness_nm=123.0, film_area_cm2=2.4)
+    window.settings.update(film_thickness_nm=123.0, film_area_cm2=2.4,
+                           film_thickness_u_nm=4.0)
     monkeypatch.setattr(window, "collect_settings", lambda: dict(window.settings))
     window.run_tab.on_start()
     assert started
     log = next((tmp_path / "20260903_smoke").glob("*_log.log")).read_text()
-    assert "Film: thickness 123.0 nm, immersed area 2.4 cm2" in log
+    assert "Film: thickness 123.0 nm (+-4.0), immersed area 2.4 cm2 (+-0.0" in log
+
+
+def test_film_uncertainty_fields_default_to_two_significant_figures(window):
+    """Requested 2026-11-08: +- on thickness and area, 0 meaning 2 sig. figs."""
+    for key in ("film_thickness_u_nm", "film_area_u_cm2"):
+        spin = window.parameters_tab._widgets[key]
+        assert spin.value() == 0.0
+        assert spin.text() == "2 sig. figs"
+        spin.setValue(3.0)
+        assert window.collect_settings()[key] == pytest.approx(3.0)
 
 
 # --- beta and raw tau on the Kinetics plot (requested 2026-11-06) --------------------
