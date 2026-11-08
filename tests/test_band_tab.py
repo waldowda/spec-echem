@@ -159,7 +159,7 @@ def test_the_x_axis_is_volts_not_categories(window):
     ax = tab.canvas.fig.axes[0]
     # Ticks AT the measured potentials, so every rung is still labelled...
     np.testing.assert_allclose(ax.get_xticks(), [0.3, 0.5, 0.7], atol=1e-9)
-    assert [t.get_text() for t in ax.get_xticklabels()] == ["+0.30", "+0.50", "+0.70"]
+    assert [t.get_text() for t in ax.get_xticklabels()] == ["+0.3", "+0.5", "+0.7"]
     # ...and the DATA is there too, not at 0, 1, 2.
     drawn = sorted({round(float(x), 3)
                     for line in ax.lines for x in line.get_xdata()})
@@ -968,3 +968,21 @@ def test_a_potential_with_no_passed_fit_still_shows_on_the_ladder(window):
     assert lo < 1.0 and hi > 2.2          # the flagged rung is on the axes...
     assert hi < 100.0                     # ...and the wild fit did not set the scale
     assert offscreen == 1                 # it is counted instead
+
+
+def test_rung_labels_stay_short_and_slant_when_crowded():
+    """Eleven rungs labelled "+0.00".."+1.00" ran into each other (2026-11-08)."""
+    from matplotlib.figure import Figure
+    from gui.tabs.band_tab import _rung_labels, _tilt_if_crowded
+    measured = np.linspace(0.0, 1.0, 11) + 0.0003      # measured, not set, potentials
+    assert _rung_labels(measured)[:3] == ["+0.0", "+0.1", "+0.2"]
+    assert _rung_labels([0.0, 0.05, 0.1]) == ["+0.00", "+0.05", "+0.10"]
+    ax = Figure().subplots()
+    ax.set_xticks(measured)
+    ax.set_xticklabels(_rung_labels(measured))
+    _tilt_if_crowded(ax, len(measured))
+    assert all(t.get_rotation() == 45 for t in ax.get_xticklabels())
+    ax2 = Figure().subplots()
+    ax2.set_xticks([0.3, 0.5]); ax2.set_xticklabels(["+0.3", "+0.5"])
+    _tilt_if_crowded(ax2, 2)
+    assert all(t.get_rotation() == 0 for t in ax2.get_xticklabels())

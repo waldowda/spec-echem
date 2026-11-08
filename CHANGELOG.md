@@ -27,6 +27,10 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **Manual button (2026-11-08)** at the top right of every tab: `docs/manual.md`
+  rendered in a window (Qt's own Markdown; offline). Band-fit ladder: tick labels use
+  one decimal on a 0.1 V ladder and slant past 7 rungs (11 rungs collided). Charge tab
+  footnote gives the largest error bar, since most sit inside the symbols.
 - **Charge tab: uncertainties (2026-11-08).** Every step's corrected charge now has a
   ± (`Q_u_mC`, drawn as error bars): the background model, the integration check
   (every sample vs every other) and 2σ tail noise, in quadrature, with each part in its

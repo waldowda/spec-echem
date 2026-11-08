@@ -56,6 +56,23 @@ DEFAULT_SPAN_NM = 100.0
 # potential it was measured at.
 
 
+
+def _rung_labels(potentials):
+    """Tick text per rung: one decimal when every potential sits within 5 mV of a
+    0.1 V step, else two. "+0.00" on eleven rungs ran into each other (2026-11-08)."""
+    xs = np.asarray(potentials, dtype=float)
+    one = xs.size and np.all(np.abs(np.round(xs, 1) - xs) < 0.005) \
+        and len(set(np.round(xs, 1))) == xs.size
+    return [f"{p:+.1f}" if one else f"{p:+.2f}" for p in xs]
+
+
+def _tilt_if_crowded(ax, n_rungs, limit=7):
+    """Slant the tick text when there are more rungs than fit side by side."""
+    if n_rungs > limit:
+        for label in ax.get_xticklabels():
+            label.set_rotation(45)
+            label.set_ha("right")
+
 class BandTab(QWidget):
     def __init__(self, main_window):
         super().__init__()
@@ -737,7 +754,7 @@ class BandTab(QWidget):
             entries = sorted((r for r in shown if r[2] == direction),
                              key=lambda r: r[1])
             xs = np.array([p for _l, p, _d, _b in entries], dtype=float)
-            labels = [f"{p:+.2f}" for p in xs]
+            labels = _rung_labels(xs)
 
             ax = axes[0][col]
             # BEFORE _strip, which sets the limits: a log axis cannot take a lower
@@ -749,6 +766,7 @@ class BandTab(QWidget):
             sign_notes += self._shade_sign_flips(ax, entries, xs, direction)
             ax.set_xticks(xs)
             ax.set_xticklabels(labels)
+            _tilt_if_crowded(ax, len(xs))
             # A real axis puts the end rungs on the frame, where half of each strip
             # would be clipped. One tenth of the span, or 50 mV for a single rung.
             span = float(xs.max() - xs.min())
@@ -772,6 +790,7 @@ class BandTab(QWidget):
                 self._strip(bax, entries, xs, model, column="beta")
                 bax.set_xticks(xs)
                 bax.set_xticklabels(labels)
+                _tilt_if_crowded(bax, len(xs))
                 bax.set_ylabel("beta")
                 bax.set_ylim(0, 1.05)
                 bax.grid(alpha=0.3)

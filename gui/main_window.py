@@ -7,7 +7,8 @@ Shared state lives here (the Qt-side coordinator):
     - dark / ref / wavelengths: per-run calibration, set by the Instrument tab
 The Qt-free orchestration (Experiment class) is added when the Run tab is wired.
 """
-from qtpy.QtWidgets import QMainWindow, QTabWidget
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QMainWindow, QPushButton, QTabWidget
 
 from spec_echem.bench import (
     apply_bench_defaults, load_bench_defaults, user_bench_path,
@@ -24,6 +25,7 @@ from gui.tabs.run_tab import RunTab
 from gui.tabs.results_tab import ResultsTab
 from gui.tabs.analysis_tab import AnalysisTab
 from gui.tabs.band_tab import BandTab
+from gui.widgets.manual_dialog import open_manual
 
 
 class MainWindow(QMainWindow):
@@ -90,6 +92,11 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.results_tab, "4. Results")
         self.tabs.addTab(self.analysis_tab, "5. Analysis")
         self.tabs.addTab(self.band_tab, "6. Band Fits")
+        # The manual, one click from every tab (2026-11-08: unreachable from the app).
+        self.manual_btn = QPushButton("Manual", self.tabs)
+        self.manual_btn.setToolTip("Open the user manual (docs/manual.md) in a window")
+        self.manual_btn.clicked.connect(lambda: open_manual(self))
+        self.tabs.setCornerWidget(self.manual_btn, Qt.TopRightCorner)
 
         self.setCentralWidget(self.tabs)
 

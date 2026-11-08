@@ -273,3 +273,13 @@ def test_a0_uncertainty_comes_from_the_pre_dedoping_scatter(run):
     row = {r["segment"]: r for r in panel.rows()}["Doping 0"]
     # The doping tail itself is noise-free here, so all of bleach_u is A0's share.
     assert row["bleach_u"] > 0.001
+
+
+def test_the_footnote_gives_the_largest_bar(run):
+    """Bars inside the symbols looked missing (2026-11-08)."""
+    panel = _panel(run)
+    panel.view_combo.setCurrentIndex(panel.view_combo.findData("bleach_charge"))
+    data = panel.canvas.last_data()
+    footnote = panel.canvas._last_draw[2]["footnote"]
+    assert f"largest bars: y +-{data['y_err'].max():.2g}" in footnote
+    assert f", x +-{data['x_err'].max():.2g}" in footnote

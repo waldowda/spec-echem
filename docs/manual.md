@@ -1,6 +1,7 @@
 # spec-echem — user manual
 
-How to drive the GUI, and what the numbers it reports actually mean.
+How to drive the GUI, and what the numbers it reports actually mean. The **Manual**
+button at the top right of every tab opens this file in a window.
 
 Two halves. **Part 1** is the tabs: what each control does and what it is for. **Part 2**
 is the mathematics: which functions are fitted, how the mean relaxation time and its
@@ -199,6 +200,7 @@ growing more negative at 60 s.)
 | **u_background_mC, u_integration_mC, u_noise_mC** | The three parts, so you can see which one dominates. On a low step it is the background (±6% at 0.0 V on one run); noise is usually under 0.1%. |
 | **Q_head_max_mC** | The charge **before the first current sample**, which no sample covers and which is **not in Q**. The cell switches on some 0.1 s before the first sample, while the current is at its largest. The time comes from the run log's timing lines (Autolab runs; on other runs the column is empty and the footnote says so), and an exponential through the first three samples is run back over it. The real current just after switch-on is capped by the cell resistance, so this is an **upper bound**. Dedoping decays faster, so its share is larger (~15% against ~10% for doping on one run), and **Q out / Q in reads low** by roughly the difference. |
 | **carriers_u, charge_density_u** | From Q_u alone. |
+| *(error bars)* | Most are smaller than the plot symbols, so they look missing. The footnote gives the largest bar on the plot ("largest bars: y ±…, x ±…"); the table has every one. |
 | **bleach_u** | 2× the standard error of A at the end of the step and of A₀, from block averages (neighbouring spectra drift together, so the plain standard error is too small). |
 
 Two things are kept **out** of the error bars, because they move every point the same

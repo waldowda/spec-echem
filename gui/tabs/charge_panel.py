@@ -368,14 +368,33 @@ class ChargePanel(QWidget):
         view = self.view_combo.currentData()
         curves, xlabel, ylabel, title = self._curves(view, steps)
         flagged = sum(1 for s in steps if not s.at_equilibrium)
-        footnote = self._footnote(view, steps, flagged)
+        footnote = self._footnote(view, steps, flagged, curves)
         if not curves:
             self.canvas.show_message(title)
             return
         self.canvas.plot_multi_xy(curves, xlabel, ylabel, title=title,
                                   footnote=footnote, footnote_warn=bool(flagged))
 
-    def _footnote(self, view, steps, flagged):
+    @staticmethod
+    def _largest_bars(curves):
+        """'largest bars: y +-a, x +-b' in the axes' units, or "" with none. Most
+        bars sit inside the symbols (2026-11-08: they looked missing), so the
+        footnote says how big the biggest one is."""
+        biggest = {}
+        for curve in curves:
+            style = curve[3] if len(curve) > 3 else {}
+            for key in ("yerr", "xerr"):
+                vals = [abs(v) for v in style.get(key) or () if v is not None]
+                if vals:
+                    biggest[key] = max(biggest.get(key, 0.0), max(vals))
+        if not biggest:
+            return ""
+        parts = [f"{key[0]} +-{biggest[key]:.2g}" for key in ("yerr", "xerr")
+                 if key in biggest]
+        return ("largest bars: " + ", ".join(parts)
+                + " (smaller ones hide inside the symbols)")
+
+    def _footnote(self, view, steps, flagged, curves=()):
         """A SHORT footnote for this view; the full notes go with the CSV.
 
         Every note on every plot took half the figure (2026-11-08)."""
@@ -394,6 +413,9 @@ class ChargePanel(QWidget):
             if self._floor:
                 parts.append("dedoping ends at bleach %.3f to %.3f" % self._floor)
         parts.append("bars: background model, integration, noise")
+        largest = self._largest_bars(curves)
+        if largest:
+            parts.append(largest)
         heads = any(s.q_head_max is not None for s in steps)
         if view == "reversibility" and heads:
             parts.append("the charge before the first sample is not in Q and is larger "
