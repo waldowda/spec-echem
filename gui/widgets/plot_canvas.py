@@ -109,6 +109,14 @@ def _records(method):
     return wrapper
 
 
+def _err_array(err):
+    """Error bars as floats, None -> NaN (no bar); None when there are none."""
+    if err is None:
+        return None
+    arr = np.array([np.nan if e is None else e for e in err], dtype=float)
+    return None if not np.isfinite(arr).any() else arr
+
+
 class MplCanvas(FigureCanvasQTAgg):
     def __init__(self, parent=None, xlabel="Wavelength (nm)", ylabel="Intensity (counts)"):
         self.fig = Figure(figsize=(5, 3), tight_layout=True)
@@ -291,9 +299,15 @@ class MplCanvas(FigureCanvasQTAgg):
                 rows = []
                 for curve in args[0]:
                     cx, cy, label = curve[0], curve[1], curve[2]
-                    for xi, yi in zip(np.asarray(cx, dtype=float),
-                                      np.asarray(cy, dtype=float)):
-                        rows.append({"series": str(label), "x": xi, "y": yi})
+                    style = curve[3] if len(curve) > 3 else {}
+                    errs = {key: _err_array(style.get(key)) for key in ("xerr", "yerr")}
+                    for k, (xi, yi) in enumerate(zip(np.asarray(cx, dtype=float),
+                                                     np.asarray(cy, dtype=float))):
+                        row = {"series": str(label), "x": xi, "y": yi}
+                        for key, err in errs.items():
+                            if err is not None:
+                                row[key[0] + "_err"] = err[k]
+                        rows.append(row)
                 return pd.DataFrame(rows)
         except Exception:  # noqa: BLE001 — a CSV that cannot be built is not an error
             logger.debug("no tabular form for %s", name, exc_info=True)
@@ -860,11 +874,19 @@ class MplCanvas(FigureCanvasQTAgg):
             # hiding them.
             x, y, label = curve[0], curve[1], curve[2]
             style = dict(curve[3]) if len(curve) > 3 else {}
+            # "xerr"/"yerr" in the style draw error bars (None entries = no bar).
+            errs = [_err_array(style.pop(key, None)) for key in ("xerr", "yerr")]
             x_arr = np.asarray(x, dtype=float)
             y_arr = np.asarray(y, dtype=float)
             if swap_axes:
                 x_arr, y_arr = y_arr, x_arr
-            self.ax.plot(x_arr, y_arr, label=str(label), **{"lw": 1.2, **style})
+                errs.reverse()
+            if errs[0] is None and errs[1] is None:
+                self.ax.plot(x_arr, y_arr, label=str(label), **{"lw": 1.2, **style})
+            else:
+                self.ax.errorbar(x_arr, y_arr, xerr=errs[0], yerr=errs[1],
+                                 label=str(label), capsize=2, elinewidth=0.8,
+                                 **{"lw": 1.2, **style})
         if logy:
             # Non-positive points cannot be drawn on a log axis; matplotlib drops
             # them. The caller states how many, so they are not silently lost.

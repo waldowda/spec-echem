@@ -27,6 +27,20 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **Charge tab: uncertainties (2026-11-08).** Every step's corrected charge now has a
+  ± (`Q_u_mC`, drawn as error bars): the background model, the integration check
+  (every sample vs every other) and 2σ tail noise, in quadrature, with each part in its
+  own column. The **corrected charge is now the midpoint** of "the end-of-step current
+  flowed all along" and "it grew from zero" (Q_raw − ¾ × leak × duration, was − 1 ×);
+  values move by a quarter of the leak correction, ~0.1–2% on most steps. New
+  `Q_head_max_mC`: the charge before the first current sample, from the run log's
+  cell-ON timing, as an upper bound — **not added to Q**. Densities and Q out / Q in
+  carry Q's ±; bleach carries a block-averaged ± and the footnote gives the dedoping
+  steps' residual bleach as a floor. New check: a step whose current is still changing
+  at the end by more than 5% of Q over the step is ringed. Parameters tab: **Thickness
+  ±** and **Area ±** (0 = two significant figures), saved with the run and in the run
+  log; the film size is one ±% in the footnote, not in the bars. Plot footnotes are now
+  short; the full notes go with the CSV.
 - **Analysis: Kinetics and Charge tabs under the fit plot (2026-11-06).**
   - The ladder moves into a **Kinetics** tab and gains a **Plot** dropdown: mean tau,
     raw tau, **beta** (stretched fits; it was not plottable before) and the

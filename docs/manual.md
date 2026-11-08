@@ -156,16 +156,19 @@ says how *fast* a film switched at each potential, this says how *much*.
 | **Equilibrium: last … s** | The end of each step. Absorbance and current are averaged over it, drift is measured over it, and its mean current is the leak (below). |
 | **move < … %** | A step is ringed if its absorbance or current still moved by more than this share of the step's whole change over that last span. |
 | **step ≥ … × tau** | ...or if the step was shorter than this many relaxation times (5 τ = 99.3% complete). Uses the Kinetics fits of absorbance and current that passed review; a step not yet fitted gets only the drift check, and the table says which checks were made. |
-| **Save table (CSV)…** | Every number for every step, with the film size and A₀ it used. |
+| **Save table (CSV)…** | Every number for every step, with the film size, A₀ and every note behind them. The plot footnote is a short version. |
 
 What each number is:
 
 - **Charge** is the integral of the current over the step. In the usual sequence every
   doping step starts from the dedoped film, so a doping step's charge is already the
   total needed to reach that potential; nothing is added up across steps.
-- **Leak-corrected** charge subtracts a steady side-reaction current: the mean current
-  over the step's last few seconds, times the step's length. Raw and corrected are both
-  drawn, so the size of the correction is visible.
+- **Leak-corrected** charge subtracts a side-reaction current, the "leak": the mean
+  current over the step's last few seconds. Whether it flowed at that level for the
+  whole step or grew from zero is not known, so the corrected charge is the midpoint of
+  the two (Q_raw − ¾ × leak × duration) and half their difference is part of its
+  uncertainty. Raw and corrected are both drawn, so the size of the correction is
+  visible.
 - **Carrier density** is |Q| / (e × area × thickness), with the film size **this run
   recorded**. An older run that recorded none uses the Parameters tab, and the plot
   footnote says which.
@@ -178,10 +181,40 @@ What each number is:
 - **Q out / Q in** is the leak-corrected charge of each dedoping step over its doping
   step's. Below 1, charge stayed in the film or went to a side reaction.
 
-These are equilibrium values only if the step got there. A step that fails either check
-is **ringed, never removed**, and the table gives the reason. Two checks, because each
+These are equilibrium values only if the step got there. A step that fails a check
+is **ringed, never removed**, and the table gives the reason. Several checks, because each
 misses something: a slow step (τ = 20 s in a 60 s hold) moves only ~1.5% in its last 5 s
-and passes the drift check, yet is only 95% complete.
+and passes the drift check, yet is only 95% complete. A third check asks whether the
+current at the end is still changing: carried back over the whole step at that rate,
+would it be more than 5% of Q? The drift check compares against the step's peak
+current, so a 1 µA background still moving after a 300 µA spike passes it; this one
+does not. (The lowest step of one run: the current crossed zero at 14 s and was still
+growing more negative at 60 s.)
+
+#### Uncertainties
+
+| Column | What it is |
+|---|---|
+| **Q_u_mC** | The ± drawn as error bars: the background model (above), the **integration check** (the integral from every sample against every other sample — large when a fast first second is undersampled) and **noise** (2σ of the last few seconds' scatter, on the integral and on the leak), in quadrature. Half-ranges are bounds, not standard deviations, so read it as a rough 95% range. |
+| **u_background_mC, u_integration_mC, u_noise_mC** | The three parts, so you can see which one dominates. On a low step it is the background (±6% at 0.0 V on one run); noise is usually under 0.1%. |
+| **Q_head_max_mC** | The charge **before the first current sample**, which no sample covers and which is **not in Q**. The cell switches on some 0.1 s before the first sample, while the current is at its largest. The time comes from the run log's timing lines (Autolab runs; on other runs the column is empty and the footnote says so), and an exponential through the first three samples is run back over it. The real current just after switch-on is capped by the cell resistance, so this is an **upper bound**. Dedoping decays faster, so its share is larger (~15% against ~10% for doping on one run), and **Q out / Q in reads low** by roughly the difference. |
+| **carriers_u, charge_density_u** | From Q_u alone. |
+| **bleach_u** | 2× the standard error of A at the end of the step and of A₀, from block averages (neighbouring spectra drift together, so the plain standard error is too small). |
+
+Two things are kept **out** of the error bars, because they move every point the same
+way and a bar would hide that:
+
+- **Film size.** Parameters tab → **Thickness ±** and **Area ±**, saved with the run.
+  At 0 they read "2 sig. figs": half a unit in the second significant figure, so
+  100 nm → ±5 nm and 2.4 cm² → ±0.05 cm², ±5.4% on the volume. The footnote gives it
+  as one ±% for every density. It matters when comparing films, not potentials.
+- **The bleach floor.** Dedoping steps should end back at a bleach of 0. What they end
+  at (the footnote's "dedoping ends at bleach … to …") is baseline drift plus charge
+  left in the film, a floor under every bleach — often larger than bleach_u.
+
+Film-to-film and run-to-run scatter is usually larger than all of these. Only repeat
+films measure it: report the mean and standard deviation of repeats, with these numbers
+as the check that a single run's values are trustworthy.
 
 The fit plot shows the data, the fitted curve, and a **residual panel above** (the
 convention in XPS/NMR/IR fitting). The residuals are the point: an exponential and a

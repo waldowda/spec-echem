@@ -197,3 +197,79 @@ def test_charge_density_views_use_q_over_volume(run):
                       if r["direction"] == "doping")
     assert np.allclose(sorted(data["x"]), expected)
     assert "Charge density" in panel.canvas.ax.get_xlabel()
+
+
+# --- uncertainties (requested 2026-11-08) ---------------------------------------
+
+def test_corrected_charge_carries_error_bars_into_the_plot_and_csv_data(run):
+    panel = _panel(run)
+    rows = {r["segment"]: r for r in panel.rows()}
+    assert all(r["Q_u_mC"] is not None and r["Q_u_mC"] >= 0 for r in rows.values())
+    panel.view_combo.setCurrentIndex(panel.view_combo.findData("charge"))
+    data = panel.canvas.last_data()
+    corrected = data[data["series"] == "doping: leak-corrected"]
+    assert np.allclose(sorted(corrected["y_err"]),
+                       sorted(r["Q_u_mC"] for r in rows.values()
+                              if r["direction"] == "doping"))
+    assert data.loc[data["series"] == "doping: raw", "y_err"].isna().all()
+    for view in ("density", "charge_density", "reversibility"):
+        panel.view_combo.setCurrentIndex(panel.view_combo.findData(view))
+        assert "y_err" in panel.canvas.last_data().columns, view
+    panel.view_combo.setCurrentIndex(panel.view_combo.findData("bleach_charge"))
+    data = panel.canvas.last_data()
+    assert {"x_err", "y_err"} <= set(data.columns)
+    assert any(n.startswith("error bars:") for n in panel._notes)
+
+
+def test_film_size_uncertainty_is_a_note_not_an_error_bar(run):
+    panel = _panel(run)
+    # Two significant figures: 100 -> +-5 nm (5%), 2.0 -> +-0.05 cm2 (2.5%): 5.6%.
+    assert any("film volume +-5.6%" in n and "2 sig. figs" in n for n in panel._notes)
+    run.settings.update(film_thickness_u_nm=10.0, film_area_u_cm2=0.2)
+    panel = _panel(run)
+    assert any("film volume +-14.1%" in n and "sig. figs" not in n
+               for n in panel._notes)
+    row = {r["segment"]: r for r in panel.rows()}["Doping 0"]
+    # The density's own +- comes from the charge alone.
+    assert row["charge_density_u_C_cm3"] == pytest.approx(
+        1e-3 * row["Q_u_mC"] / (2.0 * 100.0 * 1e-7), rel=1e-9)
+
+
+def test_head_charge_comes_from_the_run_log_and_stays_out_of_q(run):
+    panel = _panel(run)
+    assert all(r["Q_head_max_mC"] is None for r in panel.rows())
+    assert any("not estimated" in n for n in panel._notes)
+    folder = run.run_folder
+    (folder / f"{folder.name}_log.log").write_text(
+        "2026-11-06 10:00:00,000  INFO    Doping 1 timing, from cell ON: trigger "
+        "edge +0.020 s | first Ei sample +0.100 s.\n", encoding="utf-8")
+    panel = _panel(run)
+    rows = {r["segment"]: r for r in panel.rows()}
+    # I0 (1+n) exp(-t/tau) run back 0.1 s: I0 * 2 * tau * (exp(0.1/tau) - 1).
+    assert rows["Doping 1"]["Q_head_max_mC"] == pytest.approx(
+        1e3 * I0 * 2 * TAU * (np.exp(0.1 / TAU) - 1), rel=1e-3)
+    assert rows["Doping 0"]["Q_head_max_mC"] is None
+    assert rows["Doping 1"]["Q_raw_mC"] == pytest.approx(1e3 * I0 * 2 * TAU, rel=1e-3)
+    assert any("upper bound, NOT in Q" in n for n in panel._notes)
+    panel.view_combo.setCurrentIndex(panel.view_combo.findData("reversibility"))
+    assert "reads low" in panel.canvas._last_draw[2]["footnote"]
+
+
+def test_dedoping_ends_give_the_bleach_floor(run):
+    panel = _panel(run)
+    ends = [r["bleach"] for r in panel.rows() if r["direction"] == "dedoping"]
+    assert (f"dedoping steps end at bleach {min(ends):.3f} to {max(ends):.3f}"
+            in "; ".join(panel._notes))
+    assert all(r["bleach_u"] is not None for r in panel.rows())
+
+
+def test_a0_uncertainty_comes_from_the_pre_dedoping_scatter(run):
+    rng = np.random.default_rng(2)
+    pre = run.results["Pre-dedoping"]
+    run.results["Pre-dedoping"] = pre + rng.normal(0, 0.01, pre.shape)
+    panel = _panel(run)
+    note = next(n for n in panel._notes if n.startswith("A0 = "))
+    assert "+- " in note
+    row = {r["segment"]: r for r in panel.rows()}["Doping 0"]
+    # The doping tail itself is noise-free here, so all of bleach_u is A0's share.
+    assert row["bleach_u"] > 0.001

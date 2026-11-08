@@ -828,14 +828,13 @@ sub-floor requests are refused, not clamped.
 Built 2026-11-06 (`16b5e84`, `f2d02e0`): Analysis → Charge, per doping/dedoping step.
 See `docs/manual.md` § The Charge tab.
 
-- [ ] **The charge before the first current sample is not counted — the user's call.**
-      The first Ei sample lands ~0.08–0.09 s after the cell switches on, at the
-      current's peak. On the 2026-11-05 run, extrapolating each step's exp fit back to
-      switch-on puts the missing head at ~11–12% of Q (0.17 of 1.59 mC at +0.4 V,
-      0.38 of 3.12 mC at +0.9 V). Hand calculations from the same files share it. An
-      overestimate if the true early current is resistance-limited. Options: an
-      "extrapolated head" column; a corrected Q; or the hardware integrator question
-      (PITT section). Same issue as PITT's `first_sample_s`.
+- [x] **The charge before the first current sample** — decided 2026-11-08: option (b),
+      a separate `Q_head_max_mC` column (upper bound from the run log's cell-ON timing),
+      never added to Q. It is ~10% of doping and ~15% of dedoping Q on 2026-11-05 runs,
+      so Q out / Q in reads low. Lasting fix is on the rig:
+- [ ] **Sample the current faster in the first second of a chrono step** (as PITT's
+      fast phase does), so the head is measured rather than estimated. Gamry runs log no
+      cell-ON-to-first-sample time, so their head column is empty.
 - [ ] **Check on the rig** with a fresh run: every view, the CSV, and a step that
       genuinely fails the 5 tau or drift check.
 - [ ] **Export all figures** writes the fit traces and the Kinetics ladder, not the
