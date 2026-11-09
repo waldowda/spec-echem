@@ -1,7 +1,10 @@
 # spec-echem — user manual
 
 How to drive the GUI, and what the numbers it reports actually mean. The **Manual**
-button at the top right of every tab opens this file in a window.
+button at the top right of every tab opens this file in a window. Beside it, a
+coloured label names the data set on screen: **Running** (green) from Start,
+**Last run** (blue) when it ends, **Loaded** (blue) after Results → Load. The window
+title carries the same folder name, so a screenshot says which run it shows.
 
 Two halves. **Part 1** is the tabs: what each control does and what it is for. **Part 2**
 is the mathematics: which functions are fitted, how the mean relaxation time and its

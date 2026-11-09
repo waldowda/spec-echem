@@ -937,6 +937,7 @@ class ResultsTab(QWidget):
         self.win.results = results
         self.win.segments_by_label = segments_by_label
         self.win.run_folder = Path(folder)
+        self.win.set_dataset(folder, "Loaded")
         self.win.loaded_run_settings = _read_run_settings(Path(folder))
         self.win._potential_cache.clear()
         # A NOTE, not a skip: nothing failed to load. Filing it under "Skipped:"

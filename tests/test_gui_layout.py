@@ -3889,7 +3889,7 @@ def test_raw_tau_differs_from_mean_tau_for_a_stretched_fit(ladder_window):
 def test_the_manual_opens_from_every_tab(window):
     """Requested 2026-11-08: the manual could not be reached from the app."""
     from gui.widgets.manual_dialog import MANUAL_PATH
-    assert window.tabs.cornerWidget() is window.manual_btn
+    assert window.manual_btn.parent() is window.tabs.cornerWidget()
     window.manual_btn.click()
     dialog = window._manual_dialog
     assert dialog.isVisible()
@@ -3898,3 +3898,51 @@ def test_the_manual_opens_from_every_tab(window):
     window.manual_btn.click()                      # reused, not a second window
     assert window._manual_dialog is dialog
     dialog.close()
+
+
+def test_the_data_set_on_screen_is_named_in_the_corner_and_title(ready_window, tmp_path,
+                                                                 monkeypatch):
+    """Requested 2026-11-08: tabs 4-6 never said which run they were showing."""
+    import numpy as np
+    from qtpy.QtWidgets import QFileDialog, QMessageBox
+    from spec_echem.experiment import run_one_segment, Segment
+    from spec_echem.data import DATA_TYPE_DOPING
+    from spec_echem.fakes import FakeSpectrometer
+    window, started = ready_window
+    label = window.dataset_label
+    assert label.text() == "No data set"
+    assert window.windowTitle() == window._base_title
+
+    # Load a past run: blue pill, folder name in the title, full path in the tip.
+    spec = FakeSpectrometer()
+    spec.init()
+    wl = np.asarray(spec.wavelengths()[1], dtype=float)
+    run_one_segment(spec, Segment("Doping 0", DATA_TYPE_DOPING, 0, 5, 0.2, False),
+                    np.zeros(wl.size), np.full(wl.size, 5000.0), wl, tmp_path,
+                    "20261105", settings={"data_format": "ascii"})
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory",
+                        lambda *a, **k: str(tmp_path / "20261105"))
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    window.results_tab.on_load_run()
+    assert label.text() == "Loaded: 20261105"
+    assert window.windowTitle().endswith(" — 20261105")
+    assert str(tmp_path / "20261105") in label.toolTip()
+    assert "font-weight: bold" in label.styleSheet()
+    assert "#bbdefb" in label.styleSheet()
+
+    # Start replaces it at once (green), and the end of the run keeps the name.
+    monkeypatch.setattr(window, "collect_settings", lambda: dict(window.settings))
+    window.run_tab.on_start()
+    assert started
+    assert label.text() == "Running: 20260903_smoke"
+    assert "#c8e6c9" in label.styleSheet()
+    assert window.windowTitle().endswith(" — 20260903_smoke")
+    window.run_tab.on_finished("done")
+    assert label.text() == "Last run: 20260903_smoke"
+    assert "#bbdefb" in label.styleSheet()
+
+    # A long name is shortened in the corner, never in the title.
+    long = "20261108_" + "x" * 40
+    window.set_dataset(tmp_path / long, "Loaded")
+    assert len(label.text()) == len("Loaded: ") + 32
+    assert window.windowTitle().endswith(long)

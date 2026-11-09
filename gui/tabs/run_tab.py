@@ -440,6 +440,7 @@ class RunTab(QWidget):
         # Expose the run folder + segment map so the Results tab can find each
         # segment's echem file (written next to the spectra in Python mode).
         self.win.run_folder = run_folder
+        self.win.set_dataset(run_folder, "Running")
         self.win.segments_by_label = {seg.label: seg for seg in segments}
         # A PITT runs as one segment but reports one result per STEP ("PITT 0", ...),
         # so each step is registered too: every lookup by label -- potentials in the
@@ -692,6 +693,7 @@ class RunTab(QWidget):
         text, color = banners.get(reason, ("Idle", "#eef"))
         self.set_banner(text, color)
         close_run_logging()
+        self.win.set_dataset(self.win.run_folder, "Last run")
         self._reset_controls()
         self.win.instrument_tab._set_actions_enabled(True)
         self.win.instrument_tab.lock_for_run(False)          # unlock Connect/Simulated
