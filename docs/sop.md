@@ -1,7 +1,7 @@
 # spec-echem Standard Operating Procedure
 
 **Version:** 0.2.0
-**Audience:** Waldow Lab students, first-time users
+**Audience:** lab students, first-time users
 **System:** Windows 11 instrument PC (`inst-chem` account)
 
 ---
@@ -54,7 +54,7 @@ Complete this once per machine. Skip to Part 2 if the instrument PC is already s
 - [ ] Gamry Reference 600 connected via USB, Gamry Framework installed
 - [ ] Anaconda installed — **verify the install path** (§1.2)
 - [ ] Avantes SDK files (from Avantes; the 64-bit version is `AvaSpecX64-DLL_9.14.0.0`)
-- [ ] Access to the spec-echem GitHub repository (ask Dr. Waldow)
+- [ ] Access to the spec-echem GitHub repository (ask your instructor)
 
 ### 1.2 Verify the Anaconda Install Path
 
@@ -340,7 +340,7 @@ falls back to the lab-wide `config/defaults.ini`. See [`config/README.md`](../co
 **Sample Info** — sample name, electrolyte, notes; all of it is written into a metadata JSON in the
 run folder, so the data documents itself.
 
-**Data folder** — pre-filled with today's date; add a short description (e.g. `20260714_film`).
+**Data folder** — pre-filled with today's date; add a short description (e.g. `20260714_film1`).
 Click **Today** if the app has been open past midnight. **Save location** is the *parent* folder
 (leave it at `…\Documents\specechem_data`); the run folder is created for you.
 
@@ -480,7 +480,7 @@ environment, and everything you did, timestamped.
 `dedoping(N).txt`, `prededoping(N).txt` (time, corrected time, potential, current, index), plus
 native `.DTA` files in a `dta/` subfolder if you enabled them.
 
-> This format is fixed — downstream analysis at the partner lab
+> This format is fixed — downstream analysis (`rajgiriUW/OECT_processing`)
 > ([`OECT_processing`](https://github.com/rajgiriUW/OECT_processing)) depends on the exact column
 > names and filenames. See [`docs/data-format.md`](data-format.md). Don't change them.
 

@@ -1,13 +1,13 @@
 # Output File Format — DO NOT CHANGE
 
 This file is the authoritative specification for every data file spec-echem writes.
-Downstream analysis tools at the partner lab (`rajgiriUW/OECT_processing`) depend on these formats. **Do not
+Downstream analysis tools (`rajgiriUW/OECT_processing`) depend on these formats. **Do not
 change column names, order, separator, or filename conventions without explicit instruction.**
 
 All files are **tab-separated**, written under the run folder:
 
 ```
-{data_root}/{added_path}/            e.g.  .../specechem_data/20260705_film/
+{data_root}/{added_path}/            e.g.  .../specechem_data/20260705_film1/
 ```
 
 where `added_path` has the form `YYYYMMDD_Description`.

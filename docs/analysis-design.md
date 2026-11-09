@@ -1,6 +1,6 @@
 # In-GUI analysis — design
 
-Agreed with Dean 2026-09-14. Companion to the TODO entry; this is the version to build from.
+Agreed with the user 2026-09-14. Companion to the TODO entry; this is the version to build from.
 
 **The premise: the value is analysis DURING a run.** On 2026-09-11 a film collapsed after a +0.8 V
 excursion, nothing said so until the files were analyzed later, and the next run was spent on a
@@ -48,7 +48,7 @@ the polaron. The signed form gives both, for free:
 λ_π       = argmin(ΔA)      the bleach
 ```
 
-`λ_polaron` is the default; `λ_π` is available; a manual entry overrides both. Dean's point that the
+`λ_polaron` is the default; `λ_π` is available; a manual entry overrides both. The user's point that the
 π band is findable from a *single* spectrum also makes a free cross-check: if `argmin(ΔA)` lands far
 from the neutral film's λmax, something is wrong with the run.
 
@@ -143,7 +143,7 @@ Two consequences to build in deliberately:
 
 ## Density of states from the CV — BUILT 2026-09-15 (v1)
 
-Dean, 2026-09-14: *"I wonder if we could plot density of states from the CV curves. Maybe at
+The user, 2026-09-14: *"I wonder if we could plot density of states from the CV curves. Maybe at
 some point."* **Not built.** Recorded here so the design is settled before anyone starts.
 
 For a sweep slow enough to be quasi-equilibrium, the current IS the differential charge:
@@ -160,7 +160,7 @@ So the shape of `g(E)` is just the CV with its x-axis flipped to energy and its 
 by constants. **The physics is not in the arithmetic — it is in the four decisions below**, which
 is why this is a design note and not a one-line plot.
 
-### Where it goes — Dean, 2026-09-15
+### Where it goes — the user, 2026-09-15
 
 *"For density of states, it seems it could be another option in the Optical View when CV
 is chosen. Does that make sense to you?"*
@@ -253,11 +253,11 @@ models directly — MEASURED on `the 20250710 reference run` Doping 0 @ 800 nm:
 | **biexp** | 1.8e-4 | **3.9e-4** | **2.2×** | **0.4%** |
 | stretched | 3.2e-4 | 1.5e-3 | 4.6× | 1.4% |
 
-biexp leaves four times less systematic residual than stretched here. Dean: *"we don't
+biexp leaves four times less systematic residual than stretched here. The user: *"we don't
 have better models currently"* — so the split is there to show how far short the
 available ones fall, not to choose among a richer set.
 
-**This ranking is specific to THIS system, not a general result.** Dean: *"the conclusion
+**This ranking is specific to THIS system, not a general result.** The user: *"the conclusion
 about biexp compared to strexp is likely in the context of this particular OMIEC system
 and maybe different for a different system."* One sample, one electrolyte, one band. A
 different OMIEC — different ion, different morphology, more dispersive transport — may
@@ -284,7 +284,7 @@ On `the 20250710 reference run`, fitted biexp:
 | **+0.6 V** | **MIXED** | same sign |
 | **+0.7 V** | **MIXED** | same sign |
 
-Dean predicted the asymmetry before it was checked: a bipolaron growing at high doping
+The user predicted the asymmetry before it was checked: a bipolaron growing at high doping
 steals from the polaron band, while π–π* simply keeps bleaching and stays single-signed.
 Fit instability would have appeared at both wavelengths. **A second probe on the
 bipolaron band would separate the two components properly** — the tab already fits any
@@ -296,7 +296,7 @@ prefactor is a direction, not an error, which is why A and y(0) are on the legen
 
 ### Planned — a third component, and joint fits across two bands
 
-Dean, 2026-09-15, explicitly *for later*. Recorded so the design is settled before
+The user, 2026-09-15, explicitly *for later*. Recorded so the design is settled before
 anyone starts.
 
 **Tri-exponential for the bipolaron.** *"For the bipolaron changing the polaron, the fit
@@ -331,7 +331,7 @@ twice.
   kinetics. Where that holds it is a much stronger measurement; where it fails — the
   polaron band above +0.5 V, if the bipolaron reading is right — it will fail VISIBLY, in
   the residual split. That failure is a result, not a problem.
-#### Why the joint fit is NECESSARY, not just better — Dean, 2026-09-15
+#### Why the joint fit is NECESSARY, not just better — the user, 2026-09-15
 
 *"I actually have some good derivations that I and Claude did before regarding the
 polaron fits including the leaking of polaron abs to bipolaron abs even though we can't
@@ -339,7 +339,7 @@ see the true bipolaron since we are limited to ~1100nm. Exactly why to use a dua
 from pi-pi* and polaron to define tau1 and tau2 then add tau3 for bipolaron kinetics."*
 
 **The bipolaron band is not observable on this instrument.** Silicon QE runs out by
-~1050 nm; MEASURED on the partner ULS2048L, 66 counts of signal above floor at 1100 nm, 17 at
+~1050 nm; MEASURED on the Autolab rig's ULS2048L, 66 counts of signal above floor at 1100 nm, 17 at
 1123.7 nm, zero past 1150 (`docs/bench-2026-09-04.md`). Seeing it needs an InGaAs
 detector, not a config change. So bipolaron formation is visible ONLY as polaron
 absorbance going missing — a deficit, never a peak.
@@ -359,7 +359,7 @@ trade a wrong τ₃ against a wrong τ₁ and land somewhere plausible. **τ₃ 
 identifiable without the constraint the second band provides.** That is the argument for
 the joint fit, and it is stronger than "the timescales should agree".
 
-**Dean's derivations for the polaron → bipolaron leakage are not in this repo.** They are
+**The user's derivations for the polaron → bipolaron leakage are not in this repo.** They are
 the specification for the τ₃ term and should be captured before anyone implements it —
 `private-notes/` if they carry sample specifics, `docs/` if not.
 
@@ -383,19 +383,19 @@ so the DOS gets that machinery for free, but only once it is trustworthy.
   τ-vs-potential with the ratio toggle. 6 tests.
 - **Tab 4 — the live views** — done. A view selector on the optical canvas: *Spectra* (unchanged,
   still the default), *Kinetics*, *Modulation*. 5 tests.
-### What real data changed (2026-09-14, `20260709_film1` + the PLU rig)
+### What real data changed (2026-09-14, the 2026-07-09 run + the Gamry rig)
 
 The list above said these needed real data. They got it, and most were wrong:
 
 - **Auto-wavelength did NOT survive real noise.** It picked 381 nm — the dark floor, 416 counts,
   SNR 1.8 — over the real polaron at 780 nm (SNR 682), for every segment. Now gated on
-  significance against per-pixel noise, plus a 410 nm floor (`ANALYSIS_WL_MIN`): Dean confirms
+  significance against per-pixel noise, plus a 410 nm floor (`ANALYSIS_WL_MIN`): the user confirms
   this rig has no usable data below ~410 nm.
 - **The polaron is not always the band that grows.** True on doping; on DEDOPING the polaron
   decays while π–π* recovers. The tab maps by data type, and `auto_wavelengths` is named
   `(grows, bleaches)` so the next caller cannot repeat the assumption.
 - **The current peak is NOT a useful window start.** On a step the spike peaks at the FIRST
-  sample, so it resolves to t = 0 and excludes nothing. Left as the default by Dean's call — the
+  sample, so it resolves to t = 0 and excludes nothing. Left as the default by the user's call — the
   RC is unknown on this rig — with the window made tunable and the shading live.
 - **`FIT_SD_REJECT_FRACTION = 0.5` holds up.** It correctly rejected +0.3 V (0.0016 OD, the film
   does not dope) and +0.5 V (still accelerating at 30 s, no timescale in the window) while
@@ -407,13 +407,13 @@ The list above said these needed real data. They got it, and most were wrong:
 **Still open:** a fit whose τ vastly exceeds the observation window passes the SD check — the
 charge integral at +0.3 V returned τ = 1.3×10⁵ s in a 30 s window with a tiny SD, because a
 straight line is a very well-determined exponential with an enormous τ. A bound like
-`τ < 10 × span` is the obvious fix; the multiplier is Dean's call.
+`τ < 10 × span` is the obvious fix; the multiplier is the user's call.
 
-**Still needed:** a ladder with ≥3 steps above V_th (~0.6/0.8/1.0 V). `20260709_film1` reaches
+**Still needed:** a ladder with ≥3 steps above V_th (~0.6/0.8/1.0 V). The 2026-07-09 run reaches
 above V_th only at its top step, so the τ-vs-potential plot has one usable point.
 
 ## Build order
 
 The maths first (`spec_echem/analysis.py`, no Qt, no hardware, testable against synthetic data),
-then the GUI. Dean: *"testing the code is going to be needed for further design tweaks"* — so the
+then the GUI. The user: *"testing the code is going to be needed for further design tweaks"* — so the
 parts that can be tested without a GUI should be right before the GUI exists.

@@ -17,7 +17,7 @@ via hardware triggering — the Gamry's DIGOUT0 output is wired directly to the 
 
 ### ⚠️ BEFORE ANY COMMIT: check what is going into a PUBLIC repository
 
-Dean, 2026-09-15, standing instruction: *"please note in the future to always check what
+The user, 2026-09-15, standing instruction: *"please note in the future to always check what
 is going into the public repo for unpublished info / proprietary info."*
 
 Every commit here is world-readable the moment it is pushed, **and stays in history even
@@ -164,12 +164,12 @@ N = `run_number`. **Note: parentheses in filenames are literal** — `spectra(0)
 
 **The authoritative spec is [`docs/data-format.md`](docs/data-format.md)** — spectra files
 (8 columns), the Phase 2.5 echem `.txt` files (`CV.txt` / `steps(N).txt` / etc.), the native
-`.dta` outputs, and the absorbance pipeline. Downstream analysis tools at the partner lab depend on these
+`.dta` outputs, and the absorbance pipeline. Downstream analysis tools (`rajgiriUW/OECT_processing`) depend on these
 formats; do not change column names, order, separator, or filename conventions without explicit
 instruction.
 
 Files are tab-separated, saved under `{data_root}/{added_path}/`
-(e.g. `C:\Users\inst-chem\Documents\specechem_data\20260705_film\`).
+(e.g. `C:\Users\inst-chem\Documents\specechem_data\20260705_film1\`).
 
 **Downstream analysis repo:** `rajgiriUW/OECT_processing` (github.com/rajgiriUW/OECT_processing).
 The `oect_processing/specechem/read_files.py` module reads spec-echem
@@ -421,7 +421,7 @@ ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm
 
 ### ⚠️ The software raises concerns; the SCIENTIST decides
 
-Dean, 2026-09-15, standing principle: *"the scientist should have results and make
+The user, 2026-09-15, standing principle: *"the scientist should have results and make
 decisions and not have the software make decisions about whether the user should see
 data or fits to data."*
 

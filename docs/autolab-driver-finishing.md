@@ -18,7 +18,7 @@ a task list.
 > energized ~6 s before anything is recorded, at a potential nobody chose. That one matters for real
 > samples and should be fixed first.
 
-## ▶ PLAN FOR THE NEXT partner TRIP (written 2026-09-06)
+## ▶ PLAN FOR THE NEXT AUTOLAB-RIG VISIT (written 2026-09-06)
 
 **Goal: the first real sample.** Steps 1–3 of the previous plan are done — the pipeline produced a
 complete run folder on 2026-09-04 and its files match the golden format. What is missing is a run on
@@ -127,10 +127,10 @@ Claude Code is installed on the Win11 box. Run it from the repo root (`claude`) 
 Prompt with the `SpecEchem` env active, so any Python it runs is the interpreter under test. It
 loads `CLAUDE.md` automatically. Paste this:
 
-> I'm at the partner Metrohm rig on the Win11 box: Autolab PGSTAT302N + AvaSpec-ULS2048L, 64-bit
+> I'm at the Metrohm rig on the Win11 box: Autolab PGSTAT302N + AvaSpec-ULS2048L, 64-bit
 > SpecEchem env, 10 kΩ 1% dummy resistor available (2-electrode: W+WS one leg, RE+CE the other).
 >
-> Read **`docs/autolab-driver-finishing.md` — the "PLAN FOR THE NEXT partner TRIP" section at the top is
+> Read **`docs/autolab-driver-finishing.md` — the "PLAN FOR THE NEXT AUTOLAB-RIG VISIT" section at the top is
 > what we are doing** — plus `docs/autolab-run-api.md` for the proven SDK behavior. Work that plan
 > in order: pre-flight `scan_averages`, then `examples/bench_autolab_fullrun.py` headless on the
 > dummy, then check the written files against `docs/data-format.md`, then the same run through the
@@ -147,7 +147,7 @@ loads `CLAUDE.md` automatically. Paste this:
 >   NOVA, the `PC_Spectral*` procedures cannot be found at all, and the Python pulse measures
 >   −51 ms, which is fine. It is explicitly deferred. This does **not** defer Step 3.5 (a clean
 >   single-step CA `.nox`) — that is a separate job and is on the list.
-> - Do not change the External or Python (Gamry) paths — that is a working rig at PLU.
+> - Do not change the External or Python (Gamry) paths — that is the working Gamry rig.
 > - The appendix of that file is history, not a task list. Items A–G are resolved; do not re-run the
 >   bench scripts that closed them.
 > - Diagnose before changing code. A slow segment looks exactly like a hang: files are only written
@@ -332,7 +332,7 @@ Four bench scripts (`bench_autolab_cv.py`, `bench_autolab_ca.py`, `bench_autolab
      `fire()` to stay out of the timing path with nothing checking that the `.nox` actually had a
      digital-output step; set against the stock template, no edge is ever raised and the armed
      spectrometer waits forever. `prepare()` now checks and **raises**, naming the commands it did
-     find and both ways to fix it. It deliberately does **not** fall back to a Python pulse (Dean's
+     find and both ways to fix it. It deliberately does **not** fall back to a Python pulse (the user's
      call, and the right one): a fallback keeps the run alive but silently changes what the data
      means — the Python path needs a measured `autolab_pulse_delay_s`, and someone who configured
      the procedure to fire has no reason to have tuned one, so the edge would land at whatever

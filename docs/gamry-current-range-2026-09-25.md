@@ -1,6 +1,6 @@
 # The Gamry ran every Python-mode segment on its 600 mA range
 
-**Measured 2026-09-25 on a Reference 600 (serial 00000) with a 10 kΩ dummy resistor, then
+**Measured 2026-09-25 on a Reference 600 with a 10 kΩ dummy resistor, then
 confirmed against two earlier film runs.** Fixed the same day; this page is the evidence
 and what it means for data already taken.
 
@@ -146,7 +146,7 @@ So the ladder is **read from the instrument**, via `ie_range_value_list()` and
 
 - **In the driver**, before a range is set, so correctness never depends on the GUI.
 - **In the GUI**, on a successful Python-mode Connect, rebuilding the dropdown and
-  saying where the list came from — "ranges read from <label> (serial 00000)" versus
+  saying where the list came from — "ranges read from <instrument label> (serial …)" versus
   "documented Reference 600 ranges — connect to confirm".
 
 Every path falls back to the documented table when an instrument cannot answer, so this

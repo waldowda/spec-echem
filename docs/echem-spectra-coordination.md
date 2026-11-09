@@ -1,9 +1,9 @@
 # Coordinating echem with spectra — how it works, and where it breaks
 
 Written 2026-09-04, after reading the NOVA 2.1 manual (`docs/NOVA User manual.pdf`) against the
-timing measured on the partner rig on 2026-09-03/04.
+timing measured on the Autolab rig on 2026-09-03/04.
 
-**The requirement (Dean, standing since the project began): the spectroscopy must start when the
+**The requirement (the user, standing since the project began): the spectroscopy must start when the
 electrochemistry starts, within about 1–40 ms, and by hardware.** Everything below is measured
 against that number.
 
@@ -31,7 +31,7 @@ waveform, not of Python's cadence.
 
 ## 2. How the two rigs differ — the structural reason
 
-**Gamry (PLU) — tight by construction.** `ToolkitPotentiostat._run_segment`:
+**Gamry rig — tight by construction.** `ToolkitPotentiostat._run_segment`:
 
 ```python
 pstat.set_cell(True)
@@ -42,7 +42,7 @@ curve.run(True)                    # the waveform starts
 Three consecutive Python calls. The edge and the start of the waveform are separated by **one
 Python statement** — sub-millisecond, and whatever jitter exists is common to both.
 
-**Autolab (partner) — loose by construction.** `AutolabPotentiostat.fire()`:
+**Autolab rig — loose by construction.** `AutolabPotentiostat.fire()`:
 
 ```python
 _set_cell(self._inst, True)
@@ -132,7 +132,7 @@ unnecessary if 4a works, but it is the fallback and it does not depend on counte
 
 **The cell is energized for ~6 s before anything is recorded, at a potential nobody chose.**
 
-MEASURED (Dean, watching the Autolab front panel against the Win11 screen): the current range shows
+MEASURED (the user, watching the Autolab front panel against the Win11 screen): the current range shows
 mA, then switches to µA exactly when Python starts plotting. That is command [1] setting
 `CR10_1mA`, then `Optimize current range` at [5] auto-ranging just before the staircase.
 
@@ -158,7 +158,7 @@ range is known.
 
 ## 6. The resolution ceiling changes the ranking
 
-**MEASURED constraint (Dean, 2026-09-04): spectra on this rig will not go faster than ~100–200 ms,
+**MEASURED constraint (the user, 2026-09-04): spectra on this rig will not go faster than ~100–200 ms,
 and the useful science window is 100 ms to 10 s.** (The Gamry rig may reach ~25 ms if S/N allows.)
 
 That reverses the earlier reasoning. At a 100 ms ceiling:
@@ -199,7 +199,7 @@ spectrum inherits a correct offset from the Avantes device clock.
 builds an `EchemData` from them — so making that the *recorded* trace rather than a live-plot
 convenience is a small change.
 
-### Why CV tolerates all of this and CA does not (Dean, 2026-09-06)
+### Why CV tolerates all of this and CA does not (the user, 2026-09-06)
 
 **CV is run as ~3 cycles and the steady-state cycle — the second or third — is what gets analyzed.**
 Cycle 1 is discarded by practice. So the conditioning hold, the ranging, and whatever the film does
@@ -265,13 +265,13 @@ is readable and `pump()` can check it, but that has to be written deliberately r
 
 ---
 
-## 7b. The 5–6 s gap is a TEMPLATE artifact — Dean's own `.nox` files show it (2026-09-04)
+## 7b. The 5–6 s gap is a TEMPLATE artifact — the user's own `.nox` files show it (2026-09-04)
 
-**Dean's concern, and it is correct: our runs lose 5–6 s of initial current and spectra that his
+**The user's concern, and it is correct: our runs lose 5–6 s of initial current and spectra that the user's
 NOVA runs do not.** But the cause is not the Autolab, the procedure model, or Python. It is which
 template `autolab_nox_cv` / `autolab_nox_ca` point at.
 
-MEASURED — read-only byte scan of `docs/dw_test.nox` and `docs/dw_test2.nox`, Dean's own bare-bones
+MEASURED — read-only byte scan of `docs/dw_test.nox` and `docs/dw_test2.nox`, the user's own bare-bones
 procedures, against the stock templates the driver currently uses:
 
 | | `dw_test*.nox` | `Standard Nova Procedures\*.nox` |
@@ -282,7 +282,7 @@ procedures, against the stock templates the driver currently uses:
 | `FHSwitchCell` / `FHSetSetpointPotential` / `FHLevel` | present | present |
 
 So the entire preamble that costs us the front of the useful window is a property of the *stock*
-templates. Dean's were built without it. **This is a config line, not an architecture.**
+templates. The user's were built without it. **This is a config line, not an architecture.**
 
 (Byte order in a `.nox` is not guaranteed to be execution order, so the sequence above should not be
 over-read. Presence and absence are solid.)
@@ -291,7 +291,7 @@ over-read. Presence and absence are solid.)
 
 `HOptionCounter` with `HOptionGetSetValuesPulse` in both files is the NOVA §9.4.2 mechanism — the
 counter action that emits a TTL pulse at the DIO connector, intrinsically linked to the measured
-data. Dean set this up before the manual search found it.
+data. The user set this up before the manual search found it.
 
 ### Which makes the `Ei` rewrite CONTINGENT, not agreed
 
@@ -364,10 +364,10 @@ autolab_dio_mask = <the bit>
 and the same value as the NOVA counter's **Pulse value**, with **End value 0**. Every other pin on
 the port is then free for the shutter.
 
-### The partner wiring, and the question it opens (2026-09-04)
+### The Autolab rig's wiring, and the question it opens (2026-09-04)
 
-MEASURED (Dean, looking at the rig): **one cable leaves the Autolab DIO connector and splits — one
-leg to the Avantes, one to the AvaLight-Mini2.** Dean sets the shutter by hand; the partner group's own
+MEASURED (the user, looking at the rig): **one cable leaves the Autolab DIO connector and splits — one
+leg to the Avantes, one to the AvaLight-Mini2.** The user sets the shutter by hand; the rig's own
 `.nox` drives it from the Autolab.
 
 But **one connector is not one port.** A DIO48 shell carries three independent 8-bit sections, so a
@@ -377,7 +377,7 @@ nothing has tested it. `autolab_dio_port = 0` has been an assumption since the f
 
 Two ways to settle it, cheapest first:
 
-1. **Read the partner procedure.** Their `.nox` already drives the shutter, so it records the DIO
+1. **Read the rig's existing procedure.** Their `.nox` already drives the shutter, so it records the DIO
    connector and port as command parameters. Byte-scan or `Commands.IdNames` — no instrument, no
    NOVA. If their shutter is on P1 port B and our trigger is P1 port A, the question is closed and
    the all-pins pulse is harmless.

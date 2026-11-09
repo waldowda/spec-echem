@@ -9,9 +9,9 @@ overrides it.
 
 ## 0. What run this is about
 
-A real-sample test run (aged film/P3MEEMT blend, non-degassed) done ~2026-07-09 on the Win11 box.
+A real-sample test run (aged polymer blend, non-degassed) done ~2026-07-09 on the Win11 box.
 It worked but produced weaker signal than a fresh/degassed sample would. Two things to verify:
-the output format, and a **folder-nesting oddity Dean noticed** (data may have landed one level
+the output format, and a **folder-nesting oddity the user noticed** (data may have landed one level
 deeper than expected, or the Gamry `.DTA` files landed somewhere separate).
 
 ## 1. Gather the facts (paste these back)
@@ -65,9 +65,9 @@ means the **Save-location field was pointed *into* an existing run folder** whil
 name was also typed — i.e. the parent box and the subfolder name overlapped. Confirm by looking at
 the tree from §1:
 
-- `…/specechem_data/20260709_film/CVspectra.txt` → correct (files directly in the run folder).
-- `…/specechem_data/20260709_film/20260709_film/CVspectra.txt` → the UX trap: Save location was set
-  to `…/specechem_data/20260709_film` and the name `20260709_film` was typed again.
+- `…/specechem_data/20260709_film1/CVspectra.txt` → correct (files directly in the run folder).
+- `…/specechem_data/20260709_film1/20260709_film1/CVspectra.txt` → the UX trap: Save location was set
+  to `…/specechem_data/20260709_film1` and the name `20260709_film1` was typed again.
 
 If it's the trap, no code fix is needed for *this* data — just move/rename. It confirms the pending
 TODO to add a parent-vs-subfolder tooltip/guard (`TODO.md`, folder-guidance item).
@@ -99,7 +99,7 @@ Spot-check one spectra file and one echem file:
 - **Echem `.txt`** — load with `spec_echem.gamry_data.read_cv` (CV) / `read_chrono` (steps/dedoping)
   and confirm it parses and the current trace looks like a CV / a step response.
 
-## 6. OECT_processing readiness (Dean hasn't run it yet)
+## 6. OECT_processing readiness (the user hasn't run it yet)
 
 Repo: `github.com/rajgiriUW/OECT_processing`, module `oect_processing/specechem/read_files.py`.
 It depends on the `spectra(N).txt` / `dedopingspectra(N).txt` naming (which we produce) and on the
@@ -110,7 +110,7 @@ Gamry **steps `.DTA`** files being colocated with the spectra (§4).
 correct — no spec-echem change. If the `OECT_processing` reader misbehaves on potential, that's the cause; fix is in
 `read_files.py` (~lines 76–85: revert `specfiles[0]` → `stepfiles[0]`) and should be reported upstream.
 
-When Dean first runs OECT_processing on this folder, capture any traceback and check it against the
+When the user first runs OECT_processing on this folder, capture any traceback and check it against the
 above before assuming a spec-echem format problem.
 
 ## 7. Report back

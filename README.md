@@ -259,7 +259,7 @@ When you start a run in the GUI, files are written to **`‹Save location›\‹
 - **Save location** is the *parent* folder — leave it at `…\Documents\specechem_data`. Just point at the
   parent; you don't need to create a run folder here.
 - **Data folder name** is the run folder, which the program **creates for you** (e.g.
-  `20260704_film`). It is pre-filled with today's date — just add a short description. If the app has
+  `20260704_film1`). It is pre-filled with today's date — just add a short description. If the app has
   been open past midnight, click **Today** to bump the date (it keeps your description).
 
 > ⚠️ Don't browse *into* a folder you made yourself for the Save location, or you'll get a doubled path

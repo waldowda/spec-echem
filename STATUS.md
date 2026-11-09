@@ -298,7 +298,7 @@ notes bipolaron formation likely contributes to the optical trend at high doping
 reading this later:
 
 - `auto_wavelengths` picked **381 nm** — the dark floor, 416 counts, SNR 1.8 — over the
-  real polaron at 780 nm (SNR 682), on every segment of `20260709_film1`. Now gated on
+  real polaron at 780 nm (SNR 682), on every segment of the 2026-07-09 run. Now gated on
   significance against per-pixel noise, plus `ANALYSIS_WL_MIN = 410` (no usable data
   below ~410 nm on these rigs).
 - **The polaron is not always the band that grows.** True on doping; on dedoping it
@@ -349,7 +349,7 @@ on a real sample through this code, and nothing had to change to run one.**
 ## Autolab: `Ei` mode meets the timing requirement (2026-09-09, `gui-dev`) — new
 
 Full write-up: [`docs/bench-2026-09-09.md`](docs/bench-2026-09-09.md). Dummy-resistor
-session at the partner lab; no sample in the cell.
+session at the Autolab rig; no sample in the cell.
 
 **The standing requirement is met.** The spectroscopy must start when the electrochemistry
 starts, within about 1–40 ms, by hardware. For chrono segments, cell-on to trigger edge is
@@ -537,8 +537,8 @@ exposing other `measconfig` fields.
 
 ## (prior) Milestone — first real-sample Python-mode run, validated end to end (2026-07-09)
 
-the user ran a full **Python-mode** sequence (CV + pre-dedope + 3 doping/dedoping cycles) on a real —
-if aged, non-degassed — **film/P3MEEMT** film (`20260709_film1`). Signal was weaker than a fresh
+The user ran a full **Python-mode** sequence (CV + pre-dedope + 3 doping/dedoping cycles) on a real —
+if aged, non-degassed — film (the 2026-07-09 run). Signal was weaker than a fresh
 sample would give, but the **software plumbing is now proven on real data**:
 
 - **File set complete and 1:1 paired** — every `*spectra*.txt` has its clean echem `.txt`
@@ -573,7 +573,7 @@ writer joins the path once). Zero impact on analysis. Reinforces the pending par
   the weaker polaron region no longer leaves the traces squished under the π→π* peak.
 
 **🎯 OECT_processing TRIAL PASSED (2026-07-10) — the software gate is met.** Ran the
-`OECT_processing` doping pipeline on the real `20260709_film1` data (Mac Mini, dedicated `oect`
+`OECT_processing` doping pipeline on the real 2026-07-09 data (Mac Mini, dedicated `oect`
 conda env). `read_files` → `UVVis.time_dep_spectra` → `current_vs_time` all run **clean end to end**:
 correct potentials (0.3/0.5/0.7 V), full 301×1265 spectra-vs-time per step, and doping currents
 24/53/**278 µA** — matching the raw CV and the observed "little doping until 0.7 V." **spec-echem's

@@ -22,7 +22,7 @@ to re-confirm at the bench), Autolab **SDK 2.1**, **64-bit** `SpecEchem` conda e
 ## 0. The design decision this all serves
 
 **Use NOVA's standard CV and chronoamperometry procedures, parameterized from Python. Do not
-generate waveforms in Python.** (Dean, 2026-08-30.)
+generate waveforms in Python.** (the user, 2026-08-30.)
 
 This is the same shape as the Gamry driver, which is worth seeing explicitly. `ToolkitPotentiostat`
 does not hand-roll anything either — `_build_signal` calls toolkitpy's own constructors,
@@ -517,7 +517,7 @@ Ready to `git add` / commit / push:
   reflects the `Procedure` object; `dump_members()` tolerates error strings; `_first_attr()` helper.
 - **`examples/query_autolab_run_setup.md`** — `NOX` → SDK `Standard Nova Procedures\` folder;
   `PC_Spectral*` energized-run caveat (USB seize); §2 wording; new §3.5 findings; §4 empty-cell
-  guidance; "partner rig" → "Metrohm rig".
+  guidance; rig names → "Metrohm rig".
 - **`examples/autolab_api_report.txt`** — regenerated (passing 10 kΩ dummy-resistor run).
 - **`docs/metrohm-rig-status.md`** — PGSTAT10 → PGSTAT302N; Open item #3 expanded into the
   driver-ready API map.
