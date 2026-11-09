@@ -9,8 +9,9 @@ The Qt-free orchestration (Experiment class) is added when the Run tab is wired.
 """
 from pathlib import Path
 
-from qtpy.QtWidgets import (QHBoxLayout, QLabel, QMainWindow, QPushButton,
-                            QTabWidget, QVBoxLayout, QWidget)
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (QHBoxLayout, QLabel, QMainWindow, QTabWidget,
+                            QToolButton, QWidget)
 
 from spec_echem.bench import (
     apply_bench_defaults, load_bench_defaults, user_bench_path,
@@ -97,27 +98,24 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.band_tab, "6. Band Fits")
         # The manual, one click from every tab (2026-11-08: unreachable from the app).
         # Beside it, the data set on screen (2026-11-08: tabs 4-6 never said which run).
-        # A row ABOVE the tabs, not the tab bar's corner: the macOS style squeezed the
-        # corner to the tab bar's 21 px and clipped both.
-        header = QWidget()
-        row = QHBoxLayout(header)
-        row.setContentsMargins(8, 4, 8, 0)
-        self.dataset_label = QLabel(header)
-        self.manual_btn = QPushButton("Manual", header)
+        # Both kept compact (no vertical padding, a tool button): the macOS style sizes
+        # the corner to the tab bar's 21 px and clipped the first, taller version. A
+        # row above the tabs fitted but cost ~30 px on small acquisition screens.
+        corner = QWidget(self.tabs)
+        row = QHBoxLayout(corner)
+        row.setContentsMargins(0, 0, 4, 0)
+        row.setSpacing(6)
+        self.dataset_label = QLabel(corner)
+        self.manual_btn = QToolButton(corner)
+        self.manual_btn.setText("Manual")
         self.manual_btn.setToolTip("Open the user manual (docs/manual.md) in a window")
         self.manual_btn.clicked.connect(lambda: open_manual(self))
-        row.addStretch(1)
         row.addWidget(self.dataset_label)
         row.addWidget(self.manual_btn)
+        self.tabs.setCornerWidget(corner, Qt.TopRightCorner)
         self.set_dataset(None)
 
-        central = QWidget()
-        column = QVBoxLayout(central)
-        column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(0)
-        column.addWidget(header)
-        column.addWidget(self.tabs, 1)
-        self.setCentralWidget(central)
+        self.setCentralWidget(self.tabs)
 
         # Populate parameter widgets from the default settings
         self._populate_tabs(self.settings)
@@ -131,7 +129,7 @@ class MainWindow(QMainWindow):
     }
 
     def set_dataset(self, folder, state=None):
-        """Show which data set the tabs hold: above the tabs and in the title.
+        """Show which data set the tabs hold: beside the tabs and in the title.
 
         state is "Running" (at Start), "Last run" (when a run ends) or "Loaded"
         (Results tab Load). folder None = nothing collected or loaded yet.
@@ -152,7 +150,7 @@ class MainWindow(QMainWindow):
         self.dataset_label.setToolTip(tip)
         self.dataset_label.setStyleSheet(
             "QLabel {{ font-weight: bold; color: {}; background: {}; "
-            "border-radius: 8px; padding: 2px 10px; }}".format(fg, bg))
+            "border-radius: 8px; padding: 0px 8px; }}".format(fg, bg))
 
     # --- settings coordination across the input tabs ---
 
