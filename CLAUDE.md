@@ -464,7 +464,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 1093 tests total (1092 pass, 1 skip; counted 2026-11-08);
+- **`gui/` coverage — no longer the gap it was.** 1094 tests total (1093 pass, 1 skip; counted 2026-11-08);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage

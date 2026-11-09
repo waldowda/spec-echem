@@ -7,8 +7,11 @@ Shared state lives here (the Qt-side coordinator):
     - dark / ref / wavelengths: per-run calibration, set by the Instrument tab
 The Qt-free orchestration (Experiment class) is added when the Run tab is wired.
 """
+from pathlib import Path
+
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QMainWindow, QPushButton, QTabWidget
+from qtpy.QtWidgets import (QHBoxLayout, QLabel, QMainWindow, QPushButton,
+                            QTabWidget, QWidget)
 
 from spec_echem.bench import (
     apply_bench_defaults, load_bench_defaults, user_bench_path,
@@ -32,8 +35,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         # Build id in the title: a student sending a screenshot tells you their exact build.
-        self.setWindowTitle(
-            "spec-echem {} — Spectroelectrochemistry Control".format(build_id()))
+        self._base_title = "spec-echem {} — Spectroelectrochemistry Control".format(
+            build_id())
+        self.setWindowTitle(self._base_title)
         self.resize(1000, 700)
 
         # --- shared state ---
@@ -93,15 +97,55 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.analysis_tab, "5. Analysis")
         self.tabs.addTab(self.band_tab, "6. Band Fits")
         # The manual, one click from every tab (2026-11-08: unreachable from the app).
-        self.manual_btn = QPushButton("Manual", self.tabs)
+        # Beside it, the data set on screen (2026-11-08: tabs 4-6 never said which run).
+        corner = QWidget(self.tabs)
+        row = QHBoxLayout(corner)
+        row.setContentsMargins(0, 0, 4, 0)
+        self.dataset_label = QLabel(corner)
+        self.manual_btn = QPushButton("Manual", corner)
         self.manual_btn.setToolTip("Open the user manual (docs/manual.md) in a window")
         self.manual_btn.clicked.connect(lambda: open_manual(self))
-        self.tabs.setCornerWidget(self.manual_btn, Qt.TopRightCorner)
+        row.addWidget(self.dataset_label)
+        row.addWidget(self.manual_btn)
+        self.tabs.setCornerWidget(corner, Qt.TopRightCorner)
+        self.set_dataset(None)
 
         self.setCentralWidget(self.tabs)
 
         # Populate parameter widgets from the default settings
         self._populate_tabs(self.settings)
+
+    # Pill colours: green while collecting, blue for data on screen, grey for none.
+    DATASET_STYLES = {
+        "Running": ("#1b5e20", "#c8e6c9"),
+        "Last run": ("#0d47a1", "#bbdefb"),
+        "Loaded": ("#0d47a1", "#bbdefb"),
+        None: ("#555555", "#e0e0e0"),
+    }
+
+    def set_dataset(self, folder, state=None):
+        """Show which data set the tabs hold: in the tab-bar corner and the title.
+
+        state is "Running" (at Start), "Last run" (when a run ends) or "Loaded"
+        (Results tab Load). folder None = nothing collected or loaded yet.
+        """
+        if folder is None:
+            state, text, tip = None, "No data set", "Nothing collected or loaded yet"
+            self.setWindowTitle(self._base_title)
+        else:
+            name = Path(folder).name
+            # Middle-elided past 32 characters so the tabs keep their room.
+            short = name if len(name) <= 32 else name[:15] + "…" + name[-16:]
+            text = "{}: {}".format(state, short)
+            tip = "Data set shown on the Results, Analysis and Band Fits tabs:\n{}".format(
+                folder)
+            self.setWindowTitle("{} — {}".format(self._base_title, name))
+        fg, bg = self.DATASET_STYLES.get(state, self.DATASET_STYLES[None])
+        self.dataset_label.setText(text)
+        self.dataset_label.setToolTip(tip)
+        self.dataset_label.setStyleSheet(
+            "QLabel {{ font-weight: bold; color: {}; background: {}; "
+            "border-radius: 8px; padding: 2px 10px; }}".format(fg, bg))
 
     # --- settings coordination across the input tabs ---
 
