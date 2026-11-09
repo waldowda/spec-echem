@@ -3889,7 +3889,15 @@ def test_raw_tau_differs_from_mean_tau_for_a_stretched_fit(ladder_window):
 def test_the_manual_opens_from_every_tab(window):
     """Requested 2026-11-08: the manual could not be reached from the app."""
     from gui.widgets.manual_dialog import MANUAL_PATH
-    assert window.manual_btn.parent() is window.tabs.cornerWidget()
+    # Above the tabs, not in the tab bar's corner, which the macOS style squeezes
+    # to the tab bar's height and clipped the button and the data-set label.
+    assert window.tabs.cornerWidget() is None
+    window.show()
+    QApplication.processEvents()
+    for w in (window.manual_btn, window.dataset_label):
+        assert w.height() >= w.sizeHint().height()
+        bottom = w.mapTo(window, w.rect().bottomLeft()).y()
+        assert bottom < window.tabs.mapTo(window, window.tabs.rect().topLeft()).y()
     window.manual_btn.click()
     dialog = window._manual_dialog
     assert dialog.isVisible()
