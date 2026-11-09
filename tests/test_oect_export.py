@@ -135,9 +135,8 @@ def test_their_own_reader_opens_what_we_write(tmp_path):
     import sys
     clone = None
     for candidate in (
-            "/Users/waldow/dev/SpectroElectroChem/OECT_processing",
             str((__import__("pathlib").Path(__file__).resolve().parents[2]
-                 / "OECT_processing"))):
+                 / "OECT_processing")),):
         if (__import__("pathlib").Path(candidate) / "oect_processing").is_dir():
             clone = candidate
             break

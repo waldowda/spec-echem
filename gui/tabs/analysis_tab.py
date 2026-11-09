@@ -1112,7 +1112,7 @@ class AnalysisTab(QWidget):
     def _ladder_probe_text(self, labels):
         """'abs @ 807.9 nm', or a warning when the points do not share a wavelength.
 
-        In auto mode the band is chosen PER SEGMENT, and on 20260709_film1 that gives
+        In auto mode the band is chosen PER SEGMENT, and on the 2026-07-09 run that gives
         867 / 778 / 808 nm across three potentials. Comparing tau between them is then
         comparing different parts of the polaron band, which the plot must not do
         silently. Fixing it by locking one wavelength across the ladder is a science

@@ -1060,7 +1060,7 @@ def _read_run_settings(folder):
     """The settings a run was performed with, from its metadata JSON.
 
     Returns {} when there is none (older runs, or a folder assembled by hand). The
-    caller must NOT fall back to the live Parameters tab: 20260709_film1 was run at
+    caller must NOT fall back to the live Parameters tab: the 2026-07-09 run was taken at
     0.3/0.5/0.7 V and the current defaults give 0.2/0.3/0.4, so every graph title read
     "+0.400 V" for a segment held at +0.700 V.
     """

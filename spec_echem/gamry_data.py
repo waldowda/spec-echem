@@ -75,7 +75,7 @@ def measured_potential(path):
 
     This is ground truth in a way neither source of nominal values is: the run
     metadata records what was REQUESTED, and the live Parameters tab may describe a
-    different experiment entirely. On 20260709_film1 it reads 0.301 / 0.500 /
+    different experiment entirely. On the 2026-07-09 run it reads 0.301 / 0.500 /
     0.700 V where the GUI was labeling 0.200 / 0.300 / 0.400 V.
     """
     if path is None:          # no text echem file for this segment type
