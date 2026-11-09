@@ -1,4 +1,4 @@
-# Bench handoff — live-CV straddle (partner Autolab rig)
+# Bench handoff — live-CV straddle (Autolab rig)
 
 For a Claude session running **on the Windows instrument PC**. Read this first, then work
 through the prompts in order. Everything here is on `gui-dev` — `git pull` before starting.

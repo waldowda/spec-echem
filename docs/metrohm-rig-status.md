@@ -17,7 +17,7 @@ Avantes spectrometer + a Metrohm Autolab, and where things stand for continued d
 
 | | |
 |---|---|
-| Box | fresh Win11, user `<user>`, 64-bit `SpecEchem` conda env (Python 3.13) |
+| Box | fresh Win11, a shared lab login, 64-bit `SpecEchem` conda env (Python 3.13) |
 | Spectrometer | **AvaSpec-ULS2048L-USB2**, 2048 px, SensorType 10, min integration **1.048 ms MEASURED** (2026-09-16) |
 | Potentiostat | **Metrohm Autolab PGSTAT302N** (corrected 2026-08-31; earlier notes said PGSTAT10). Connects with the SDK's `Hardware Setup Files\PGSTAT302N\HardwareSetup.FRA32M.xml`. Serial/modules on this unit still to be re-confirmed at the bench. |
 | Autolab SDK | **2.1**, at `C:\Program Files\Metrohm Autolab\Autolab SDK 2.1\` |
