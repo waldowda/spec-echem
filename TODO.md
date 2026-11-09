@@ -97,9 +97,10 @@ The CHANGELOG says what shipped; git log says when.
       global argmax?
 - [ ] **The Modulation view** does not depend on the selected segment but sits behind
       the segment selector. Move it, or show the selector does not apply.
-- [ ] **Repository history:** rename the composition-encoding golden folder forward,
-      rewrite history with `git filter-repo`, or start fresh. Options and costs in the
-      history file ("Sanitising the repository history").
+- [ ] **Repository history:** the current tree is clean (golden folder renamed, docs,
+      code and examples swept 2026-11-09; notebooks not yet). Old names remain in git
+      history: rewrite it with `git filter-repo`, start fresh, or accept it. Options and
+      costs in the history file ("Sanitising the repository history").
 
 ## Code, no rig needed
 
