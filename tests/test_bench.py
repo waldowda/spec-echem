@@ -66,7 +66,7 @@ scan_averages = 200
 
 
 def test_unknown_key_is_reported_not_silently_ignored(tmp_path):
-    ini = _write(tmp_path / "b.ini", "[bench]\nsample_name = film\n")
+    ini = _write(tmp_path / "b.ini", "[bench]\nsample_name = film A\n")
     values, warnings = read_bench_file(ini)
 
     assert values == {}                            # experiment settings don't belong here

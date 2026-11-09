@@ -345,7 +345,7 @@ def test_the_gamry_ladder_probe_runs_inside_the_click_guard(window, monkeypatch)
         seen["text"] = tab.pstat_status.text()
         return None                             # best effort: keep the documented list
 
-    monkeypatch.setattr(instrument_tab, "probe_identity", lambda: ("<label>", "123"))
+    monkeypatch.setattr(instrument_tab, "probe_identity", lambda: ("Gamry", "123"))
     monkeypatch.setattr(instrument_tab, "probe_gamry_ladder", ladder_probe)
     tab.pstat_python_radio.setChecked(True)
     tab.pstat_connect_btn.setEnabled(True)
@@ -967,7 +967,7 @@ def test_moving_the_window_redraws_the_shading_before_refitting(analysis_window)
 def test_the_probe_follows_the_polaron_on_dedoping(analysis_window, tmp_path):
     """auto_wavelengths returns (grows, bleaches). On DOPING the polaron grows; on
     DEDOPING it DECAYS while pi-pi* recovers, so taking the growth there hands back
-    pi labeled as the polaron. MEASURED on 20260709_film1, where every dedoping
+    pi labeled as the polaron. MEASURED on the 2026-07-09 run, where every dedoping
     segment auto-selected ~555 nm instead of ~800 nm."""
     import numpy as np
     import pandas as pd
@@ -994,7 +994,7 @@ def test_the_probe_follows_the_polaron_on_dedoping(analysis_window, tmp_path):
 # --- a loaded run must be labeled with ITS OWN potentials -------------------
 
 def test_a_loaded_run_is_labeled_from_its_own_metadata(window, tmp_path):
-    """20260709_film1 was run at 0.3/0.5/0.7 V. The GUI defaults give 0.2/0.3/0.4,
+    """The 2026-07-09 run was taken at 0.3/0.5/0.7 V. The GUI defaults give 0.2/0.3/0.4,
     so every graph title read "+0.400 V" for a segment held at +0.700 V -- silently,
     and plausibly. Tab 5's tau-vs-potential axis was plotting against those too."""
     import json
@@ -1161,7 +1161,7 @@ def test_the_window_boxes_step_by_one_data_point(analysis_window):
 
 def test_the_ladder_says_which_wavelength_it_compared(analysis_window):
     """In auto mode the band is chosen PER SEGMENT -- 867/778/808 nm across the three
-    potentials of 20260709_film1 -- so comparing tau between them compares different
+    potentials of the 2026-07-09 run -- so comparing tau between them compares different
     parts of the polaron band. The plot must not do that silently."""
     tab = analysis_window.analysis_tab
     tab.wavelength_spin.setValue(900.0)
@@ -3218,7 +3218,7 @@ def test_a_short_hint_does_not_claim_the_whole_row(window):
     for _ in range(4):
         QApplication.processEvents()
 
-    field, hint = _hint_beside(window.parameters_tab, "sample_name", "film")
+    field, hint = _hint_beside(window.parameters_tab, "sample_name", "film A")
     needed = hint.fontMetrics().boundingRect(hint.text()).width()
     assert hint.width() < needed * 2, "a short hint took far more room than its text"
     assert field.width() > 300, f"the field beside it collapsed to {field.width()} px"

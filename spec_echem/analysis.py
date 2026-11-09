@@ -195,7 +195,7 @@ def mean_relaxation_time(model, params):
 # --- wavelength selection ----------------------------------------------------
 
 # Below this the lamp and optics deliver nothing on these rigs -- MEASURED 416 counts
-# at 381 nm on 20260709_film1, against 41250 at 780 nm. Requested: "there should be no
+# at 381 nm on the 2026-07-09 run, against 41250 at 780 nm. Requested: "there should be no
 # data below 410 nm or so." Pixels outside the window never win the selection.
 ANALYSIS_WL_MIN = 410.0
 # The optics are specified 300-1100 nm; the detector reports further, and the
@@ -247,7 +247,7 @@ def auto_wavelengths(absorbance, wavelengths, early=0, late=-1,
         keep &= wl <= wl_max
 
     # Reject pixels whose change is not significant against their own noise, or the
-    # blue edge wins on noise alone. MEASURED on 20260709_film1: at 381 nm the lamp
+    # blue edge wins on noise alone. MEASURED on the 2026-07-09 run: at 381 nm the lamp
     # delivers 416 counts -- the dark floor -- and absorbance there swings +0.143
     # with SNR 1.8, beating the real polaron band at 780 nm (dA +0.093, SNR 682).
     # Raw argmax picked 381 nm for every segment of that run.
@@ -345,7 +345,7 @@ def _band_extremum(signal, keep):
 
 
 # A pixel whose change is under this many times its own noise is not a measurement
-# of anything. 1100 nm on the film run scores 7.8 -- silicon running out of quantum
+# of anything. 1100 nm on the 2026-07-09 run scores 7.8 -- silicon running out of quantum
 # efficiency -- while the real bands score in the hundreds.
 WAVELENGTH_SNR_MIN = 10.0
 

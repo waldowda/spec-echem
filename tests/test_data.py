@@ -163,7 +163,7 @@ class TestWriteSpectraFile:
 
 class TestWriteRunMetadata:
     SETTINGS = {
-        "sample_name": "film",
+        "sample_name": "film A",
         "electrolyte": "0.1M salt",
         "notes": "Test run",
         "cv_scan_rate": 100.0,
@@ -182,7 +182,7 @@ class TestWriteRunMetadata:
         path = write_run_metadata(self.SETTINGS, tmp_root, "20250715_film_Test")
         with open(path) as f:
             meta = json.load(f)
-        assert meta["sample_name"] == "film"
+        assert meta["sample_name"] == "film A"
         assert meta["electrolyte"] == "0.1M salt"
         assert meta["notes"] == "Test run"
         assert meta["data_folder"] == "20250715_film_Test"

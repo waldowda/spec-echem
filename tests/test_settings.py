@@ -16,12 +16,12 @@ def test_save_and_load_roundtrip(tmp_path):
 
 def test_missing_keys_filled_from_defaults(tmp_path):
     path = tmp_path / "partial.json"
-    partial = {"scan_averages": 100, "sample_name": "film"}
+    partial = {"scan_averages": 100, "sample_name": "film A"}
     path.write_text(json.dumps(partial))
     loaded = load_settings(path)
     # Explicitly set values are preserved
     assert loaded["scan_averages"] == 100
-    assert loaded["sample_name"] == "film"
+    assert loaded["sample_name"] == "film A"
     # Missing keys come from defaults
     assert loaded["integration_time_ms"] == DEFAULT_SETTINGS["integration_time_ms"]
     assert loaded["cv_scan_rate"] == DEFAULT_SETTINGS["cv_scan_rate"]

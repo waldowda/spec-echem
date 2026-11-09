@@ -227,7 +227,7 @@ def test_the_curve_is_offset_correctly_for_a_late_window():
 
 
 # --- band selection has to survive real noise -------------------------------
-# MEASURED on 20260709_film1: the blue edge of that spectrometer sits on the dark
+# MEASURED on the 2026-07-09 run: the blue edge of that spectrometer sits on the dark
 # floor (416 counts at 381 nm), and its absorbance swings +0.143 by noise alone --
 # larger than the real polaron band's +0.093. Raw argmax picked the junk every time.
 

@@ -185,8 +185,8 @@ class ParametersTab(QWidget):
         # --- Sample info ---
         sample_group = QGroupBox("Sample Info")
         sform = form_layout(sample_group)
-        sform.addRow("Sample name:", self._hint(self._line("sample_name"), "e.g. film"))
-        sform.addRow("Electrolyte:", self._hint(self._line("electrolyte"), "e.g. 0.1 M salt / MeCN"))
+        sform.addRow("Sample name:", self._hint(self._line("sample_name"), "e.g. film A"))
+        sform.addRow("Electrolyte:", self._hint(self._line("electrolyte"), "e.g. 0.1 M salt / solvent"))
 
         # Film geometry — only used by the density of states, which needs a volume.
         sform.addRow("Film thickness:",
