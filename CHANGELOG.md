@@ -30,6 +30,7 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 - **Data set label (2026-11-08)** beside the Manual button: a bold coloured pill naming
   the run on screen (Running green / Last run, Loaded blue; full path on hover), and
   the folder name in the window title. Tabs 4-6 never said which run they showed.
+  Checked on the Mac and the Win11 rig 2026-11-09.
 - **Manual button (2026-11-08)** at the top right of every tab: `docs/manual.md`
   rendered in a window (Qt's own Markdown; offline). Band-fit ladder: tick labels use
   one decimal on a 0.1 V ladder and slant past 7 rungs (11 rungs collided). Charge tab
