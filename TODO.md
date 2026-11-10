@@ -98,7 +98,7 @@ The CHANGELOG says what shipped; git log says when.
 - [ ] **The Modulation view** does not depend on the selected segment but sits behind
       the segment selector. Move it, or show the selector does not apply.
 - [ ] **Repository history:** the current tree is clean (golden folder renamed, docs,
-      code and examples swept 2026-11-09; notebooks not yet). Old names remain in git
+      code, examples and notebooks swept 2026-11-09). Old names remain in git
       history: rewrite it with `git filter-repo`, start fresh, or accept it. Options and
       costs in the history file ("Sanitising the repository history").
 
