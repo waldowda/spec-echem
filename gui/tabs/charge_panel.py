@@ -207,7 +207,8 @@ class ChargePanel(QWidget):
         export.setToolTip(EXPORT_TIP)
         export.clicked.connect(
             lambda: open_figure_dialog(self, self.canvas, self.win,
-                                       self.figure_basename(), "Export charge"))
+                                       self.figure_basename(), "Export charge",
+                                       context=lambda: list(self._notes)))
         buttons.addWidget(export)
         plot_layout.addLayout(buttons)
         split.addWidget(plot_box)
@@ -392,6 +393,11 @@ class ChargePanel(QWidget):
         else:
             notes.append(a0_source)
         notes.append(ERRORBAR_NOTE)
+        # These decide every pass/fail column, so a table without them cannot be
+        # re-judged later (2026-11-11).
+        notes.append(f"equilibrium check: last {tail:g} s, move < "
+                     f"{self.drift_spin.value():g}%, step >= "
+                     f"{self.tau_spin.value():g} x tau")
         if any(s.q_head_max is not None for s in steps):
             notes.append("Q_head_max: charge before the first current sample (cell ON "
                          "to first sample, from the run log), an exponential run back: "

@@ -269,7 +269,7 @@ def test_the_export_is_long_format_across_segments(window, tmp_path, monkeypatch
                         staticmethod(lambda *a, **k: None))
     tab.on_save_csv()
 
-    frame = pd.read_csv(out)
+    frame = pd.read_csv(out, comment="#")
     assert {"segment", "doped_to_V", "direction", "wavelength_nm", "tau"} \
         <= set(frame.columns)
     assert len(frame) == 6 * 3                       # segments x wavelengths
@@ -986,3 +986,29 @@ def test_rung_labels_stay_short_and_slant_when_crowded():
     ax2.set_xticks([0.3, 0.5]); ax2.set_xticklabels(["+0.3", "+0.5"])
     _tilt_if_crowded(ax2, 2)
     assert all(t.get_rotation() == 0 for t in ax2.get_xticklabels())
+
+
+def test_the_band_csv_says_how_the_band_was_fitted(window, tmp_path, monkeypatch):
+    """2026-11-11: the CSV had no header at all."""
+    from qtpy.QtWidgets import QFileDialog, QMessageBox
+    tab = _ready(window)
+    tab.segment_combo.setCurrentIndex(tab.segment_combo.findData("Doping 0"))
+    tab.on_fit_segment()
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("biexp"))   # after
+    out = tmp_path / "band.csv"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(out), "")))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    tab.on_save_csv()
+    head = [l for l in out.read_text().splitlines() if l.startswith("#")]
+    assert any(l.startswith("# produced by: spec-echem") for l in head)
+    assert "# segment: Doping 0" in head and "# model: exp" in head, head
+    assert any(l.startswith("# band: 480-540 nm") for l in head), head
+    assert not pd.read_csv(out, comment="#").empty
+
+    tab.on_fit_all()
+    tab.on_save_csv()
+    head = [l for l in out.read_text().splitlines() if l.startswith("#")]
+    assert any(l.startswith("# plot: band fits across") for l in head), head
+    assert "# model: biexp" in head and any(l.startswith("# band: 480-540 nm")
+                                            for l in head), head

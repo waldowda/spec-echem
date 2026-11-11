@@ -12,6 +12,8 @@ furniture. It also ends an invisible dependency — the dialog inherited tab 5's
 and window, which had to be explained in a label. This owns its own, pre-filled from
 tab 5 the first time it is shown.
 """
+import pathlib
+
 import numpy as np
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
@@ -26,7 +28,8 @@ from spec_echem.data import DATA_TYPE_CV, DATA_TYPE_DOPING
 from gui.segment_labels import prepare_segment_combo, segment_display
 from gui.widgets.plot_canvas import MplCanvas
 from gui.widgets.figure_dialog import (EXPORT_LABEL, EXPORT_TIP, open_figure_dialog,
-                                       PlotToolbar)
+                                       PlotToolbar, write_csv)
+from spec_echem.build_info import build_id
 from gui.forms import form_layout
 
 # Which tau quantities each model actually has. A single generic "tau" curve hid the
@@ -291,7 +294,27 @@ class BandTab(QWidget):
         # the status line explains it, but a saved figure that will be stamped
         # should carry its own explanation.
         open_figure_dialog(self, self.canvas, self.win, self._figure_basename(),
-                           "Export band", note=self._sign_note or None)
+                           "Export band", note=self._sign_note or None,
+                           context=self._band_context)
+
+    def _band_context(self):
+        """How the shown band numbers were made, read from the fits themselves
+        (see _fit_conditions): model, wavelength range and time window."""
+        if self._showing == "ladder" and self._ladder:
+            lines = [f"plot: band fits across {len(self._ladder)} segments"]
+            conditions = {(band.model, self._fit_conditions(band))
+                          for _l, _p, _d, band in self._ladder}
+            if len(conditions) == 1:
+                model, cond = conditions.pop()
+                return lines + [f"model: {model}", f"band: {cond}"]
+            return lines + [f"{label}: model {band.model}, {self._fit_conditions(band)}"
+                            for label, _p, _d, band in self._ladder]
+        if self._band is None:
+            return []
+        return [f"segment: {self._shown_label}", f"model: {self._band.model}",
+                f"band: {self._fit_conditions(self._band)} "
+                f"({len(self._band.wavelengths)} wavelengths)",
+                f"fits: {self._summary_text(self._band.summary())}"]
 
     def _figure_basename(self):
         """Names WHICH plot it is. The two look nothing alike and answer different
@@ -999,5 +1022,8 @@ class BandTab(QWidget):
             self, "Save band fits", f"{base}.csv", "CSV (*.csv)")
         if not path:
             return
-        self._frame.to_csv(path, index=False)
+        run_folder = getattr(self.win, "run_folder", None)
+        header = ([f"run: {pathlib.Path(run_folder).name}"] if run_folder else []) \
+            + [f"produced by: spec-echem {build_id()}"] + self._band_context()
+        write_csv(self._frame, path, header)
         QMessageBox.information(self, "Saved", f"Written to:\n\n{path}")

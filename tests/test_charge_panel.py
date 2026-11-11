@@ -293,3 +293,20 @@ def test_every_table_column_explains_itself(run):
         assert panel.table.horizontalHeaderItem(c).toolTip()
     assert "MIDPOINT" in COLUMN_TIPS["Q_corrected_mC"]
     assert "midpoint" in panel.tail_spin.toolTip()
+
+
+def test_the_notes_carry_the_equilibrium_settings_and_reach_the_figure(run,
+                                                                       monkeypatch):
+    import gui.tabs.charge_panel as cp
+    panel = _panel(run)
+    panel.tail_spin.setValue(7.0)
+    panel.compute()
+    assert any(n.startswith("equilibrium check: last 7 s, move < ")
+               for n in panel._notes), panel._notes
+    seen = {}
+    monkeypatch.setattr(cp, "open_figure_dialog",
+                        lambda *a, context=None, **k: seen.setdefault("c", context))
+    from qtpy.QtWidgets import QPushButton
+    from gui.widgets.figure_dialog import EXPORT_LABEL
+    next(b for b in panel.findChildren(QPushButton) if b.text() == EXPORT_LABEL).click()
+    assert seen["c"]() == panel._notes

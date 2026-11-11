@@ -27,6 +27,13 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **Saved CSVs say how their numbers were made (2026-11-11).** Fit exports carry the
+  wavelength (and auto or typed), model, fitted window and point count, status and every
+  parameter. The ladder carries one line per segment. The All-fits table gains
+  `lambda pick` and `window (s)` columns plus a run/build header. The Band Fits CSV,
+  which had no header, gets model, wavelength range and window. The Charge notes add
+  the equilibrium-check settings and now reach its figure CSVs. The lines are read from
+  the fits, not the controls.
 - **Data set label (2026-11-08)** beside the Manual button: a bold coloured pill naming
   the run on screen (Running green / Last run, Loaded blue; full path on hover), and
   the folder name in the window title. Tabs 4-6 never said which run they showed.
