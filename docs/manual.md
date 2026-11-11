@@ -605,6 +605,20 @@ a ferrocene calibration in the same electrolyte is what fixes it.
 
 ## Where things are recorded
 
+**Every saved CSV starts with `#` lines that say how its numbers were made**, so two
+files with the same columns can be told apart later. They name the run and the build,
+and then whatever changes the numbers:
+
+- **A fit plot:** the segment and trace; the wavelength and whether **auto** picked it
+  or it was **typed**; the model; the window actually fitted, with its point count; the
+  fit status; and every parameter.
+- **The ladder:** one line per fitted segment, giving its wavelength, model and window.
+- **Band fits:** the model, the wavelength range and the time window.
+- **The Charge tab:** the film size, A₀, and the equilibrium-check settings.
+
+These lines describe the fit as it was made, not the controls as they are now. Read
+the files with `pandas.read_csv(path, comment="#")`.
+
 | What | Where |
 |---|---|
 | Output file formats | [`data-format.md`](data-format.md) — do not change |

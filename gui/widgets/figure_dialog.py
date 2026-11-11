@@ -110,11 +110,14 @@ class FigureDialog(QDialog):
                  separate once they are in a folder together
     out_dir   -- where the file dialogs open, normally {run_folder}/figures
     run_id    -- names the run in the provenance line
+    context   -- zero-arg callable returning the lines that say how the plotted
+                 numbers were made (wavelength, model, fit window...), or None.
+                 Read at save time, like csv, and written into every data file.
     """
 
     def __init__(self, parent, canvas, draw, title="Export",
                  csv=None, basename="figure", out_dir=None, run_id=None,
-                 note=None, matrix=None, draw_unmarked=None):
+                 note=None, matrix=None, draw_unmarked=None, context=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
@@ -132,6 +135,7 @@ class FigureDialog(QDialog):
         # it lives HERE as well as on the Results tab: on 2026-11-06 the line was
         # still in an export because the Results-tab box was not where anyone looked.
         self._draw_unmarked = draw_unmarked
+        self._context = context
         self._fig = None
         self._preview = None
         self._build()
@@ -375,6 +379,10 @@ class FigureDialog(QDialog):
             lines.append(f"run: {self._run_id}")
         lines.append(f"produced by: spec-echem {build_id()}")
         lines.append(f"figure: {self._basename}")
+        # Two fits at different wavelengths or with different models give CSVs
+        # with the same columns; only these lines tell them apart (2026-11-11).
+        if self._context is not None:
+            lines.extend(self._context() or [])
         if matrix:
             # Without this the column headers are bare numbers and nothing says what
             # they are -- a wide table is not self-describing the way a tall one is.
@@ -417,7 +425,7 @@ def save_figure(canvas, draw, path, preset=DEFAULT_PRESET, dpi=300,
 
 
 def open_figure_dialog(parent, canvas, win, basename, title="Export",
-                       note=None):
+                       note=None, context=None):
     """Open the preview for whatever `canvas` last drew.
 
     The one entry point the tabs use, so the five save buttons cannot drift apart.
@@ -441,6 +449,6 @@ def open_figure_dialog(parent, canvas, win, basename, title="Export",
         draw_unmarked=canvas.last_draw_unmarked(),
         out_dir=(run_folder / "figures") if run_folder is not None else None,
         run_id=run_folder.name if run_folder is not None else None,
-        note=note)
+        note=note, context=context)
     dialog.exec_() if hasattr(dialog, "exec_") else dialog.exec()
     return dialog

@@ -144,6 +144,7 @@ class AnalysisTab(QWidget):
         self.win = main_window
         self._fits = {}          # label -> {trace: FitResult}
         self._fit_wl = {}        # label -> wavelength that fit was made at
+        self._fit_wl_auto = {}   # label -> True if that wavelength was picked by auto
         self._wavelength = None  # None = auto
         self._fill_range_boxes = False   # set when the range is ticked; see _on_range_toggled
         self._stale = False      # results changed while hidden; see request_refresh
@@ -538,7 +539,7 @@ class AnalysisTab(QWidget):
                     self.fit_canvas, draw,
                     out_dir / f"{self._figure_basename(trace)}.png",
                     provenance=stamp, csv_frame=self.fit_canvas.last_data(),
-                    csv_header=header + [f"segment: {label}", f"trace: {trace}"])
+                    csv_header=header + self._fit_context(label, trace))
         finally:
             self.table.blockSignals(True)
             if 0 <= previous_row < self.table.rowCount():
@@ -555,7 +556,8 @@ class AnalysisTab(QWidget):
                 self.ladder_canvas, ladder_draw,
                 out_dir / f"{self._figure_basename('ladder')}.png",
                 provenance=stamp, csv_frame=self.ladder_canvas.last_data(),
-                csv_header=header + ["plot: ladder across all fitted segments"])
+                csv_header=header + ["plot: ladder across all fitted segments"]
+                + self._ladder_context())
 
         if not written:
             QMessageBox.warning(self, "Nothing saved",
@@ -578,9 +580,70 @@ class AnalysisTab(QWidget):
         button.setToolTip(EXPORT_TIP)
         button.clicked.connect(
             lambda: open_figure_dialog(self, canvas, self.win,
-                                       self._figure_basename(basename), title))
+                                       self._figure_basename(basename), title,
+                                       context=lambda: self._save_context(basename)))
         row.addWidget(button)
         return row
+
+    # --- what a saved file says about how it was made ---------------------
+
+    def _save_context(self, which):
+        """Context lines for the Export under the fit plot ("fit") or the ladder."""
+        if which == "ladder":
+            return ["plot: ladder across all fitted segments"] + self._ladder_context()
+        label = self._current_label()
+        return self._fit_context(label, self._shown_trace()) if label else []
+
+    def _wl_text(self, label):
+        """'807.9 nm (auto: polaron band of this segment)' for the fit made, or None."""
+        wl = self._fit_wl.get(label)
+        if wl is None:
+            return None
+        how = ("auto: polaron band of this segment" if self._fit_wl_auto.get(label)
+               else "typed")
+        return f"{wl:.1f} nm ({how})"
+
+    @staticmethod
+    def _window_text(fit):
+        if fit.t_first is None or fit.t_last is None:
+            return "none (no points fitted)"
+        return f"{fit.t_first:g}-{fit.t_last:g} s ({fit.n} points)"
+
+    def _fit_context(self, label, trace):
+        """How the numbers in one fit plot were made, read from the FIT, not the
+        controls: they can change after fitting, and a header built from them would
+        describe a fit nobody made (the reason _fit_wl exists)."""
+        lines = [f"segment: {label}", f"trace: {trace}"]
+        fit = (self._fits.get(label) or {}).get(trace)
+        if fit is None:
+            if trace == "absorbance" and self._wavelength is not None:
+                how = "auto" if self.wl_auto.isChecked() else "typed"
+                lines.append(f"wavelength: {self._wavelength:.1f} nm ({how})")
+            lines.append("fit: none (data only)")
+            return lines
+        if trace == "absorbance" and self._wl_text(label):
+            lines.append(f"wavelength: {self._wl_text(label)}")
+        lines.append(f"model: {fit.model}")
+        lines.append(f"fit window: {self._window_text(fit)}")
+        lines.append(f"fit status: {AllFitsDialog._status(fit)}")
+        lines += [f"fit: {line}" for line in fit.describe()]
+        return lines
+
+    def _ladder_context(self):
+        """One line per fitted segment: its wavelength, model and window. The ladder
+        compares segments, so each rung's conditions belong in its file."""
+        lines = [f"quantity: {self.ladder_quantity.currentText()}"]
+        for i in range(self.segment_combo.count()):
+            label = self.segment_combo.itemData(i)
+            fits = self._fits.get(label)
+            if not fits:
+                continue
+            fit = fits.get("absorbance") or next(iter(fits.values()))
+            parts = [f"model {fit.model}", f"window {self._window_text(fit)}"]
+            if self._wl_text(label):
+                parts.insert(0, f"absorbance at {self._wl_text(label)}")
+            lines.append(f"{label}: " + ", ".join(parts))
+        return lines
 
     def _shown_trace(self):
         """The trace the fit plot shows: the selected row of the fit table."""
@@ -776,6 +839,7 @@ class AnalysisTab(QWidget):
         """
         self._fits.clear()
         self._fit_wl.clear()
+        self._fit_wl_auto.clear()
         self._wavelength = None
         self.fit_canvas.show_message("Fit a segment to see the data and its fit.")
         self.ladder_canvas.show_message("Fit a segment to build this plot.")
@@ -836,6 +900,7 @@ class AnalysisTab(QWidget):
         # _all_traces has just set _wavelength via _absorbance_trace.
         if "absorbance" in traces:
             self._fit_wl[label] = self._wavelength
+            self._fit_wl_auto[label] = self.wl_auto.isChecked()
         start, stop = self._window(traces)
         return {name: fit_transient(t, y, model, start, stop)
                 for name, (t, y) in traces.items()}
@@ -918,13 +983,17 @@ class AnalysisTab(QWidget):
                     "segment": label, "potential": potential,
                     "direction": direction, "trace": trace,
                     "wavelength": self._fit_wl.get(label),
+                    "wavelength_auto": self._fit_wl_auto.get(label),
                     "fit": fit, "split": split,
                 })
         if not rows:
             QMessageBox.information(self, "No fits yet",
                                     "Fit a segment first, or use Fit all segments.")
             return
-        AllFitsDialog(rows, self).exec_()
+        run_folder = getattr(self.win, "run_folder", None)
+        header = ([f"run: {pathlib.Path(run_folder).name}"] if run_folder else []) \
+            + [f"produced by: spec-echem {build_id()}"]
+        AllFitsDialog(rows, self, header=header).exec_()
 
     # --- display ---    # --- display ---------------------------------------------------------
 
@@ -1393,13 +1462,15 @@ class AllFitsDialog(QDialog):
     # A canonical order, so a table mixing models still reads left to right sensibly.
     PARAM_ORDER = ("A", "B", "tau", "beta", "B1", "tau1", "B2", "tau2")
 
-    FIXED_LEFT = ("segment", "V", "direction", "trace", "lambda (nm)", "model")
+    FIXED_LEFT = ("segment", "V", "direction", "trace", "lambda (nm)", "lambda pick",
+                  "model", "window (s)")
     FIXED_RIGHT = ("y(0)", "mean tau (s)", "95% CI", "n pts",
                    "resid noise", "resid model-miss", "model-miss %", "status")
 
-    def __init__(self, rows, parent=None):
+    def __init__(self, rows, parent=None, header=()):
         super().__init__(parent)
         self.setWindowTitle("All fits")
+        self._header = list(header)     # '# ' lines for the saved file only
         self.resize(1180, 520)
         self._rows = rows
 
@@ -1451,6 +1522,18 @@ class AllFitsDialog(QDialog):
             return f"NEEDS REVIEW — {fit.reason}"
         return "ok"
 
+    @staticmethod
+    def _pick(row):
+        if row["trace"] != "absorbance" or row.get("wavelength_auto") is None:
+            return ""
+        return "auto" if row["wavelength_auto"] else "typed"
+
+    @staticmethod
+    def _window(fit):
+        if fit.t_first is None or fit.t_last is None:
+            return ""
+        return f"{fit.t_first:g}-{fit.t_last:g}"
+
     def _cells(self, row):
         fit = row["fit"]
         names = MODELS[fit.model][1]
@@ -1463,7 +1546,7 @@ class AllFitsDialog(QDialog):
         cells = [row["segment"], num(row["potential"], "{:+.3f}"), row["direction"],
                  row["trace"],
                  num(row["wavelength"], "{:.1f}") if row["trace"] == "absorbance" else "",
-                 fit.model]
+                 self._pick(row), fit.model, self._window(fit)]
         for name in self._params:
             if name not in values:
                 cells.append("")            # a parameter this model does not have
@@ -1498,6 +1581,7 @@ class AllFitsDialog(QDialog):
         if not path:
             return
         try:
-            pathlib.Path(path).write_text(self._csv(), encoding="utf-8")
+            notes = "".join(f"# {line}\n" for line in self._header)
+            pathlib.Path(path).write_text(notes + self._csv(), encoding="utf-8")
         except OSError as exc:
             QMessageBox.warning(self, "Could not save", str(exc))

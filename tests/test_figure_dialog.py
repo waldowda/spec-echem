@@ -368,7 +368,7 @@ def test_the_single_export_is_named_after_the_trace_on_screen(app, tmp_path,
 
     names = []
     monkeypatch.setattr(at, "open_figure_dialog",
-                        lambda parent, canvas, w, basename, title: names.append(basename))
+                        lambda parent, canvas, w, basename, title, **k: names.append(basename))
     from qtpy.QtWidgets import QPushButton
     from gui.widgets.figure_dialog import EXPORT_LABEL
     buttons = [b for b in tab.findChildren(QPushButton) if b.text() == EXPORT_LABEL
@@ -500,3 +500,132 @@ def test_the_spectra_export_is_cut_to_the_plotted_wavelength_window(app):
     dlg = FigureDialog(None, canvas, canvas.last_draw(), csv=None,
                        matrix=canvas.last_matrix(), basename="cv_spectra")
     assert dlg._table()["Wavelength (nm)"].tolist() == list(np.arange(600.0, 1001.0, 50.0))
+
+
+# --- 2026-11-11: a saved file says how its numbers were made ------------------
+
+def test_context_lines_go_under_the_provenance(app, tmp_path, monkeypatch):
+    from qtpy.QtWidgets import QFileDialog
+    canvas = MplCanvas(xlabel="Time (s)", ylabel="Absorbance")
+    t = np.linspace(0.0, 10.0, 20)
+    frame = pd.DataFrame({"time": t, "y": t})
+    lines = ["model: exp"]
+    dlg = FigureDialog(None, canvas, draw=lambda: canvas.show_spectrum(t, t),
+                       csv=lambda: frame, basename="b", run_id="20250710",
+                       context=lambda: lines)
+    lines.append("wavelength: 807.9 nm (typed)")     # read at SAVE time
+    out = tmp_path / "b.csv"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(out), "")))
+    dlg.on_save_csv()
+    head = [l for l in out.read_text().splitlines() if l.startswith("#")]
+    assert head[:2] == ["# run: 20250710", head[1]] and "produced by" in head[1]
+    assert "# model: exp" in head and "# wavelength: 807.9 nm (typed)" in head
+    assert len(pd.read_csv(out, comment="#")) == 20
+
+
+def _fitted_analysis(tmp_path):
+    from gui.main_window import MainWindow
+    from spec_echem.data import DATA_TYPE_DOPING, write_echem_file, EchemData
+    from spec_echem.experiment import Segment
+    win = MainWindow()
+    t = np.linspace(0.0, 20.0, 60)
+    wl = np.linspace(400.0, 1100.0, 40)
+    a = 0.02 + np.outer(np.exp(-0.5 * ((wl - 900.0) / 60.0) ** 2),
+                        0.5 * (1.0 - np.exp(-t / 4.0)))
+    win.results = {"Doping 0": pd.DataFrame(a, index=wl, columns=t)}
+    win.segments_by_label = {
+        "Doping 0": Segment("Doping 0", DATA_TYPE_DOPING, 0, 60, 0.1, True)}
+    write_echem_file(EchemData(time=t, potential=np.full(60, 0.3),
+                               current=3.0e-5 * np.exp(-t / 4.0)),
+                     DATA_TYPE_DOPING, 0, tmp_path, "20250710_run")
+    win.run_folder = tmp_path / "20250710_run"
+    tab = win.analysis_tab
+    tab.refresh_segments()
+    tab.start_spin.setValue(1.0)
+    tab.on_fit_all()
+    return win, tab
+
+
+def test_the_fit_export_names_wavelength_model_and_window_of_the_FIT(app, tmp_path,
+                                                                    monkeypatch):
+    """Controls moved after the fit must not change what the file says."""
+    import gui.tabs.analysis_tab as at
+    win, tab = _fitted_analysis(tmp_path)
+    wl = tab._fit_wl["Doping 0"]
+    fit = tab._fits["Doping 0"]["absorbance"]
+
+    seen = {}
+    monkeypatch.setattr(at, "open_figure_dialog",
+                        lambda p, c, w, basename, title, context=None, **k:
+                        seen.setdefault(basename, context))
+    tab.table.selectRow(at.TRACES.index("absorbance"))
+    # Moving the WAVELENGTH discards the absorbance fit by design; model and window
+    # do not, so those are the controls that could make a header lie.
+    tab.model_combo.setCurrentIndex(tab.model_combo.findData("biexp"))
+    tab.start_spin.setValue(5.0)
+    from qtpy.QtWidgets import QPushButton
+    from gui.widgets.figure_dialog import EXPORT_LABEL
+    for b in tab.findChildren(QPushButton):
+        if b.text() == EXPORT_LABEL and not tab.charge_panel.isAncestorOf(b):
+            b.click()
+    fit_ctx = next(v for k, v in seen.items() if "absorbance" in k)()
+    assert f"wavelength: {wl:.1f} nm (auto: polaron band of this segment)" in fit_ctx
+    assert "model: exp" in fit_ctx
+    assert f"fit window: {fit.t_first:g}-{fit.t_last:g} s ({fit.n} points)" in fit_ctx
+    assert fit.t_first >= 1.0
+    assert any(l.startswith("fit: tau = ") for l in fit_ctx), fit_ctx
+    assert any(l.startswith("fit status: ") for l in fit_ctx)
+    ladder_ctx = next(v for k, v in seen.items() if k.startswith("ladder"))()
+    assert any(l.startswith("Doping 0: absorbance at ") and "model exp" in l
+               for l in ladder_ctx), ladder_ctx
+
+
+def test_save_all_writes_the_fit_context_into_each_csv(app, tmp_path, monkeypatch):
+    import gui.tabs.analysis_tab as at
+    win, tab = _fitted_analysis(tmp_path)
+    monkeypatch.setattr(at.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(at.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    tab.on_save_all_figures()
+    figs = win.run_folder / "figures"
+    absorb = next(figs.glob("*absorbance*.csv")).read_text()
+    assert "# model: exp" in absorb and "# wavelength: " in absorb
+    assert "# fit window: " in absorb
+    current = next(figs.glob("*current*.csv")).read_text()
+    assert "# wavelength" not in current and "# model: exp" in current
+    ladder = next(figs.glob("ladder_*.csv")).read_text()
+    assert "# Doping 0: absorbance at " in ladder
+
+
+def test_the_all_fits_csv_carries_window_pick_and_provenance(app, tmp_path,
+                                                             monkeypatch):
+    import gui.tabs.analysis_tab as at
+    win, tab = _fitted_analysis(tmp_path)
+    captured = {}
+    monkeypatch.setattr(at.AllFitsDialog, "exec_",
+                        lambda self: captured.setdefault("d", self))
+    tab.on_show_all_fits()
+    dialog = captured["d"]
+    out = tmp_path / "fits.csv"
+    monkeypatch.setattr(at.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(out), "")))
+    dialog._save_csv()
+    text = out.read_text()
+    assert text.startswith("# run: 20250710_run\n# produced by: spec-echem")
+    frame = pd.read_csv(out, comment="#")
+    row = frame[frame["trace"] == "absorbance"].iloc[0]
+    assert row["lambda pick"] == "auto"
+    fit = tab._fits["Doping 0"]["absorbance"]
+    assert row["window (s)"] == f"{fit.t_first:g}-{fit.t_last:g}"
+    assert pd.isna(frame[frame["trace"] == "current"].iloc[0]["lambda pick"])
+
+
+def test_a_typed_wavelength_is_recorded_as_typed(app, tmp_path):
+    win, tab = _fitted_analysis(tmp_path)
+    tab.wl_auto.setChecked(False)
+    tab.wavelength_spin.setValue(600.0)
+    tab.on_fit_segment()
+    ctx = tab._fit_context("Doping 0", "absorbance")
+    wl = tab._fit_wl["Doping 0"]
+    assert abs(wl - 600.0) < 20 and f"wavelength: {wl:.1f} nm (typed)" in ctx, ctx
+    assert "model: exp" in ctx
