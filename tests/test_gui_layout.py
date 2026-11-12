@@ -3951,3 +3951,10 @@ def test_the_data_set_on_screen_is_named_in_the_corner_and_title(ready_window, t
     window.set_dataset(tmp_path / long, "Loaded")
     assert len(label.text()) == len("Loaded: ") + 32
     assert window.windowTitle().endswith(long)
+
+
+def test_the_film_size_status_is_an_estimate_by_default_and_saved(window):
+    combo = window.parameters_tab._widgets["film_size_status"]
+    assert combo.currentData() == "estimate"
+    combo.setCurrentIndex(combo.findData("measured"))
+    assert window.collect_settings()["film_size_status"] == "measured"

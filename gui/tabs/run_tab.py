@@ -431,11 +431,12 @@ class RunTab(QWidget):
         # Also in the metadata JSON; here so the log alone says what film it was
         # (requested 2026-11-06).
         get_run_logger().info("Film: thickness %s nm (+-%s), immersed area %s cm2 "
-                              "(+-%s; 0 = two significant figures)",
+                              "(+-%s; 0 = two significant figures), %s",
                               settings.get("film_thickness_nm"),
                               settings.get("film_thickness_u_nm"),
                               settings.get("film_area_cm2"),
-                              settings.get("film_area_u_cm2"))
+                              settings.get("film_area_u_cm2"),
+                              settings.get("film_size_status", "estimate"))
 
         # Expose the run folder + segment map so the Results tab can find each
         # segment's echem file (written next to the spectra in Python mode).

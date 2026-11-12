@@ -425,3 +425,28 @@ relative to full scale. See `docs/bench-2026-10-26.md`.
 | `spec_echem.data.read_segment_echem_h5(path, step)` | a step's echem, in the text readers' column names |
 | `spec_echem.data.discover_run_h5(folder)` | finds the steps, after the PITT |
 | `spec_echem.gitt` | the plan, the limits, the step-end rule and the spectrum cadence |
+
+
+## 7. Film size history — `{folder}_film.json` (2026-11-11)
+
+Written only when a film size is entered after the run (Charge tab). It never replaces
+anything: the run's `{folder}_metadata.json` keeps the values set at Start.
+
+```json
+{"format": "spec-echem film size", "version": 1,
+ "entries": [
+   {"thickness_nm": 150.0, "thickness_u_nm": 0.0, "area_cm2": 1.6, "area_u_cm2": 0.0,
+    "status": "estimate", "note": "", "source": "run metadata",
+    "time": "2026-11-11T09:00:00", "build": ""},
+   {"thickness_nm": 142.0, "thickness_u_nm": 5.0, "area_cm2": 1.55, "area_u_cm2": 0.02,
+    "status": "measured", "note": "profilometer", "source": "Charge tab",
+    "time": "2026-11-14T10:12:03", "build": "<build id>"}]}
+```
+
+- **Entries are oldest first and never edited; the LAST one is in use.**
+- Entry 1 is the run's own values from its metadata (its `time` is the run start). A run
+  from before `film_size_status` existed says `run metadata (status not recorded)`.
+- `status` is `estimate` or `measured`. An uncertainty of 0 means two significant figures.
+- `source` is `run metadata`, `Charge tab`, or `copied from <run> (...)`.
+- Thickness and area must be greater than zero. A file that cannot be read is reported
+  on the Charge tab, not ignored.

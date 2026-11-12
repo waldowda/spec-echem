@@ -160,7 +160,16 @@ says how *fast* a film switched at each potential, this says how *much*.
 | **Equilibrium: last … s** | The end of each step. Absorbance and current are averaged over it, drift is measured over it, and its mean current is the leak (below). |
 | **move < … %** | A step is ringed if its absorbance or current still moved by more than this share of the step's whole change over that last span. |
 | **step ≥ … × tau** | ...or if the step was shorter than this many relaxation times (5 τ = 99.3% complete). Uses the Kinetics fits of absorbance and current that passed review; a step not yet fitted gets only the drift check, and the table says which checks were made. |
+| **Film size / Edit… / Copy from another run…** | The film size in use, in **orange** while it is an estimate and **green** once measured. **Edit…** enters a measured thickness and area (± and a note, e.g. "profilometer"); **Copy from another run…** takes the size already entered for another run of the same film. Hover the size for its history. |
 | **Save table (CSV)…** | Every number for every step, with the film size, A₀ and every note behind them. The plot footnote is a short version. |
+
+**Film size measured after the run.** Thickness and area are usually estimates at
+Start: set **Film size is: an estimate** on the Parameters tab. Every density plot and
+CSV then says *ESTIMATE (provisional)* until a measured size is entered here. Edits are
+saved beside the run in `{folder}_film.json` as a history: the first entry is the run's
+own values, each edit adds one, and the latest is used. The run's metadata is never
+changed, so what was assumed and what was measured both stay on record. Only the
+densities change; the charge and the bleach do not depend on film size.
 
 What each number is:
 

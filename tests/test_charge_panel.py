@@ -111,7 +111,8 @@ def test_bleach_is_read_at_the_neutral_peak_against_the_pre_dedoping_spectrum(ru
 def test_a_run_s_own_film_size_wins_over_the_form(run):
     run.loaded_run_settings = {"film_thickness_nm": 200.0, "film_area_cm2": 1.0}
     panel = _panel(run)
-    assert any("200 nm x 1 cm2 from this run" in n for n in panel._notes)
+    assert any(n.startswith("film 200 nm x 1 cm2, ESTIMATE (provisional); source: run")
+               for n in panel._notes), panel._notes
     run.loaded_run_settings = {}          # an older run that recorded none
     panel = _panel(run)
     assert any("Parameters tab" in n for n in panel._notes)
@@ -310,3 +311,82 @@ def test_the_notes_carry_the_equilibrium_settings_and_reach_the_figure(run,
     from gui.widgets.figure_dialog import EXPORT_LABEL
     next(b for b in panel.findChildren(QPushButton) if b.text() == EXPORT_LABEL).click()
     assert seen["c"]() == panel._notes
+
+
+# --- film size measured after the run (2026-11-11) ----------------------------
+
+def _meta(run, settings):
+    import json
+    folder = run.run_folder
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{folder.name}_metadata.json").write_text(json.dumps(
+        {"run_started": "2026-11-11T09:00:00", "settings": settings}))
+    run.loaded_run_settings = settings
+
+
+def test_a_measured_film_size_replaces_the_estimate_everywhere(run, monkeypatch):
+    import gui.tabs.charge_panel as cp
+    from spec_echem import film
+    settings = {"film_thickness_nm": 200.0, "film_area_cm2": 1.0,
+                "film_size_status": "estimate"}
+    _meta(run, settings)
+    panel = _panel(run)
+    est = {r["segment"]: r for r in panel.rows()}["Doping 0"]["carriers_raw_cm3"]
+    assert "ESTIMATE (provisional)" in panel.film_label.text()
+
+    def fake_exec(dialog):
+        dialog.thickness.setValue(100.0)
+        dialog.area.setValue(1.0)
+        dialog.note.setText("profilometer")
+        return True
+    monkeypatch.setattr(cp.FilmDialog, "exec_", fake_exec)
+    panel.on_edit_film()
+
+    meas = {r["segment"]: r for r in panel.rows()}["Doping 0"]["carriers_raw_cm3"]
+    assert meas == pytest.approx(2 * est)                  # half the thickness
+    assert "measured" in panel.film_label.text()
+    assert panel._notes[0].startswith("film 100 nm x 1 cm2, measured 20")
+    assert panel._notes[0].endswith("(profilometer); source: Charge tab")
+    assert any("2 entries" in n for n in panel._notes)
+    assert "ESTIMATE" not in panel._footnote("density", panel.steps, 0)
+    history = film.read_history(run.run_folder)
+    assert [h["status"] for h in history] == ["estimate", "measured"]
+    assert history[0]["time"] == "2026-11-11T09:00:00"
+    # The run's own record is unchanged.
+    import json
+    meta = json.loads((run.run_folder / f"{run.run_folder.name}_metadata.json")
+                      .read_text())
+    assert meta["settings"]["film_thickness_nm"] == 200.0
+
+
+def test_an_estimate_is_flagged_on_the_density_footnote(run):
+    _meta(run, {"film_thickness_nm": 200.0, "film_area_cm2": 1.0,
+                "film_size_status": "estimate"})
+    panel = _panel(run)
+    assert "ESTIMATE, provisional" in panel._footnote("density", panel.steps, 0)
+
+
+def test_a_film_size_is_copied_from_another_run(run, tmp_path, monkeypatch):
+    import gui.tabs.charge_panel as cp
+    from spec_echem import film
+    _meta(run, {"film_thickness_nm": 200.0, "film_area_cm2": 1.0})
+    other = tmp_path / "20261110_cv"
+    other.mkdir()
+    film.add_entry(other, film.new_entry(150.0, 1.0, "measured", note="profilometer"),
+                   {})
+    monkeypatch.setattr(cp.QFileDialog, "getExistingDirectory",
+                        staticmethod(lambda *a, **k: str(other)))
+    monkeypatch.setattr(cp.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    panel = _panel(run)
+    panel.on_copy_film()
+    assert panel._film_entry["thickness_nm"] == 150.0
+    assert panel._film_entry["source"].startswith("copied from 20261110_cv")
+
+
+def test_an_unreadable_film_file_is_said_not_swallowed(run):
+    from spec_echem import film
+    _meta(run, {"film_thickness_nm": 200.0, "film_area_cm2": 1.0})
+    film.film_path(run.run_folder).write_text("{broken")
+    panel = _panel(run)
+    assert "UNREADABLE" in panel.film_label.text()
+    assert any("UNREADABLE" in n for n in panel._notes)
