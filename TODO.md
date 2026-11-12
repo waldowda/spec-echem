@@ -33,13 +33,22 @@ The CHANGELOG says what shipped; git log says when.
       4. **Autolab**: the same three. 10 uA should be quiet about the 0 A offset; 0.2 uA
          should warn. Check `pulse_s_applied` in `gitt_steps_json`.
       Not built: return leg, end dedope, analysis (dQ, relaxed E, IR drop, D_ion).
-- [ ] **Autolab impedance (ER-EIS) is blocked on hardware.** NOVA's own TestFRA fails on
-      its dummy (the AC signal seems never to reach the cell). Send Metrohm the failed
-      TestFRA data; ask earlier EIS users when it last worked. Once NOVA reads a 10 kOhm
-      dummy correctly, rerun `examples/probe_autolab_gitt_eis.py --fra`,
-      `--fra --fra-vdc 0.1`, `--fra-manual`, and a Randles for the sign convention.
-      Gamry ReadZ works on both instruments; an ER-EIS runner must restore `ie_range`
-      and the filters after each sweep.
+- [ ] **ER-EIS on the Gamry (Autolab parked, see Later).** Not built. Single-frequency
+      `ReadZ` already matches the UDC4 Randles within 0.7% and 0.1° from 10 kHz to 1 Hz
+      on the Reference 600 (`docs/bench-2026-10-26.md` §2), so no separate probe is needed.
+      1. **Build on the fakes:** a third staircase kind through `acquire_pitt` (as GITT
+         does): each step is a PITT hold at E, then a frequency sweep (high to low) at the
+         same DC E, with spectra running throughout. Impedance goes in each step's group in
+         the HDF5 (data type 7, `docs/data-format.md` new section). A duration estimate
+         before Start; an editable frequency list (start f, end f, points per decade); an
+         optional repeat of the first step's sweep at the end as a drift check.
+         **After every sweep, restore `ie_range` and the I-channel filter**; ReadZ leaves
+         both where it autoranged and a later hold clips with no error.
+      2. **Randles dummy on the Reference 600:** expect the R and C it was built from at
+         every step, and the hold currents after each sweep to match those before it.
+      3. **Then a film.** Watch run time: 50-100 steps at 1-2 min per sweep is hours.
+      Not built: C(w) = -1/(w Z''), Cdl vs Cmu, g(E), the comparison with PITT dQ/dE,
+      equivalent-circuit fits.
 - [ ] **Charge tab on a fresh run:** every view, the CSV, and a step that genuinely
       fails the 5 tau or drift check.
 - [ ] **Sample the current faster in the first second of a chrono step** (as PITT's fast
@@ -143,6 +152,13 @@ The CHANGELOG says what shipped; git log says when.
       any DOS is trusted.
 
 ## Later — wanted, not scheduled
+
+- **Autolab impedance (ER-EIS): parked (2026-11-12), blocked on hardware.** ER-EIS is
+  Gamry-only until this is fixed. NOVA's own TestFRA fails on its dummy (the AC signal
+  seems never to reach the cell). Send Metrohm the failed TestFRA data; ask earlier EIS
+  users when it last worked. Once NOVA reads a 10 kOhm dummy correctly, rerun
+  `examples/probe_autolab_gitt_eis.py --fra`, `--fra --fra-vdc 0.1`, `--fra-manual`, and
+  a Randles for the sign convention.
 
 - Per-monomer doping level (needs film density and monomer mass).
 - Tune `FIT_MAX_TAU_SPANS = 10` and `FIT_SD_REJECT_FRACTION = 0.5` against a second
