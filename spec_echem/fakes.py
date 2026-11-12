@@ -651,8 +651,8 @@ class FakeGittPotentiostat:
 
 
 class FakeEreisPotentiostat(FakePittPotentiostat):
-    """A potentiostat for the ER-EIS loop: the PITT fake's DC behaviour, plus a
-    Randles cell's impedance, Z = R_s + R_ct / (1 + j w R_ct C_dl).
+    """A potentiostat for a PITT with impedance sweeps: the PITT fake's DC
+    behaviour, plus a Randles cell's impedance, Z = R_s + R_ct / (1 + j w R_ct C_dl).
 
     Each frequency takes `point_s` of `clock` time, so a test can run a sweep as
     fast as it likes; a point is reported once its time has passed, as the Gamry's

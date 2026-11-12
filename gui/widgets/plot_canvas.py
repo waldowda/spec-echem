@@ -566,7 +566,7 @@ class MplCanvas(FigureCanvasQTAgg):
 
     @_records
     def show_nyquist(self, df, title=None):
-        """An ER-EIS step: -Z'' vs Z' (Nyquist), equal scales so a semicircle looks
+        """A step swept for impedance: -Z'' vs Z' (Nyquist), equal scales so a semicircle looks
         like one. Points the instrument returned no value for (ok = 0) are left out."""
         self._xlabel, self._ylabel = "Z\u2032 (\u03a9)", "\u2212Z\u2033 (\u03a9)"
         self._new_axes()

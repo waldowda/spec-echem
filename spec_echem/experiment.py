@@ -13,11 +13,10 @@ import numpy as np
 from spec_echem.acquisition import acquire_pitt, acquire_segment
 from spec_echem.data import (
     compute_absorbance, write_spectra_file, write_echem_file, write_segment_h5,
-    write_ereis_h5, write_gitt_h5, write_pitt_h5,
+    write_gitt_h5, write_pitt_h5,
     DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_DEDOPING, DATA_TYPE_PREDEDOPING,
-    DATA_TYPE_EREIS, DATA_TYPE_GITT, DATA_TYPE_PITT,
+    DATA_TYPE_GITT, DATA_TYPE_PITT,
 )
-from spec_echem.ereis import ereis_duration_s, ereis_plan
 from spec_echem.gitt import gitt_duration_bounds, gitt_plan
 from spec_echem.pitt import PittRecord, pitt_duration_bounds, pitt_plan
 from spec_echem.logging_config import get_run_logger
@@ -176,9 +175,10 @@ def gitt_live(record, n_steps):
 
 
 def ereis_live(record, n_steps, n_freq):
-    """The running ER-EIS step for the live plot: (t_in_step, current, status), or
-    None -- the hold's current, as pitt_live gives it, and once the step's sweep has
-    begun, how far it has got: "Sweep 12 of 26 / f = 3.16 Hz / |Z| = 3.2 kOhm"."""
+    """The running PITT step for the live plot when it sweeps impedance:
+    (t_in_step, current, status), or None -- the hold's current, as pitt_live gives
+    it, and once the step's sweep has begun, how far it has got:
+    "Sweep 12 of 26 / f = 3.16 Hz / |Z| = 3.2 kOhm"."""
     live = pitt_live(record, n_steps)
     if live is None:
         return None
@@ -278,11 +278,6 @@ def build_segments(settings):
         segments.append(Segment("GITT", DATA_TYPE_GITT, 0, len(gitt_plan(settings)),
                                 chrono_delta, trigger))
 
-    # After the GITT, the same way: one segment, num_points counting steps.
-    if settings.get("ereis_enabled", False):
-        segments.append(Segment("ER-EIS", DATA_TYPE_EREIS, 0,
-                                len(ereis_plan(settings)), chrono_delta, trigger))
-
     return segments
 
 
@@ -300,8 +295,6 @@ def run_duration_bounds(settings):
             a, b = pitt_duration_bounds(settings)
         elif seg.data_type == DATA_TYPE_GITT:
             a, b = gitt_duration_bounds(settings)
-        elif seg.data_type == DATA_TYPE_EREIS:
-            a = b = ereis_duration_s(settings)        # an estimate (see ereis.py)
         else:
             a = b = max(seg.num_points - 1, 0) * seg.delta_time
         lo += a
@@ -327,15 +320,6 @@ def gitt_step_segments(settings):
     delta = settings["chrono_delta_time"]
     return [Segment(f"GITT {step.index}", DATA_TYPE_GITT, step.index, 0, delta,
                     False) for step in gitt_plan(settings)]
-
-
-def ereis_step_segments(settings):
-    """One Segment per planned ER-EIS step, 'ER-EIS 0' ..., as pitt_step_segments."""
-    if not settings.get("ereis_enabled", False):
-        return []
-    delta = settings["chrono_delta_time"]
-    return [Segment(f"ER-EIS {step.index}", DATA_TYPE_EREIS, step.index, 0, delta,
-                    False) for step in ereis_plan(settings)]
 
 
 def run_one_segment(spec, segment, dark, ref, wavelengths,
@@ -465,12 +449,16 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
     setpoint, still sampling current, until it is true (see acquire_pitt). `record`
     is passed through so a caller can read the samples live.
     """
+    from spec_echem.ereis import ereis_frequencies, ereis_sweep_steps
     log = get_run_logger()
     plan = pitt_plan(settings)
+    sweeps = ereis_sweep_steps(settings, plan)
+    n_freq = len(ereis_frequencies(settings)) if sweeps else 0
 
     def announce(k, step):
-        log.info("PITT step %d of %d: %+.3f V (%s)", k + 1, len(plan),
-                 step.potential, step.role)
+        log.info("PITT step %d of %d: %+.3f V (%s)%s", k + 1, len(plan),
+                 step.potential, step.role,
+                 f", then {n_freq} impedance frequencies" if k in sweeps else "")
 
     def step_done(row):
         return _show_step(record, row, "PITT", dark, ref, wavelengths, on_step_result)
@@ -517,6 +505,8 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
                 "on that range.", st["index"], cutoff * st["peak_current_A"],
                 cutoff * 100, st["peak_current_A"], st["hold_s"],
                 cutoff * st["peak_current_A"])
+        if st["index"] in sweeps:
+            _log_sweep(record, st, n_freq, log)
     waits = [st["display_wait_s"] for st in record.steps if "display_wait_s" in st]
     if waits:
         log.info("PITT: held %d step ends for the display, mean %.0f ms, max %.0f ms "
@@ -644,74 +634,6 @@ def run_gitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
     return _step_results(record, "GITT", dark, ref, wavelengths), path, record
 
 
-def run_ereis_segment(spec, segment, dark, ref, wavelengths, data_root, added_path,
-                      settings, potentiostat, abort_event=None, stop_event=None,
-                      on_step_result=None, record=None):
-    """Run the whole ER-EIS staircase, write its HDF5, and return each step's data.
-
-    The ER-EIS twin of run_pitt_segment, through the same loop (acquire_pitt with
-    kind="ereis"). -> (steps, path, record). Whatever was collected is written on
-    Stop or Abort, with each step's sweep_end saying how its sweep ended. HDF5 is the
-    only copy, so a failed write is an ERROR.
-    """
-    from spec_echem.ereis import SWEEP_COMPLETE, ereis_frequencies
-    log = get_run_logger()
-    plan = ereis_plan(settings)
-    n_freq = len(ereis_frequencies(settings))
-
-    def announce(k, step):
-        log.info("ER-EIS step %d of %d: %+.3f V (%s), hold %g s then %d frequencies",
-                 k + 1, len(plan), step.potential, step.role,
-                 float(settings["ereis_hold_s"]), n_freq)
-
-    def step_done(row):
-        return _show_step(record, row, "ER-EIS", dark, ref, wavelengths,
-                          on_step_result)
-
-    if record is None:
-        record = PittRecord()
-    record = acquire_pitt(spec, potentiostat, plan, settings, trigger=segment.trigger,
-                          abort_event=abort_event, stop_event=stop_event,
-                          on_step=announce,
-                          on_step_done=step_done if on_step_result else None,
-                          record=record, kind="ereis")
-    _use_hardware_echem(record, potentiostat)
-    hold = float(settings["ereis_hold_s"])
-    for st in record.steps:
-        k = st["index"]
-        points = [p for p in record.impedance if p.get("step") == k and p.get("ok")]
-        z_text = ""
-        if points:
-            z_text = (f"; |Z| {format_ohms(points[0].get('zmod', float('nan')))} at "
-                      f"{float(points[0]['frequency_set']):.3g} Hz to "
-                      f"{format_ohms(points[-1].get('zmod', float('nan')))} at "
-                      f"{float(points[-1]['frequency_set']):.3g} Hz")
-        log.info("ER-EIS %d at %+.3f V: hold %s after %.1f s, sweep %s, %d of %d "
-                 "frequencies in %.1f s, %d spectra%s", k, st["potential_set"],
-                 st["end_reason"], st["hold_s"], st.get("sweep_end", "not run"),
-                 st.get("n_freq", 0), n_freq, st.get("sweep_s", 0.0),
-                 st["n_spectra"], z_text)
-        if st.get("sweep_end") == SWEEP_COMPLETE and st.get("n_freq", 0) < n_freq:
-            log.warning("ER-EIS %d: the instrument returned no value at %d of %d "
-                        "frequencies; they are in the file, marked ok = 0.", k,
-                        n_freq - st["n_freq"], n_freq)
-        _check_current_after_sweep(record, st, hold, log)
-    if not record.steps:
-        return [], None, record
-
-    path = None
-    try:
-        path = write_ereis_h5(record, dark, ref, wavelengths, data_root, added_path,
-                              settings=settings,
-                              compression=settings.get("hdf5_compression", 0))
-    except Exception:  # noqa: BLE001 -- the only copy: say so as loudly as possible
-        log.exception("ER-EIS: the HDF5 file could NOT be written, and it is the only "
-                      "copy of this staircase's data.")
-    if path is None:
-        log.error("ER-EIS: no file was written for this staircase (see above).")
-    return _step_results(record, "ER-EIS", dark, ref, wavelengths), path, record
-
-
 # The DC current after a sweep may differ from before it by this fraction before it is
 # a concern. A range left where the sweep put it reads a FLAT ~109% of the smaller
 # range's full scale -- 5x low on the Reference 600 (2026-10-23) -- so a real clip is
@@ -719,7 +641,29 @@ def run_ereis_segment(spec, segment, dark, ref, wavelengths, data_root, added_pa
 EREIS_AFTER_SWEEP_TOL = 0.5
 
 
-def _check_current_after_sweep(record, st, hold_s, log):
+def _log_sweep(record, st, n_freq, log):
+    """One PITT step's impedance sweep in the run log: how it ended, |Z| at both
+    ends, frequencies with no value, and the current before and after it."""
+    from spec_echem.ereis import SWEEP_COMPLETE
+    k = st["index"]
+    points = [p for p in record.impedance if p.get("step") == k and p.get("ok")]
+    z_text = ""
+    if points:
+        z_text = (f"; |Z| {format_ohms(points[0].get('zmod', float('nan')))} at "
+                  f"{float(points[0]['frequency_set']):.3g} Hz to "
+                  f"{format_ohms(points[-1].get('zmod', float('nan')))} at "
+                  f"{float(points[-1]['frequency_set']):.3g} Hz")
+    log.info("PITT %d impedance: sweep %s, %d of %d frequencies in %.1f s%s", k,
+             st.get("sweep_end", "not run"), st.get("n_freq", 0), n_freq,
+             st.get("sweep_s", 0.0), z_text)
+    if st.get("sweep_end") == SWEEP_COMPLETE and st.get("n_freq", 0) < n_freq:
+        log.warning("PITT %d: the instrument returned no impedance at %d of %d "
+                    "frequencies; they are in the file, marked ok = 0.", k,
+                    n_freq - st["n_freq"], n_freq)
+    _check_current_after_sweep(record, st, log)
+
+
+def _check_current_after_sweep(record, st, log):
     """Compare the hold's current just before the sweep with any sampled after it
     (the display hold). Says so when they disagree; never changes the data."""
     if st.get("sweep_end") is None:
@@ -740,20 +684,20 @@ def _check_current_after_sweep(record, st, hold_s, log):
     st["current_before_sweep_A"], st["current_after_sweep_A"] = b, a
     if abs(a - b) > EREIS_AFTER_SWEEP_TOL * max(abs(b), 1e-12):
         log.warning(
-            "ER-EIS %d: the current after the sweep (%s) is not the current before it "
-            "(%s). If every point after it reads the same, the current range was not "
-            "restored after the sweep and that reading is clipped.", k,
+            "PITT %d: the current after the impedance sweep (%s) is not the current "
+            "before it (%s). If every point after it reads the same, the current range "
+            "was not restored after the sweep and that reading is clipped.", k,
             format_current(a), format_current(b))
 
 
 def ereis_start_problems(settings):
-    """Why a run with the ER-EIS ticked cannot start, or [] when it can -- the
-    settings, a driver that cannot measure impedance, and a missing h5py."""
-    if not settings.get("ereis_enabled", False):
-        return []
-    from spec_echem.data import H5PY_AVAILABLE
-    from spec_echem.ereis import ereis_problems
+    """Why a PITT with impedance sweeps cannot start, or [] when it can (or when
+    the box is not ticked) -- the settings and a driver that cannot measure
+    impedance. The PITT's own checks (pitt_start_problems) cover the rest."""
+    from spec_echem.ereis import ereis_enabled, ereis_problems
     from spec_echem.potentiostat import ereis_supported
+    if not ereis_enabled(settings):
+        return []
     out = list(ereis_problems(settings))
     mode = (settings.get("potentiostat_mode") or "external").lower()
     if not ereis_supported(mode):
@@ -763,10 +707,7 @@ def ereis_start_problems(settings):
             "autolab": "Impedance on the Autolab waits for its FRA32M to be repaired "
                        "(it failed NOVA's own test). Use the Gamry in Python mode.",
         }.get(mode, f"The {mode!r} driver cannot run one.")
-        out.append(f"This potentiostat cannot run an ER-EIS. {why}")
-    if not H5PY_AVAILABLE:
-        out.append("An ER-EIS is saved to HDF5 only, and h5py is not installed in "
-                   "this environment, so nothing would be saved.")
+        out.append(f"This potentiostat cannot sweep impedance. {why}")
     return out
 
 

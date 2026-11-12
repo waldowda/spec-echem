@@ -50,7 +50,8 @@ Groundwork, dummy probes on 2026-10-23 and 2026-10-26 (`docs/bench-2026-10-26.md
 
 **Next:** dummy-cell tests on both rigs (a Randles cell with about 1000 µF, so the
 relaxation is slow enough to see; the plan is in TODO), then a film. Not built: a
-return leg, an end dedope, the GITT analysis, and ER-EIS (still a plan).
+return leg, an end dedope, and the GITT analysis. ER-EIS is built (2026-11-12) as an
+impedance box on the PITT, Gamry only, tested on fakes; the Randles check is in TODO.
 
 ---
 
