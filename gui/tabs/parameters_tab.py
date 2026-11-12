@@ -23,6 +23,8 @@ from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES, GAMRY_CURRENT_RANGE
                                      is_high_current_range)
 from spec_echem.acquisition import spectrum_cost_seconds
 from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
+from spec_echem.ereis import (ereis_duration_s, ereis_frequencies, ereis_plan,
+                              ereis_problems, ereis_sweep_s)
 from spec_echem.gitt import (gitt_duration_bounds, gitt_plan, gitt_planned_charge_c,
                              gitt_problems)
 from spec_echem.pitt import pitt_duration_bounds, pitt_plan, pitt_problems
@@ -467,6 +469,7 @@ class ParametersTab(QWidget):
 
         layout.addWidget(self._build_pitt_group())
         layout.addWidget(self._build_gitt_group())
+        layout.addWidget(self._build_ereis_group())
 
         layout.addStretch()
         self._wire_shared_hints()
@@ -664,6 +667,84 @@ class ParametersTab(QWidget):
         self._gitt_relax_hint.setText(text)
         self._gitt_relax_hint.setMaximumWidth(
             self._gitt_relax_hint.fontMetrics().boundingRect(text).width() + 8)
+
+    def _build_ereis_group(self):
+        """ER-EIS: a potential staircase with an impedance sweep at every step, after
+        the GITT. Built like the PITT group; the estimate updates as they type."""
+        group = QGroupBox("ER-EIS \u2014 impedance at each potential  (Gamry, Python "
+                          "mode only)")
+        form = form_layout(group)
+        form.addRow(self._check("ereis_enabled", "Include ER-EIS (runs after the GITT)"))
+        note = QLabel("At each potential: a hold, then a frequency sweep from high to "
+                      "low at that potential, the cell left on and spectra carrying "
+                      "on. Saved as HDF5 only, one group per step. The Autolab waits "
+                      "for its FRA to be repaired.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #888;")
+        form.addRow(fill_width(note))
+        form.addRow("Start at (vs Vref):",
+                    self._dspin("ereis_start_v", -10.0, 10.0, 3, 0.05, " V"))
+        form.addRow("Stop at (vs Vref):", self._hint(
+            self._dspin("ereis_stop_v", -10.0, 10.0, 3, 0.05, " V"),
+            "a ceiling: the last step never passes it"))
+        form.addRow("Step:", self._dspin("ereis_step_mv", 0.1, 10000.0, 1, 5.0, " mV"))
+        form.addRow("Hold before each sweep:", self._hint(
+            self._dspin("ereis_hold_s", 0.1, 100000.0, 1, 10.0, " s"),
+            "the film settles at the potential"))
+        form.addRow("Highest frequency:",
+                    self._dspin("ereis_f_high_hz", 0.001, 1.0e6, 3, 1000.0, " Hz"))
+        form.addRow("Lowest frequency:", self._hint(
+            self._dspin("ereis_f_low_hz", 0.001, 1.0e6, 3, 0.1, " Hz"),
+            "below ~1 Hz each point takes several seconds"))
+        form.addRow("Points per decade:", self._ispin("ereis_points_per_decade", 1, 50))
+        form.addRow("AC amplitude:", self._hint(
+            self._dspin("ereis_vac_mv", 0.1, 1000.0, 1, 1.0, " mV"),
+            "rms or peak not yet confirmed on the instrument"))
+        form.addRow(self._check("ereis_repeat_first",
+                                "Hold and sweep the first potential again at the end "
+                                "(a drift check)"))
+        form.addRow("Spectra at full rate for:", self._hint(
+            self._dspin("ereis_fast_s", 0.0, 100000.0, 1, 1.0, " s"),
+            "from the start of each hold"))
+        form.addRow("Then one spectrum every:", self._hint(
+            self._dspin("ereis_slow_interval_s", 0.01, 10000.0, 2, 0.5, " s"),
+            "through the rest of the hold and the sweep"))
+
+        self.ereis_estimate = fill_width(QLabel())
+        self.ereis_estimate.setWordWrap(True)
+        self.ereis_estimate.setStyleSheet("color: #888;")
+        form.addRow(self.ereis_estimate)
+        self.ereis_problems_label = fill_width(QLabel())
+        self.ereis_problems_label.setWordWrap(True)
+        self.ereis_problems_label.setStyleSheet("color: #b00;")
+        form.addRow(self.ereis_problems_label)
+
+        for key in ("ereis_enabled", "ereis_start_v", "ereis_stop_v", "ereis_step_mv",
+                    "ereis_hold_s", "ereis_f_high_hz", "ereis_f_low_hz",
+                    "ereis_points_per_decade", "ereis_vac_mv", "ereis_repeat_first",
+                    "ereis_fast_s", "ereis_slow_interval_s", "chrono_delta_time"):
+            w = self._widgets.get(key)
+            if w is None:
+                continue
+            signal = w.toggled if isinstance(w, QCheckBox) else w.valueChanged
+            signal.connect(self._update_ereis_estimate)
+        return group
+
+    def _update_ereis_estimate(self, *_):
+        """Steps, frequencies and the estimated time, or what would stop Start."""
+        s = self._pitt_settings()
+        problems = ereis_problems(s)
+        self.ereis_problems_label.setText("\n".join(problems))
+        self.ereis_problems_label.setVisible(bool(problems))
+        if problems:
+            self.ereis_estimate.setText("")
+            return
+        n = len(ereis_plan(s))
+        self.ereis_estimate.setText(
+            f"{n} steps x {len(ereis_frequencies(s))} frequencies; about "
+            f"{self._duration_text(ereis_sweep_s(s))} per sweep, "
+            f"{self._duration_text(ereis_duration_s(s))} in all (an estimate from "
+            f"the Reference 600 on a dummy; a film may take longer)")
 
     def _update_gitt_estimate(self, *_):
         """Steps, time, and the charge the pulses will pass -- per volume of film
@@ -936,6 +1017,7 @@ class ParametersTab(QWidget):
             folder.setText(datetime.now().strftime("%Y%m%d_"))
         self._update_pitt_estimate()
         self._update_gitt_estimate()
+        self._update_ereis_estimate()
         self._update_total_time()
 
         # A loaded file can change the mode and the spectrometer settings, so the

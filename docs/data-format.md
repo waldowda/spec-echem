@@ -450,3 +450,73 @@ anything: the run's `{folder}_metadata.json` keeps the values set at Start.
 - `source` is `run metadata`, `Charge tab`, or `copied from <run> (...)`.
 - Thickness and area must be greater than zero. A file that cannot be read is reported
   on the Charge tab, not ignored.
+
+
+## 8. ER-EIS staircase — HDF5 ONLY
+
+Data type **7** (since 2026-11-12). Impedance at each step of a potential staircase,
+read electrically and optically: at each potential, a fixed hold, then a frequency sweep
+from high to low at that same DC potential with the cell left ON and spectra carrying
+on at the slow rate. Written as §5 is, to one file and nothing else:
+
+```
+{folder}/{folder}_ereis.h5
+```
+
+**Gamry (Python mode) only, for now**: the Autolab's FRA32M failed NOVA's own test
+(2026-10-26) and is awaiting repair. The file is not Gamry-specific. **One group per
+step**, §4's layout plus:
+
+```
+/{step}/  attrs: role             "forward" | "repeat" (the first potential again, at
+                                  the end: the drift check)
+                 potential_set    V, from the plan
+                 end_reason       of the HOLD: "fixed" | "stopped" | "aborted"
+                 hold_s           how long the hold ran, s
+                 sweep_end        "complete" | "stopped" | "aborted"; absent when the
+                                  run ended during the hold (no sweep ran)
+                 sweep_s          how long the sweep took, s
+                 n_freq           frequencies the instrument returned a value for
+                 n_spectra        hold + sweep
+                 label            "ER-EIS {step}"
+
+    echem/time               s since this step's setpoint was applied: the hold, and
+                             (after a gap for the sweep) any hold sampled after it
+    echem/time_potentiostat  the potentiostat's clock, continuous across all steps
+    impedance/               one row per frequency, in the order measured (high to low):
+        frequency_set        Hz, as asked
+        ok                   1 = the instrument returned a value, 0 = it did not
+        t_point              s the point took
+        time_potentiostat    s since cell on, when the point started
+        ...                  every column the instrument reported, as reported. On the
+                             Gamry (ZCurve): zfreq (Hz), zreal, zimag, zmod (Ohm),
+                             zphz (deg), zsig, idc (A), vdc (V), and others, among them
+                             vmod/imod, which could settle the amplitude's units.
+                             NaN where a point has no value.
+
+/ (root) attrs:  ereis_steps_json  every step that RAN, in order, with how it ended
+                 ereis_completed   every planned step ran to its own end
+```
+
+`Z'' = zimag` is **negative for a capacitive cell**, as the Gamry reports it; a Nyquist
+plot draws -Z'' upward. Each row of `ereis_steps_json` also carries
+`current_before_sweep_A` and `current_after_sweep_A` when a hold was sampled after the
+sweep: they should agree. ReadZ leaves the current range lower than it found it, and a
+hold on that range reads a flat ~109% of its full scale with no error; the driver puts
+the range and filters back and reads the range back, and **the run stops** if it cannot.
+
+**The AC amplitude** (`ereis_vac_mv`) is handed to ReadZ as volts. Whether it is rms or
+peak has not been checked on the instrument.
+
+**Not stored, by design:** C(ω) = -1/(ω Z''), the double-layer and chemical
+capacitances, g(E), and equivalent-circuit fits. All are derived from the raw Z, and the
+analysis is not built yet.
+
+| | |
+|---|---|
+| `spec_echem.data.write_ereis_h5(record, ...)` | the writer, sharing §5's per-step code |
+| `spec_echem.data.read_ereis_impedance_h5(path, step)` | a step's impedance, as a DataFrame |
+| `spec_echem.data.read_segment_h5(path, step)` | a step's absorbance, as for any segment |
+| `spec_echem.data.discover_run_h5(folder)` | finds the steps, after the GITT |
+| `spec_echem.ereis` | the plan, the frequency list, the time estimate and the checks |
+

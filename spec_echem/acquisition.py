@@ -322,6 +322,15 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     and gitt_next(step) in place of a potential. A step ending END_E_LIMIT ends the
     run, as Stop does, keeping everything collected.
 
+    `kind="ereis"` runs an ER-EIS (spec_echem/ereis.py): PittSteps, each a fixed
+    hold, and when a hold ends normally the step's frequency sweep runs at the same
+    potential with the cell on -- the driver's ereis_sweep_start(step), polled
+    through ereis_poll() (new impedance points) and ereis_sweep_done(). Spectra carry
+    on at the slow rate through the sweep; the current is not sampled, since the
+    instrument is busy measuring impedance. Stop lets the frequency in hand finish
+    (ereis_sweep_cancel) and ends the run there; Abort ends it at once. The driver
+    starts with ereis_prepare(v) and steps with pitt_set_potential(v).
+
     A loop of its own rather than acquire_segment with options. That loop pumps the
     potentiostat once per SPECTRUM, and in Ei mode the pump IS the electrochemistry
     -- so slowing the spectra to one a second through a long hold would slow the
@@ -349,6 +358,8 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     `hold_s` stays the time the end rule fired. `record`, when given, is filled in
     place, so another thread can read the samples as they arrive.
     """
+    from spec_echem.ereis import (SWEEP_ABORTED, SWEEP_COMPLETE, SWEEP_STOPPED,
+                                  ereis_step_end_for)
     from spec_echem.gitt import END_E_LIMIT, gitt_spectrum_due, gitt_step_end_for
     from spec_echem.pitt import (END_ABORTED, END_STOPPED, PittRecord, spectrum_due,
                                  step_end_for)
@@ -371,6 +382,22 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
 
         def due(step, t_in, t_last):
             return gitt_spectrum_due(step, t_in, t_last, delta, fast_s, slow_s)
+    elif kind == "ereis":
+        fast_s = float(settings["ereis_fast_s"])
+        slow_s = float(settings["ereis_slow_interval_s"])
+        end_for = ereis_step_end_for
+
+        def halted():
+            return False
+
+        def prepare(step):
+            pot.ereis_prepare(step.potential)
+
+        def advance(step):
+            pot.pitt_set_potential(step.potential)
+
+        def due(step, t_in, t_last):
+            return spectrum_due(t_in, t_last, delta, fast_s, slow_s)
     else:
         fast_s = float(settings["pitt_fast_s"])
         slow_s = float(settings["pitt_slow_interval_s"])
@@ -391,6 +418,55 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     def _cut(flag):
         return flag is not None and flag.is_set()
 
+    def _sweep(k, step):
+        """ER-EIS: step k's frequency sweep at its hold potential, cell on. Spectra
+        carry on at the slow rate; the current is not sampled. -> SWEEP_*"""
+        nonlocal tick, last_spectrum
+        t0 = clock()
+        end = SWEEP_COMPLETE
+        cancelled = False
+        pot.ereis_sweep_start(step)
+        while True:
+            for point in pot.ereis_poll():
+                record.impedance.append(dict(point, step=k))
+            if pot.ereis_sweep_done():
+                break
+            if _cut(abort_event):
+                end = SWEEP_ABORTED
+                break
+            if _cut(stop_event) and not cancelled:
+                pot.ereis_sweep_cancel()       # the frequency in hand finishes
+                cancelled, end = True, SWEEP_STOPPED
+            t_in = clock() - step_start
+            if last_spectrum is None or t_in - last_spectrum >= slow_s - 0.5 * delta:
+                result = spec.measure(abort_event, None)
+                if result is None:            # abort arrived during the exposure
+                    end = SWEEP_ABORTED
+                    break
+                timestamp_av, data = result
+                record.spectra.append(data)
+                record.timestamps.append(timestamp_av / 1e5)
+                record.spectrum_step.append(k)
+                last_spectrum = t_in
+            tick += 1
+            deadline = anchor + tick * delta
+            while not _cut(abort_event):
+                remaining = deadline - clock()
+                if remaining <= 0:
+                    break
+                sleep(min(0.5e-3, remaining))
+        for point in pot.ereis_poll():
+            record.impedance.append(dict(point, step=k))
+        row = record.steps[-1]
+        row["sweep_s"] = float(clock() - t0)
+        row["sweep_end"] = end
+        row["n_freq"] = sum(1 for p in record.impedance
+                            if p["step"] == k and p.get("ok"))
+        row["n_spectra"] = sum(1 for j in record.spectrum_step if j == k)
+        return end
+
+    tick = 0
+    anchor = step_start = last_spectrum = None
     prepare(plan[0])
     try:
         # Spectrum 0 is triggered exactly as a segment's is: fire() switches the cell
@@ -438,6 +514,8 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                 record.close_step(step, step_start, now, reason, rule.peak,
                                   rule.unresolved, rule)
                 if reason in (END_ABORTED, END_STOPPED, END_E_LIMIT):
+                    break
+                if kind == "ereis" and _sweep(k, step) != SWEEP_COMPLETE:
                     break
                 if k == len(plan) - 1:
                     record.completed = True

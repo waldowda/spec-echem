@@ -2381,6 +2381,14 @@ def gitt_supported(mode):
     return bool(getattr(cls, "supports_gitt", False))
 
 
+def ereis_supported(mode):
+    """Can the driver for this potentiostat_mode run an ER-EIS? From the CLASS, as
+    pitt_supported is. The Gamry only, for now: the Autolab's FRA is under repair."""
+    cls = {"external": ExternalPotentiostat, "python": ToolkitPotentiostat,
+           "autolab": AutolabPotentiostat}.get((mode or "external").lower())
+    return bool(getattr(cls, "supports_ereis", False))
+
+
 def pitt_supported(mode):
     """Can the driver for this potentiostat_mode run a PITT staircase? Answered
     from the CLASS, so it never constructs a driver -- the Gamry one refuses to exist
@@ -2511,6 +2519,13 @@ class _GamryPittRunner:
             sample_period_s=self.period)
         pstat.set_voltage(self.v0)
 
+    def _service_due(self):
+        """Has the loop asked for work on this thread between curves? (ER-EIS)"""
+        return False
+
+    def _service(self, pstat, step, v):
+        """That work, with no curve running and the cell on."""
+
     def _after_curve_ended(self, pstat, curve, v):
         """What to run when a curve ends before Python ended its step: the same
         target, so the hold carries on. None runs nothing more."""
@@ -2605,6 +2620,19 @@ class _GamryPittRunner:
                     self.lost = True
                     raise RuntimeError("the instrument stopped responding mid-PITT")
                 seen = self._harvest(curve, step, t_run, t_step0, seen)
+                if self._service_due():
+                    # Work only this thread may do (an ER-EIS sweep): the curve is
+                    # stopped and kept, the work done, and the hold resumed at the
+                    # same potential, same step, its clock carried on.
+                    self._stop_curve(curve)
+                    self._harvest(curve, step, t_run, t_step0, seen)
+                    curve = None
+                    self._service(pstat, step, v)
+                    if self.stop_flag.is_set():
+                        break
+                    curve, keep, t_run = self._new_curve(pstat, v)
+                    seen = 0
+                    continue
                 with self.cond:
                     want, self.want = self.want, None
                 if want is not None:
@@ -2740,6 +2768,174 @@ class _GamryGittRunner(_GamryPittRunner):
             "OFF.", step.index, n, self.expected, self.e_stop_v, self.e_min,
             self.e_max)
         return None
+
+
+# What ReadZ changes on the current channel and does not put back. MEASURED on both
+# Gamrys (2026-10-23, docs/bench-2026-10-26.md section 2): ie_range left two rungs down
+# (8 -> 6 on the Reference 600, 9 -> 7 on the 1010E), the I-channel filter changed, and
+# a DC hold afterwards clipped at ~109% of that smaller range, every point identical,
+# with no error. Read before each sweep, written back after it, ie_range read back.
+_GAMRY_SWEEP_STATE = ("ich_offset_enable", "ich_offset", "ie_range", "ich_range",
+                      "ich_filter", "vch_filter")
+
+# ReadZ's first guess at |Z|, used until a sweep has measured one. It only sets the
+# starting range; ReadZ autoranges from there.
+GAMRY_ZMOD_GUESS_OHM = 1.0e3
+
+
+class _GamryEreisRunner(_GamryPittRunner):
+    """The Gamry side of an ER-EIS: the PITT runner, plus a frequency sweep between
+    two hold curves, on this thread, with the cell left on at the hold's potential.
+
+    ReadZ one frequency at a time, high to low, as the probe ran it on the Randles
+    dummy (2026-10-23: |Z| within 0.7%, phase within 0.1 deg, 10 kHz-1 Hz). The loop
+    asks with request_sweep(), reads new points with new_z_points(), and waits for
+    sweep_done. A cancel lets the frequency in hand finish: ReadZ.measure() blocks,
+    and nothing known interrupts it.
+    """
+
+    def __init__(self, settings):
+        super().__init__(settings)
+        from spec_echem.ereis import ereis_frequencies, ereis_vac_v
+        # Each hold curve outlasts the hold; one that runs out is restarted anyway.
+        hold = float(settings.get("ereis_hold_s", 60.0))
+        self.repeats = int(math.ceil((hold + 5.0) / self.period))
+        self.freqs = ereis_frequencies(settings)
+        self.vac = ereis_vac_v(settings)
+        self.sweep_req = None
+        self.sweep_cancel = threading.Event()
+        self.sweep_done = threading.Event()
+        self.sweep_done.set()
+        self.z_points = []
+        self.z_served = 0
+        self._zmod_first = None     # |Z| at the first frequency, last sweep
+
+    # --- called from the loop's thread ---------------------------------------
+
+    def request_sweep(self, index):
+        with self.cond:
+            self.sweep_cancel.clear()
+            self.sweep_done.clear()
+            self.sweep_req = int(index)
+
+    def new_z_points(self):
+        """Impedance points measured since the last call."""
+        with self.cond:
+            if self.error is not None:
+                raise RuntimeError("Gamry ER-EIS stopped: %s" % self.error)
+            new = self.z_points[self.z_served:]
+            self.z_served = len(self.z_points)
+        return new
+
+    # --- the curve thread ----------------------------------------------------
+
+    def _service_due(self):
+        return self.sweep_req is not None
+
+    def _service(self, pstat, step, v):
+        try:
+            self._sweep(pstat, float(v))
+        finally:
+            with self.cond:
+                self.sweep_req = None
+                self.cond.notify_all()
+            self.sweep_done.set()
+
+    def _dc_current(self):
+        """The hold's newest current, for ReadZ's DC estimate."""
+        with self.cond:
+            for p in reversed(self.points):
+                if p[0] == self.step and math.isfinite(p[4]):
+                    return p[4]
+        return 0.0
+
+    def _sweep(self, pstat, v):
+        state = {}
+        for name in _GAMRY_SWEEP_STATE:
+            getter = getattr(pstat, name, None)
+            if getter is None:
+                continue
+            try:
+                state[name] = getter()
+            except Exception:  # noqa: BLE001 -- what cannot be read is not restored
+                get_run_logger().debug("Gamry ER-EIS: %s could not be read", name)
+        try:
+            f_max = max(self.freqs)
+            pstat.set_ich_filter(pstat.test_ich_filter(f_max))
+            pstat.set_vch_filter(pstat.test_vch_filter(f_max))
+            try:
+                temp = float(pstat.measure_temp())
+            except Exception:  # noqa: BLE001 -- a column, not a reason to stop
+                temp = float("nan")
+            readz = tkp.ReadZ(pstat)
+            for setter, value in (("set_gain", 1.0), ("set_inoise", 0.0),
+                                  ("set_vnoise", 0.0), ("set_ienoise", 0.0),
+                                  ("set_vdc", v), ("set_speed", 1),
+                                  ("set_drift_cor", False),
+                                  ("set_idc", self._dc_current())):
+                getattr(readz, setter)(value)        # as the probe ran it
+            zcurve = tkp.ZCurve(len(self.freqs) + 4)
+            zmod = self._zmod_first or GAMRY_ZMOD_GUESS_OHM
+            n_rows = 0
+            for j, f in enumerate(self.freqs):
+                if self.stop_flag.is_set() or self.sweep_cancel.is_set():
+                    break
+                readz.set_zmod(zmod)
+                t0 = time.perf_counter()
+                ok = bool(readz.measure(f, self.vac, v))
+                row = {"frequency_set": float(f), "ok": ok,
+                       "t_point": time.perf_counter() - t0,
+                       "time_potentiostat": t0 - self.t_on}
+                if ok:
+                    zcurve.add_point(readz, 0.0 if math.isnan(temp) else temp)
+                    data = zcurve.acq_data()
+                    if data is not None and len(data) > n_rows:
+                        n_rows = len(data)
+                        rec = data[n_rows - 1]
+                        for name in (data.dtype.names or ()):
+                            try:
+                                row[name] = float(rec[name])
+                            except (TypeError, ValueError):
+                                pass
+                    z = row.get("zmod")
+                    if z is None and "zreal" in row and "zimag" in row:
+                        z = math.hypot(row["zreal"], row["zimag"])
+                    if z and math.isfinite(z) and z > 0:
+                        zmod = z
+                        if j == 0:
+                            self._zmod_first = z
+                with self.cond:
+                    self.z_points.append(row)
+                    self.cond.notify_all()
+        finally:
+            self._restore(pstat, state)
+
+    def _restore(self, pstat, state):
+        """Put back what ReadZ moved, and read ie_range back. A hold on the wrong
+        range clips with no error, so a failure here ENDS the run."""
+        problems = []
+        for name in _GAMRY_SWEEP_STATE:
+            if name not in state:
+                continue
+            try:
+                getattr(pstat, "set_" + name)(state[name])
+            except Exception as exc:  # noqa: BLE001 -- collected, then raised
+                problems.append("%s: %s" % (name, exc))
+        if "ie_range" in state:
+            try:
+                now = pstat.ie_range()
+                if now != state["ie_range"]:
+                    problems.append("ie_range reads %s after setting %s"
+                                    % (now, state["ie_range"]))
+            except Exception as exc:  # noqa: BLE001
+                problems.append("ie_range could not be read back: %s" % exc)
+        else:
+            problems.append("ie_range could not be read before the sweep")
+        if problems:
+            raise RuntimeError(
+                "the current range or filters could not be put back after the "
+                "impedance sweep (%s). A hold on the wrong range clips with no error, "
+                "so the run stops here." % "; ".join(problems))
 
 
 class ToolkitPotentiostat(Potentiostat):
@@ -2924,6 +3120,35 @@ class ToolkitPotentiostat(Potentiostat):
         self._pitt_points = list(runner.points)
         self._gitt_pulses = dict(getattr(runner, "gitt_pulses", {}))
         self._device_lost = self._device_lost or runner.lost
+
+    # --- ER-EIS: the PITT runner plus a ReadZ sweep after each hold ------------
+    supports_ereis = True
+
+    def ereis_prepare(self, potential):
+        """Start the Gamry thread for an ER-EIS: as pitt_prepare, cell OFF."""
+        self._pitt_points = []
+        self._pitt_runner = _GamryEreisRunner(self.settings)
+        self._pitt_runner.start(float(potential))
+        r = self._pitt_runner
+        get_run_logger().info(
+            "Gamry ER-EIS on %s: first step %+.6f V, current range %s for the holds, "
+            "%d frequencies %.3g to %.3g Hz at %.3g V AC; cell still open.",
+            self.settings.get("gamry_section") or "the default Gamry", float(potential),
+            r.how, len(r.freqs), max(r.freqs), min(r.freqs), r.vac)
+
+    def ereis_sweep_start(self, step):
+        self._pitt_runner.request_sweep(step.index)
+
+    def ereis_poll(self):
+        return self._pitt_runner.new_z_points()
+
+    def ereis_sweep_done(self):
+        r = self._pitt_runner
+        return (r.sweep_done.is_set() or r.error is not None
+                or not r.thread.is_alive())
+
+    def ereis_sweep_cancel(self):
+        self._pitt_runner.sweep_cancel.set()
 
     # --- GITT: the PITT runner in galvanostatic mode ---------------------------
     supports_gitt = True

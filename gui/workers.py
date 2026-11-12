@@ -15,9 +15,9 @@ import time
 from qtpy.QtCore import QObject, Signal
 
 from spec_echem.data import segment_potential_text
-from spec_echem.data import DATA_TYPE_GITT, DATA_TYPE_PITT
-from spec_echem.experiment import (run_gitt_segment, run_one_segment,
-                                   run_pitt_segment)
+from spec_echem.data import DATA_TYPE_EREIS, DATA_TYPE_GITT, DATA_TYPE_PITT
+from spec_echem.experiment import (run_ereis_segment, run_gitt_segment,
+                                   run_one_segment, run_pitt_segment)
 from spec_echem.pitt import PittRecord
 from spec_echem.potentiostat import ConfigurationError
 from spec_echem.logging_config import get_run_logger
@@ -150,6 +150,14 @@ class AcquisitionWorker(QObject):
                                 gs["gitt_current_ua"], gs["gitt_pulse_s"],
                                 gs["gitt_relax_s"], gs["gitt_e_min_v"],
                                 gs["gitt_e_max_v"])
+                elif seg.data_type == DATA_TYPE_EREIS:
+                    es = self.settings
+                    logger.info("ER-EIS: %d steps, %+.3f to %+.3f V in %g mV, hold %g s "
+                                "then %g Hz to %g Hz, %d per decade, %g mV AC",
+                                seg.num_points, es["ereis_start_v"], es["ereis_stop_v"],
+                                es["ereis_step_mv"], es["ereis_hold_s"],
+                                es["ereis_f_high_hz"], es["ereis_f_low_hz"],
+                                es["ereis_points_per_decade"], es["ereis_vac_mv"])
                 elif pot_settings:
                     text = segment_potential_text(pot_settings, seg.data_type,
                                                   seg.run_number)
@@ -160,7 +168,7 @@ class AcquisitionWorker(QObject):
                 logger.debug("%s: %d points @ %.4gs, trigger=%s",
                              seg.label, seg.num_points, seg.delta_time, seg.trigger)
 
-                if seg.data_type in (DATA_TYPE_PITT, DATA_TYPE_GITT):
+                if seg.data_type in (DATA_TYPE_PITT, DATA_TYPE_GITT, DATA_TYPE_EREIS):
                     # One waveform, many steps, and possibly hours long, so each
                     # step is shown as it ENDS -- never mid-step: drawing on the GUI
                     # thread then is what opened 260-463 ms spectra gaps on
@@ -177,8 +185,9 @@ class AcquisitionWorker(QObject):
                         return self.gui_idle.is_set
 
                     self.pitt_record = PittRecord()
-                    run_steps = (run_gitt_segment if seg.data_type == DATA_TYPE_GITT
-                                 else run_pitt_segment)
+                    run_steps = {DATA_TYPE_GITT: run_gitt_segment,
+                                 DATA_TYPE_EREIS: run_ereis_segment}.get(
+                                     seg.data_type, run_pitt_segment)
                     steps, path, _record = run_steps(
                         self.spec, seg, self.dark, self.ref, self.wavelengths,
                         self.data_root, self.added_path, self.settings,
