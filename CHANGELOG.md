@@ -27,6 +27,19 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **ER-EIS: impedance at each potential of a staircase (2026-11-12, Gamry only for
+  now).** At each step, a fixed hold, then a frequency sweep from high to low (ReadZ,
+  one frequency at a time) at the same DC potential with the cell left on and spectra
+  carrying on. A third staircase kind through the PITT's loop (`acquire_pitt` with
+  `kind="ereis"`). Saved to `{folder}_ereis.h5` (data type 7,
+  [`docs/data-format.md`](docs/data-format.md) §8), every column the instrument reports.
+  After each sweep the current range and filters are put back and the range read back;
+  the run stops if they cannot be (ReadZ leaves the range lower, and a hold then clips
+  with no error). Stop lets the frequency in hand finish. The Parameters group estimates
+  the time from the Reference 600's measured seconds per frequency; Results shows each
+  step's Nyquist plot. Optional repeat of the first potential at the end as a drift
+  check. The Autolab refuses at Start until its FRA32M is repaired. Tested on fakes
+  only; the Randles-dummy check is in TODO.
 - **Film size measured after the run (2026-11-11).** Parameters: **Film size is: an
   estimate / measured** (default estimate), recorded at Start and in the run log.
   Charge tab: a Film size box (orange = estimate, green = measured), **Edit…** and

@@ -648,3 +648,75 @@ class FakeGittPotentiostat:
         if self.cell_on:
             self.cell_events.append(("off", self.clock()))
         self.cell_on = False
+
+
+class FakeEreisPotentiostat(FakePittPotentiostat):
+    """A potentiostat for the ER-EIS loop: the PITT fake's DC behaviour, plus a
+    Randles cell's impedance, Z = R_s + R_ct / (1 + j w R_ct C_dl).
+
+    Each frequency takes `point_s` of `clock` time, so a test can run a sweep as
+    fast as it likes; a point is reported once its time has passed, as the Gamry's
+    runner reports each ReadZ point when it returns. Z'' is negative for a
+    capacitive cell, as the Gamry reports it. Records every sweep it was asked for
+    and whether the cell was on, so a test can check it never went off mid-run.
+    """
+
+    supports_ereis = True
+
+    def __init__(self, settings, r_s=200.0, r_ct=3010.0, c_dl=1e-6, point_s=0.01,
+                 **kw):
+        super().__init__(**kw)
+        self.settings = settings
+        self.r_s, self.r_ct, self.c_dl = r_s, r_ct, c_dl
+        self.point_s = point_s
+        self.sweeps = []                       # (potential, time, cell_on)
+        self.cancelled = 0
+        self._sweep = None                     # (t0, freqs, potential)
+        self._served = 0
+        self._cancel_at = None                 # points the cancelled sweep finishes
+
+    def ereis_prepare(self, potential):
+        self.pitt_prepare(potential)
+
+    def z(self, f):
+        w = 2.0 * np.pi * f
+        return self.r_s + self.r_ct / (1.0 + 1j * w * self.r_ct * self.c_dl)
+
+    def ereis_sweep_start(self, step):
+        from spec_echem.ereis import ereis_frequencies
+        freqs = ereis_frequencies(self.settings)
+        self._sweep = (self.clock(), list(freqs), float(step.potential))
+        self._served = 0
+        self._cancel_at = None
+        self.sweeps.append((float(step.potential), self.clock(), self.cell_on))
+
+    def _n_done(self):
+        t0, freqs, _v = self._sweep
+        n = min(int((self.clock() - t0) / self.point_s), len(freqs))
+        return n if self._cancel_at is None else min(n, self._cancel_at)
+
+    def ereis_poll(self):
+        if self._sweep is None:
+            return []
+        t0, freqs, v = self._sweep
+        out = []
+        n = self._n_done()
+        for j in range(self._served, n):
+            z = self.z(freqs[j])
+            out.append({"frequency_set": freqs[j], "ok": True,
+                        "t_point": self.point_s,
+                        "time_potentiostat": t0 + j * self.point_s - self._t_on,
+                        "zfreq": freqs[j], "zreal": z.real, "zimag": z.imag,
+                        "zmod": abs(z), "vdc": v})
+        self._served = n
+        return out
+
+    def ereis_sweep_done(self):
+        if self._sweep is None:
+            return True
+        total = len(self._sweep[1]) if self._cancel_at is None else self._cancel_at
+        return self._n_done() >= total
+
+    def ereis_sweep_cancel(self):
+        self.cancelled += 1
+        self._cancel_at = self._n_done() + 1   # the frequency in hand finishes

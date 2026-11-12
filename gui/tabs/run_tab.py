@@ -16,14 +16,16 @@ import copy
 from datetime import datetime
 from pathlib import Path
 
-from spec_echem.experiment import (build_segments, gitt_live, gitt_start_concerns,
+from spec_echem.experiment import (build_segments, ereis_live, ereis_start_problems,
+                                   ereis_step_segments, gitt_live, gitt_start_concerns,
                                    gitt_start_problems, gitt_step_segments,
                                    live_status, pitt_live, pitt_start_problems,
                                    pitt_step_segments)
+from spec_echem.ereis import ereis_frequencies
 from spec_echem.acquisition import spectrum_cost_seconds, suggest_scan_averages
 from spec_echem.data import (write_run_metadata, segment_potential_text,
-                             DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_GITT,
-                             DATA_TYPE_PITT)
+                             DATA_TYPE_CV, DATA_TYPE_DOPING, DATA_TYPE_EREIS,
+                             DATA_TYPE_GITT, DATA_TYPE_PITT)
 from spec_echem.logging_config import (configure_run_logging, close_run_logging,
                                        get_run_logger, app_log_path)
 from spec_echem.potentiostat import make_potentiostat
@@ -272,6 +274,15 @@ class RunTab(QWidget):
                          f"{float(settings['gitt_relax_s']):g} s at 0 A; stops outside "
                          f"{float(settings['gitt_e_min_v']):+.3f} to "
                          f"{float(settings['gitt_e_max_v']):+.3f} V")
+        eis = [seg for seg in segments if seg.data_type == DATA_TYPE_EREIS]
+        if eis:
+            lines.append(f"    ER-EIS:  {eis[0].num_points} step(s), "
+                         f"{float(settings['ereis_start_v']):+.3f} to "
+                         f"{float(settings['ereis_stop_v']):+.3f} V; at each, "
+                         f"{float(settings['ereis_hold_s']):g} s hold then "
+                         f"{len(ereis_frequencies(settings))} frequencies, "
+                         f"{float(settings['ereis_f_high_hz']):g} to "
+                         f"{float(settings['ereis_f_low_hz']):g} Hz")
 
         concerns = list(gitt_start_concerns(settings))
         ref_line, ref_concern = reference_notes(getattr(self.win, "ref_info", None),
@@ -333,7 +344,7 @@ class RunTab(QWidget):
         segments = build_segments(settings)
         if not segments:
             QMessageBox.warning(self, "Nothing to run",
-                                "Enable at least one step (CV / pre-dedoping / doping / PITT / GITT) on the Parameters tab.")
+                                "Enable at least one step (CV / pre-dedoping / doping / PITT / GITT / ER-EIS) on the Parameters tab.")
             return
         pitt_blocked = pitt_start_problems(settings)
         if pitt_blocked:
@@ -346,6 +357,12 @@ class RunTab(QWidget):
             QMessageBox.warning(self, "GITT cannot run",
                                 "\n\n".join(gitt_blocked)
                                 + "\n\nUntick GITT on the Parameters tab to run the rest.")
+            return
+        eis_blocked = ereis_start_problems(settings)
+        if eis_blocked:
+            QMessageBox.warning(self, "ER-EIS cannot run",
+                                "\n\n".join(eis_blocked)
+                                + "\n\nUntick ER-EIS on the Parameters tab to run the rest.")
             return
 
         # Guard against silently overwriting a previous run. The writers use
@@ -446,7 +463,8 @@ class RunTab(QWidget):
         # A PITT runs as one segment but reports one result per STEP ("PITT 0", ...),
         # so each step is registered too: every lookup by label -- potentials in the
         # dropdowns, the Results and Analysis tabs -- then works with no special case.
-        for seg in pitt_step_segments(settings) + gitt_step_segments(settings):
+        for seg in (pitt_step_segments(settings) + gitt_step_segments(settings)
+                    + ereis_step_segments(settings)):
             self.win.segments_by_label[seg.label] = seg
 
         # Clear results from any previous run / loaded folder so the Results tab shows
@@ -599,6 +617,19 @@ class RunTab(QWidget):
                     t, v, "Time in step (s)", "Potential", title="GITT — live",
                     y_unit="V", status=status)
             return
+        if seg.data_type == DATA_TYPE_EREIS:
+            # The hold's current, as the PITT's, and how far the sweep has got.
+            try:
+                live = ereis_live(getattr(worker, "pitt_record", None), seg.num_points,
+                                  len(ereis_frequencies(worker.settings)))
+            except Exception:  # noqa: BLE001 -- the plot skips a frame, never the GUI
+                return
+            if live is not None:
+                t, i, status = live
+                self.live_canvas.update_live_line(
+                    t, i, "Time in step (s)", "Current", title="ER-EIS — live",
+                    y_unit="A", status=status)
+            return
         pot = worker.potentiostat
         # Never let the live plot take the GUI down: an unhandled exception in a Qt
         # timer slot aborts the application under PyQt5, and that is what an
@@ -655,8 +686,10 @@ class RunTab(QWidget):
         # It counts the steps and is ticked by the last planned one.
         row_label = label
         pitt_progress = None
-        if seg is not None and seg.data_type in (DATA_TYPE_PITT, DATA_TYPE_GITT):
-            row_label = "PITT" if seg.data_type == DATA_TYPE_PITT else "GITT"
+        if seg is not None and seg.data_type in (DATA_TYPE_PITT, DATA_TYPE_GITT,
+                                                 DATA_TYPE_EREIS):
+            row_label = {DATA_TYPE_PITT: "PITT", DATA_TYPE_GITT: "GITT"}.get(
+                seg.data_type, "ER-EIS")
             whole = self.win.segments_by_label.get(row_label)
             planned = whole.num_points if whole is not None else 0
             if seg.run_number + 1 < planned:

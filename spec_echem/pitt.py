@@ -310,11 +310,12 @@ class PittRecord:
     echem_step: list = None         # step index of each sample
     steps: list = None              # one dict per step that RAN; see close_step()
     completed: bool = False         # every planned step ran to its own end
+    impedance: list = None          # ER-EIS only: one dict per frequency, with "step"
 
     def __post_init__(self):
         for name in ("spectra", "timestamps", "spectrum_step", "echem_time",
                      "echem_t_in_step", "echem_potential", "echem_current",
-                     "echem_step", "steps"):
+                     "echem_step", "steps", "impedance"):
             if getattr(self, name) is None:
                 setattr(self, name, [])
 

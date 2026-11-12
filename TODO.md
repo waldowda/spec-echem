@@ -33,22 +33,24 @@ The CHANGELOG says what shipped; git log says when.
       4. **Autolab**: the same three. 10 uA should be quiet about the 0 A offset; 0.2 uA
          should warn. Check `pulse_s_applied` in `gitt_steps_json`.
       Not built: return leg, end dedope, analysis (dQ, relaxed E, IR drop, D_ion).
-- [ ] **ER-EIS on the Gamry (Autolab parked, see Later).** Not built. Single-frequency
-      `ReadZ` already matches the UDC4 Randles within 0.7% and 0.1° from 10 kHz to 1 Hz
-      on the Reference 600 (`docs/bench-2026-10-26.md` §2), so no separate probe is needed.
-      1. **Build on the fakes:** a third staircase kind through `acquire_pitt` (as GITT
-         does): each step is a PITT hold at E, then a frequency sweep (high to low) at the
-         same DC E, with spectra running throughout. Impedance goes in each step's group in
-         the HDF5 (data type 7, `docs/data-format.md` new section). A duration estimate
-         before Start; an editable frequency list (start f, end f, points per decade); an
-         optional repeat of the first step's sweep at the end as a drift check.
-         **After every sweep, restore `ie_range` and the I-channel filter**; ReadZ leaves
-         both where it autoranged and a later hold clips with no error.
-      2. **Randles dummy on the Reference 600:** expect the R and C it was built from at
-         every step, and the hold currents after each sweep to match those before it.
-      3. **Then a film.** Watch run time: 50-100 steps at 1-2 min per sweep is hours.
-      Not built: C(w) = -1/(w Z''), Cdl vs Cmu, g(E), the comparison with PITT dQ/dE,
-      equivalent-circuit fits.
+- [ ] **ER-EIS on the Randles dummy, then a film (Gamry; Autolab parked, see Later).**
+      Built 2026-11-12, tested on fakes only (`spec_echem/ereis.py`,
+      `docs/data-format.md` §8). On the Reference 600, UDC4 Randles side
+      (200 Ohm + 3010 Ohm || 1 uF), Python mode, ER-EIS only: 0.0 to +0.2 V in 100 mV
+      (3 steps), hold 10 s, 10 kHz to 1 Hz at 5 per decade, 10 mV, repeat first ticked.
+      1. **Nyquist on Results:** a semicircle from Z' ~200 Ohm (10 kHz) to ~3210 Ohm
+         (1 Hz), top at -Z'' ~1505 Ohm near 53 Hz, the same at every step and on the
+         repeat. The run log gives |Z| at both ends per step.
+      2. **No range warning in the log** ("current after the sweep ... is not the current
+         before it"); `current_before_sweep_A` / `_after_` in `ereis_steps_json` agree
+         (~31 uA at +0.1 V).
+      3. **Time:** compare the Parameters estimate with `sweep_s` per step.
+      4. **Amplitude units:** read `vmod`/`imod` (if present) in a step's `impedance/`:
+         10 mV rms or peak?
+      5. **Stop mid-sweep:** the frequency in hand finishes, `sweep_end` = stopped, cell
+         off.
+      Then a film. Not built: C(w) = -1/(w Z''), Cdl vs Cmu, g(E), the comparison with
+      PITT dQ/dE, equivalent-circuit fits.
 - [ ] **Charge tab on a fresh run:** every view, the CSV, and a step that genuinely
       fails the 5 tau or drift check.
 - [ ] **Sample the current faster in the first second of a chrono step** (as PITT's fast
@@ -153,8 +155,9 @@ The CHANGELOG says what shipped; git log says when.
 
 ## Later — wanted, not scheduled
 
-- **Autolab impedance (ER-EIS): parked (2026-11-12), blocked on hardware.** ER-EIS is
-  Gamry-only until this is fixed. NOVA's own TestFRA fails on its dummy (the AC signal
+- **Autolab impedance (ER-EIS): parked (2026-11-12), blocked on hardware.** Gamry-only
+  ER-EIS is TEMPORARY: once this is fixed, add an Autolab ER-EIS driver (the loop and the
+  file are not Gamry-specific; Start refuses the Autolab until then). NOVA's own TestFRA fails on its dummy (the AC signal
   seems never to reach the cell). Send Metrohm the failed TestFRA data; ask earlier EIS
   users when it last worked. Once NOVA reads a 10 kOhm dummy correctly, rerun
   `examples/probe_autolab_gitt_eis.py --fra`, `--fra --fra-vdc 0.1`, `--fra-manual`, and

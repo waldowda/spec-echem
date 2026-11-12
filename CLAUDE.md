@@ -155,6 +155,7 @@ a second copy.
 | 4 | Pre-dedoping | `prededopingspectra(N).txt` |
 | 5 | PITT staircase | **HDF5 only**: `{folder}_pitt.h5`, one group per step — no text file of any kind (see `docs/data-format.md` §5) |
 | 6 | GITT titration | **HDF5 only**: `{folder}_gitt.h5`, one group per pulse + relaxation (see `docs/data-format.md` §6) |
+| 7 | ER-EIS staircase | **HDF5 only**: `{folder}_ereis.h5`, one group per step with an `impedance/` subgroup (see `docs/data-format.md` §8) |
 
 N = `run_number`. **Note: parentheses in filenames are literal** — `spectra(0).txt` not `spectra_0.txt`.
 
@@ -354,6 +355,20 @@ step's end is always at 0 A — never hold mid-pulse.
   (`gitt_autolab_range`).
 - **The E window ENDS THE RUN** (`e_limit`), as does the driver's `gitt_e_stopped()`.
 
+### ER-EIS (data type 7) — built 2026-11-12, fakes only so far; Gamry only for now
+
+`spec_echem/ereis.py`; runs through `acquire_pitt(..., kind="ereis")`. One step = a
+fixed hold, then a sweep at the same DC potential, cell on, spectra at the slow rate.
+Gamry-only is TEMPORARY: the Autolab's FRA32M is under repair; add an Autolab driver
+(`ereis_prepare/sweep_start/poll/sweep_done/sweep_cancel`) once NOVA's TestFRA passes.
+- **Gamry:** `_GamryEreisRunner` stops the hold curve, runs ReadZ per frequency on the
+  curve thread (the base runner's `_service` hook), then restarts the hold at the same
+  potential. **ReadZ leaves ie_range and the I filter moved; `_restore` puts them back
+  and reads ie_range back, and RAISES (ending the run) if it cannot.** Never start a
+  hold curve before that restore. ReadZ.measure() blocks: Stop and Abort wait for the
+  frequency in hand (up to ~30 s at 0.1 Hz) before the cell goes off.
+- The amplitude's units (rms vs peak) are unconfirmed; vmod/imod are saved to settle it.
+
 ### Metrohm / Autolab rig — Python drives it; chrono runs from `Ei` (2026-09-09)
 
 **Read [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md) first** (the first film
@@ -464,7 +479,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 1117 tests total (1116 pass, 1 skip; counted 2026-11-11);
+- **`gui/` coverage — no longer the gap it was.** 1153 tests total (1152 pass, 1 skip; counted 2026-11-12);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage

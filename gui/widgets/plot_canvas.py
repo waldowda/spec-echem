@@ -564,6 +564,20 @@ class MplCanvas(FigureCanvasQTAgg):
         self._decorate(title)
         self.draw_idle()
 
+    @_records
+    def show_nyquist(self, df, title=None):
+        """An ER-EIS step: -Z'' vs Z' (Nyquist), equal scales so a semicircle looks
+        like one. Points the instrument returned no value for (ok = 0) are left out."""
+        self._xlabel, self._ylabel = "Z\u2032 (\u03a9)", "\u2212Z\u2033 (\u03a9)"
+        self._new_axes()
+        ok = df["ok"].values.astype(bool) if "ok" in df else np.ones(len(df), bool)
+        if "zreal" in df and "zimag" in df:
+            self.ax.plot(df["zreal"].values[ok], -df["zimag"].values[ok], "o-",
+                         ms=3, lw=0.8, color="#1f77b4")
+            self.ax.set_aspect("equal", adjustable="datalim")
+        self._decorate(title)
+        self.draw_idle()
+
     def update_live_line(self, x, y, xlabel, ylabel, title=None, y_unit=None,
                          status=None):
         """Incremental live echem trace mid-run (red = running). Reuses ONE Line2D
