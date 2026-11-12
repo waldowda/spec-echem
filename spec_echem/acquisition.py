@@ -322,14 +322,15 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     and gitt_next(step) in place of a potential. A step ending END_E_LIMIT ends the
     run, as Stop does, keeping everything collected.
 
-    `kind="ereis"` runs an ER-EIS (spec_echem/ereis.py): PittSteps, each a fixed
-    hold, and when a hold ends normally the step's frequency sweep runs at the same
-    potential with the cell on -- the driver's ereis_sweep_start(step), polled
-    through ereis_poll() (new impedance points) and ereis_sweep_done(). Spectra carry
-    on at the slow rate through the sweep; the current is not sampled, since the
-    instrument is busy measuring impedance. Stop lets the frequency in hand finish
-    (ereis_sweep_cancel) and ends the run there; Abort ends it at once. The driver
-    starts with ereis_prepare(v) and steps with pitt_set_potential(v).
+    A PITT with the impedance box ticked (`pitt_eis_enabled`, spec_echem/ereis.py)
+    sweeps impedance on the steps ereis_sweep_steps names: once such a step's hold
+    has ended normally, a frequency sweep runs at the same potential with the cell
+    on -- the driver's ereis_sweep_start(step), polled through ereis_poll() (new
+    impedance points) and ereis_sweep_done(). Spectra carry on at the slow rate
+    through the sweep; the current is not sampled, since the instrument is busy
+    measuring impedance. Stop lets the frequency in hand finish (ereis_sweep_cancel)
+    and ends the run there; Abort ends it at once. The driver then starts with
+    ereis_prepare(v) in place of pitt_prepare(v).
 
     A loop of its own rather than acquire_segment with options. That loop pumps the
     potentiostat once per SPECTRUM, and in Ei mode the pump IS the electrochemistry
@@ -359,7 +360,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     place, so another thread can read the samples as they arrive.
     """
     from spec_echem.ereis import (SWEEP_ABORTED, SWEEP_COMPLETE, SWEEP_STOPPED,
-                                  ereis_step_end_for)
+                                  ereis_sweep_steps)
     from spec_echem.gitt import END_E_LIMIT, gitt_spectrum_due, gitt_step_end_for
     from spec_echem.pitt import (END_ABORTED, END_STOPPED, PittRecord, spectrum_due,
                                  step_end_for)
@@ -371,6 +372,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     # One count of the potentiostat's current range, when its driver can say. Below
     # it no cutoff can be expressed (see StepEnd.resolution).
     resolution = getattr(pot, "current_resolution_a", lambda: None)()
+    sweeps = set()                     # PITT steps with an impedance sweep
     if kind == "gitt":
         fast_s = float(settings["gitt_fast_s"])
         slow_s = float(settings["gitt_slow_interval_s"])
@@ -382,32 +384,20 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
 
         def due(step, t_in, t_last):
             return gitt_spectrum_due(step, t_in, t_last, delta, fast_s, slow_s)
-    elif kind == "ereis":
-        fast_s = float(settings["ereis_fast_s"])
-        slow_s = float(settings["ereis_slow_interval_s"])
-        end_for = ereis_step_end_for
-
-        def halted():
-            return False
-
-        def prepare(step):
-            pot.ereis_prepare(step.potential)
-
-        def advance(step):
-            pot.pitt_set_potential(step.potential)
-
-        def due(step, t_in, t_last):
-            return spectrum_due(t_in, t_last, delta, fast_s, slow_s)
     else:
         fast_s = float(settings["pitt_fast_s"])
         slow_s = float(settings["pitt_slow_interval_s"])
         end_for = step_end_for
+        sweeps = ereis_sweep_steps(settings, plan)
 
         def halted():
             return False
 
         def prepare(step):
-            pot.pitt_prepare(step.potential)
+            if sweeps:
+                pot.ereis_prepare(step.potential)
+            else:
+                pot.pitt_prepare(step.potential)
 
         def advance(step):
             pot.pitt_set_potential(step.potential)
@@ -419,7 +409,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
         return flag is not None and flag.is_set()
 
     def _sweep(k, step):
-        """ER-EIS: step k's frequency sweep at its hold potential, cell on. Spectra
+        """Step k's impedance sweep at its hold potential, cell on. Spectra
         carry on at the slow rate; the current is not sampled. -> SWEEP_*"""
         nonlocal tick, last_spectrum
         t0 = clock()
@@ -515,7 +505,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                                   rule.unresolved, rule)
                 if reason in (END_ABORTED, END_STOPPED, END_E_LIMIT):
                     break
-                if kind == "ereis" and _sweep(k, step) != SWEEP_COMPLETE:
+                if k in sweeps and _sweep(k, step) != SWEEP_COMPLETE:
                     break
                 if k == len(plan) - 1:
                     record.completed = True

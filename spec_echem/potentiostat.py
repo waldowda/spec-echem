@@ -2382,8 +2382,9 @@ def gitt_supported(mode):
 
 
 def ereis_supported(mode):
-    """Can the driver for this potentiostat_mode run an ER-EIS? From the CLASS, as
-    pitt_supported is. The Gamry only, for now: the Autolab's FRA is under repair."""
+    """Can the driver for this potentiostat_mode sweep impedance in a PITT? From
+    the CLASS, as pitt_supported is. The Gamry only, for now: the Autolab's FRA is
+    under repair."""
     cls = {"external": ExternalPotentiostat, "python": ToolkitPotentiostat,
            "autolab": AutolabPotentiostat}.get((mode or "external").lower())
     return bool(getattr(cls, "supports_ereis", False))
@@ -2520,7 +2521,7 @@ class _GamryPittRunner:
         pstat.set_voltage(self.v0)
 
     def _service_due(self):
-        """Has the loop asked for work on this thread between curves? (ER-EIS)"""
+        """Has the loop asked for work on this thread between curves? (an impedance sweep)"""
         return False
 
     def _service(self, pstat, step, v):
@@ -2621,7 +2622,7 @@ class _GamryPittRunner:
                     raise RuntimeError("the instrument stopped responding mid-PITT")
                 seen = self._harvest(curve, step, t_run, t_step0, seen)
                 if self._service_due():
-                    # Work only this thread may do (an ER-EIS sweep): the curve is
+                    # Work only this thread may do (an impedance sweep): the curve is
                     # stopped and kept, the work done, and the hold resumed at the
                     # same potential, same step, its clock carried on.
                     self._stop_curve(curve)
@@ -2784,8 +2785,8 @@ GAMRY_ZMOD_GUESS_OHM = 1.0e3
 
 
 class _GamryEreisRunner(_GamryPittRunner):
-    """The Gamry side of an ER-EIS: the PITT runner, plus a frequency sweep between
-    two hold curves, on this thread, with the cell left on at the hold's potential.
+    """The Gamry side of a PITT with impedance sweeps: the PITT runner, plus a
+    frequency sweep between two hold curves, on this thread, with the cell left on at the hold's potential.
 
     ReadZ one frequency at a time, high to low, as the probe ran it on the Randles
     dummy (2026-10-23: |Z| within 0.7%, phase within 0.1 deg, 10 kHz-1 Hz). The loop
@@ -2797,9 +2798,6 @@ class _GamryEreisRunner(_GamryPittRunner):
     def __init__(self, settings):
         super().__init__(settings)
         from spec_echem.ereis import ereis_frequencies, ereis_vac_v
-        # Each hold curve outlasts the hold; one that runs out is restarted anyway.
-        hold = float(settings.get("ereis_hold_s", 60.0))
-        self.repeats = int(math.ceil((hold + 5.0) / self.period))
         self.freqs = ereis_frequencies(settings)
         self.vac = ereis_vac_v(settings)
         self.sweep_req = None
@@ -2822,7 +2820,7 @@ class _GamryEreisRunner(_GamryPittRunner):
         """Impedance points measured since the last call."""
         with self.cond:
             if self.error is not None:
-                raise RuntimeError("Gamry ER-EIS stopped: %s" % self.error)
+                raise RuntimeError("Gamry impedance sweep stopped: %s" % self.error)
             new = self.z_points[self.z_served:]
             self.z_served = len(self.z_points)
         return new
@@ -2858,7 +2856,7 @@ class _GamryEreisRunner(_GamryPittRunner):
             try:
                 state[name] = getter()
             except Exception:  # noqa: BLE001 -- what cannot be read is not restored
-                get_run_logger().debug("Gamry ER-EIS: %s could not be read", name)
+                get_run_logger().debug("Gamry impedance: %s could not be read", name)
         try:
             f_max = max(self.freqs)
             pstat.set_ich_filter(pstat.test_ich_filter(f_max))
@@ -3121,17 +3119,18 @@ class ToolkitPotentiostat(Potentiostat):
         self._gitt_pulses = dict(getattr(runner, "gitt_pulses", {}))
         self._device_lost = self._device_lost or runner.lost
 
-    # --- ER-EIS: the PITT runner plus a ReadZ sweep after each hold ------------
+    # --- PITT impedance sweeps: the PITT runner plus ReadZ after a hold ---------
     supports_ereis = True
 
     def ereis_prepare(self, potential):
-        """Start the Gamry thread for an ER-EIS: as pitt_prepare, cell OFF."""
+        """Start the Gamry thread for a PITT with impedance sweeps: as pitt_prepare,
+        cell OFF."""
         self._pitt_points = []
         self._pitt_runner = _GamryEreisRunner(self.settings)
         self._pitt_runner.start(float(potential))
         r = self._pitt_runner
         get_run_logger().info(
-            "Gamry ER-EIS on %s: first step %+.6f V, current range %s for the holds, "
+            "Gamry PITT with impedance on %s: first step %+.6f V, current range %s for the holds, "
             "%d frequencies %.3g to %.3g Hz at %.3g V AC; cell still open.",
             self.settings.get("gamry_section") or "the default Gamry", float(potential),
             r.how, len(r.freqs), max(r.freqs), min(r.freqs), r.vac)

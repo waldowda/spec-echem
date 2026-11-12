@@ -287,7 +287,8 @@ Written to **one file and nothing else**:
 take a step like any other segment. The cell ran as **one continuous waveform** — never
 switched off between steps — and the data is split at each setpoint change, using the
 step each sample was tagged with when it was taken; the two instruments' clocks are never
-matched. A step's group adds:
+matched. A step swept for impedance (ER-EIS, §8) also has an `impedance/` subgroup.
+A step's group adds:
 
 ```
 /{step}/  attrs: role            "forward" | "return" | "dedope"
@@ -452,37 +453,37 @@ anything: the run's `{folder}_metadata.json` keeps the values set at Start.
   on the Charge tab, not ignored.
 
 
-## 8. ER-EIS staircase — HDF5 ONLY
+## 8. Impedance sweeps in a PITT (ER-EIS) — in the PITT's file
 
-Data type **7** (since 2026-11-12). Impedance at each step of a potential staircase,
-read electrically and optically: at each potential, a fixed hold, then a frequency sweep
-from high to low at that same DC potential with the cell left ON and spectra carrying
-on at the slow rate. Written as §5 is, to one file and nothing else:
+Since 2026-11-12. A box on the PITT, not a file of its own: with **Sweep impedance after
+each step's hold** ticked, a step runs as usual (its hold, its end rule, its spectra),
+and once the hold has ended normally a frequency sweep runs from high to low at the same
+DC potential, with the cell left ON and spectra carrying on at the PITT's slow rate.
+Every `pitt_eis_every_n`-th potential is swept, counted from the start, on the return
+leg too; never the end dedope. Everything goes into §5's file:
 
 ```
-{folder}/{folder}_ereis.h5
+{folder}/{folder}_pitt.h5
 ```
+
+(Data type 7 is unused. For one day it was a separate `{folder}_ereis.h5`, before any
+data had been taken.)
 
 **Gamry (Python mode) only, for now**: the Autolab's FRA32M failed NOVA's own test
-(2026-10-26) and is awaiting repair. The file is not Gamry-specific. **One group per
-step**, §4's layout plus:
+(2026-10-26) and is awaiting repair. The file is not Gamry-specific. A swept step's
+group is §5's, plus:
 
 ```
-/{step}/  attrs: role             "forward" | "repeat" (the first potential again, at
-                                  the end: the drift check)
-                 potential_set    V, from the plan
-                 end_reason       of the HOLD: "fixed" | "stopped" | "aborted"
-                 hold_s           how long the hold ran, s
-                 sweep_end        "complete" | "stopped" | "aborted"; absent when the
-                                  run ended during the hold (no sweep ran)
+/{step}/  attrs: sweep_end        "complete" | "stopped" | "aborted"; absent on a step
+                                  not swept, or when the run ended during its hold
                  sweep_s          how long the sweep took, s
                  n_freq           frequencies the instrument returned a value for
                  n_spectra        hold + sweep
-                 label            "ER-EIS {step}"
 
-    echem/time               s since this step's setpoint was applied: the hold, and
-                             (after a gap for the sweep) any hold sampled after it
-    echem/time_potentiostat  the potentiostat's clock, continuous across all steps
+    echem/time               s since this step's setpoint was applied: the hold, then
+                             a GAP the length of the sweep (the current is not
+                             sampled while impedance is measured), then any hold
+                             sampled after it. dQ for the step belongs to t <= hold_s.
     impedance/               one row per frequency, in the order measured (high to low):
         frequency_set        Hz, as asked
         ok                   1 = the instrument returned a value, 0 = it did not
@@ -493,20 +494,17 @@ step**, §4's layout plus:
                              zphz (deg), zsig, idc (A), vdc (V), and others, among them
                              vmod/imod, which could settle the amplitude's units.
                              NaN where a point has no value.
-
-/ (root) attrs:  ereis_steps_json  every step that RAN, in order, with how it ended
-                 ereis_completed   every planned step ran to its own end
 ```
 
 `Z'' = zimag` is **negative for a capacitive cell**, as the Gamry reports it; a Nyquist
-plot draws -Z'' upward. Each row of `ereis_steps_json` also carries
+plot draws -Z'' upward. A swept step's row of `pitt_steps_json` also carries
 `current_before_sweep_A` and `current_after_sweep_A` when a hold was sampled after the
 sweep: they should agree. ReadZ leaves the current range lower than it found it, and a
 hold on that range reads a flat ~109% of its full scale with no error; the driver puts
 the range and filters back and reads the range back, and **the run stops** if it cannot.
 
-**The AC amplitude** (`ereis_vac_mv`) is handed to ReadZ as volts. Whether it is rms or
-peak has not been checked on the instrument.
+**The AC amplitude** (`pitt_eis_vac_mv`) is handed to ReadZ as volts. Whether it is rms
+or peak has not been checked on the instrument.
 
 **Not stored, by design:** C(ω) = -1/(ω Z''), the double-layer and chemical
 capacitances, g(E), and equivalent-circuit fits. All are derived from the raw Z, and the
@@ -514,9 +512,7 @@ analysis is not built yet.
 
 | | |
 |---|---|
-| `spec_echem.data.write_ereis_h5(record, ...)` | the writer, sharing §5's per-step code |
-| `spec_echem.data.read_ereis_impedance_h5(path, step)` | a step's impedance, as a DataFrame |
-| `spec_echem.data.read_segment_h5(path, step)` | a step's absorbance, as for any segment |
-| `spec_echem.data.discover_run_h5(folder)` | finds the steps, after the GITT |
-| `spec_echem.ereis` | the plan, the frequency list, the time estimate and the checks |
+| `spec_echem.data.write_pitt_h5(record, ...)` | §5's writer; adds `impedance/` to swept steps |
+| `spec_echem.data.read_impedance_h5(path, step)` | a step's impedance as a DataFrame, or None |
+| `spec_echem.ereis` | which steps sweep, the frequency list, the time estimate, the checks |
 

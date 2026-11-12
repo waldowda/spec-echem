@@ -247,21 +247,15 @@ DEFAULT_SETTINGS = {
     "gitt_fast_s": 5.0,             # s — full spectrum rate after a pulse starts and ends
     "gitt_slow_interval_s": 1.0,    # s — otherwise one spectrum this often
 
-    # --- ER-EIS: impedance at each step of a staircase (spec_echem/ereis.py) ---
-    # Off by default, runs after the GITT. Gamry (Python mode) only for now. HDF5
-    # only, one group per step: the hold, its spectra, and the step's impedance.
-    "ereis_enabled": False,
-    "ereis_start_v": -0.5,          # V — first step
-    "ereis_stop_v": 0.7,            # V — a CEILING, as the PITT's
-    "ereis_step_mv": 50.0,          # mV between steps
-    "ereis_hold_s": 60.0,           # s at each potential before its sweep
-    "ereis_f_high_hz": 10000.0,     # Hz — the sweep starts here...
-    "ereis_f_low_hz": 0.1,          # Hz — ...and ends here
-    "ereis_points_per_decade": 5,
-    "ereis_vac_mv": 10.0,           # mV — the AC amplitude (rms vs peak unconfirmed)
-    "ereis_repeat_first": False,    # hold and sweep the first potential again at the end
-    "ereis_fast_s": 5.0,            # s — full spectrum rate from each step's start...
-    "ereis_slow_interval_s": 2.0,   # s — ...then one this often, through the sweep too
+    # --- ER-EIS: an impedance sweep after a PITT step's hold (spec_echem/ereis.py) ---
+    # Off by default. Gamry (Python mode) only for now. Saved in the PITT's file, an
+    # impedance/ group inside each swept step. Spectra go on at pitt_slow_interval_s.
+    "pitt_eis_enabled": False,
+    "pitt_eis_every_n": 1,          # sweep every Nth potential of the staircase
+    "pitt_eis_f_high_hz": 10000.0,  # Hz — the sweep starts here...
+    "pitt_eis_f_low_hz": 0.1,       # Hz — ...and ends here
+    "pitt_eis_points_per_decade": 5,
+    "pitt_eis_vac_mv": 10.0,        # mV — the AC amplitude (rms vs peak unconfirmed)
 }
 
 

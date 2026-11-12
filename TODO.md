@@ -33,24 +33,25 @@ The CHANGELOG says what shipped; git log says when.
       4. **Autolab**: the same three. 10 uA should be quiet about the 0 A offset; 0.2 uA
          should warn. Check `pulse_s_applied` in `gitt_steps_json`.
       Not built: return leg, end dedope, analysis (dQ, relaxed E, IR drop, D_ion).
-- [ ] **ER-EIS on the Randles dummy, then a film (Gamry; Autolab parked, see Later).**
-      Built 2026-11-12, tested on fakes only (`spec_echem/ereis.py`,
-      `docs/data-format.md` §8). On the Reference 600, UDC4 Randles side
-      (200 Ohm + 3010 Ohm || 1 uF), Python mode, ER-EIS only: 0.0 to +0.2 V in 100 mV
-      (3 steps), hold 10 s, 10 kHz to 1 Hz at 5 per decade, 10 mV, repeat first ticked.
+- [ ] **PITT impedance (ER-EIS) on the Randles dummy, then a film (Gamry; Autolab
+      parked, see Later).** Built 2026-11-12 as a box on the PITT, tested on fakes only
+      (`spec_echem/ereis.py`, `docs/data-format.md` §8). On the Reference 600, UDC4
+      Randles side (200 Ohm + 3010 Ohm || 1 uF), Python mode, PITT only: 0.0 to +0.2 V in
+      100 mV (3 steps), cutoff off, max hold 10 s, also step back down, impedance ticked:
+      every potential, 10 kHz to 1 Hz at 5 per decade, 10 mV.
       1. **Nyquist on Results:** a semicircle from Z' ~200 Ohm (10 kHz) to ~3210 Ohm
          (1 Hz), top at -Z'' ~1505 Ohm near 53 Hz, the same at every step and on the
-         repeat. The run log gives |Z| at both ends per step.
-      2. **No range warning in the log** ("current after the sweep ... is not the current
-         before it"); `current_before_sweep_A` / `_after_` in `ereis_steps_json` agree
-         (~31 uA at +0.1 V).
+         way back. The run log gives |Z| at both ends per step.
+      2. **No range warning in the log** ("current after the impedance sweep ... is not
+         the current before it"); `current_before_sweep_A` / `_after_` in
+         `pitt_steps_json` agree (~31 uA at +0.1 V).
       3. **Time:** compare the Parameters estimate with `sweep_s` per step.
       4. **Amplitude units:** read `vmod`/`imod` (if present) in a step's `impedance/`:
          10 mV rms or peak?
       5. **Stop mid-sweep:** the frequency in hand finishes, `sweep_end` = stopped, cell
          off.
       Then a film. Not built: C(w) = -1/(w Z''), Cdl vs Cmu, g(E), the comparison with
-      PITT dQ/dE, equivalent-circuit fits.
+      PITT dQ/dE (same steps, same file), equivalent-circuit fits.
 - [ ] **Charge tab on a fresh run:** every view, the CSV, and a step that genuinely
       fails the 5 tau or drift check.
 - [ ] **Sample the current faster in the first second of a chrono step** (as PITT's fast
@@ -156,8 +157,9 @@ The CHANGELOG says what shipped; git log says when.
 ## Later — wanted, not scheduled
 
 - **Autolab impedance (ER-EIS): parked (2026-11-12), blocked on hardware.** Gamry-only
-  ER-EIS is TEMPORARY: once this is fixed, add an Autolab ER-EIS driver (the loop and the
-  file are not Gamry-specific; Start refuses the Autolab until then). NOVA's own TestFRA fails on its dummy (the AC signal
+  ER-EIS is TEMPORARY: once this is fixed, add an Autolab driver for the PITT's
+  impedance sweep (the loop and the file are not Gamry-specific; Start refuses the box
+  on the Autolab until then). NOVA's own TestFRA fails on its dummy (the AC signal
   seems never to reach the cell). Send Metrohm the failed TestFRA data; ask earlier EIS
   users when it last worked. Once NOVA reads a 10 kOhm dummy correctly, rerun
   `examples/probe_autolab_gitt_eis.py --fra`, `--fra --fra-vdc 0.1`, `--fra-manual`, and

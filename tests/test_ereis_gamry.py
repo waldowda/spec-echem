@@ -1,4 +1,4 @@
-"""The Gamry ER-EIS runner against a fake toolkit whose ReadZ behaves as the Reference
+"""The Gamry runner for a PITT with impedance sweeps, against a fake toolkit whose ReadZ behaves as the Reference
 600's did on 2026-10-23: it autoranges and LEAVES ie_range two rungs down and the
 I-channel filter changed (docs/bench-2026-10-26.md section 2)."""
 import threading
@@ -10,6 +10,7 @@ import pytest
 from spec_echem import ereis, potentiostat
 from spec_echem.acquisition import acquire_pitt
 from spec_echem.fakes import FakeSpectrometer
+from spec_echem.pitt import pitt_plan
 from spec_echem.settings import DEFAULT_SETTINGS
 
 R_S, R_CT, C_DL = 200.0, 3010.0, 1e-6
@@ -147,18 +148,19 @@ def tk(monkeypatch):
 
 
 def _settings(**over):
-    s = dict(DEFAULT_SETTINGS, ereis_start_v=0.0, ereis_stop_v=0.1, ereis_step_mv=100.0,
-             ereis_hold_s=0.1, ereis_f_high_hz=1000.0, ereis_f_low_hz=10.0,
-             ereis_points_per_decade=1, ereis_fast_s=0.05, ereis_slow_interval_s=0.05,
-             chrono_delta_time=0.01)
+    s = dict(DEFAULT_SETTINGS, pitt_enabled=True, pitt_eis_enabled=True,
+             pitt_start_v=0.0, pitt_stop_v=0.1, pitt_step_mv=100.0,
+             pitt_cutoff_enabled=False, pitt_max_hold_s=0.1,
+             pitt_eis_f_high_hz=1000.0, pitt_eis_f_low_hz=10.0,
+             pitt_eis_points_per_decade=1, pitt_fast_s=0.05,
+             pitt_slow_interval_s=0.05, chrono_delta_time=0.01)
     s.update(over)
     return s
 
 
 def _run(s, **kw):
     p = potentiostat.ToolkitPotentiostat(s)
-    record = acquire_pitt(FakeSpectrometer(), p, ereis.ereis_plan(s), s, kind="ereis",
-                          **kw)
+    record = acquire_pitt(FakeSpectrometer(), p, pitt_plan(s), s, **kw)
     return p, record
 
 
@@ -197,7 +199,7 @@ def test_the_range_and_filters_are_put_back_before_the_hold_resumes(tk):
 
 
 def test_readz_is_set_up_as_the_probe_ran_it(tk):
-    _run(_settings(ereis_vac_mv=10.0))
+    _run(_settings(pitt_eis_vac_mv=10.0))
     r = tk.readz[0]
     assert r.set_calls["gain"] == [1.0] and r.set_calls["speed"] == [1]
     assert r.set_calls["vdc"] == [0.0] and r.set_calls["drift_cor"] == [False]
@@ -231,7 +233,7 @@ def test_stop_mid_sweep_lets_the_frequency_in_hand_finish(tk):
     tk.point_s = 0.08
     stop = threading.Event()
     s = _settings()
-    threading.Timer(s["ereis_hold_s"] + 0.12, stop.set).start()
+    threading.Timer(s["pitt_max_hold_s"] + 0.12, stop.set).start()
     _p, record = _run(s, stop_event=stop)
     assert not record.completed and len(record.steps) == 1
     assert record.steps[0]["sweep_end"] == "stopped"

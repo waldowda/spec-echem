@@ -127,8 +127,11 @@ def pitt_duration_bounds(settings):
     """(shortest, longest) the staircase can take, in seconds.
 
     Every step holds at least its minimum and at most its maximum, so the truth lies
-    between. The end dedope is a fixed hold, not cut short by the current.
+    between. The end dedope is a fixed hold, not cut short by the current. With the
+    impedance box ticked, the sweeps' estimated time (ereis.ereis_duration_s) is
+    added to both: an estimate, so the bounds are then approximate.
     """
+    from spec_echem.ereis import ereis_duration_s
     plan = pitt_plan(settings)
     holds = [s for s in plan if s.role != ROLE_DEDOPE]
     dedope = sum(float(settings["pitt_end_dedope_time_s"])
@@ -137,7 +140,8 @@ def pitt_duration_bounds(settings):
                 else settings["pitt_max_hold_s"])
     lo = len(holds) * float(shortest) + dedope
     hi = len(holds) * float(settings["pitt_max_hold_s"]) + dedope
-    return lo, hi
+    sweeps = ereis_duration_s(settings)
+    return lo + sweeps, hi + sweeps
 
 
 def pitt_problems(settings):
@@ -310,7 +314,7 @@ class PittRecord:
     echem_step: list = None         # step index of each sample
     steps: list = None              # one dict per step that RAN; see close_step()
     completed: bool = False         # every planned step ran to its own end
-    impedance: list = None          # ER-EIS only: one dict per frequency, with "step"
+    impedance: list = None          # impedance sweeps: one dict per frequency, with "step"
 
     def __post_init__(self):
         for name in ("spectra", "timestamps", "spectrum_step", "echem_time",

@@ -1,4 +1,5 @@
-"""ER-EIS: the plan, the sweep, the loop, its HDF5 and Start's checks (fakes only)."""
+"""ER-EIS: impedance sweeps as a box on the PITT -- which steps sweep, the sweep,
+the loop, the PITT's HDF5 and Start's checks (fakes only)."""
 import json
 import threading
 
@@ -7,116 +8,124 @@ import pytest
 
 from spec_echem import ereis
 from spec_echem.acquisition import acquire_pitt
-from spec_echem.data import (DATA_TYPE_EREIS, discover_run_h5, h5_path,
-                             read_ereis_impedance_h5, read_segment_h5,
-                             segment_potential)
+from spec_echem.data import (DATA_TYPE_PITT, discover_run_h5, h5_path,
+                             read_impedance_h5, read_segment_h5)
 from spec_echem.experiment import (build_segments, ereis_live, ereis_start_problems,
-                                   ereis_step_segments, run_duration_bounds,
-                                   run_ereis_segment)
+                                   pitt_start_problems, pitt_step_segments,
+                                   run_duration_bounds, run_pitt_segment)
 from spec_echem.fakes import FakeEreisPotentiostat, FakeSpectrometer
-from spec_echem.pitt import ROLE_FORWARD, PittRecord
+from spec_echem.pitt import (ROLE_DEDOPE, ROLE_RETURN, PittRecord,
+                             pitt_duration_bounds, pitt_plan)
 from spec_echem.settings import DEFAULT_SETTINGS
 
 
 def quick(**over):
-    """Real time, so kept to about a second."""
-    s = dict(DEFAULT_SETTINGS, ereis_enabled=True, cv_enabled=False,
-             prededoping_enabled=False, doping_enabled=False, pitt_enabled=False,
-             gitt_enabled=False, ereis_start_v=0.0, ereis_stop_v=0.1,
-             ereis_step_mv=50.0, ereis_hold_s=0.15, ereis_f_high_hz=1e4,
-             ereis_f_low_hz=1.0, ereis_points_per_decade=2, ereis_fast_s=0.05,
-             ereis_slow_interval_s=0.05, chrono_delta_time=0.02,
+    """A three-step PITT with a sweep after every hold. Real time: about a second."""
+    s = dict(DEFAULT_SETTINGS, cv_enabled=False, prededoping_enabled=False,
+             doping_enabled=False, gitt_enabled=False, pitt_enabled=True,
+             pitt_eis_enabled=True, pitt_start_v=0.0, pitt_stop_v=0.1,
+             pitt_step_mv=50.0, pitt_cutoff_enabled=False, pitt_min_hold_s=0.05,
+             pitt_max_hold_s=0.15, pitt_fast_s=0.05, pitt_slow_interval_s=0.05,
+             pitt_eis_f_high_hz=1e4, pitt_eis_f_low_hz=1.0,
+             pitt_eis_points_per_decade=2, chrono_delta_time=0.02,
              potentiostat_mode="python")
     s.update(over)
     return s
 
 
-# --- the plan --------------------------------------------------------------------
+# --- which steps sweep, the frequencies, the time ---------------------------------
 
-def test_the_plan_is_a_staircase_whose_stop_is_a_ceiling():
-    plan = ereis.ereis_plan(quick(ereis_stop_v=0.12))
-    assert [p.potential for p in plan] == [0.0, 0.05, 0.1]
-    assert {p.role for p in plan} == {ROLE_FORWARD}
-    down = ereis.ereis_plan(quick(ereis_start_v=0.1, ereis_stop_v=0.0))
-    assert [p.potential for p in down] == [0.1, 0.05, 0.0]
+def test_every_step_sweeps_by_default_and_none_without_the_box():
+    assert ereis.ereis_sweep_steps(quick()) == {0, 1, 2}
+    assert ereis.ereis_sweep_steps(quick(pitt_eis_enabled=False)) == set()
 
 
-def test_repeat_first_sweeps_the_first_potential_again_at_the_end():
-    plan = ereis.ereis_plan(quick(ereis_repeat_first=True))
-    assert [p.potential for p in plan] == [0.0, 0.05, 0.1, 0.0]
-    assert plan[-1].role == ereis.ROLE_REPEAT and plan[-1].index == 3
+def test_every_nth_potential_is_swept_the_same_on_the_way_back_never_the_dedope():
+    s = quick(pitt_stop_v=0.2, pitt_return=True, pitt_end_dedope=True,
+              pitt_end_dedope_v=-0.15,          # 3 steps from the start: due a sweep
+              pitt_eis_every_n=3)
+    plan = pitt_plan(s)
+    swept = ereis.ereis_sweep_steps(s, plan)
+    by_index = {p.index: p for p in plan}
+    assert sorted(round(by_index[k].potential, 3) for k in swept
+                  if by_index[k].role != ROLE_RETURN) == [0.0, 0.15]
+    assert sorted(round(by_index[k].potential, 3) for k in swept
+                  if by_index[k].role == ROLE_RETURN) == [0.0, 0.15]
+    assert not any(by_index[k].role == ROLE_DEDOPE for k in swept)
 
 
 def test_frequencies_run_high_to_low_with_both_ends_included():
-    f = ereis.ereis_frequencies(quick(ereis_f_high_hz=1e4, ereis_f_low_hz=0.1,
-                                      ereis_points_per_decade=5))
+    f = ereis.ereis_frequencies(quick(pitt_eis_f_high_hz=1e4, pitt_eis_f_low_hz=0.1,
+                                      pitt_eis_points_per_decade=5))
     assert len(f) == 26
     assert f[0] == pytest.approx(1e4) and f[-1] == pytest.approx(0.1)
     assert all(a > b for a, b in zip(f, f[1:]))
     assert f[5] == pytest.approx(1e3)                   # 5 per decade, exactly
 
 
-def test_the_duration_follows_the_measured_seconds_per_frequency():
+def test_the_sweeps_add_their_measured_seconds_to_the_pitts_time():
     # 1 Hz took 3.09 s and 100 Hz 0.32 s on the Reference 600 (2026-10-23).
     assert ereis.ereis_point_s(1.0) == pytest.approx(3.1)
     assert ereis.ereis_point_s(100.0) == pytest.approx(0.328)
     s = quick()
-    expected = 3 * (0.15 + sum(ereis.ereis_point_s(f)
-                               for f in ereis.ereis_frequencies(s)))
-    assert ereis.ereis_duration_s(s) == pytest.approx(expected)
-    lo, hi, _n = run_duration_bounds(s)
-    assert lo == hi == pytest.approx(expected)
+    sweep = sum(ereis.ereis_point_s(f) for f in ereis.ereis_frequencies(s))
+    assert ereis.ereis_duration_s(s) == pytest.approx(3 * sweep)
+    assert ereis.ereis_duration_s(quick(pitt_eis_every_n=2)) == pytest.approx(2 * sweep)
+    lo, hi = pitt_duration_bounds(s)
+    assert lo == hi == pytest.approx(3 * 0.15 + 3 * sweep)
+    assert run_duration_bounds(s)[:2] == pytest.approx((lo, hi))
+    assert pitt_duration_bounds(quick(pitt_eis_enabled=False)) == pytest.approx(
+        (0.45, 0.45))
 
 
 @pytest.mark.parametrize("over, words", [
-    (dict(ereis_step_mv=0.0), "larger than 0 mV"),
-    (dict(ereis_hold_s=0.0), "hold"),
-    (dict(ereis_f_low_hz=0.0), "larger than 0 Hz"),
-    (dict(ereis_f_low_hz=1e4, ereis_f_high_hz=10.0), "high to low"),
-    (dict(ereis_f_high_hz=2e6), "Reference 600 reaches"),
-    (dict(ereis_points_per_decade=0), "point per decade"),
-    (dict(ereis_vac_mv=0.0), "AC amplitude"),
-    (dict(ereis_slow_interval_s=0.01), "slow spectrum interval"),
+    (dict(pitt_eis_f_low_hz=0.0), "larger than 0 Hz"),
+    (dict(pitt_eis_f_low_hz=1e4, pitt_eis_f_high_hz=10.0), "high to low"),
+    (dict(pitt_eis_f_high_hz=2e6), "Reference 600 reaches"),
+    (dict(pitt_eis_points_per_decade=0), "point per decade"),
+    (dict(pitt_eis_vac_mv=0.0), "AC amplitude"),
+    (dict(pitt_eis_every_n=0), "N must be 1"),
 ])
 def test_settings_that_cannot_run_are_named(over, words):
     problems = ereis.ereis_problems(quick(**over))
     assert len(problems) == 1 and words in problems[0]
 
 
-def test_good_settings_have_no_problems():
+def test_good_settings_have_no_problems_and_an_unticked_box_has_none():
     assert ereis.ereis_problems(quick()) == []
-    assert ereis.ereis_problems(dict(DEFAULT_SETTINGS)) == []
+    assert ereis.ereis_problems(quick(pitt_eis_enabled=False,
+                                      pitt_eis_f_low_hz=0.0)) == []
+    assert ereis.ereis_problems(quick(pitt_enabled=False,
+                                      pitt_eis_f_low_hz=0.0)) == []
 
 
 # --- Start --------------------------------------------------------------------------
 
-def test_only_the_gamry_can_run_one_for_now():
+def test_only_the_gamry_can_sweep_for_now():
     assert ereis_start_problems(quick()) == []
     autolab = ereis_start_problems(quick(potentiostat_mode="autolab"))
     assert len(autolab) == 1 and "FRA32M" in autolab[0]
     external = ereis_start_problems(quick(potentiostat_mode="external"))
     assert len(external) == 1 and "External" in external[0]
-    assert ereis_start_problems(quick(ereis_enabled=False,
+    assert ereis_start_problems(quick(pitt_eis_enabled=False,
                                       potentiostat_mode="autolab")) == []
+    # the Autolab still runs a plain PITT
+    assert pitt_start_problems(quick(pitt_eis_enabled=False,
+                                     potentiostat_mode="autolab")) == []
 
 
-def test_it_runs_after_everything_as_one_segment_and_registers_each_step():
-    segs = build_segments(quick(gitt_enabled=True, pitt_enabled=True))
-    assert [seg.label for seg in segs][-3:] == ["PITT", "GITT", "ER-EIS"]
-    assert segs[-1].data_type == DATA_TYPE_EREIS and segs[-1].num_points == 3
-    assert [seg.label for seg in ereis_step_segments(quick())] == [
-        "ER-EIS 0", "ER-EIS 1", "ER-EIS 2"]
-    assert ereis_step_segments(quick(ereis_enabled=False)) == []
-    assert segment_potential(quick(), DATA_TYPE_EREIS, 1) == 0.05
-    assert segment_potential(quick(), DATA_TYPE_EREIS, 9) is None
+def test_it_is_part_of_the_pitt_not_a_segment_of_its_own():
+    segs = build_segments(quick(gitt_enabled=True))
+    assert [seg.label for seg in segs][-2:] == ["PITT", "GITT"]
+    assert [seg.label for seg in pitt_step_segments(quick())] == [
+        "PITT 0", "PITT 1", "PITT 2"]
 
 
 # --- the loop -----------------------------------------------------------------------
 
 def _loop(s, pot=None, **kw):
     pot = pot or FakeEreisPotentiostat(s, point_s=0.02)
-    record = acquire_pitt(FakeSpectrometer(), pot, ereis.ereis_plan(s), s,
-                          kind="ereis", **kw)
+    record = acquire_pitt(FakeSpectrometer(), pot, pitt_plan(s), s, **kw)
     return pot, record
 
 
@@ -130,7 +139,7 @@ def test_each_hold_is_followed_by_its_sweep_with_the_cell_left_on():
     assert all(on for _v, _t, on in pot.sweeps)
     n = len(ereis.ereis_frequencies(s))
     for st in record.steps:
-        assert st["end_reason"] == "fixed"
+        assert st["end_reason"] not in ("stopped", "aborted")
         assert st["sweep_end"] == ereis.SWEEP_COMPLETE and st["n_freq"] == n
         mine = [p["frequency_set"] for p in record.impedance if p["step"] == st["index"]]
         assert mine == pytest.approx(ereis.ereis_frequencies(s))
@@ -140,18 +149,36 @@ def test_each_hold_is_followed_by_its_sweep_with_the_cell_left_on():
     assert t_sweep[0] < t_step[1] and t_sweep[1] < t_step[2]
 
 
+def test_only_the_chosen_steps_sweep():
+    s = quick(pitt_eis_every_n=2)
+    pot, record = _loop(s)
+    assert record.completed
+    assert [v for v, _t, _on in pot.sweeps] == [0.0, 0.1]
+    assert "sweep_end" not in record.steps[1]
+    assert {p["step"] for p in record.impedance} == {0, 2}
+
+
+def test_without_the_box_it_is_a_plain_pitt():
+    s = quick(pitt_eis_enabled=False)
+
+    class Plain(FakeEreisPotentiostat):
+        def ereis_prepare(self, potential):
+            raise AssertionError("a plain PITT must not prepare for sweeps")
+
+    pot, record = _loop(s, Plain(s))
+    assert record.completed and pot.sweeps == [] and record.impedance == []
+    assert not any("sweep_end" in st for st in record.steps)
+
+
 def test_spectra_carry_on_through_the_sweep():
     s = quick()
     _pot, record = _loop(s, FakeEreisPotentiostat(s, point_s=0.05))
-    hold = s["ereis_hold_s"]
     for st in record.steps:
         assert st["sweep_s"] >= 0.05 * st["n_freq"] * 0.9
-        # spectra counted after the sweep began: the step's n_spectra includes them
         assert st["n_spectra"] == sum(1 for k in record.spectrum_step
                                       if k == st["index"])
-    # roughly one spectrum per slow interval during each sweep
     total = sum(st["n_spectra"] for st in record.steps)
-    no_sweep = sum(1 for _ in range(3)) * (hold / s["chrono_delta_time"] + 1)
+    no_sweep = 3 * (s["pitt_max_hold_s"] / s["chrono_delta_time"] + 1)
     assert total > no_sweep
 
 
@@ -159,7 +186,7 @@ def test_stop_during_a_sweep_finishes_the_frequency_in_hand_then_ends_the_run():
     s = quick()
     pot = FakeEreisPotentiostat(s, point_s=0.05)
     stop = threading.Event()
-    threading.Timer(s["ereis_hold_s"] + 0.12, stop.set).start()
+    threading.Timer(s["pitt_max_hold_s"] + 0.12, stop.set).start()
     _pot, record = _loop(s, pot, stop_event=stop)
     assert not record.completed and pot.cancelled == 1
     assert len(record.steps) == 1
@@ -173,7 +200,7 @@ def test_abort_during_a_sweep_ends_it_at_once():
     s = quick()
     pot = FakeEreisPotentiostat(s, point_s=0.05)
     abort = threading.Event()
-    threading.Timer(s["ereis_hold_s"] + 0.12, abort.set).start()
+    threading.Timer(s["pitt_max_hold_s"] + 0.12, abort.set).start()
     _pot, record = _loop(s, pot, abort_event=abort)
     assert not record.completed
     assert record.steps[0]["sweep_end"] == ereis.SWEEP_ABORTED
@@ -181,7 +208,7 @@ def test_abort_during_a_sweep_ends_it_at_once():
 
 
 def test_stop_during_a_hold_runs_no_sweep():
-    s = quick(ereis_hold_s=1.0)
+    s = quick(pitt_max_hold_s=1.0)
     pot = FakeEreisPotentiostat(s)
     stop = threading.Event()
     threading.Timer(0.2, stop.set).start()
@@ -196,46 +223,53 @@ def test_stop_during_a_hold_runs_no_sweep():
 def _run(tmp_path, s, pot=None):
     spec = FakeSpectrometer()
     wl = spec.wavelengths()[1]
-    seg = build_segments(s)[-1]
-    return run_ereis_segment(spec, seg, np.full(wl.size, 100.0),
-                             np.full(wl.size, 40000.0), wl, tmp_path,
-                             "20261112_ereis", s,
-                             pot or FakeEreisPotentiostat(s, point_s=0.02))
+    seg = [seg for seg in build_segments(s) if seg.data_type == DATA_TYPE_PITT][0]
+    return run_pitt_segment(spec, seg, np.full(wl.size, 100.0),
+                            np.full(wl.size, 40000.0), wl, tmp_path,
+                            "20261112_eis", s,
+                            pot or FakeEreisPotentiostat(s, point_s=0.02))
 
 
-def test_the_file_has_one_group_per_step_with_its_impedance(tmp_path):
+def test_the_pitt_file_holds_each_swept_steps_impedance(tmp_path, caplog):
+    import logging
+    from spec_echem.logging_config import RUN_LOGGER_NAME
     h5py = pytest.importorskip("h5py")
-    s = quick()
+    s = quick(pitt_eis_every_n=2)
     pot = FakeEreisPotentiostat(s, point_s=0.02)
-    steps, path, record = _run(tmp_path, s, pot)
-    assert [label for label, _df in steps] == ["ER-EIS 0", "ER-EIS 1", "ER-EIS 2"]
-    assert path == h5_path(tmp_path / "20261112_ereis", DATA_TYPE_EREIS)
+    with caplog.at_level(logging.INFO, logger=RUN_LOGGER_NAME):
+        steps, path, _record = _run(tmp_path, s, pot)
+    swept = [r.getMessage() for r in caplog.records if "impedance: sweep" in r.getMessage()]
+    assert len(swept) == 2 and swept[0].startswith("PITT 0 impedance: sweep complete")
+    assert [label for label, _df in steps] == ["PITT 0", "PITT 1", "PITT 2"]
+    assert path == h5_path(tmp_path / "20261112_eis", DATA_TYPE_PITT)
+    assert sorted(p.name for p in path.parent.glob("*.h5")) == ["20261112_eis_pitt.h5"]
     with h5py.File(path, "r") as f:
-        assert f.attrs["data_type_name"] == "ER-EIS"
-        assert bool(f.attrs["ereis_completed"])
-        table = json.loads(f.attrs["ereis_steps_json"])
-        assert [st["sweep_end"] for st in table] == ["complete"] * 3
-        g = f["1"]
-        assert g.attrs["label"] == "ER-EIS 1"
-        assert g.attrs["potential_set"] == pytest.approx(0.05)
+        assert f.attrs["data_type_name"] == "PITT"
+        table = json.loads(f.attrs["pitt_steps_json"])
+        assert [st.get("sweep_end") for st in table] == ["complete", None, "complete"]
+        g = f["2"]
+        assert g.attrs["label"] == "PITT 2"
+        assert g.attrs["potential_set"] == pytest.approx(0.1)
         assert g.attrs["sweep_end"] == "complete"
+        assert "peak_current_A" in g.attrs
         assert g["impedance"]["zreal"].attrs["units"] == "Ohm"
         assert "time_potentiostat" in g["echem"]
-    z = read_ereis_impedance_h5(path, 1)
+        assert "impedance" not in f["1"] and "sweep_end" not in f["1"].attrs
+    z = read_impedance_h5(path, 2)
     freqs = ereis.ereis_frequencies(s)
     assert list(z["frequency_set"]) == pytest.approx(freqs)
     expected = [pot.z(f) for f in freqs]
     assert list(z["zreal"]) == pytest.approx([e.real for e in expected])
     assert list(z["zimag"]) == pytest.approx([e.imag for e in expected])
     assert set(z["ok"]) == {1}
-    assert not any(p.suffix == ".txt" for p in path.parent.iterdir())
+    assert read_impedance_h5(path, 1) is None
 
 
 def test_the_steps_are_found_and_read_like_segments(tmp_path):
     pytest.importorskip("h5py")
     _steps, path, _record = _run(tmp_path, quick())
     found = discover_run_h5(path.parent)
-    assert [f[0] for f in found] == ["ER-EIS 0", "ER-EIS 1", "ER-EIS 2"]
+    assert [f[0] for f in found] == ["PITT 0", "PITT 1", "PITT 2"]
     assert read_segment_h5(path, 2) is not None
 
 
@@ -254,11 +288,11 @@ def test_a_failed_frequency_is_kept_and_marked(tmp_path):
     _steps, path, record = _run(tmp_path, s, Flaky(s, point_s=0.02))
     n = len(ereis.ereis_frequencies(s))
     assert all(st["n_freq"] == n - 1 for st in record.steps)
-    z = read_ereis_impedance_h5(path, 0)
+    z = read_impedance_h5(path, 0)
     assert len(z) == n and int(z["ok"].sum()) == n - 1
 
 
-def test_the_current_after_a_sweep_is_compared_with_before(tmp_path, caplog):
+def test_the_current_after_a_sweep_is_compared_with_before(caplog):
     """A clipped hold after the sweep -- the range not restored -- is named, never
     changed."""
     from spec_echem.experiment import _check_current_after_sweep
@@ -270,19 +304,18 @@ def test_the_current_after_a_sweep_is_compared_with_before(tmp_path, caplog):
     st = {"index": 0, "hold_s": 1.0, "sweep_s": 2.0, "sweep_end": "complete"}
     log = logging.getLogger("t")
     with caplog.at_level(logging.WARNING, logger="t"):
-        _check_current_after_sweep(record, st, 1.0, log)
+        _check_current_after_sweep(record, st, log)
     assert st["current_before_sweep_A"] == pytest.approx(10e-6)
     assert st["current_after_sweep_A"] == pytest.approx(2e-6)
     assert "not restored" in caplog.text
     caplog.clear()
     record.echem_current[3:] = [9e-6] * 3                  # a film still relaxing
     with caplog.at_level(logging.WARNING, logger="t"):
-        _check_current_after_sweep(record, st, 1.0, log)
+        _check_current_after_sweep(record, st, log)
     assert caplog.text == ""
 
 
 def test_the_live_readout_says_how_far_the_sweep_has_got():
-    s = quick()
     record = PittRecord()
     record.echem_step = [0, 0]
     record.echem_t_in_step = [0.1, 0.2]
@@ -323,14 +356,14 @@ def test_the_worker_emits_each_step_then_finishes(app, tmp_path):
         def device_lost(self): return False
 
     w = AcquisitionWorker(spec, build_segments(s), np.full(wl.size, 100.0),
-                          np.full(wl.size, 40000.0), wl, tmp_path, "20261112_ereis",
+                          np.full(wl.size, 40000.0), wl, tmp_path, "20261112_eis",
                           potentiostat=Pot(s, point_s=0.02), settings=s)
     done, finished = [], []
     w.segment_done.connect(lambda label, df: done.append(label))
     w.finished.connect(finished.append)
     w.gui_idle.set()
     w.run()
-    assert done == ["ER-EIS 0", "ER-EIS 1", "ER-EIS 2"]
+    assert done == ["PITT 0", "PITT 1", "PITT 2"]
     assert finished == ["done"]
     assert len(w.pitt_record.impedance) == 3 * len(ereis.ereis_frequencies(s))
 
@@ -345,38 +378,71 @@ def window(app):
     win.close()
 
 
-def test_the_group_round_trips_its_settings_and_estimates_the_time(window):
+def test_the_pitt_box_round_trips_its_settings_and_adds_to_the_estimate(window):
     tab = window.parameters_tab
-    s = dict(DEFAULT_SETTINGS, ereis_enabled=True, ereis_f_low_hz=0.5,
-             ereis_points_per_decade=7, ereis_repeat_first=True)
+    s = dict(DEFAULT_SETTINGS, pitt_eis_enabled=True, pitt_eis_f_low_hz=0.5,
+             pitt_eis_points_per_decade=7, pitt_eis_every_n=3)
     tab.populate_from(s)
     out = {}
     tab.collect_into(out)
-    assert out["ereis_enabled"] is True and out["ereis_repeat_first"] is True
-    assert out["ereis_f_low_hz"] == pytest.approx(0.5)
-    assert out["ereis_points_per_decade"] == 7
+    assert out["pitt_eis_enabled"] is True and out["pitt_eis_every_n"] == 3
+    assert out["pitt_eis_f_low_hz"] == pytest.approx(0.5)
+    assert out["pitt_eis_points_per_decade"] == 7
+    assert tab._widgets["pitt_eis_f_low_hz"].isEnabledTo(tab)
+    # -0.5 to +0.7 V in 10 mV = 121 steps, every 3rd = 41 sweeps
+    assert "41 impedance sweeps" in tab.pitt_estimate.text()
     tab.populate_from(dict(DEFAULT_SETTINGS))
-    # -0.5 to +0.7 V in 50 mV = 25 steps; 10 kHz to 0.1 Hz at 5 per decade = 26
-    assert "25 steps x 26 frequencies" in tab.ereis_estimate.text()
+    assert "impedance" not in tab.pitt_estimate.text()
+    assert not tab._widgets["pitt_eis_f_low_hz"].isEnabledTo(tab)
 
 
 def test_impossible_settings_show_in_red_before_start(window):
     tab = window.parameters_tab
-    tab.populate_from(dict(DEFAULT_SETTINGS, ereis_f_high_hz=1.0, ereis_f_low_hz=10.0))
-    assert "high to low" in tab.ereis_problems_label.text()
-    assert tab.ereis_estimate.text() == ""
+    tab.populate_from(dict(DEFAULT_SETTINGS, pitt_eis_enabled=True,
+                           pitt_eis_f_high_hz=1.0, pitt_eis_f_low_hz=10.0))
+    assert "high to low" in tab.pitt_problems_label.text()
+    assert tab.pitt_estimate.text() == ""
 
 
-def test_results_shows_a_steps_nyquist_plot(window, tmp_path):
+def test_results_shows_a_swept_steps_nyquist_and_an_unswept_steps_current(
+        window, tmp_path):
     pytest.importorskip("h5py")
-    s = quick()
+    s = quick(pitt_eis_every_n=2)
     _steps, path, _record = _run(tmp_path, s)
-    for seg in ereis_step_segments(s):
+    for seg in pitt_step_segments(s):
         window.segments_by_label[seg.label] = seg
     window.run_folder = path.parent
-    window.results_tab._plot_echem("ER-EIS 1")
     canvas = window.results_tab.echem_canvas
+    window.results_tab._plot_echem("PITT 2")
     assert window.results_tab._has_echem
     assert canvas.ax.get_xlabel() == "Z′ (Ω)"
     x = canvas.ax.get_lines()[0].get_xdata()
     assert len(x) == len(ereis.ereis_frequencies(s))
+    window.results_tab._plot_echem("PITT 1")
+    assert canvas.ax.get_xlabel() == "Time (s)"
+
+
+def test_start_refuses_impedance_on_the_autolab_and_says_which_box(window, tmp_path,
+                                                                   monkeypatch):
+    from qtpy.QtCore import QThread
+    from qtpy.QtWidgets import QMessageBox
+    spec = FakeSpectrometer()
+    spec.init()
+    _, wl = spec.wavelengths()
+    window.spec, window.wavelengths = spec, wl
+    window.dark, window.ref = np.full(len(wl), 100.0), np.full(len(wl), 5000.0)
+    window.settings.update(quick(data_root=str(tmp_path), data_folder="20261112_eis",
+                                 potentiostat_mode="autolab"))
+    monkeypatch.setattr(window, "collect_settings", lambda: dict(window.settings))
+    started, warnings = [], []
+    monkeypatch.setattr(QThread, "start", lambda self, *a, **k: started.append(self))
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Ok)
+    monkeypatch.setattr(QMessageBox, "warning",
+                        lambda parent, title, text, *a, **k: warnings.append((title, text)))
+
+    window.run_tab.on_start()
+
+    assert started == []
+    assert warnings and warnings[0][0] == "PITT cannot run"
+    assert "FRA32M" in warnings[0][1]
+    assert "impedance sweep on the Parameters tab" in warnings[0][1]

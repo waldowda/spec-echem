@@ -1,17 +1,19 @@
 """
-ER-EIS -- impedance at each step of a potential staircase, read electrically and
+ER-EIS -- an impedance sweep after a PITT step's hold, read electrically and
 optically.
 
-The third staircase beside the PITT (spec_echem/pitt.py) and the GITT
-(spec_echem/gitt.py): the same continuous waveform, the same loop
-(acquisition.acquire_pitt with kind="ereis") and one HDF5 group per step. Pure logic
-only: the plan, the frequency list, the duration estimate and the Start checks.
+Not a staircase of its own: a box on the PITT (spec_echem/pitt.py). When
+`pitt_eis_enabled` is ticked, each chosen step runs as usual -- its hold, its end
+rule, its spectra -- and once the hold has ended normally a frequency sweep runs from
+high to low at the same DC potential, with the cell left on and the spectra carrying
+on at the slow rate (acquisition.acquire_pitt). The hold then gives the PITT's dQ/dE
+and the sweep the impedance, at the same potential on the same film: the low-frequency
+capacitance gives the chemical capacitance, independently of dQ/dE, and the higher
+frequencies separate the double layer from it. The PITT's return leg sweeps the same
+potentials again on the way back, which is the drift and hysteresis check.
 
-One STEP is: hold at E for `ereis_hold_s` (a fixed hold, with spectra, so the film
-settles at that potential), then a frequency sweep from high to low at the same DC
-potential, with the cell left on and the spectra carrying on at the slow rate. The
-low-frequency capacitance gives the chemical capacitance, and with it the density of
-states, independently of the PITT's dQ/dE on the same film.
+Pure logic only: which steps sweep, the frequency list, the time estimate and the
+Start checks.
 
 Gamry only for now: the Autolab's FRA32M failed NOVA's own test (2026-10-26) and is
 awaiting repair. The loop and the file are not Gamry-specific, so an Autolab driver
@@ -19,11 +21,9 @@ can be added once its FRA works.
 """
 import math
 
-from spec_echem.pitt import ROLE_FORWARD, PittStep, StepEnd
+from spec_echem.pitt import ROLE_DEDOPE, pitt_plan
 
-ROLE_REPEAT = "repeat"          # the first step again at the end: the drift check
-
-# How the frequency sweep of a step ended. Recorded per step as `sweep_end`.
+# How the frequency sweep of a step ended. Recorded per swept step as `sweep_end`.
 SWEEP_COMPLETE = "complete"
 SWEEP_STOPPED = "stopped"       # Stop pressed: the frequency in hand finished, no more
 SWEEP_ABORTED = "aborted"
@@ -43,35 +43,43 @@ EREIS_F_MAX_HZ = 1.0e6
 _FLOAT_SLACK = 1e-9
 
 
-def ereis_plan(settings):
-    """Every step the staircase will hold and sweep, in run order. -> [PittStep]
+def ereis_enabled(settings):
+    """Is the PITT to sweep impedance? Only with the PITT itself ticked."""
+    return bool(settings.get("pitt_enabled", False)
+                and settings.get("pitt_eis_enabled", False))
 
-    The stop potential is a ceiling, as in the PITT (pitt.pitt_plan): the step count
-    rounds DOWN. Start may lie above stop; the staircase then runs downward. With
-    `ereis_repeat_first`, the first potential is held and swept again at the end, so
-    drift over a long run shows as two different spectra at one potential.
+
+def ereis_sweep_steps(settings, plan=None):
+    """The indices of the PITT steps that get a sweep, as a set (empty when off).
+
+    Every `pitt_eis_every_n`-th potential counted from the start, on the way up and
+    on the way back alike, so a return leg sweeps the same potentials as the forward
+    one. Never the end dedope: that hold is there to reset the film, not to measure.
+    Asks only the impedance box, so a PITT estimate shows the sweeps' time while
+    the PITT itself is unticked.
     """
-    start = float(settings["ereis_start_v"])
-    stop = float(settings["ereis_stop_v"])
-    step = abs(float(settings["ereis_step_mv"])) / 1000.0
-    if step == 0 or start == stop:
-        forward = [start]
-    else:
-        n = int(math.floor(abs(stop - start) / step + _FLOAT_SLACK)) + 1
-        sign = 1.0 if stop > start else -1.0
-        forward = [round(start + sign * k * step, 6) for k in range(n)]
-    potentials = [(v, ROLE_FORWARD) for v in forward]
-    if settings.get("ereis_repeat_first", False):
-        potentials.append((forward[0], ROLE_REPEAT))
-    return [PittStep(i, v, role) for i, (v, role) in enumerate(potentials)]
+    if not settings.get("pitt_eis_enabled", False):
+        return set()
+    plan = pitt_plan(settings) if plan is None else plan
+    every = max(int(settings.get("pitt_eis_every_n", 1)), 1)
+    start = float(settings["pitt_start_v"])
+    step_v = abs(float(settings["pitt_step_mv"])) / 1000.0
+    out = set()
+    for step in plan:
+        if step.role == ROLE_DEDOPE:
+            continue
+        position = int(round(abs(step.potential - start) / step_v)) if step_v else 0
+        if position % every == 0:
+            out.add(step.index)
+    return out
 
 
 def ereis_frequencies(settings):
-    """The sweep's frequencies in Hz, high to low, `ereis_points_per_decade` per
+    """The sweep's frequencies in Hz, high to low, `pitt_eis_points_per_decade` per
     decade, both ends included. [] when the settings cannot make a sweep."""
-    hi = float(settings["ereis_f_high_hz"])
-    lo = float(settings["ereis_f_low_hz"])
-    ppd = int(settings["ereis_points_per_decade"])
+    hi = float(settings["pitt_eis_f_high_hz"])
+    lo = float(settings["pitt_eis_f_low_hz"])
+    ppd = int(settings["pitt_eis_points_per_decade"])
     if not (hi > 0 and lo > 0 and hi >= lo and ppd >= 1):
         return []
     decades = math.log10(hi / lo)
@@ -92,45 +100,36 @@ def ereis_sweep_s(settings):
 
 
 def ereis_duration_s(settings):
-    """The estimated length of the whole staircase, s: every step's hold plus its
-    sweep. An estimate, not a bound -- a film may take longer per frequency."""
-    n = len(ereis_plan(settings))
-    return n * (float(settings["ereis_hold_s"]) + ereis_sweep_s(settings))
+    """The time the sweeps ADD to the PITT, s: an estimate, not a bound -- a film
+    may take longer per frequency. 0 when the box is not ticked."""
+    return len(ereis_sweep_steps(settings)) * ereis_sweep_s(settings)
 
 
 def ereis_vac_v(settings):
     """The AC amplitude handed to the instrument, in V."""
-    return float(settings["ereis_vac_mv"]) / 1000.0
+    return float(settings["pitt_eis_vac_mv"]) / 1000.0
 
 
 def ereis_problems(settings):
-    """Plain-language reasons the ER-EIS cannot run as set, or [] when it can."""
+    """Plain-language reasons the sweeps cannot run as set, or [] when they can (or
+    when the box is not ticked)."""
+    if not ereis_enabled(settings):
+        return []
     out = []
-    if float(settings["ereis_step_mv"]) <= 0:
-        out.append("The ER-EIS step must be larger than 0 mV.")
-    if float(settings["ereis_hold_s"]) <= 0:
-        out.append("The ER-EIS hold before each sweep must be longer than 0 s.")
-    hi = float(settings["ereis_f_high_hz"])
-    lo = float(settings["ereis_f_low_hz"])
+    hi = float(settings["pitt_eis_f_high_hz"])
+    lo = float(settings["pitt_eis_f_low_hz"])
     if lo <= 0 or hi <= 0:
-        out.append("The ER-EIS frequencies must be larger than 0 Hz.")
+        out.append("The impedance frequencies must be larger than 0 Hz.")
     elif lo >= hi:
-        out.append(f"The ER-EIS sweep runs from high to low: the highest frequency "
+        out.append(f"The impedance sweep runs from high to low: the highest frequency "
                    f"({hi:g} Hz) must be above the lowest ({lo:g} Hz).")
     elif hi > EREIS_F_MAX_HZ * (1 + _FLOAT_SLACK):
-        out.append(f"The ER-EIS highest frequency ({hi:g} Hz) is above what the "
+        out.append(f"The highest impedance frequency ({hi:g} Hz) is above what the "
                    f"Reference 600 reaches ({EREIS_F_MAX_HZ:g} Hz).")
-    if int(settings["ereis_points_per_decade"]) < 1:
-        out.append("The ER-EIS sweep needs at least one point per decade.")
-    if float(settings["ereis_vac_mv"]) <= 0:
-        out.append("The ER-EIS AC amplitude must be larger than 0 mV.")
-    if float(settings["ereis_slow_interval_s"]) < float(settings["chrono_delta_time"]):
-        out.append("The ER-EIS slow spectrum interval is shorter than the time between "
-                   "spectra, so it would not slow anything down.")
+    if int(settings["pitt_eis_points_per_decade"]) < 1:
+        out.append("The impedance sweep needs at least one point per decade.")
+    if float(settings["pitt_eis_vac_mv"]) <= 0:
+        out.append("The impedance AC amplitude must be larger than 0 mV.")
+    if int(settings.get("pitt_eis_every_n", 1)) < 1:
+        out.append("Sweep every Nth potential: N must be 1 or more.")
     return out
-
-
-def ereis_step_end_for(step, settings, resolution_a=None):
-    """The hold before a sweep: a fixed time, never ended by the current."""
-    hold = float(settings["ereis_hold_s"])
-    return StepEnd(cutoff_pct=0.0, min_hold_s=hold, max_hold_s=hold, fixed=True)

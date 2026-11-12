@@ -46,9 +46,6 @@ DATA_TYPE_PITT = 5
 # A galvanostatic titration (spec_echem/gitt.py): HDF5 ONLY, for the same reasons,
 # one group per titration step (pulse + relaxation).
 DATA_TYPE_GITT = 6
-# Impedance at each step of a staircase (spec_echem/ereis.py): HDF5 ONLY, one group
-# per step, each with an impedance/ subgroup beside its spectra and echem.
-DATA_TYPE_EREIS = 7
 
 
 def segment_potential(settings, data_type, run_number):
@@ -80,13 +77,6 @@ def segment_potential(settings, data_type, run_number):
         try:
             from spec_echem.pitt import pitt_step_potential
             return pitt_step_potential(settings, run_number)
-        except (KeyError, TypeError, ValueError):
-            return None
-    if data_type == DATA_TYPE_EREIS:
-        try:
-            from spec_echem.ereis import ereis_plan
-            plan = ereis_plan(settings)
-            return plan[run_number].potential if 0 <= run_number < len(plan) else None
         except (KeyError, TypeError, ValueError):
             return None
     return None
@@ -276,8 +266,7 @@ def discover_run_h5(run_folder):
     for data_type, base in (
             (DATA_TYPE_CV, "CV"), (DATA_TYPE_PREDEDOPING, "Pre-dedoping"),
             (DATA_TYPE_DOPING, "Doping"), (DATA_TYPE_DEDOPING, "Dedoping"),
-            (DATA_TYPE_PITT, "PITT"), (DATA_TYPE_GITT, "GITT"),
-            (DATA_TYPE_EREIS, "ER-EIS")):
+            (DATA_TYPE_PITT, "PITT"), (DATA_TYPE_GITT, "GITT")):
         path = folder / _h5_filename_for(data_type, folder.name)
         if not path.is_file():
             continue
@@ -310,8 +299,6 @@ def segment_sort_key(data_type, run_number):
         return (3, run_number, 0)                          # after the whole ladder
     if data_type == DATA_TYPE_GITT:
         return (4, run_number, 0)                          # after the PITT
-    if data_type == DATA_TYPE_EREIS:
-        return (5, run_number, 0)                          # after the GITT
     sub = 0 if data_type == DATA_TYPE_DOPING else 1       # doping before dedoping
     return (2, run_number, sub)
 
@@ -516,7 +503,6 @@ def _h5_filename_for(data_type, added_path):
         DATA_TYPE_PREDEDOPING: f'{added_path}_prededoping.h5',
         DATA_TYPE_PITT:        f'{added_path}_pitt.h5',
         DATA_TYPE_GITT:        f'{added_path}_gitt.h5',
-        DATA_TYPE_EREIS:       f'{added_path}_ereis.h5',
     }[data_type]
 
 
@@ -527,7 +513,6 @@ _H5_TYPE_NAME = {
     DATA_TYPE_PREDEDOPING: "Pre-dedoping",
     DATA_TYPE_PITT: "PITT",
     DATA_TYPE_GITT: "GITT",
-    DATA_TYPE_EREIS: "ER-EIS",
 }
 
 H5_SCHEMA_VERSION = "1"
@@ -752,6 +737,19 @@ def write_pitt_h5(record, dark, ref, wavelengths, data_root, added_path,
       echem/time               s since THIS step's setpoint was applied
       echem/time_potentiostat  the potentiostat's clock, continuous across steps
 
+    and, on a step with an impedance sweep (spec_echem/ereis.py), the attrs
+    sweep_end, sweep_s and n_freq plus
+
+      impedance/   one row per frequency, high to low, in the order measured:
+                   frequency_set (Hz), ok (1 = the instrument returned a value),
+                   t_point (s the point took), time_potentiostat (s since cell on,
+                   when it started), and every column the instrument reported
+                   (on the Gamry: zfreq, zreal, zimag, zsig, zmod, zphz, idc, vdc,
+                   ...), NaN where a point has none.
+
+    A swept step's echem has a gap the length of its sweep: the current is not
+    sampled while the instrument measures impedance.
+
     and at the root `pitt_steps_json` (every step that ran, in order, with how it
     ended) and `pitt_completed`. No dQ is stored: it is derived from the current, and
     a derived number in an archive drifts out of step with its source.
@@ -760,13 +758,21 @@ def write_pitt_h5(record, dark, ref, wavelengths, data_root, added_path,
     same folder is replaced rather than merged, so stale steps cannot survive into a
     shorter one. Returns the path, or None without h5py.
     """
-    return _write_steps_h5(
+    def attrs(st):
+        out = {"role": st["role"], "end_reason": st["end_reason"],
+               "hold_s": st["hold_s"], "peak_current_A": st["peak_current_A"]}
+        for key in ("sweep_end", "sweep_s", "n_freq"):
+            if st.get(key) is not None:
+                out[key] = st[key]
+        return out
+
+    path, written = _write_steps_h5(
         record, dark, ref, wavelengths, data_root, added_path, DATA_TYPE_PITT,
-        "PITT", "pitt", lambda st: {"role": st["role"],
-                                    "end_reason": st["end_reason"],
-                                    "hold_s": st["hold_s"],
-                                    "peak_current_A": st["peak_current_A"]},
-        settings=settings, compression=compression)[0]
+        "PITT", "pitt", attrs, settings=settings, compression=compression)
+    points = list(getattr(record, "impedance", None) or [])
+    if path is not None and points:
+        _write_impedance_groups(path, written, points)
+    return path
 
 
 def write_gitt_h5(record, dark, ref, wavelengths, data_root, added_path,
@@ -804,39 +810,8 @@ _Z_UNITS = {"frequency_set": "Hz", "zfreq": "Hz", "zreal": "Ohm", "zimag": "Ohm"
             "t_point": "s", "time_potentiostat": "s"}
 
 
-def write_ereis_h5(record, dark, ref, wavelengths, data_root, added_path,
-                   settings=None, compression=0):
-    """Write an ER-EIS staircase to `{added_path}_ereis.h5`, ONE GROUP PER STEP.
-
-    The PITT's layout (write_pitt_h5): each group holds the step's spectra and the
-    echem of its hold, plus
-
-      attrs        role, end_reason (of the hold), hold_s, potential_set,
-                   sweep_end, sweep_s, n_freq, n_spectra
-      impedance/   one row per frequency, high to low, in the order measured:
-                   frequency_set (Hz), ok (1 = the instrument returned a value),
-                   t_point (s the point took), time_potentiostat (s since cell on,
-                   when it started), and every column the instrument reported
-                   (on the Gamry: zfreq, zreal, zimag, zsig, zmod, zphz, idc, vdc,
-                   ...), NaN where a point has none.
-
-    and at the root `ereis_steps_json` and `ereis_completed`. Raw impedance only:
-    C(w), Cdl and the chemical capacitance are derived and not stored.
-    """
-    def attrs(st):
-        out = {"role": st["role"], "end_reason": st["end_reason"],
-               "hold_s": st["hold_s"]}
-        for key in ("sweep_end", "sweep_s", "n_freq"):
-            if st.get(key) is not None:
-                out[key] = st[key]
-        return out
-
-    path, written = _write_steps_h5(
-        record, dark, ref, wavelengths, data_root, added_path, DATA_TYPE_EREIS,
-        "ER-EIS", "ereis", attrs, settings=settings, compression=compression)
-    if path is None:
-        return None
-    points = list(getattr(record, "impedance", None) or [])
+def _write_impedance_groups(path, written, points):
+    """Each written step's impedance points as its `impedance/` group (write_pitt_h5)."""
     with h5py.File(path, "a") as f:
         for k, _rows in written:
             mine = [p for p in points if int(p.get("step", -1)) == k]
@@ -862,10 +837,9 @@ def write_ereis_h5(record, dark, ref, wavelengths, data_root, added_path,
                     _h5_dataset(z, name, np.asarray(column, dtype=float),
                                 **({"units": _Z_UNITS[name]} if name in _Z_UNITS
                                    else {}))
-    return path
 
 
-def read_ereis_impedance_h5(path, run_number):
+def read_impedance_h5(path, run_number):
     """One step's impedance as a DataFrame, one row per frequency in the order
     measured, or None when the step has none (or h5py is absent)."""
     if not H5PY_AVAILABLE:
@@ -883,7 +857,7 @@ def read_ereis_impedance_h5(path, run_number):
 
 def _write_steps_h5(record, dark, ref, wavelengths, data_root, added_path, data_type,
                     label, key, step_attrs, settings=None, compression=0):
-    """One group per step of a continuous run (PITT, GITT or ER-EIS); see
+    """One group per step of a continuous run (PITT or GITT); see
     write_pitt_h5. -> (path, [(step index, its echem rows)]), or (None, [])."""
     if not H5PY_AVAILABLE:
         _warn_h5py_missing_once()
@@ -930,7 +904,7 @@ def _write_steps_h5(record, dark, ref, wavelengths, data_root, added_path, data_
         t_pot = np.asarray(record.echem_time, dtype=float)
         for k, e in written:
             # write_segment_h5 labels echem/time for a segment; here it is per step.
-            pitt = data_type != DATA_TYPE_GITT          # a potential staircase
+            pitt = data_type == DATA_TYPE_PITT
             f[str(k)]["echem"]["time"].attrs["description"] = (
                 "s since this step's setpoint was applied (the PITT loop's clock)"
                 if pitt else "s since this step began; its pulse is t < pulse_s")
