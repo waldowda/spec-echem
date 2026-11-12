@@ -83,6 +83,9 @@ DEFAULT_SETTINGS = {
     # significant figures" (half a unit in the second: 150 -> +-5, 1.6 -> +-0.05).
     "film_thickness_u_nm": 0.0,
     "film_area_u_cm2": 0.0,
+    # "estimate" until the film is measured after the run; the measured size is then
+    # entered on the Charge tab and kept in {folder}_film.json (spec_echem/film.py).
+    "film_size_status": "estimate",
 
     # --- Trigger ---
     "trigger": True,

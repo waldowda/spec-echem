@@ -27,6 +27,13 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ### Added
 
+- **Film size measured after the run (2026-11-11).** Parameters: **Film size is: an
+  estimate / measured** (default estimate), recorded at Start and in the run log.
+  Charge tab: a Film size box (orange = estimate, green = measured), **Edit…** and
+  **Copy from another run…**. Edits go into `{folder}_film.json`, an append-only
+  history whose latest entry is used; the run metadata is never changed. Every density
+  plot and CSV names its film size and flags an estimate as provisional.
+  `docs/data-format.md` §7.
 - **Saved CSVs say how their numbers were made (2026-11-11).** Fit exports carry the
   wavelength (and auto or typed), model, fitted window and point count, status and every
   parameter. The ladder carries one line per segment. The All-fits table gains

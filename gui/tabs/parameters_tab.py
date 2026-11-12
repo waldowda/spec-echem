@@ -208,6 +208,11 @@ class ParametersTab(QWidget):
             sform.addRow(label, self._hint(
                 spin, "for the Charge tab's densities; at 0, half a unit in "
                       "the 2nd significant figure (150 → ±5)"))
+        sform.addRow("Film size is:", self._hint(
+            self._combo("film_size_status", [("estimate", "an estimate"),
+                                             ("measured", "measured")]),
+            "an estimate is marked provisional on every density until a measured "
+            "size is entered on the Charge tab after the run"))
 
         # Notes — full width, taller
         sform.addRow(QLabel("Notes:"))

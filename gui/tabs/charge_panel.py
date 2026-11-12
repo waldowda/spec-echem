@@ -12,7 +12,8 @@ never recorded them falls back to the Parameters tab, and the plot says so.
 import pathlib
 
 import numpy as np
-from qtpy.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
+from qtpy.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+                            QDoubleSpinBox, QFileDialog, QFormLayout, QLineEdit,
                             QHBoxLayout, QLabel, QMessageBox, QPushButton,
                             QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
                             QSplitter)
@@ -25,6 +26,7 @@ from spec_echem.charge import (DEFAULT_DRIFT_FRACTION, DEFAULT_TAIL_S,
 from spec_echem.data import DATA_TYPE_DEDOPING, DATA_TYPE_DOPING, DATA_TYPE_PREDEDOPING
 from gui.widgets.plot_canvas import MplCanvas
 from gui.widgets.figure_dialog import EXPORT_LABEL, EXPORT_TIP, open_figure_dialog
+from spec_echem import film as film_store
 
 VIEWS = (
     ("Charge vs potential", "charge"),
@@ -121,6 +123,7 @@ class ChargePanel(QWidget):
         self.steps = []
         self._stale = True
         self._notes = []
+        self._film_entry, self._film_history, self._film_error = None, [], None
         self._build()
 
     # --- layout ------------------------------------------------------------
@@ -184,6 +187,27 @@ class ChargePanel(QWidget):
         checks.addWidget(self.tau_spin)
         checks.addStretch()
         layout.addLayout(checks)
+
+        # Film size: usually an estimate at Start, measured after the run. Edits go
+        # into {folder}_film.json as a history; the run metadata is never changed.
+        film_row = QHBoxLayout()
+        film_row.addWidget(QLabel("Film size:"))
+        self.film_label = QLabel(self)
+        self.film_label.setTextFormat(Qt.RichText)
+        film_row.addWidget(self.film_label)
+        self.film_edit_btn = QPushButton("Edit…", self)
+        self.film_edit_btn.setToolTip(
+            "Enter the measured thickness and area. Saved beside the run as a\n"
+            "history of edits; the run's own metadata is not changed.")
+        self.film_edit_btn.clicked.connect(self.on_edit_film)
+        film_row.addWidget(self.film_edit_btn)
+        self.film_copy_btn = QPushButton("Copy from another run…", self)
+        self.film_copy_btn.setToolTip(
+            "Use the film size in use in another run of the same film.")
+        self.film_copy_btn.clicked.connect(self.on_copy_film)
+        film_row.addWidget(self.film_copy_btn)
+        film_row.addStretch()
+        layout.addLayout(film_row)
 
         split = QSplitter(Qt.Vertical, self)
         plot_box = QWidget(self)
@@ -253,18 +277,112 @@ class ChargePanel(QWidget):
         from). An uncertainty of 0 -- or one an older run never recorded -- means
         two significant figures."""
         recorded = self.win.label_settings() or {}
-        thickness = recorded.get("film_thickness_nm")
-        area = recorded.get("film_area_cm2")
-        if thickness and area:
-            source = recorded
-            where = "this run"
-        else:
-            source = self.win.settings
-            where = "the Parameters tab (this run did not record them)"
+        folder = getattr(self.win, "run_folder", None)
+        self._film_error = None
+        entry, history = None, []
+        try:
+            entry, history = film_store.current(folder, recorded, self._run_started())
+        except film_store.FilmFileError as exc:
+            # Said on the plot, not swallowed: the measured size may be in there.
+            self._film_error = str(exc)
+            entry = film_store.entry_from_settings(recorded)
+            history = [entry]
+        if entry["thickness_nm"] > 0 and entry["area_cm2"] > 0:
+            self._film_entry, self._film_history = entry, history
+            where = (f"measured {entry.get('time', '')[:10]}".strip()
+                     if entry["status"] == "measured" else "ESTIMATE, provisional")
+            return (entry["thickness_nm"], entry["area_cm2"], entry["thickness_u_nm"],
+                    entry["area_u_cm2"], where)
+        self._film_entry, self._film_history = None, []
+        source = self.win.settings
         return (float(source.get("film_thickness_nm") or 0.0),
                 float(source.get("film_area_cm2") or 0.0),
                 float(source.get("film_thickness_u_nm") or 0.0),
-                float(source.get("film_area_u_cm2") or 0.0), where)
+                float(source.get("film_area_u_cm2") or 0.0),
+                "the Parameters tab (this run did not record them)")
+
+    def _metadata(self, folder):
+        """(settings, run_started) from a run folder's metadata JSON, or ({}, None)."""
+        if folder is None:
+            return {}, None
+        folder = pathlib.Path(folder)
+        try:
+            import json
+            meta = json.loads((folder / f"{folder.name}_metadata.json").read_text(
+                encoding="utf-8"))
+            return meta.get("settings") or {}, meta.get("run_started")
+        except (OSError, ValueError):
+            return {}, None
+
+    def _run_started(self):
+        return self._metadata(getattr(self.win, "run_folder", None))[1]
+
+    def _update_film_box(self):
+        folder = getattr(self.win, "run_folder", None)
+        self.film_edit_btn.setEnabled(folder is not None)
+        self.film_copy_btn.setEnabled(folder is not None)
+        entry = getattr(self, "_film_entry", None)
+        if self._film_error:
+            text, colour = f"FILM FILE UNREADABLE — {self._film_error}", "#b71c1c"
+        elif entry is None:
+            text, colour = "not recorded by this run (Parameters tab values)", "#555555"
+        else:
+            text = film_store.describe(entry)
+            colour = "#1b5e20" if entry["status"] == "measured" else "#b26a00"
+        self.film_label.setText(f'<b style="color:{colour}">{text}</b>')
+        lines = [f"{i}. {h.get('time') or 'at Start'}  {h['status']}  "
+                 f"{h['thickness_nm']:g} ±{h['thickness_u_nm']:g} nm x "
+                 f"{h['area_cm2']:g} ±{h['area_u_cm2']:g} cm2 — {h.get('source', '')}"
+                 + (f" — {h['note']}" if h.get("note") else "")
+                 for i, h in enumerate(getattr(self, "_film_history", []), 1)]
+        self.film_label.setToolTip("History (latest is used):\n" + "\n".join(lines)
+                                   if lines else "")
+
+    def _add_film(self, entry):
+        folder = self.win.run_folder
+        recorded = self.win.label_settings() or {}
+        try:
+            film_store.add_entry(folder, entry, recorded, self._run_started())
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Film size not saved", str(exc))
+            return False
+        self.refresh()
+        return True
+
+    def on_edit_film(self):
+        if getattr(self.win, "run_folder", None) is None:
+            return
+        self.compute()
+        dialog = FilmDialog(self, self._film_entry, self._film_history)
+        accepted = dialog.exec_() if hasattr(dialog, "exec_") else dialog.exec()
+        if not accepted:
+            return
+        try:
+            entry = dialog.entry()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Film size not saved", str(exc))
+            return
+        self._add_film(entry)
+
+    def on_copy_film(self):
+        folder = getattr(self.win, "run_folder", None)
+        if folder is None:
+            return
+        source = QFileDialog.getExistingDirectory(
+            self, "Run whose film size to copy", str(pathlib.Path(folder).parent))
+        if not source:
+            return
+        settings, started = self._metadata(source)
+        try:
+            entry = film_store.copied_entry(source, settings, started)
+            film_store.new_entry(entry["thickness_nm"], entry["area_cm2"],
+                                 entry["status"])          # validates
+        except ValueError as exc:
+            QMessageBox.warning(self, "Nothing to copy",
+                                f"{pathlib.Path(source).name}: {exc}")
+            return
+        if self._add_film(entry):
+            QMessageBox.information(self, "Film size copied", film_store.describe(entry))
 
     def _film_note(self, thickness, area, u_t, u_a):
         """The film-size uncertainty, one scale for every density point."""
@@ -379,10 +497,20 @@ class ChargePanel(QWidget):
             steps[-1].run_number = seg.run_number
         self.steps = steps
         self._film_info = (thickness, area, film_rel_u(thickness, area, u_t, u_a),
-                           "this run" if film_source == "this run"
-                           else "Parameters tab")
+                           "Parameters tab" if self._film_entry is None
+                           else film_source)
         self._a0_info = (a0, float(wl[row])) if a0 is not None else None
-        notes = [f"film {thickness:g} nm x {area:g} cm2 from {film_source}"]
+        if self._film_entry is not None:
+            notes = [f"film {film_store.describe(self._film_entry)}; source: "
+                     f"{self._film_entry.get('source', '')}"]
+            if len(self._film_history) > 1:
+                notes.append(f"film size history: {len(self._film_history)} entries "
+                             f"in {film_store.film_path(self.win.run_folder).name}")
+        else:
+            notes = [f"film {thickness:g} nm x {area:g} cm2 from {film_source}"]
+        if self._film_error:
+            notes.append(f"FILM FILE UNREADABLE ({self._film_error}); "
+                         f"the run's own values are used")
         film_note = self._film_note(thickness, area, u_t, u_a)
         if film_note:
             notes.append(film_note)
@@ -413,6 +541,7 @@ class ChargePanel(QWidget):
                          f"{max(ends):.3f} (0 = back to A0): baseline drift plus "
                          f"charge left in, a floor under every bleach")
         self._notes = notes
+        self._update_film_box()
         return steps
 
     # --- drawing ---------------------------------------------------------------
@@ -638,3 +767,61 @@ class ChargePanel(QWidget):
                 pd.DataFrame(self.rows(), columns=COLUMNS).to_csv(f, index=False)
         except OSError as exc:
             QMessageBox.warning(self, "Could not save", str(exc))
+
+
+class FilmDialog(QDialog):
+    """Enter a film size: thickness and area with their uncertainties, its status
+    and a note. The history is shown above, read-only."""
+
+    def __init__(self, parent, current, history):
+        super().__init__(parent)
+        self.setWindowTitle("Film size")
+        layout = QVBoxLayout(self)
+        if history:
+            text = "\n".join(
+                f"{i}. {h.get('time') or 'at Start'}  {h['status']}  "
+                f"{h['thickness_nm']:g} nm x {h['area_cm2']:g} cm2 — "
+                f"{h.get('source', '')}" + (f" — {h['note']}" if h.get("note") else "")
+                for i, h in enumerate(history, 1))
+            label = QLabel("History (kept; the latest is used):\n" + text, self)
+            label.setStyleSheet("color: #555;")
+            layout.addWidget(label)
+        form = QFormLayout()
+        cur = current or {}
+
+        def spin(value, decimals, step, suffix, special=None):
+            w = QDoubleSpinBox(self)
+            w.setRange(0.0, 100000.0)
+            w.setDecimals(decimals)
+            w.setSingleStep(step)
+            w.setSuffix(suffix)
+            if special:
+                w.setSpecialValueText(special)
+            w.setValue(float(value or 0.0))
+            return w
+
+        self.thickness = spin(cur.get("thickness_nm"), 1, 1.0, " nm")
+        self.thickness_u = spin(cur.get("thickness_u_nm"), 1, 1.0, " nm", "2 sig. figs")
+        self.area = spin(cur.get("area_cm2"), 4, 0.01, " cm²")
+        self.area_u = spin(cur.get("area_u_cm2"), 4, 0.01, " cm²", "2 sig. figs")
+        self.status = QComboBox(self)
+        self.status.addItem("measured", "measured")
+        self.status.addItem("an estimate", "estimate")
+        self.note = QLineEdit(self)
+        self.note.setPlaceholderText("how it was measured, e.g. profilometer")
+        form.addRow("Thickness:", self.thickness)
+        form.addRow("Thickness ±:", self.thickness_u)
+        form.addRow("Immersed area:", self.area)
+        form.addRow("Area ±:", self.area_u)
+        form.addRow("Status:", self.status)
+        form.addRow("Note:", self.note)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel, self)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def entry(self):
+        return film_store.new_entry(
+            self.thickness.value(), self.area.value(), self.status.currentData(),
+            self.thickness_u.value(), self.area_u.value(), note=self.note.text())

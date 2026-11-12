@@ -106,13 +106,6 @@ The CHANGELOG says what shipped; git log says when.
 
 - [ ] **Cut v0.4.0** — 224 commits since v0.3.1. Review (`/code-review`) BEFORE the merge
       to `main`, the v0.3.0 lesson.
-- [ ] **Film size measured after the run** (planned 2026-11-11). `{folder}_film.json`
-      beside the run: an append-only history (first entry = the run's estimate; each
-      edit adds thickness ± u, area ± u, estimate/measured, note, time, build; the
-      latest wins). The run metadata is never changed. Parameters tab: an
-      estimate/measured status at Start. Charge tab: a Film size box, Edit, the history,
-      "Copy film size from another run…". Every density plot and CSV names its source
-      ("measured …" or "estimate, provisional"). Then `data-format.md`, manual, CHANGELOG.
 - [ ] **Charge plots in "Export all figures"** (it writes the fit traces and the Kinetics
       ladder only).
 - [ ] **Doping +0.9 V on the 2026-11-05 run:** exp passes at only 8 of 180 wavelengths
