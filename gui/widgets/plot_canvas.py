@@ -130,6 +130,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self._live_line = None   # persistent Line2D for the incremental live trace
         self._live_head = None   # the dot on its newest point
         self._live_text = None   # the status readout in its corner
+        self._live_labels = None  # (xlabel, ylabel) the live plot was built with
         # (artist, raw text, warn) for the footnote, so a resize can rewrap it. The
         # wrap depends on the canvas width, and one computed at draw time ran off
         # both edges once the window was narrowed.
@@ -170,7 +171,7 @@ class MplCanvas(FigureCanvasQTAgg):
     # Everything a draw method may rebind. resid_ax exists only after plot_fit, and
     # plot_fit also overwrites _xlabel/_ylabel -- rendering offscreen must not leave
     # the widget relabeled.
-    _RETARGET_ATTRS = ("fig", "ax", "resid_ax", "_live_line", "_live_head", "_live_text", "_footnote",
+    _RETARGET_ATTRS = ("fig", "ax", "resid_ax", "_live_line", "_live_head", "_live_text", "_live_labels", "_footnote",
                        "_xlabel", "_ylabel")
 
     @contextmanager
@@ -582,7 +583,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self.draw_idle()
 
     def update_live_line(self, x, y, xlabel, ylabel, title=None, y_unit=None,
-                         status=None):
+                         status=None, x_unit=None, equal_aspect=False):
         """Incremental live echem trace mid-run (red = running). Reuses ONE Line2D
         and just updates its data + rescales, instead of clearing and rebuilding the
         whole figure each tick — a much lighter redraw, so it holds the GIL only
@@ -604,11 +605,18 @@ class MplCanvas(FigureCanvasQTAgg):
         tick. Outside the axes so it can never cover data: in the top-left corner it
         hid the start of every doping transient. Requested
         2026-10-07: at 1 mV/s a point arrives every 20 s, and a slowly growing line
-        did not show that the run was moving, where it was, or which cycle it was on."""
-        if self._live_line is None:
+        did not show that the run was moving, where it was, or which cycle it was on.
+
+        A change of axis labels starts a fresh plot, so one canvas can go from a
+        PITT step's current to its impedance sweep and back (2026-11-12).
+        `equal_aspect` gives both axes one scale and marks every point, for a
+        Nyquist plot: a semicircle then looks like one, one dot per frequency."""
+        if self._live_line is None or self._live_labels != (xlabel, ylabel):
             self._xlabel, self._ylabel = xlabel, ylabel
             self._new_axes()
-            (self._live_line,) = self.ax.plot([], [], lw=1.0, color="#d62728")
+            self._live_labels = (xlabel, ylabel)
+            (self._live_line,) = self.ax.plot(
+                [], [], "o-" if equal_aspect else "-", ms=3, lw=1.0, color="#d62728")
             (self._live_head,) = self.ax.plot([], [], "o", ms=4, color="#1f77b4",
                                               zorder=3)
             self._live_text = self.ax.text(
@@ -623,6 +631,10 @@ class MplCanvas(FigureCanvasQTAgg):
             self._live_rows = 1
             if y_unit:
                 self.ax.yaxis.set_major_formatter(EngFormatter(unit=y_unit))
+            if x_unit:
+                self.ax.xaxis.set_major_formatter(EngFormatter(unit=x_unit))
+            if equal_aspect:
+                self.ax.set_aspect("equal", adjustable="datalim")
             self._decorate(title)
             if title:
                 self.ax.set_title(title, pad=16)     # room for the status line

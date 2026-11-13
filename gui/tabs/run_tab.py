@@ -16,7 +16,8 @@ import copy
 from datetime import datetime
 from pathlib import Path
 
-from spec_echem.experiment import (build_segments, ereis_live, ereis_start_problems,
+from spec_echem.experiment import (build_segments, ereis_live, ereis_live_nyquist,
+                                   ereis_start_problems,
                                    gitt_live, gitt_start_concerns,
                                    gitt_start_problems, gitt_step_segments,
                                    live_status, pitt_live, pitt_start_problems,
@@ -594,14 +595,24 @@ class RunTab(QWidget):
             try:
                 record = getattr(worker, "pitt_record", None)
                 settings = getattr(worker, "settings", None) or {}
+                nyquist = None
                 if ereis_enabled(settings):
                     live = ereis_live(record, seg.num_points,
                                       len(ereis_frequencies(settings)))
+                    nyquist = ereis_live_nyquist(record)
                 else:
                     live = pitt_live(record, seg.num_points)
             except Exception:  # noqa: BLE001 -- the plot skips a frame, never the GUI
                 return
-            if live is not None:
+            if live is not None and nyquist is not None:
+                # During a step's sweep: its Nyquist plot so far, one dot per
+                # frequency; the current again once the next step's hold begins.
+                _t, _i, status = live
+                self.live_canvas.update_live_line(
+                    nyquist[0], nyquist[1], "Z\u2032", "\u2212Z\u2033",
+                    title="PITT impedance \u2014 live", y_unit="\u03a9",
+                    x_unit="\u03a9", status=status, equal_aspect=True)
+            elif live is not None:
                 t, i, status = live
                 self.live_canvas.update_live_line(
                     t, i, "Time in step (s)", "Current", title="PITT — live",
