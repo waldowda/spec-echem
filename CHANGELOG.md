@@ -40,9 +40,12 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   back and the range read back; the run stops if they cannot be (ReadZ leaves the range
   lower, and a hold then clips with no error). Stop lets the frequency in hand finish.
   The PITT estimate adds the sweeps' time, from the Reference 600's measured seconds
-  per frequency; Results shows a swept step's Nyquist plot. The Autolab refuses the box
-  at Start until its FRA32M is repaired. Tested on fakes only; the Randles-dummy check
-  is in TODO.
+  per frequency; Results shows a swept step's Nyquist plot, and during a sweep the Run
+  tab's live plot shows it growing, one dot per frequency, then goes back to the current
+  when the next hold begins. The Autolab refuses the box at Start until its FRA32M is
+  repaired. First Randles-dummy runs on the Reference 600 (2026-11-12): 202 Ohm at
+  10 kHz to 3.21 kOhm at 1 Hz at every step, as the dummy's values give; the rest of the
+  dummy check is in TODO.
 - **Film size measured after the run (2026-11-11).** Parameters: **Film size is: an
   estimate / measured** (default estimate), recorded at Start and in the run log.
   Charge tab: a Film size box (orange = estimate, green = measured), **Edit…** and

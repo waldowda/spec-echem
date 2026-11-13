@@ -10,7 +10,8 @@ from spec_echem import ereis
 from spec_echem.acquisition import acquire_pitt
 from spec_echem.data import (DATA_TYPE_PITT, discover_run_h5, h5_path,
                              read_impedance_h5, read_segment_h5)
-from spec_echem.experiment import (build_segments, ereis_live, ereis_start_problems,
+from spec_echem.experiment import (build_segments, ereis_live, ereis_live_nyquist,
+                                   ereis_start_problems,
                                    pitt_start_problems, pitt_step_segments,
                                    run_duration_bounds, run_pitt_segment)
 from spec_echem.fakes import FakeEreisPotentiostat, FakeSpectrometer
@@ -330,6 +331,22 @@ def test_the_live_readout_says_how_far_the_sweep_has_got():
     assert "Sweep" not in status
 
 
+def test_the_live_nyquist_follows_the_running_step_and_skips_failed_points():
+    record = PittRecord()
+    assert ereis_live_nyquist(record) is None
+    record.echem_step = [0, 0]
+    record.echem_t_in_step = [0.1, 0.2]
+    assert ereis_live_nyquist(record) is None               # hold: no sweep yet
+    record.impedance = [
+        {"step": 0, "zreal": 210.0, "zimag": -20.0, "ok": True},
+        {"step": 0, "zreal": 900.0, "zimag": -1400.0, "ok": False},
+        {"step": 0, "zreal": 1700.0, "zimag": -1500.0, "ok": True}]
+    assert ereis_live_nyquist(record) == ([210.0, 1700.0], [20.0, 1500.0])
+    record.echem_step.append(1)                             # the next hold began
+    record.echem_t_in_step.append(0.0)
+    assert ereis_live_nyquist(record) is None
+
+
 # --- the worker and the GUI ---------------------------------------------------------
 
 @pytest.fixture(scope="module")
@@ -394,6 +411,41 @@ def test_the_pitt_box_round_trips_its_settings_and_adds_to_the_estimate(window):
     tab.populate_from(dict(DEFAULT_SETTINGS))
     assert "impedance" not in tab.pitt_estimate.text()
     assert not tab._widgets["pitt_eis_f_low_hz"].isEnabledTo(tab)
+
+
+def test_the_live_plot_shows_the_sweep_as_a_nyquist_then_the_next_hold(window):
+    """2026-11-12, requested at the rig: watch the semicircle grow during a sweep."""
+    from types import SimpleNamespace
+    from spec_echem.experiment import Segment
+    rec = PittRecord()
+    rec.echem_step = [0, 0]
+    rec.echem_t_in_step = [0.1, 0.2]
+    rec.echem_potential = [0.1, 0.1]
+    rec.echem_current = [3e-5, 3e-5]
+    rec.impedance = [{"step": 0, "frequency_set": 1e4, "zmod": 202.0,
+                      "zreal": 202.0, "zimag": -5.0, "ok": True}]
+    tab = window.run_tab
+    canvas = tab.live_canvas
+    tab._worker = SimpleNamespace(potentiostat=None, pitt_record=rec, settings=quick())
+    tab._current_segment = Segment("PITT", DATA_TYPE_PITT, 0, 3, 0.1, True)
+    try:
+        tab._update_live_echem()
+        assert canvas.ax.get_xlabel().startswith("Z\u2032")
+        assert canvas.ax.get_aspect() == 1.0
+        assert list(canvas._live_line.get_xdata()) == [202.0]
+        assert list(canvas._live_line.get_ydata()) == [5.0]
+        assert "Sweep 1 of" in canvas._live_text.get_text()
+        rec.echem_step.append(1)
+        rec.echem_t_in_step.append(0.05)
+        rec.echem_potential.append(0.2)
+        rec.echem_current.append(6e-5)
+        tab._update_live_echem()
+        assert canvas.ax.get_xlabel().startswith("Time in step")
+        assert canvas.ax.get_aspect() == "auto"
+        assert list(canvas._live_line.get_ydata()) == [6e-5]
+    finally:
+        tab._worker = None
+        tab._current_segment = None
 
 
 def test_impossible_settings_show_in_red_before_start(window):

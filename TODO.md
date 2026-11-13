@@ -39,6 +39,9 @@ The CHANGELOG says what shipped; git log says when.
       Randles side (200 Ohm + 3010 Ohm || 1 uF), Python mode, PITT only: 0.0 to +0.2 V in
       100 mV (3 steps), cutoff off, max hold 10 s, also step back down, impedance ticked:
       every potential, 10 kHz to 1 Hz at 5 per decade, 10 mV.
+      **Ran forward-only twice 2026-11-12:** |Z| 202 Ohm (10 kHz) to 3.21 kOhm (1 Hz) at
+      all 3 steps, no range warning, 14.6 s per sweep. Still to do: the return leg (it
+      was unticked), the items below, and the live Nyquist plot on the rig.
       1. **Nyquist on Results:** a semicircle from Z' ~200 Ohm (10 kHz) to ~3210 Ohm
          (1 Hz), top at -Z'' ~1505 Ohm near 53 Hz, the same at every step and on the
          way back. The run log gives |Z| at both ends per step.

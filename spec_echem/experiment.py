@@ -194,6 +194,26 @@ def ereis_live(record, n_steps, n_freq):
     return t, i, status
 
 
+def ereis_live_nyquist(record):
+    """The running step's impedance so far, for a live Nyquist plot: (Z', -Z''), two
+    lists in Ohm, high frequency first; or None before its sweep has a point. The
+    running step is the one the newest current sample belongs to, so the plot goes
+    back to the current as soon as the next step's hold begins. Frequencies the
+    instrument returned no value for (ok false) are left out, as on Results."""
+    if record is None:
+        return None
+    n = min(len(record.echem_step), len(record.echem_t_in_step))
+    if n == 0:
+        return None
+    k = record.echem_step[n - 1]
+    points = [p for p in list(record.impedance) if p.get("step") == k]
+    if not points:
+        return None
+    ok = [p for p in points if p.get("ok", True)
+          and "zreal" in p and "zimag" in p]
+    return [float(p["zreal"]) for p in ok], [-float(p["zimag"]) for p in ok]
+
+
 def format_ohms(ohms):
     """'3.21 kOhm' -- an impedance in the unit that keeps 1-999 before the point."""
     z = float(ohms)
