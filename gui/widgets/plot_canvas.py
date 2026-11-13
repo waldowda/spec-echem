@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # take a fixed number of pixels whatever the data does.
 MIN_CANVAS_HEIGHT = 300
 
+# Items per row of the live plot's status readout ("Step 2 of 3", "t = ...", "E = ...",
+# "I = ..." fill one row; a PITT impedance sweep's three go on a second).
+LIVE_STATUS_PER_ROW = 4
 
 
 class _HandlerPairWithComma:
@@ -611,6 +614,13 @@ class MplCanvas(FigureCanvasQTAgg):
             self._live_text = self.ax.text(
                 0.5, 1.015, "", transform=self.ax.transAxes, va="bottom",
                 ha="center", fontsize=9, family="monospace", color="#1f77b4")
+            # Kept OUT of tight_layout. In it, a readout wider than the axes made
+            # the layout narrow the axes to fit the text, so the plot shrank each
+            # time the readout grew -- the PITT impedance readout did this
+            # (2026-11-12). Wrapped into rows of LIVE_STATUS_PER_ROW items instead.
+            self._live_text.set_in_layout(False)
+            self._live_title = title
+            self._live_rows = 1
             if y_unit:
                 self.ax.yaxis.set_major_formatter(EngFormatter(unit=y_unit))
             self._decorate(title)
@@ -619,8 +629,15 @@ class MplCanvas(FigureCanvasQTAgg):
         self._live_line.set_data(x, y)
         if len(x):
             self._live_head.set_data([x[-1]], [y[-1]])
-        self._live_text.set_text("   ".join((status or "").splitlines()))
+        items = (status or "").splitlines()
+        rows = ["   ".join(items[n:n + LIVE_STATUS_PER_ROW])
+                for n in range(0, len(items), LIVE_STATUS_PER_ROW)] or [""]
+        self._live_text.set_text("\n".join(rows))
         self._live_text.set_visible(bool(status))
+        if len(rows) != self._live_rows and self._live_title:
+            # The title rises by one text line per extra row, so the two never overlap.
+            self._live_rows = len(rows)
+            self.ax.set_title(self._live_title, pad=16 + 12 * (len(rows) - 1))
         self.ax.relim()
         self.ax.autoscale_view()
         self.draw_idle()

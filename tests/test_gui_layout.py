@@ -3484,6 +3484,38 @@ def test_the_live_trace_marks_its_newest_point_and_shows_a_status(app):
     canvas.draw()                                     # renders without error
 
 
+def test_a_long_live_status_wraps_and_never_shrinks_the_axes(app):
+    """2026-11-12, the rig: the PITT impedance readout (7 items) on one line was
+    wider than the axes, and tight_layout narrowed the axes to fit it -- the plot
+    shrank as the readout grew. It now wraps, sits outside the layout, and the
+    title rises above it."""
+    import numpy as np
+    from gui.widgets.plot_canvas import MplCanvas
+
+    canvas = MplCanvas()
+    canvas.resize(800, 400)
+    t = np.linspace(0.0, 10.0, 50)
+    short = "Step 2 of 3\nt = 10.0 s\nE = +0.101 V\nI = +31.8 \u00b5A"
+    canvas.update_live_line(t, t * 1e-6, "Time in step (s)", "Current", y_unit="A",
+                            title="PITT \u2014 live", status=short)
+    canvas.draw()
+    r = canvas.get_renderer()
+    width_before = canvas.ax.get_window_extent(r).width
+    assert canvas._live_text.get_text().count("\n") == 0
+
+    long = short + "\nSweep 16 of 21\nf = 10 Hz\n|Z| = 3.15 k\u03a9"
+    canvas.update_live_line(t, t * 1e-6, "Time in step (s)", "Current", y_unit="A",
+                            status=long)
+    canvas.draw()
+    r = canvas.get_renderer()
+    assert canvas._live_text.get_text().count("\n") == 1          # two rows
+    assert not canvas._live_text.get_in_layout()     # a narrow window: still no shrink
+    assert canvas.ax.get_window_extent(r).width >= width_before - 1
+    box = canvas._live_text.get_window_extent(r)
+    assert box.y0 >= canvas.ax.get_window_extent(r).y1
+    assert box.y1 <= canvas.ax.title.get_window_extent(r).y0
+
+
 def test_a_live_trace_without_a_status_shows_no_box(app):
     import numpy as np
     from gui.widgets.plot_canvas import MplCanvas
