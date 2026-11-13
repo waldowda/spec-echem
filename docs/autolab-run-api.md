@@ -198,7 +198,7 @@ template uses it rather than something named for chronoamperometry. Also lists `
 parenthetical descriptions are scrambled — `OnOff` "returns double array" and `DoubleList` "returns
 enum" are plainly swapped. Trust the type names.)
 
-### What the driver does with this (`4272a53`)
+### What the driver does with this (`6ff3bce`)
 
 `CV_PARAMS` pairs each documented key with its measured index, and `_resolve_param()` tries the
 **key first**, falling back to the index if this SDK will not accept a string. It logs once per run

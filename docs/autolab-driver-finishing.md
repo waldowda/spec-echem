@@ -153,7 +153,7 @@ loads `CLAUDE.md` automatically. Paste this:
 > - Diagnose before changing code. A slow segment looks exactly like a hang: files are only written
 >   at segment end, and `acquire_segment()` warns when spectra cannot keep the requested cadence.
 >   Check the log for that warning first.
-> - Keep `python -m pytest tests/ -q` green (215 passed, 1 skipped as of `5c00f38`).
+> - Keep `python -m pytest tests/ -q` green (215 passed, 1 skipped as of `4201254`).
 > - Commit and push what we learn, and update `docs/autolab-run-api.md` / this file with results.
 > - At the end, write the session up as `docs/bench-<YYYY-MM-DD>.md` following
 >   **"Writing up the session"** below — the three rules there are not stylistic, they each come
@@ -312,9 +312,9 @@ Four bench scripts (`bench_autolab_cv.py`, `bench_autolab_ca.py`, `bench_autolab
 `python -m gui` → Autolab mode → a CV-only experiment. Two findings:
 
 1. `gui/tabs/run_tab.py::on_start` referenced an undefined `python_mode` → `NameError` on Start for
-   *every* mode. **Fixed** (commit `1487af4`) — defined once, `autolab` counts as Python-driven.
+   *every* mode. **Fixed** (commit `7b20b3b`) — defined once, `autolab` counts as Python-driven.
 2. After the fix the run started (`20260903_test2`) but never finished. Diagnosed on the Mac side
-   (commit `60422ab`):
+   (commit `ea4aa7d`):
    - **It was probably slow, not hung.** `scan_averages = 200` × 2.64 ms ≈ 528 ms per spectrum ×
      241 spectra ≈ 127 s, and files are only written at *segment end* — so anything under ~2.5
      minutes looks exactly like a hang.

@@ -125,7 +125,7 @@ The evidence from this afternoon is committed under `examples/`:
 
 ## 7. Confirmed on the rig, 2026-09-25
 
-Both fixes (`7b9da23`) ran on the instrument for the first time in the GUI run
+Both fixes (`b4c3946`) ran on the instrument for the first time in the GUI run
 `20260925_test1`. The run used the 10 kOhm dummy with 100 mV/s, 10 mV steps and
 −0.5 to +0.7 V for a 3-cycle CV, followed by pre-dedoping and two doping/dedoping pairs.
 The chrono segments used `Ei` mode on `CR09_10mA`, each a 30 s hold at 0.1 s.

@@ -101,7 +101,7 @@ data.
       Reference 600 (pin 7 Digital Out 0, pin 6 ground; `docs/sop.md` §2.1). With the
       custom cable moved over, every segment and all 21 PITT steps triggered; cadence
       100.0 ms; R = 1999.8 ohm on the 2 kohm dummy. Named Connect popup confirmed.
-- [x] **Code -5 recovery** (`99f6134`) CONFIRMED 2026-10-17: aborted a run on the
+- [x] **Code -5 recovery** (`a52ba6b`) CONFIRMED 2026-10-17: aborted a run on the
       1010E while it waited for a trigger, switched to the Reference 600 without
       restarting the app, and the next run armed, triggered and ran normally.
 
@@ -145,7 +145,7 @@ data.
       oxidised further during ~19 min at open circuit, so the 1 mV/s CV began doped.
       The fixed order runs pre-dedoping AFTER the CV; the Autolab procedure's FHWait
       (set to 0 by spec-echem) is the likely hook. Or fold into the order popup.
-      (Done the same day, `a5957e6`: live-plot dot + cycle/E/I readout; the Start
+      (Done the same day, `2bb3171`: live-plot dot + cycle/E/I readout; the Start
       dialog names the reference's time and flags a changed sample name.)
 
 - [ ] **Move the current-range control to Tab 1, beside the potentiostat selection.**
@@ -181,7 +181,7 @@ data.
       branch `fast-tau-check` (`9daaee6`), NOT merged.** Options: merge as is; flag
       only the fast component (needs a per-component flag); or drop it.
 - [x] ~~**Auto probe: guard interior gaps in the significance mask**~~ — DONE
-      2026-10-03 (`bae0d55`). A peak needs kept pixels for a full smoothing window on
+      2026-10-03 (`0d7b808`). A peak needs kept pixels for a full smoothing window on
       both sides. Across 64 real segments, every film run with a real band is
       unchanged, including the bench-verified +0.8 V doping 7 (815.2 nm); 3 picks
       moved, all on segments with no band to find.
@@ -193,7 +193,7 @@ data.
       `docs/` — both after figures are being made from real data. See *Figure output*.
 
 - [ ] **PITT (equilibrium staircase) segment — BUILT, and RUNS ON HARDWARE on both
-      rigs (2026-10-05).** Open: the Autolab count rule `ff38197` on hardware and the
+      rigs (2026-10-05).** Open: the Autolab count rule `fce8923` on hardware and the
       cutoff rule on a real decay (WEDNESDAY checklist below); PITT analysis (deferred
       by the user). The history below is in the order it happened; older lines saying
       "not built" or "Gamry waits for 64-bit" are superseded.
@@ -251,7 +251,7 @@ data.
       changes, E within 0.19 mV of setpoint, each reached by the first sample (~65 ms),
       no straddled reads. On CR13_1uA the current followed V/R to ~1%: 50.4 / 100.1 /
       149.7 nA, fitted R = 1.010 MOhm. On CR09_10mA the same cell was invisible (a
-      ~-0.8 uA range offset). The Autolab PITT driver (`7770e19`) is what the probe
+      ~-0.8 uA range offset). The Autolab PITT driver (`1c8237b`) is what the probe
       ran. **And the GUI PITT ran on hardware the same day**: 4 steps +0.10 -> +0.20 V in
       50 mV plus a -0.5 V end dedope, one segment, cell held, one .h5, `done`. On
       CR13_1uA the peaks were 102 / 153 / 202 nA (V / 1 MOhm to 2%), every step ending
@@ -283,7 +283,7 @@ data.
       **Since 2026-10-19 the cutoff is OFF by default** (fixed holds; tick "End each step
       when the current has decayed to __ %"). Not yet seen on the rig in either state.
       **WEDNESDAY 2026-10-07 at the Autolab rig, in order:**
-      1. `git pull`; check the build in the GUI title includes `ff38197` or later.
+      1. `git pull`; check the build in the GUI title includes `fce8923` or later.
       2. Re-run test 3 exactly (CR10_1mA, +0.1 -> +0.2 V in 50 mV, min 2 s, max 5 s,
          -0.5 V end dedope). Expect all three forward steps at `max_hold`, each with
          "settling could NOT be judged ... finer than one count"; none at cutoff.
@@ -308,9 +308,9 @@ data.
       passed, then GUI PITTs 0 -> +0.1 V in 50 mV, 600 uA range (`20261005_pitt_test4`):
       49-50 spectra per 5 s step at ~0.10 s, ~3,170 Ohm, all max_hold as a dummy should.
       Three fixes on the way, all pushed: OVERLOAD only when the current corroborates
-      the flag (`b9ec364`); `spectrum_due` needed half a tick of slack, or a late
-      spectrum made every other gap 0.20 s (`4cee4d4`); Load Settings put the Gamry
-      range on 60 pA, the FIRST item, because combos matched by str() (`ebaa337`).
+      the flag (`d66c79a`); `spectrum_due` needed half a tick of slack, or a late
+      spectrum made every other gap 0.20 s (`f19e877`); Load Settings put the Gamry
+      range on 60 pA, the FIRST item, because combos matched by str() (`fd30183`).
       Gamry count MEASURED 2026-10-05 from `20261005_pitt_test4` (600 uA range): the
       currents sit on a ~16.5 pA grid (smallest gaps 0.0164-0.0167 nA, others at 2x;
       the 0.0146/0.0182 pair at 31 uA is float32 rounding, ulp ~3.6 pA there) --
@@ -329,13 +329,13 @@ data.
       (None until measured, so the sub-count rule is off on the Gamry for now). The
       user has the Gamry rig through 2026-10-06. toolkitpy also offers
       signal_m_step_new (a fixed-hold staircase) -- not used: no current cutoff.
-      **Parameters section + saved-run display built 2026-10-04** (`24b29ac`,
-      `4327b08`): the PITT section with a live estimate and return-leg warning; Load
+      **Parameters section + saved-run display built 2026-10-04** (`22e990c`,
+      `23020ca`): the PITT section with a live estimate and return-leg warning; Load
       Run shows PITT steps even from a text-first load; the Results tab draws echem
       from HDF5 (which also gave 'HDF5 only' runs an echem plot for the first time);
       `docs/data-format.md` section 5. (Then: both drivers built and run on hardware
       2026-10-05; the PITT analysis waits until the user is ready.)
-      **Built 2026-10-04** (`4a1807f`, `c30f089`, `dd4d681`): plan, step-end rule,
+      **Built 2026-10-04** (`6acf580`, `bd03a36`, `16d19b8`): plan, step-end rule,
       cadence, the continuous loop, per-step HDF5, run wiring, Start refusals. Answered
       after: Abort KEEPS the data (fine); step results appear after the staircase ends
       (fine); a no-current step ends at its min hold (fine). **PITT-specific analysis
@@ -379,8 +379,8 @@ data.
         band figure/CSV names and titles from the live controls (plus a single
         segment saved as `band_all_segments`); export renders appending status notes;
         the Gamry ladder probe running with Connect live; the spectra export ignoring
-        the wavelength window; Igor prefixes colliding on long names. `7cc30d5`,
-        `b025698`, `2032dec`, `862b034`.
+        the wavelength window; Igor prefixes colliding on long names. `b2c02e1`,
+        `071da7f`, `c347cd3`, `b65bb80`.
       - **1 not a bug:** the delta-time hint is kept current by a side effect of the
         cadence advisory. Code left alone; a test now guards the side effect.
       - **2 left for the user** — see *Needs a decision*.
@@ -397,7 +397,7 @@ data.
 
 ### Backlog — wanted, not scheduled
 
-- [x] **Interface 1010E current noise (2026-10-17) — FIXED (`dac3a43`).** Cause: spec-echem
+- [x] **Interface 1010E current noise (2026-10-17) — FIXED (`d8fb7a4`).** Cause: spec-echem
       never set the Gamry's I/V channel filters, so both ran at 200 kHz; the 1010E
       aliased pickup into a 3.36 Hz +-114 nA wave. Now `test_*_filter(1/period)` as
       Framework does (1 kHz; index 2 on the Ref 600, 3 on the 1010E). Hold noise 80.9 ->
@@ -446,7 +446,7 @@ should be revisited once real measurements are going through.
 happened: steps 5-6 and rig verification are outstanding, so it stays in
 private-notes for now.
 
-**Done (`gui-dev` `8eea502`, 693 tests). All six steps are written; what is left is
+**Done (`gui-dev` `1745fc0`, 693 tests). All six steps are written; what is left is
 verification that only the two machines can give.**
 
 - [x] **1-2. Fixed-size rendering.** `MplCanvas._retarget()` + `render_to_figure()`.
@@ -484,7 +484,7 @@ verification that only the two machines can give.**
       ("round-trip" was jargon: it just means read the file back and confirm the
       numbers are the ones on screen — same wavelengths, same taus, same rows.)
       Only ever done against synthetic data. NOTE: band CSVs written before
-      `17fff77` may have tau1/tau2 mixed at some wavelengths — see below.
+      `1d88ff7` may have tau1/tau2 mixed at some wavelengths — see below.
 - [x] ~~**Win11 smoke test**~~ — run on the rig 2026-10-01, no problems noticed
       relative to macOS.
 - [x] ~~**Cross-platform figures**~~ — used on both macOS and Win11 2026-10-01/02:
@@ -545,7 +545,7 @@ Original request: deal with graph output in a more thoughtful manner, Results AN
 Analysis (tab 5), rather than patching the current button.
 
 **Why "Save Plots" was deleted rather than renamed** (kept as the record of what
-was wrong with it — the button is gone as of `3ced0fe`):
+was wrong with it — the button is gone as of `1524284`):
 
 - It saves the two on-screen canvases for the CURRENTLY SELECTED segment as two
   files, `<base>_absorbance` and `<base>_echem`.
@@ -578,7 +578,7 @@ the selector should visibly not apply while it is showing.
 
 ## Analysis correctness — fixed 2026-10-01, worth knowing about old exports
 
-- **biexp tau1/tau2 were UNORDERED** until `17fff77`. The model is symmetric under
+- **biexp tau1/tau2 were UNORDERED** until `1d88ff7`. The model is symmetric under
   exchanging the two components, so curve_fit returned either labelling — about 3%
   of fits. **Band ladders and CSVs exported before that commit may have tau1 and
   tau2 mixed at some wavelengths.** The scalar `tau` and `mean tau` were always
@@ -587,7 +587,7 @@ the selector should visibly not apply while it is showing.
   and an argmax walks up a rising NIR tail. Capped at the optics' 1100 nm AND it now
   requires a peak, since the cap alone only relocates the problem. Verified on the
   bench: 1100.9 -> 815.2 nm.
-- **Two measurability guards added** (`738d67c`): tau below the sampling interval,
+- **Two measurability guards added** (`0a97ff5`): tau below the sampling interval,
   and `<tau>` beyond 10x the window (the old check was on raw tau, but a stretched
   fit plots the mean). Both FLAG and keep the numbers.
 - **Where the line falls:** the software checks whether a number is MEASURABLE from
@@ -622,9 +622,9 @@ exported); see *Fixed 2026-10-02* below. It was briefly 25 traces, which was wro
 - [ ] **Never verified: two segments loaded into ONE Igor experiment.** That is what
       the wave prefixing exists for and it has not been tried.
 - [x] ~~**A 2-D wave export existed and was removed**~~ — superseded 2026-10-02: the
-      spectra export IS a 2-D wave again (`73f58cf`). What is still open is how it is
+      spectra export IS a 2-D wave again (`e9b39f1`). What is still open is how it is
       DISPLAYED — see *Igor bogs down* below. The `SetScale` version is in git
-      (`53c526b`) if an image view is wanted.
+      (`24a5528`) if an image view is wanted.
 
 **Fixed 2026-10-02:** the spectra export wrote 25 evenly spaced curves, not all of
 them. On a 721-spectrum CV that is a sparse fan where the figure is a dense band --
@@ -684,7 +684,7 @@ not from experience with Igor. Four rounds of bench feedback were needed to get 
 far, each one catching something that looked right in the file and wrong on screen.
 Expect the same of any addition, and check it in Igor rather than by reading.
 
-## macOS console: "has active key-value observers (KVO)" — FIXED 2026-11-06 (`160b9e3`)
+## macOS console: "has active key-value observers (KVO)" — FIXED 2026-11-06 (`c699745`)
 
 Seen on the Mac from 2026-10-01, naming `QPushButtonClassWindow`. The cause was in the
 Export window: its CSV/Igor buttons (and later its Cursor box) were made visible
@@ -702,9 +702,9 @@ repo so to speak. That history thing is a challenge."*
 **What is exposed** (names only; the data files' contents are clean 8-column format):
 
 - `tests/golden/<name>/` — 7 tracked files whose FOLDER name encodes a blend ratio and
-  electrolyte. On `origin/main` and `origin/gui-dev` since `7c49c02` (June 2026).
+  electrolyte. On `origin/main` and `origin/gui-dev` since `3fb7572` (June 2026).
 - `notebooks/SpecEchem Avantes 0.996-20250717.ipynb` — composition in 18 places.
-- Earlier commits on `gui-dev` from 2026-09-14/15, before `c4f1316` genericised them.
+- Earlier commits on `gui-dev` from 2026-09-14/15, before `d105045` genericised them.
 
 **Options, roughly in increasing order of disruption:**
 
@@ -755,7 +755,7 @@ Design settled in [`docs/analysis-design.md`](docs/analysis-design.md); not star
 Requested: *"Sometimes a poor fit switches prefactor signs. We should consider adding a check
 box for same sign-ness."*
 
-`FitResult.mixed_amplitude_signs` already FLAGS it (`46fec8e`). What is missing is the
+`FitResult.mixed_amplitude_signs` already FLAGS it (`8d5a96c`). What is missing is the
 option to forbid it, for when the flip is the optimizer wandering rather than real
 competing processes.
 
@@ -834,7 +834,7 @@ sub-floor requests are refused, not clamped.
 
 ## Charge tab — open items (2026-11-06)
 
-Built 2026-11-06 (`16b5e84`, `f2d02e0`): Analysis → Charge, per doping/dedoping step.
+Built 2026-11-06 (`9058039`, `729406a`): Analysis → Charge, per doping/dedoping step.
 See `docs/manual.md` § The Charge tab.
 
 - [x] **The charge before the first current sample** — decided 2026-11-08: option (b),
@@ -972,7 +972,7 @@ and/or roll our own raw-`.DTA` parser, address:
 
 ## GUI UX — Instrument tab potentiostat controls (the user, 2026-07-05)
 
-- [x] **Reconsider the layout — DONE (2026-07-07, `329ed23`).** Instrument tab now pairs the
+- [x] **Reconsider the layout — DONE (2026-07-07, `c83de2a`).** Instrument tab now pairs the
       Spectrometer Connection and Potentiostat boxes side by side, and the potentiostat mirrors the
       spectrometer: "Connect Potentiostat" button (renamed from "Identify"), gated by the Python
       radio, with a green/red status dot ("● Connected — Gamry <label> (serial …)").
@@ -1365,12 +1365,12 @@ object. The as-loaded defaults are the tell: [3] is 0.00244 (a step), [5] is 0.0
       `run_tab.py:377` calls `pot.live_data()`; in procedure mode that should read the
       recorder's arrays rather than `_live_samples`. Keep `pump()` sampling regardless —
       the overload flags are only readable while the run is going.
-      DONE (`7b9da23`), **confirmed on the rig 2026-09-25** (`20260925_test1`): no wedge
+      DONE (`b4c3946`), **confirmed on the rig 2026-09-25** (`20260925_test1`): no wedge
       on screen across a 3-cycle CV, and no "could not read the recorder" warning.
 - [x] **Do not plot a sample before the latch has content.** The fix for the origin point.
       An exactly-zero (E, I) pair is trivially detectable, and the first recorded
       `CalcTime` says when the staircase really began.
-      DONE (`7b9da23`), **confirmed on the rig 2026-09-25**: the CV dropped 2 pre-latch
+      DONE (`b4c3946`), **confirmed on the rig 2026-09-25**: the CV dropped 2 pre-latch
       samples; every chrono file kept all 301 rows (same count as `20260916_test1`).
 - [ ] **Cadence stall, seen 2026-09-24.** `20260924_test2` logged spectra cadence
       `max 1139.0 ms, jitter(sd) 67.5 ms` against `20260924_test1`'s `max 140.5, sd 6.2`.
@@ -1677,11 +1677,11 @@ where editing stops:
 **PASSED 2026-09-18** on the Gamry Reference 600 rig, build `0.2.0+215.gc0ddfad`: 8 segments,
 `Run finished: done`, no false potentiostat-lost stop. Every cadence mean is exactly
 **100.0 ms**, not the July 101–102 — expected, because spectra moved onto an absolute
-grid on 2026-09-04 (`cd69030`), after this baseline was taken. The grid removes the drift
+grid on 2026-09-04 (`b779e85`), after this baseline was taken. The grid removes the drift
 (July's 301 spectra spanned ~30.5 s against 30.0 s of electrochemistry) at the cost of
 wider per-interval jitter (3.3–8.9 ms sd; min as low as 23.6 ms is a catch-up after a late
 spectrum). The table below is the pre-grid baseline — kept for the record, no longer the
-comparison. The same run exposed the ladder overshoot fixed in `0828fd3`.
+comparison. The same run exposed the ladder overshoot fixed in `41e83ee`.
 
 Almost everything since the v0.2.0 tag is additive (logging, provenance, docs). **One thing is not:**
 the lost-potentiostat handling can now *stop a run*, and it has only ever executed against fakes. A

@@ -51,7 +51,7 @@ Keep OUT of this repository:
 repository. Do not move them in, and do not quote their sample-identifying content here.
 
 **Known pre-existing exposure**, flagged 2026-09-15, not yet resolved — see TODO.md:
-`tests/golden/<name>/` (7 tracked files, on `main` and `gui-dev` since `7c49c02`) and
+`tests/golden/<name>/` (7 tracked files, on `main` and `gui-dev` since `3fb7572`) and
 `notebooks/SpecEchem Avantes 0.996-20250717.ipynb` both carry composition in names.
 
 ---

@@ -437,7 +437,7 @@ Every run records the exact code that wrote it, so you never have to guess later
 - **The run log** repeats both, near the top.
 
 `0.2.0` means a tagged release. `0.2.0+7.g0f26a7a` means seven commits past that tag, at commit
-`0f26a7a` — which is normal, since most work happens between releases. A **`.dirty`** suffix means
+`e4c950b` — which is normal, since most work happens between releases. A **`.dirty`** suffix means
 the code had uncommitted edits, so that run can't be reproduced from any commit. That's fine while
 you're developing; it's worth noticing on data you intend to publish.
 
