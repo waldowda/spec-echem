@@ -117,10 +117,11 @@ The CHANGELOG says what shipped; git log says when.
       global argmax?
 - [ ] **The Modulation view** does not depend on the selected segment but sits behind
       the segment selector. Move it, or show the selector does not apply.
-- [ ] **Repository history: rewrite with `git filter-repo`, during a visit to the Autolab
-      rig.** Dry run passed 2026-11-11; the runbook and rules are in private notes. Push
-      only when every clone can be re-cloned the same day (an old clone's push restores
-      the old history). Save each rig's `config/bench.ini` first.
+- [ ] **Re-clone the remaining old clone** (the user's own Win11 box). The history was
+      rewritten and pushed 2026-11-13; the Mac and the PGSTAT302N rig's PC are re-cloned.
+      Until then, never pull or push from that clone (a push restores the old history).
+      Save its `config/bench.ini` first. Optional after: ask GitHub to purge cached views
+      of old commits.
 
 ## Code, no rig needed
 

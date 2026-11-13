@@ -390,7 +390,7 @@ Full write-up: [`docs/metrohm-rig-status.md`](docs/metrohm-rig-status.md).
   is the trigger line) — so a Python-drives-everything Autolab backend in `potentiostat.py` is the
   recommended direction, not the NOVA-runs-echem "External mode". NOVA's own spectro-EC procedures
   already pulse that same P1.A line; NOVA and spec-echem can't both own the Avantes over USB.
-- **Two GUI fixes** (`8f606ca`): `measure_timing()` had an unbounded poll on the GUI thread (froze the
+- **Two GUI fixes** (`4f5d731`): `measure_timing()` had an unbounded poll on the GUI thread (froze the
   app when the integration time was below the detector's ~1.05 ms floor); canvas notes could overflow
   a small plot area. **Wavelength spin boxes** now clamp to the connected spectrometer's calibrated
   span (options A+C).
@@ -511,7 +511,7 @@ per-source-defaults follow-up.
 
 ## 🎉 RELEASED: gui-dev → main (2026-07-10)
 
-The GUI development line is **merged to `main` at v0.1.0** (`--no-ff` merge `3dd623a`, pushed).
+The GUI development line is **merged to `main` at v0.1.0** (`--no-ff` merge `7bd8cf9`, pushed).
 `main` was the old notebook-era version; it now carries the full GUI: 4-tab PyQt5 app, modular
 package, External + Python (EchemToolkitPy) Gamry with the DIGOUT0→Avantes trigger sync, Phase 2.5
 echem capture, Results / Load-Run / live-echem, and the opt-in wavelength window. **`gui-dev` stays

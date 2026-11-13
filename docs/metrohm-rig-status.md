@@ -34,7 +34,7 @@ Avantes spectrometer + a Metrohm Autolab, and where things stand for continued d
 
 ### What made Step 2 work
 
-Commit 26fea45's `SPEC_ECHEM_AVASPEC_DLL_DIR` preload **does not help** the 9.14.0.0 `avaspec.py`,
+Commit b432002's `SPEC_ECHEM_AVASPEC_DLL_DIR` preload **does not help** the 9.14.0.0 `avaspec.py`,
 whose `ctypes.WinDLL("./avaspecx64.dll")` resolves against the CWD and never consults the loaded
 modules by base name (confirmed on this box). What fixed it: the three CLAUDE.md vendored-file edits
 to the env's `site-packages\avaspec.py` — comment out `import globals` and `from PyQt5.QtCore import *`,
@@ -131,14 +131,14 @@ NOVA-runs-echem "External mode" path on this rig.
    - No DIO command in the SDK standard CV → `fire()` pulses `Dio.DioPortsP1[0]` (trigger line
      confirmed by `query_avantes_trigger.py`), or a P1.A command is added to the `.nox` in NOVA.
 
-4. **`avaspec.py` on a fresh box** — the 26fea45 env-var mechanism is ineffective for wrappers that
+4. **`avaspec.py` on a fresh box** — the b432002 env-var mechanism is ineffective for wrappers that
    load `"./avaspecx64.dll"`; the vendored-file edit is still required. Worth folding the "bare name
    + add_dll_directory" load into the documented setup rather than presenting the env var as
    sufficient.
 
 ## Session changes on `gui-dev`
 
-- `8f606ca` — `measure_timing()` poll timeout + arm-return check (was hanging the GUI thread on a
+- `4f5d731` — `measure_timing()` poll timeout + arm-return check (was hanging the GUI thread on a
   sub-floor integration time); `MplCanvas.show_message()` / `show_linearity()` text no longer
   overflows a small canvas.
 - this commit — `examples/query_avantes_trigger.py` (new); genericized paths in `query_autolab.py`;

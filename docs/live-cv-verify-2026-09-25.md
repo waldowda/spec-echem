@@ -1,7 +1,7 @@
 # Verify the live-CV fixes — PGSTAT302N rig, 2026-09-25
 
 For a Claude session **on the Windows instrument PC**. `git pull` first; the fixes are on
-`gui-dev` at `7b9da23`.
+`gui-dev` at `b4c3946`.
 
 Read [`live-cv-findings-2026-09-24.md`](live-cv-findings-2026-09-24.md) for what yesterday
 established. This note is only about confirming the two fixes written afterwards, neither
