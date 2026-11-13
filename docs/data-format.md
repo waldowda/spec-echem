@@ -503,8 +503,22 @@ sweep: they should agree. ReadZ leaves the current range lower than it found it,
 hold on that range reads a flat ~109% of its full scale with no error; the driver puts
 the range and filters back and reads the range back, and **the run stops** if it cannot.
 
-**The AC amplitude** (`pitt_eis_vac_mv`) is handed to ReadZ as volts. Whether it is rms
-or peak has not been checked on the instrument.
+**`vdc` and `idc` are absolute only at the FIRST frequency of a sweep** (Reference 600,
+Randles dummy, 2026-11-13). From the second frequency on they read about 1 mV and
+0.03-0.7 uA at every step, +0.1 and +0.2 V included -- the same as at 0 V. They are
+residuals from the DC values the driver gives ReadZ (`set_vdc` = the step's setpoint,
+`set_idc` = the hold's newest current), not the cell's DC: at 0 V, where the hold's own
+current was 0.62-0.64 uA before and after the sweep, ReadZ reported 0.03-0.36 uA. The
+potential was held: the first frequency reads the setpoint (+100.98 mV at +0.1 V), and
+the current after each sweep matched the current before it. For the DC at a swept step,
+use `potential_set`, the first row, or `current_before_sweep_A` -- never a column mean.
+
+**The AC amplitude** (`pitt_eis_vac_mv`) is handed to ReadZ as volts. `vmod` reads it
+back (9.4-10.4 mV for 10 mV; 9.36 mV at 10 kHz at every step, where `gain` is 0.936), so
+the setting and `vmod` share one convention. Which one, rms or peak, these columns
+cannot say: `imod` = `vmod`/`zmod` either way. Gamry's software states its AC amplitude
+in mV rms, so rms is likely; a Gamry Framework EIS on the same dummy at 10 mV rms,
+compared with this `vmod`, would settle it.
 
 **Not stored, by design:** C(ω) = -1/(ω Z''), the double-layer and chemical
 capacitances, g(E), and equivalent-circuit fits. All are derived from the raw Z, and the
