@@ -42,8 +42,11 @@ The CHANGELOG says what shipped; git log says when.
       **Ran 2026-11-12/13, forward twice, then with the return leg:** |Z| 202 Ohm
       (10 kHz) to 3.21 kOhm (1 Hz) at all 5 steps, up and back; no range warning;
       14.5-14.7 s per sweep against an estimate of 13.9 s (5% low; it is a floor); the
-      live Nyquist plot works. Still to do: items 4 and 5 below, and the spectra
-      timing at the start of each hold now the live plot switches there.
+      live Nyquist plot works; the first spectra of each step are no later after a
+      plot switch than at step 0 (first gap 0.14 s vs 0.19 s). vdc/idc are residuals
+      after the first frequency (`docs/data-format.md` §8). Still to do: item 5 below,
+      and item 4 (vmod = the setting, so rms vs peak needs a Framework EIS at 10 mV rms
+      on the same dummy to compare).
       1. **Nyquist on Results:** a semicircle from Z' ~200 Ohm (10 kHz) to ~3210 Ohm
          (1 Hz), top at -Z'' ~1505 Ohm near 53 Hz, the same at every step and on the
          way back. The run log gives |Z| at both ends per step.
