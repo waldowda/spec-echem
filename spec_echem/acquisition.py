@@ -168,6 +168,29 @@ def _warn_if_cadence_unachievable(spec, delta_time, num_points):
 NO_TRIGGER_WARN_S = 10.0
 
 
+# How far past its planned end a GITT pulse timed by Python (the Autolab) may run
+# while the loop waits on the spectrometer, beyond a few exposures, before the wait
+# is cut and the run stopped. A normal spectrum overruns by one exposure at most.
+GITT_PULSE_GRACE_S = 1.0
+
+
+class _PulseGuard:
+    """The abort event spec.measure() polls, also SET once a Python-timed GITT pulse
+    is overdue by more than `grace` s: the wait for a spectrum (a missing trigger, a
+    stalled detector) must not leave a galvanostat driving the pulse unwatched."""
+
+    def __init__(self, abort_event, overdue, grace):
+        self.abort_event, self.overdue, self.grace = abort_event, overdue, grace
+        self.tripped = False
+
+    def is_set(self):
+        if self.abort_event is not None and self.abort_event.is_set():
+            return True
+        if self.overdue() > self.grace:
+            self.tripped = True
+        return self.tripped
+
+
 def _armed_with_watchdog(on_armed):
     """(on_armed wrapped to start a watchdog, a function that stops it).
 
@@ -359,11 +382,11 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
     `hold_s` stays the time the end rule fired. `record`, when given, is filled in
     place, so another thread can read the samples as they arrive.
     """
-    from spec_echem.ereis import (SWEEP_ABORTED, SWEEP_COMPLETE, SWEEP_STOPPED,
-                                  ereis_sweep_steps)
+    from spec_echem.ereis import (SWEEP_ABORTED, SWEEP_COMPLETE, SWEEP_ERROR,
+                                  SWEEP_STOPPED, ereis_sweep_steps)
     from spec_echem.gitt import END_E_LIMIT, gitt_spectrum_due, gitt_step_end_for
-    from spec_echem.pitt import (END_ABORTED, END_STOPPED, PittRecord, spectrum_due,
-                                 step_end_for)
+    from spec_echem.pitt import (END_ABORTED, END_ERROR, END_STOPPED, PittRecord,
+                                 spectrum_due, step_end_for)
 
     record = record if record is not None else PittRecord()
     if not plan:
@@ -410,9 +433,21 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
 
     def _sweep(k, step):
         """Step k's impedance sweep at its hold potential, cell on. Spectra
-        carry on at the slow rate; the current is not sampled. -> SWEEP_*"""
-        nonlocal tick, last_spectrum
+        carry on at the slow rate; the current is not sampled. -> SWEEP_*
+
+        An exception (a failed range restore, a lost instrument) still records what
+        the sweep collected, marked SWEEP_ERROR, before it propagates."""
         t0 = clock()
+        try:
+            end = _sweep_loop(k, step)
+        except Exception:
+            _sweep_row(k, t0, SWEEP_ERROR)
+            raise
+        _sweep_row(k, t0, end)
+        return end
+
+    def _sweep_loop(k, step):
+        nonlocal tick, last_spectrum
         end = SWEEP_COMPLETE
         cancelled = False
         pot.ereis_sweep_start(step)
@@ -447,24 +482,45 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                 sleep(min(0.5e-3, remaining))
         for point in pot.ereis_poll():
             record.impedance.append(dict(point, step=k))
+        return end
+
+    def _sweep_row(k, t0, end):
         row = record.steps[-1]
         row["sweep_s"] = float(clock() - t0)
         row["sweep_end"] = end
         row["n_freq"] = sum(1 for p in record.impedance
                             if p["step"] == k and p.get("ok"))
         row["n_spectra"] = sum(1 for j in record.spectrum_step if j == k)
-        return end
+
+    overdue = getattr(pot, "gitt_pulse_overdue_s", None) if kind == "gitt" else None
+    grace = GITT_PULSE_GRACE_S + 3e-3 * float(settings.get("integration_time_ms", 0)) \
+        * int(settings.get("scan_averages", 1))
+
+    def measure(on_armed):
+        """spec.measure(); for a Python-timed GITT pulse, bounded by _PulseGuard."""
+        if overdue is None:
+            return spec.measure(abort_event, on_armed)
+        guard = _PulseGuard(abort_event, overdue, grace)
+        result = spec.measure(guard, on_armed)
+        if result is None and guard.tripped:
+            raise RuntimeError(
+                "No spectrum came back while a GITT pulse was on, and the pulse is "
+                "%.1f s past its end, so it was cut and the run stopped (cell off). "
+                "Is the trigger reaching the spectrometer?" % overdue())
+        return result
 
     tick = 0
     anchor = step_start = last_spectrum = None
-    prepare(plan[0])
+    k = step = rule = None
     try:
+        # Inside the try, so a setup that fails part-way still reaches pitt_end().
+        prepare(plan[0])
         # Spectrum 0 is triggered exactly as a segment's is: fire() switches the cell
         # on and raises the edge from INSIDE measure(), after the detector is armed.
         spec.set_trigger_mode(1 if trigger else 0)
         armed0, stop_watchdog = _armed_with_watchdog(pot.fire)
         try:
-            result = spec.measure(abort_event, armed0)
+            result = measure(armed0)
         finally:
             stop_watchdog()
         spec.set_trigger_mode(0)
@@ -554,7 +610,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
 
             t_in = clock() - step_start
             if due(step, t_in, last_spectrum):
-                result = spec.measure(abort_event, None)
+                result = measure(None)
                 if result is None:            # abort arrived during the exposure
                     record.close_step(step, step_start, clock(), END_ABORTED, rule.peak,
                                       None if rule.unresolved is None else False,
@@ -575,6 +631,16 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                 if remaining <= 0:
                     break
                 sleep(min(0.5e-3, remaining))
+    except Exception as exc:
+        # The step in hand is closed as END_ERROR so everything before it can still
+        # be written (the caller saves, then re-raises): an error must not cost the
+        # completed steps of an hours-long staircase, any more than Stop does.
+        record.error = "%s: %s" % (type(exc).__name__, exc)
+        if step_start is not None and not (record.steps
+                                           and record.steps[-1]["index"] == k):
+            record.close_step(step, step_start, clock(), END_ERROR, rule.peak,
+                              None if rule.unresolved is None else False, rule=rule)
+        raise
     finally:
         pot.pitt_end()                         # cell OFF, however the loop ended
     return record

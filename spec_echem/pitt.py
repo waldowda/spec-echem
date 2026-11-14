@@ -35,6 +35,7 @@ END_FIXED = "fixed"         # held for a set time, not ended by the current: the
                             # dedope always, every step when the cutoff is off
 END_STOPPED = "stopped"     # Stop pressed: this step cut short, the rest not run
 END_ABORTED = "aborted"     # Abort pressed: likewise, immediately
+END_ERROR = "error"         # an exception ended the run: likewise, and it is re-raised
 # Stopped and aborted steps KEEP their data. A 30 s segment is cheap to discard; a
 # staircase can run for hours, and throwing away every completed step because the
 # last one was interrupted would withhold results the scientist paid for.
@@ -315,6 +316,7 @@ class PittRecord:
     steps: list = None              # one dict per step that RAN; see close_step()
     completed: bool = False         # every planned step ran to its own end
     impedance: list = None          # impedance sweeps: one dict per frequency, with "step"
+    error: str = None               # what ended the run, when an exception did
 
     def __post_init__(self):
         for name in ("spectra", "timestamps", "spectrum_step", "echem_time",

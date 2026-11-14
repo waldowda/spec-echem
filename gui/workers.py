@@ -204,6 +204,18 @@ class AcquisitionWorker(QObject):
                     if self.stop_event.is_set():
                         reason = "stopped"
                         break
+                    if getattr(self.potentiostat, "device_lost", lambda: False)():
+                        logger.error(
+                            "Stopping the run: the potentiostat was lost (or did not "
+                            "stop) during '%s'. Every step up to then is written.",
+                            seg.label)
+                        reason = "error"
+                        break
+                    # As after any segment: the next one (a GITT after a PITT) must
+                    # not start while the GUI is drawing this one's last step.
+                    if i + 1 < total and getattr(self.potentiostat, "python_paced",
+                                                 False):
+                        self._wait_for_gui(logger)
                     continue
 
                 result = run_one_segment(

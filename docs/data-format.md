@@ -293,6 +293,7 @@ A step's group adds:
 ```
 /{step}/  attrs: role            "forward" | "return" | "dedope"
                  end_reason      "cutoff" | "max_hold" | "fixed" | "stopped" | "aborted"
+                                 | "error"
                  hold_s          how long the step was held
                  peak_current_A  the largest SAMPLED |I| in the step -- since 2026-10-19,
                                  by default only from samples taken once the
@@ -306,6 +307,7 @@ A step's group adds:
 
 / (root) attrs:  pitt_steps_json   every step that RAN, in order, with how it ended
                  pitt_completed    every planned step ran to its own end
+                 pitt_error        what ended the run, present only when an error did
 ```
 
 **Reading `end_reason`.** `cutoff` means the current fell to the set fraction of the
@@ -315,7 +317,9 @@ and not ended by the current: the optional dedope at the end always, and EVERY s
 "End each step when the current has decayed to __ %" is unticked (`pitt_cutoff_enabled`,
 the default since 2026-10-19) -- each then holds for the hold time. A `fixed` step says
 nothing about equilibrium either way. `stopped` / `aborted` mark the step the user interrupted;
-every step before it, and that one, are kept.
+every step before it, and that one, are kept. `error` marks the step an exception cut short
+(a lost instrument, a failed range restore); it and every step before it are kept too, and
+the root attr `pitt_error` says what happened.
 
 **The charge before the first sample is not in the data.** dQ is integrated from the
 sampled current, so whatever flowed between the setpoint change and the first sample —
@@ -372,7 +376,7 @@ each sample was tagged with, as in §5. A step's group is §4's layout plus:
 ```
 /{step}/  attrs: role             "rest" | "titration"
                  end_reason       "fixed" | "relaxed" | "max_hold" | "e_limit"
-                                  | "stopped" | "aborted"
+                                  | "stopped" | "aborted" | "error"
                  hold_s           how long the step ran, pulse + relaxation
                  current_set_A    the pulse current from the plan (+ oxidises); 0 at rest
                  pulse_s          the pulse length from the plan; 0 at rest
@@ -386,6 +390,7 @@ each sample was tagged with, as in §5. A step's group is §4's layout plus:
 
 / (root) attrs:  gitt_steps_json   every step that RAN, in order, with how it ended
                  gitt_completed    every planned step ran to its own end
+                 gitt_error        what ended the run, present only when an error did
 ```
 
 **Reading `end_reason`.**
@@ -399,7 +404,7 @@ each sample was tagged with, as in §5. A step's group is §4's layout plus:
 - **`e_limit`: the potential left the window** (`gitt_e_min_v` to `gitt_e_max_v`). The
   cell was switched off there and **the run ended**. Every step up to and including that
   one is kept.
-- `stopped` / `aborted`: as in §5.
+- `stopped` / `aborted` / `error`: as in §5.
 
 Each row of `gitt_steps_json` also carries `e_last_V`, the last potential the step
 sampled, and `relax_dvdt_V_s`, the last dE/dt fitted (NaN with the rule off).
@@ -474,7 +479,7 @@ data had been taken.)
 group is §5's, plus:
 
 ```
-/{step}/  attrs: sweep_end        "complete" | "stopped" | "aborted"; absent on a step
+/{step}/  attrs: sweep_end        "complete" | "stopped" | "aborted" | "error"; absent on a step
                                   not swept, or when the run ended during its hold
                  sweep_s          how long the sweep took, s
                  n_freq           frequencies the instrument returned a value for

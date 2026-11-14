@@ -211,3 +211,32 @@ def test_the_dedt_fields_follow_their_checkbox(params_tab):
     params_tab._widgets["gitt_relax_settle_enabled"].setChecked(True)
     assert params_tab._widgets["gitt_relax_dvdt_uv_s"].isEnabled()
     assert params_tab._gitt_relax_label.text() == "Maximum relaxation:"
+
+
+class _LostMidRun(FakeGittPotentiostat):
+    """The instrument stops answering a few samples into the last step."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.n_last = 0
+
+    def pitt_sample(self):
+        if len(self.steps) == 3:
+            self.n_last += 1
+            if self.n_last > 3:
+                raise RuntimeError("device lost")
+        return super().pitt_sample()
+
+
+def test_an_error_mid_titration_still_writes_every_step_before_it(tmp_path):
+    pot = _LostMidRun(r_series=1e3, c=1e-3)
+    with pytest.raises(RuntimeError, match="device lost"):
+        _run(tmp_path, quick(), pot)
+    assert pot.cell_events[-1][0] == "off"
+    path = h5_path(tmp_path / "20261029_gitt", DATA_TYPE_GITT)
+    with h5py.File(path, "r") as f:
+        assert not bool(f.attrs["gitt_completed"])
+        assert "device lost" in f.attrs["gitt_error"]
+        table = json.loads(f.attrs["gitt_steps_json"])
+        assert [st["end_reason"] for st in table] == [END_FIXED, END_FIXED, "error"]
+        assert "2" in f

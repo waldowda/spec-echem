@@ -914,6 +914,8 @@ def _write_steps_h5(record, dark, ref, wavelengths, data_root, added_path, data_
                                     + ("staircase" if pitt else "titration"))
         f.attrs[f"{key}_steps_json"] = json.dumps(record.steps)
         f.attrs[f"{key}_completed"] = bool(record.completed)
+        if getattr(record, "error", None):
+            f.attrs[f"{key}_error"] = str(record.error)
     return path, written
 
 
