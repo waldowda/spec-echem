@@ -117,11 +117,8 @@ The CHANGELOG says what shipped; git log says when.
       global argmax?
 - [ ] **The Modulation view** does not depend on the selected segment but sits behind
       the segment selector. Move it, or show the selector does not apply.
-- [ ] **Re-clone the remaining old clone** (the user's own Win11 box). The history was
-      rewritten and pushed 2026-11-13; the Mac and the PGSTAT302N rig's PC are re-cloned.
-      Until then, never pull or push from that clone (a push restores the old history).
-      Save its `config/bench.ini` first. Optional after: ask GitHub to purge cached views
-      of old commits.
+- [ ] **Optional:** ask GitHub to purge cached views of old commits (history rewritten
+      2026-11-13; every clone re-cloned by 2026-11-14).
 
 ## Code, no rig needed
 
