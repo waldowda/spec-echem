@@ -126,11 +126,12 @@ The CHANGELOG says what shipped; git log says when.
       (potentiostat runners, `acquire_pitt`, worker) ran 2026-11-14; fix its findings
       below, then merge to `main`.
 - [ ] **v0.4.0 review findings** — 8 of 9 FIXED 2026-11-14, each with a fakes test
-      (see the CHANGELOG). Left:
-  - [ ] On the rig: does toolkitpy have an `ich_filter()` getter? If not, the ER-EIS
-        restore silently leaves the sweep's I filter in place.
-  - [ ] On the rig (Autolab, dummy): pull the trigger cable before a GITT and confirm the
-        pulse is cut ~1 s past its end, cell off, with the "No spectrum came back" error.
+      (see the CHANGELOG); the `ich_filter()` getter exists (the 2026-10-23 probe read
+      it before and after ReadZ, `docs/bench-2026-10-26.md`). Left:
+  - [ ] On the rig (Autolab, dummy): a GITT whose trigger edge reaches nothing, without
+        touching the cable: set `autolab_dio_mask` to an unused pin (e.g. `0x02`; pin 1
+        is the trigger). Confirm the pulse is cut ~1 s past its end, cell off, with the
+        "No spectrum came back" error. Put the mask back to `0x01` after.
   - Not fixing for now: Abort can call `Abort()` on an earlier CV's finished Autolab
     procedure (SDK effect unknown). A Gamry GITT `pulse_s` under half a period rounds
     to no pulse.
