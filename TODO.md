@@ -122,8 +122,29 @@ The CHANGELOG says what shipped; git log says when.
 
 ## Code, no rig needed
 
-- [ ] **Cut v0.4.0** — 224 commits since v0.3.1. Review (`/code-review`) BEFORE the merge
-      to `main`, the v0.3.0 lesson.
+- [ ] **Cut v0.4.0** — 243 commits since v0.3.1. The review of the hardware paths
+      (potentiostat runners, `acquire_pitt`, worker) ran 2026-11-14; fix its findings
+      below, then merge to `main`.
+- [ ] **v0.4.0 review findings** (each with a fakes test that fails before the fix):
+  - [ ] An exception out of `acquire_pitt` writes no h5: every completed PITT/GITT step
+        (and its impedance) is lost. Stop/Abort keep everything; an error keeps nothing.
+  - [ ] Autolab GITT: the pulse end and the E window run only in `pitt_sample()`, so a
+        spectrometer wait (no trigger reaches the Avantes, or a stall) leaves the
+        galvanostat driving the pulse current unwatched.
+  - [ ] Gamry `pitt_end()`: `finish()` joins for 15 s and ignores the result; a Stop
+        during a ~28 s 0.1 Hz ReadZ returns with the cell on and the session open.
+  - [ ] Gamry PITT/GITT setup timeout: `prepare()` is outside the `try`, and `armed` is
+        never set, so the curve thread waits forever holding the session.
+  - [ ] Autolab `pitt_end()` switches to potentiostatic even when cell-off failed.
+  - [ ] Gamry curve-thread teardown: DIGOUT-low and cell-off share one `try`.
+  - [ ] Gamry GITT `pulse_s_applied` is the planned pulse, not the applied one, when the
+        E stop or Stop cuts a pulse short (charge overstated).
+  - [ ] No GUI wait after a PITT before the next segment (`workers.py` `continue`).
+  - [ ] Autolab GITT: unreadable samples (NaN) skip the E-window check with no limit.
+  - [ ] On the rig: does toolkitpy have an `ich_filter()` getter? If not, the ER-EIS
+        restore silently leaves the sweep's I filter in place.
+  - Not fixing for now: Abort can call `Abort()` on an earlier CV's finished Autolab
+    procedure (SDK effect unknown).
 - [ ] **Charge plots in "Export all figures"** (it writes the fit traces and the Kinetics
       ladder only).
 - [ ] **Doping +0.9 V on the 2026-11-05 run:** exp passes at only 8 of 180 wavelengths
