@@ -239,3 +239,31 @@ def test_stop_mid_sweep_lets_the_frequency_in_hand_finish(tk):
     assert record.steps[0]["sweep_end"] == "stopped"
     assert 1 <= record.steps[0]["n_freq"] < 3
     assert tk.events[-1] == "cell off"
+
+
+def test_a_thread_that_will_not_stop_is_reported_and_blocks_the_next_start(
+        tk, monkeypatch):
+    """ReadZ.measure() cannot be interrupted, so an Abort at a slow frequency (the
+    loop does not wait for the frequency in hand, as Stop does) can outlast the join.
+    The run must not be reported over with the thread (and maybe the cell) still
+    live, and no new Gamry session may start beside it."""
+    monkeypatch.setattr(potentiostat, "_STUCK_GAMRY_THREADS", [])
+    monkeypatch.setattr(potentiostat._GamryEreisRunner, "join_timeout_s",
+                        lambda self: 0.05)
+    tk.point_s = 0.6
+    abort = threading.Event()
+    s = _settings()
+    threading.Timer(s["pitt_max_hold_s"] + 0.15, abort.set).start()
+    p, _record = _run(s, abort_event=abort)
+    assert p.device_lost()
+    assert "cell off" not in tk.events               # not yet: the thread is live
+    with pytest.raises(RuntimeError, match="still running"):
+        potentiostat.ToolkitPotentiostat(s).pitt_prepare(0.0)
+    potentiostat._STUCK_GAMRY_THREADS[0].join(5.0)
+    assert tk.events[-1] == "cell off"
+    potentiostat._refuse_if_gamry_stuck()            # gone once it has ended
+
+
+def test_the_stop_wait_covers_the_slowest_frequency(tk):
+    r = potentiostat._GamryEreisRunner(_settings(pitt_eis_f_low_hz=0.1))
+    assert r.join_timeout_s() > ereis.ereis_point_s(0.1)

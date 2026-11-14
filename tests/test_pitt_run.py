@@ -508,3 +508,26 @@ def test_with_the_cutoff_off_every_step_runs_the_full_hold():
     assert [st["end_reason"] for st in record.steps] == [END_FIXED] * 3
     for st in record.steps:
         assert st["hold_s"] == pytest.approx(4.0, abs=0.12)
+
+
+def test_a_setup_that_fails_part_way_still_reaches_pitt_end():
+    """A driver's prepare can leave state behind (the Autolab galvanostatic, a Gamry
+    curve thread waiting to be armed); pitt_end is what undoes it."""
+    clock = Clock()
+
+    class SetupFails(CostlyPot):
+        ended = 0
+
+        def pitt_prepare(self, potential):
+            raise RuntimeError("setpoint did not take")
+
+        def pitt_end(self):
+            self.ended += 1
+            super().pitt_end()
+
+    pot = SetupFails(clock=clock)
+    s = settings()
+    with pytest.raises(RuntimeError, match="did not take"):
+        acquire_pitt(ClockedSpectrometer(clock), pot, pitt_plan(s), s,
+                     clock=clock, sleep=clock.sleep)
+    assert pot.ended == 1

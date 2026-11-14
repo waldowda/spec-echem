@@ -498,3 +498,30 @@ def test_start_refuses_impedance_on_the_autolab_and_says_which_box(window, tmp_p
     assert warnings and warnings[0][0] == "PITT cannot run"
     assert "FRA32M" in warnings[0][1]
     assert "impedance sweep on the Parameters tab" in warnings[0][1]
+
+
+class _RestoreFails(FakeEreisPotentiostat):
+    """The second sweep fails as a failed ie_range restore would: it raises."""
+
+    def ereis_sweep_start(self, step):
+        if step.index == 1:
+            raise RuntimeError("ie_range not restored")
+        return super().ereis_sweep_start(step)
+
+
+def test_an_error_mid_staircase_still_writes_every_step_before_it(tmp_path):
+    h5py = pytest.importorskip("h5py")
+    s = quick()
+    pot = _RestoreFails(s, point_s=0.02)
+    with pytest.raises(RuntimeError, match="ie_range not restored"):
+        _run(tmp_path, s, pot)
+    assert pot.cell_events[-1][0] == "off"
+    path = h5_path(tmp_path / "20261112_eis", DATA_TYPE_PITT)
+    with h5py.File(path, "r") as f:
+        assert not bool(f.attrs["pitt_completed"])
+        assert "ie_range not restored" in f.attrs["pitt_error"]
+        table = json.loads(f.attrs["pitt_steps_json"])
+        assert [st["index"] for st in table] == [0, 1]
+        assert table[0]["sweep_end"] == ereis.SWEEP_COMPLETE
+        assert table[1]["sweep_end"] == ereis.SWEEP_ERROR
+        assert "impedance" in f["0"]

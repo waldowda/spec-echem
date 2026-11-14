@@ -485,11 +485,17 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
 
     if record is None:
         record = PittRecord()
-    record = acquire_pitt(spec, potentiostat, plan, settings, trigger=segment.trigger,
-                          abort_event=abort_event, stop_event=stop_event,
-                          on_step=announce,
-                          on_step_done=step_done if on_step_result else None,
-                          record=record)
+    failure = None
+    try:
+        acquire_pitt(spec, potentiostat, plan, settings, trigger=segment.trigger,
+                     abort_event=abort_event, stop_event=stop_event,
+                     on_step=announce,
+                     on_step_done=step_done if on_step_result else None,
+                     record=record)
+    except Exception as exc:  # noqa: BLE001 -- written below, then re-raised
+        failure = exc
+        log.error("PITT ended by an ERROR (%s). Writing the %d step(s) collected "
+                  "before it.", record.error or exc, len(record.steps))
     _use_hardware_echem(record, potentiostat)
     cutoff = float(settings["pitt_cutoff_pct"]) / 100.0
     for st in record.steps:
@@ -533,6 +539,8 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
                  "(setpoint held and current sampled throughout).", len(waits),
                  1000.0 * float(np.mean(waits)), 1000.0 * max(waits))
     if not record.steps:
+        if failure is not None:
+            raise failure
         return [], None, record
 
     path = None
@@ -545,7 +553,8 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
                       "copy of this staircase's data.")
     if path is None:
         log.error("PITT: no file was written for this staircase (see above).")
-
+    if failure is not None:
+        raise failure
     return _step_results(record, "PITT", dark, ref, wavelengths), path, record
 
 
@@ -610,11 +619,17 @@ def run_gitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
 
     if record is None:
         record = PittRecord()
-    record = acquire_pitt(spec, potentiostat, plan, settings, trigger=segment.trigger,
-                          abort_event=abort_event, stop_event=stop_event,
-                          on_step=announce,
-                          on_step_done=step_done if on_step_result else None,
-                          record=record, kind="gitt")
+    failure = None
+    try:
+        acquire_pitt(spec, potentiostat, plan, settings, trigger=segment.trigger,
+                     abort_event=abort_event, stop_event=stop_event,
+                     on_step=announce,
+                     on_step_done=step_done if on_step_result else None,
+                     record=record, kind="gitt")
+    except Exception as exc:  # noqa: BLE001 -- written below, then re-raised
+        failure = exc
+        log.error("GITT ended by an ERROR (%s). Writing the %d step(s) collected "
+                  "before it.", record.error or exc, len(record.steps))
     _use_hardware_echem(record, potentiostat)
     pulses = getattr(potentiostat, "gitt_pulse_actual", dict)() or {}
     for st in record.steps:
@@ -639,6 +654,8 @@ def run_gitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
             log.info("GITT %d relaxed: dE/dt %.3g \u00b5V/s.", st["index"],
                      st["relax_dvdt_V_s"] * 1e6)
     if not record.steps:
+        if failure is not None:
+            raise failure
         return [], None, record
 
     path = None
@@ -651,6 +668,8 @@ def run_gitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
                       "copy of this titration's data.")
     if path is None:
         log.error("GITT: no file was written for this titration (see above).")
+    if failure is not None:
+        raise failure
     return _step_results(record, "GITT", dark, ref, wavelengths), path, record
 
 

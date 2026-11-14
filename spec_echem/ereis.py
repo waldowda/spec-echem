@@ -26,6 +26,7 @@ from spec_echem.pitt import ROLE_DEDOPE, pitt_plan
 # How the frequency sweep of a step ended. Recorded per swept step as `sweep_end`.
 SWEEP_COMPLETE = "complete"
 SWEEP_STOPPED = "stopped"       # Stop pressed: the frequency in hand finished, no more
+SWEEP_ERROR = "error"           # an exception ended it (and the run); its points are kept
 SWEEP_ABORTED = "aborted"
 
 # Seconds one frequency takes: about EREIS_POINT_BASE_S + EREIS_POINT_CYCLES / f.

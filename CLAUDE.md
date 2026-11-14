@@ -371,6 +371,12 @@ Gamry-only is TEMPORARY: the Autolab's FRA32M is under repair; add an Autolab dr
   hold curve before that restore. ReadZ.measure() blocks: Stop and Abort wait for the
   frequency in hand (up to ~30 s at 0.1 Hz) before the cell goes off.
 - A swept step's echem has a gap the length of its sweep; its dQ belongs to t <= hold_s.
+- **An error never costs the collected steps (2026-11-14):** `acquire_pitt` closes the
+  step in hand as `error` (a sweep as `sweep_end = error`) and re-raises; the runner
+  writes the h5 (root `pitt_error`/`gitt_error`) and then re-raises. A Gamry curve
+  thread that will not stop (Abort mid-ReadZ) is reported as lost, and every later Gamry
+  start refuses until it has ended. On the Autolab a GITT pulse is cut if the
+  spectrometer wait runs `GITT_PULSE_GRACE_S` past its end (`_PulseGuard`).
 - The amplitude's units (rms vs peak) are unconfirmed; vmod/imod are saved to settle it.
 
 ### Metrohm / Autolab rig — Python drives it; chrono runs from `Ei` (2026-09-09)
@@ -483,7 +489,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 1157 tests total (1156 pass, 1 skip; counted 2026-11-12);
+- **`gui/` coverage — no longer the gap it was.** 1166 tests total (1165 pass, 1 skip; counted 2026-11-14);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage

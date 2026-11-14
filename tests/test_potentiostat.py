@@ -2323,6 +2323,20 @@ def test_a_lost_gamry_stops_the_staircase_with_the_cell_off(gamry_pitt):
     assert tk.events[-1] == "cell off" and tk.closed == 1
 
 
+def test_a_failed_edge_low_still_switches_the_cell_off(gamry_pitt, monkeypatch):
+    tk = gamry_pitt(tau=0.02)
+    real = _GPstat.set_digital_out
+
+    def edge(self, value, mask):
+        if not value:
+            raise RuntimeError("DIGOUT write failed")
+        real(self, value, mask)
+
+    monkeypatch.setattr(_GPstat, "set_digital_out", edge)
+    _run_gamry(_gamry_settings(pitt_max_hold_s=0.1, pitt_cutoff_enabled=False))
+    assert tk.events[-1] == "cell off"
+
+
 def test_a_late_point_from_the_old_step_is_not_served_to_the_new_one():
     """The race: Python has asked for step 1, but the thread is still harvesting
     step 0's curve. Those points must not feed step 1's step-end rule -- a large
@@ -2716,6 +2730,65 @@ def test_the_autolab_gitt_ends_with_the_cell_off_and_potentiostatic(gitt_autolab
     assert modes == ["gstat", "pstat"]
 
 
+def test_a_failed_cell_off_leaves_the_autolab_at_zero_amps_not_potentiostatic(
+        gitt_autolab, monkeypatch):
+    """Switching to potentiostatic with the cell still on would put the last Setpoint,
+    read as volts, on the film. 0 A, galvanostatic, and say so instead."""
+    from spec_echem.gitt import gitt_plan
+    p, inst, modes, _ranges = gitt_autolab
+    p.gitt_prepare(gitt_plan(p.settings)[0])
+    p.fire()
+
+    def fails(inst_, on):
+        raise RuntimeError("no reply")
+
+    monkeypatch.setattr(potentiostat, "_set_cell", fails)
+    p.pitt_end()
+    assert inst.Ei.Setpoint == 0.0
+    assert modes == ["gstat"]                       # never switched back
+    assert p.device_lost()
+
+
+def test_a_spectrometer_that_never_returns_cannot_hold_the_pulse_on(gitt_autolab):
+    """Python ends an Autolab pulse, so a wait on the spectrometer (no trigger edge,
+    a stalled detector) would leave the galvanostat pulsing with nobody checking E.
+    The wait is cut once the pulse is overdue, and the cell goes off."""
+    from spec_echem.acquisition import GITT_PULSE_GRACE_S, acquire_pitt
+    from spec_echem.fakes import FakeSpectrometer
+    from spec_echem.gitt import gitt_plan
+    p, inst, modes, _ranges = gitt_autolab
+
+    class NeverReturns(FakeSpectrometer):
+        def measure(self, abort_event=None, on_armed=None):
+            if on_armed is not None:
+                on_armed()
+            while not abort_event.is_set():
+                time.sleep(0.001)
+            return None
+
+    t0 = time.perf_counter()
+    with pytest.raises(RuntimeError, match="No spectrum came back"):
+        acquire_pitt(NeverReturns(), p, gitt_plan(p.settings), p.settings,
+                     kind="gitt")
+    assert time.perf_counter() - t0 < p.settings["gitt_pulse_s"] + GITT_PULSE_GRACE_S + 1
+    assert inst.Ei.Setpoint == 0.0 and inst.Ei.Cell is False
+    assert modes == ["gstat", "pstat"]
+
+
+def test_unreadable_samples_during_a_pulse_stop_the_gitt(gitt_autolab, monkeypatch):
+    from spec_echem.gitt import gitt_plan
+    p, inst, _modes, _ranges = gitt_autolab
+    p.settings["gitt_pulse_s"] = 30.0
+    p.gitt_prepare(gitt_plan(p.settings)[0])
+    p.fire()
+    monkeypatch.setattr(potentiostat, "sample_ei", lambda inst_: False)
+    for _ in range(potentiostat.AUTOLAB_GITT_MAX_BAD_SAMPLES - 1):
+        assert math.isnan(p.pitt_sample()[1])        # one or two are normal
+    with pytest.raises(RuntimeError, match="no readable sample"):
+        p.pitt_sample()
+    assert p.device_lost()
+
+
 def test_a_current_that_does_not_take_stops_the_gitt(gitt_autolab):
     from spec_echem.gitt import gitt_plan
     p, inst, _modes, _ranges = gitt_autolab
@@ -2913,6 +2986,9 @@ def test_the_instrument_potential_stop_ends_the_run_with_the_cell_off(gamry_gitt
     assert "cell off" in tk.events
     points = p.pitt_hardware_echem()
     assert len(points) <= potentiostat.GAMRY_GITT_STOP_DELAY_PTS + 1
+    # The pulse as APPLIED, not the 0.2 s planned: the charge must not be overstated.
+    applied = p.gitt_pulse_actual()[0]
+    assert applied == pytest.approx(len(points) * 0.01) and applied < 0.2
 
 
 def test_a_curve_cut_short_switches_the_cell_off_on_the_curve_thread(gamry_gitt):

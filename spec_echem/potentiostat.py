@@ -747,6 +747,10 @@ def is_high_current_range(member):
 # so this still catches the failure worth catching: a write that was ignored outright.
 AUTOLAB_SETPOINT_TOL_V = 0.002
 
+# Consecutive unreadable samples (NaN) that end a GITT pulse on the Autolab: with no
+# potential there is no E window. One or two are normal (a straddled pair).
+AUTOLAB_GITT_MAX_BAD_SAMPLES = 10
+
 # One count of the current reading, as a fraction of the range's full scale. MEASURED
 # on the PGSTAT302N 2026-10-05: every current logged on CR10_1mA was a whole multiple
 # of 3.0518 nA (1, 4, 18, 19, 33, 34 counts) = 1 mA / 327,680. Used so a PITT cutoff
@@ -1430,7 +1434,17 @@ class AutolabPotentiostat(Potentiostat):
                                             ("POTENTIAL", pot_over)) if f), t)
         if pair is None:
             self._bad_samples += 1
+            self._bad_run = getattr(self, "_bad_run", 0) + 1
+            if (self._gitt is not None and self._gitt.get("on")
+                    and self._bad_run >= AUTOLAB_GITT_MAX_BAD_SAMPLES):
+                # A galvanostat pulsing with no readable potential has no E window.
+                self._device_lost = True
+                raise RuntimeError(
+                    f"Autolab: no readable sample for {self._bad_run} ticks in a row "
+                    "during a GITT pulse, so the potential window could not be "
+                    "checked. Stopping.")
             return t, float("nan"), float("nan")
+        self._bad_run = 0
         e, i = pair
         return t, float(e), float(i)
 
@@ -1448,10 +1462,23 @@ class AutolabPotentiostat(Potentiostat):
         """Cell off. Called from acquire_pitt()'s finally, so it runs on every exit."""
         if self._inst is None:
             return
+        if self._gitt is not None:
+            # 0 A first: if the cell-off below fails, the galvanostat is at least
+            # not left driving a pulse.
+            try:
+                self._inst.Ei.Setpoint = 0.0
+            except Exception as exc:  # noqa: BLE001
+                get_run_logger().warning("Autolab: could not write 0 A: %s", exc)
         try:
             _set_cell(self._inst, False)
         except Exception as exc:  # noqa: BLE001
-            get_run_logger().warning("Autolab: could not switch the cell off: %s", exc)
+            # Stay galvanostatic at 0 A: switching to potentiostatic with the cell
+            # still on would put the last Setpoint, read as volts, on the film.
+            get_run_logger().error(
+                "Autolab: could not switch the cell OFF (%s). Switch it off in NOVA "
+                "or at the instrument.", exc)
+            self._device_lost = True
+            return
         if self._gitt is not None:
             # Back to potentiostatic, cell already off, so nothing after a GITT
             # inherits a galvanostat.
@@ -1533,6 +1560,19 @@ class AutolabPotentiostat(Potentiostat):
             self._gitt_write_current(0.0)
             g["on"] = False
             self.gitt_pulses[g["step"].index] = time.perf_counter() - t0
+
+    def gitt_pulse_overdue_s(self):
+        """Seconds the running pulse is past its planned end, 0 when none is on.
+        Python ends an Autolab pulse in pitt_sample(), so the loop asks this while it
+        waits on the spectrometer (acquire_pitt's _PulseGuard): arithmetic only, no
+        instrument call."""
+        g = self._gitt
+        if not g or not g.get("on"):
+            return 0.0
+        t0 = g["t0"] if g["t0"] is not None else self._t_cell_on
+        if t0 is None:
+            return 0.0                      # cell not on yet
+        return max(0.0, time.perf_counter() - t0 - g["step"].pulse_s)
 
     def gitt_pulse_actual(self):
         """{step index: the pulse as applied, s}, setpoint write to setpoint write."""
@@ -2430,6 +2470,19 @@ class ExternalPotentiostat(Potentiostat):
 GAMRY_PITT_MIN_PERIOD_S = 0.1
 
 
+# Gamry curve threads that did not stop when asked (see pitt_end). While one lives it
+# may hold the cell on and its toolkitpy session open, so no new Gamry run starts.
+_STUCK_GAMRY_THREADS = []
+
+
+def _refuse_if_gamry_stuck():
+    _STUCK_GAMRY_THREADS[:] = [t for t in _STUCK_GAMRY_THREADS if t.is_alive()]
+    if _STUCK_GAMRY_THREADS:
+        raise RuntimeError(
+            "An earlier Gamry curve thread is still running and may hold the cell on. "
+            "Switch the cell off at the instrument and restart spec-echem.")
+
+
 class _GamryPittRunner:
     """The Gamry side of a PITT: one session, the cell on once, one curve per step.
 
@@ -2505,10 +2558,18 @@ class _GamryPittRunner:
             self.step += 1
             self.want = (self.step, potential)
 
+    def join_timeout_s(self):
+        """How long finish() waits for the thread to stop the curve and switch the
+        cell off."""
+        return 15.0
+
     def finish(self):
+        """Stop the thread. -> True once it has ended (cell off, session closed);
+        False if it is STILL RUNNING after join_timeout_s(), cell possibly on."""
         self.stop_flag.set()
         self.armed.set()                       # release it if never fired
-        self.thread.join(timeout=15.0)
+        self.thread.join(timeout=self.join_timeout_s())
+        return not self.thread.is_alive()
 
     # --- the curve thread ----------------------------------------------------
 
@@ -2661,11 +2722,16 @@ class _GamryPittRunner:
         finally:
             self._stop_curve(curve)
             if pstat is not None:
+                # Two tries: a failed DIGOUT write must never skip the cell-off.
                 try:
                     pstat.set_digital_out(0x0, 0x1)     # DIGOUT0 LOW
-                    pstat.set_cell(False)
                 except Exception:  # noqa: BLE001
                     pass
+                try:
+                    pstat.set_cell(False)
+                except Exception:  # noqa: BLE001
+                    get_run_logger().error("Gamry: could not switch the cell OFF; switch it "
+                                           "off at the instrument.", exc_info=True)
             try:
                 tkp.toolkitpy_close()
             except Exception:  # noqa: BLE001
@@ -2706,6 +2772,17 @@ class _GamryGittRunner(_GamryPittRunner):
         self.e_stopped = False
         self.e_stop_v = float("nan")
         self.gitt_pulses = {}       # step index -> the pulse as applied, s
+        self._pulse = None          # (curve, step index, n_pulse) of the running pulse
+
+    def _harvest(self, curve, step, t_run, t_step0, seen):
+        """As the PITT's, and the pulse as APPLIED: the points the instrument
+        recorded at the pulse current. A pulse the potential stop or a Stop cut short
+        is that much shorter, not its planned length."""
+        seen = super()._harvest(curve, step, t_run, t_step0, seen)
+        if self._pulse is not None and curve is self._pulse[0]:
+            _curve, index, n_pulse = self._pulse
+            self.gitt_pulses[index] = min(seen, n_pulse) * self.period
+        return seen
 
     def _setup(self, pstat):
         """Galvanostatic, a range for the pulse, and 0 A on the DAC before cell-on."""
@@ -2731,12 +2808,13 @@ class _GamryGittRunner(_GamryPittRunner):
         values, repeats = [0.0], [self.n_tail]
         if n_pulse:
             values, repeats = [step.current, 0.0], [n_pulse, self.n_tail]
-            self.gitt_pulses[step.index] = n_pulse * self.period
+            self.gitt_pulses[step.index] = 0.0     # grows as _harvest sees points
         signal = self._signal(pstat, values, repeats)
         pstat.set_signal_array2(signal)
         pstat.init_signal()
         self.expected = sum(repeats)
         curve = tkp.CiivCurve(pstat, self.expected + 50)
+        self._pulse = (curve, step.index, n_pulse) if n_pulse else None
         curve.set_stop_v_max(True, self.e_max)
         curve.set_stop_at_delay_v_max(GAMRY_GITT_STOP_DELAY_PTS)
         curve.set_stop_v_min(True, self.e_min)
@@ -2794,6 +2872,12 @@ class _GamryEreisRunner(_GamryPittRunner):
     sweep_done. A cancel lets the frequency in hand finish: ReadZ.measure() blocks,
     and nothing known interrupts it.
     """
+
+    def join_timeout_s(self):
+        """ReadZ.measure() cannot be interrupted, so a Stop waits out the frequency
+        in hand: twice its estimate (a floor), plus the base wait."""
+        from spec_echem.ereis import ereis_point_s
+        return 15.0 + 2.0 * ereis_point_s(min(self.freqs))
 
     def __init__(self, settings):
         super().__init__(settings)
@@ -2991,6 +3075,7 @@ class ToolkitPotentiostat(Potentiostat):
         ~50 ms (hardware-confirmed 2026-07-05, examples/bench_fake_coacquire.py); it
         survives only on a thread running an uninterrupted poll loop.
         """
+        _refuse_if_gamry_stuck()
         self._armed.clear()
         self._fired.clear()
         self._built.clear()
@@ -3089,6 +3174,7 @@ class ToolkitPotentiostat(Potentiostat):
 
     def pitt_prepare(self, potential):
         """Start the Gamry thread: session, hardware setup, first potential, cell OFF."""
+        _refuse_if_gamry_stuck()
         self._pitt_points = []
         self._pitt_runner = _GamryPittRunner(self.settings)
         self._pitt_runner.start(float(potential))
@@ -3114,7 +3200,16 @@ class ToolkitPotentiostat(Potentiostat):
         runner, self._pitt_runner = self._pitt_runner, None
         if runner is None:
             return
-        runner.finish()
+        if not runner.finish():
+            # Never report the run over while the thread may hold the cell on: it is
+            # remembered, every later Gamry start refuses until it has ended, and
+            # the run stops here as if the instrument were lost.
+            _STUCK_GAMRY_THREADS.append(runner.thread)
+            self._device_lost = True
+            get_run_logger().error(
+                "Gamry: the curve thread did not stop within %.0f s, so the CELL MAY "
+                "STILL BE ON. Switch the cell off at the instrument (or in Framework) "
+                "and restart spec-echem before another run.", runner.join_timeout_s())
         self._pitt_points = list(runner.points)
         self._gitt_pulses = dict(getattr(runner, "gitt_pulses", {}))
         self._device_lost = self._device_lost or runner.lost
@@ -3125,6 +3220,7 @@ class ToolkitPotentiostat(Potentiostat):
     def ereis_prepare(self, potential):
         """Start the Gamry thread for a PITT with impedance sweeps: as pitt_prepare,
         cell OFF."""
+        _refuse_if_gamry_stuck()
         self._pitt_points = []
         self._pitt_runner = _GamryEreisRunner(self.settings)
         self._pitt_runner.start(float(potential))
@@ -3154,6 +3250,7 @@ class ToolkitPotentiostat(Potentiostat):
 
     def gitt_prepare(self, step):
         """Start the Gamry thread for a GITT: galvanostatic, 0 A, cell OFF."""
+        _refuse_if_gamry_stuck()
         self._pitt_points = []
         self._gitt_pulses = {}
         self._pitt_runner = _GamryGittRunner(self.settings)
@@ -3387,11 +3484,16 @@ class ToolkitPotentiostat(Potentiostat):
         finally:
             self._built.set()   # never leave prepare() blocked, even on a build error
             if pstat is not None:
+                # Two tries: a failed DIGOUT write must never skip the cell-off.
                 try:
                     pstat.set_digital_out(0x0, 0x1)  # DIGOUT0 LOW
-                    pstat.set_cell(False)
                 except Exception:  # noqa: BLE001
                     pass
+                try:
+                    pstat.set_cell(False)
+                except Exception:  # noqa: BLE001
+                    get_run_logger().error("Gamry: could not switch the cell OFF; switch it "
+                                           "off at the instrument.", exc_info=True)
             try:
                 tkp.toolkitpy_close()
             except Exception:  # noqa: BLE001

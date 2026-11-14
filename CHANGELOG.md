@@ -11,6 +11,37 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Fixed — review of the hardware paths before v0.4.0 (2026-11-14)
+
+A second-model review of the potentiostat runners, `acquire_pitt` and the worker. Each
+fix has a test on the fakes that fails without it. None has run on hardware yet.
+
+- **An error mid-PITT or mid-GITT wrote no file.** The h5 is the only copy, so an error
+  at step 40 (a lost instrument, a failed ER-EIS range restore) lost steps 0–39. Now the
+  step in hand is closed as `end_reason = "error"` (a sweep as `sweep_end = "error"`),
+  everything is written with a root `pitt_error` / `gitt_error`, and the error is then
+  reported as before.
+- **Autolab GITT: a spectrometer wait left the pulse running unwatched.** Python ends an
+  Autolab pulse and checks the E window between spectra; with no trigger reaching the
+  Avantes, it waited forever with the pulse current on. The wait is now cut 1 s (plus a
+  few exposures) past the pulse's end, and the run stops with the cell off.
+- **Autolab GITT: unreadable samples skipped the E window without limit.** Ten in a row
+  during a pulse now stop the run.
+- **Autolab: a failed cell-off was followed by a switch to potentiostatic**, which would
+  have put the last Setpoint, read as volts, on the film. Now 0 A is written first, and
+  the instrument stays galvanostatic if the cell cannot be switched off.
+- **Gamry: Abort during a slow impedance point could end the run with the cell on.** The
+  stop wait was 15 s; one 0.1 Hz ReadZ is ~28 s. The wait now covers the slowest
+  frequency, and a thread that still will not stop is reported as lost, with every
+  later Gamry start refused until it ends.
+- **A setup that failed part-way skipped the cleanup** (`prepare` sat outside the
+  `try`): the Autolab could be left galvanostatic, and a Gamry thread parked forever.
+- **Gamry teardown:** a failed DIGOUT-low write skipped the cell-off.
+- **Gamry GITT `pulse_s_applied`** was the planned pulse even when the potential stop or
+  Stop cut it short, overstating the charge. It is now the time actually applied.
+- **No wait for the display after a PITT** before a following GITT started.
+- A lost Gamry during a PITT or GITT now stops the run, as it does after a segment.
+
 ### Fixed — the Gamry current range was never set (2026-09-25)
 
 - **Every Python-mode run sat on the instrument's power-up I/E range — `IERange 11`,
