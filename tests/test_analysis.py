@@ -1199,3 +1199,21 @@ def test_a_biexp_fast_tau_below_the_sampling_interval_needs_review():
     assert not r.ok
     assert "fast tau" in r.reason and "sampling interval" in r.reason
     assert r.params is not None                         # never withheld
+
+
+@pytest.mark.parametrize("model, truth", [("biexp", 2.6), ("stretched", 4.51)])
+def test_mean_tau_does_not_depend_on_where_the_fit_window_starts(model, truth):
+    """Time zero is the trigger whatever window is fitted. Anchored at the window
+    start instead, raising it 1 s moved <tau> +30% with a CI under 1%: only a single
+    exponential is unchanged by a shift."""
+    from spec_echem.analysis import mean_relaxation_time
+    t = np.arange(0, 60, 0.1)
+    noise = np.random.default_rng(0).normal(0, 3e-4, t.size)
+    if model == "biexp":     # amplitude-weighted <tau> = (0.06*1 + 0.04*5)/0.1
+        y = 0.05 + 0.06 * np.exp(-t / 1.0) + 0.04 * np.exp(-t / 5.0) + noise
+    else:                    # (tau/beta) * gamma(1/beta) = 4.51 s
+        y = 0.05 + 0.1 * np.exp(-(t / 3.0) ** 0.6) + noise
+    for start in (0.0, 1.0):
+        fit = fit_transient(t, y, model, t_start=start)
+        assert fit.ok and fit.t0 == 0.0
+        assert mean_relaxation_time(model, fit.params) == pytest.approx(truth, rel=0.03)

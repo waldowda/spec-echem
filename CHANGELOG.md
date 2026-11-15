@@ -17,6 +17,13 @@ A second-model check of `charge.py` and `analysis.py`, each item derived indepen
 and verified numerically. The charge, density, bleach, reversibility and DOS maths were
 confirmed correct.
 
+- **Kinetics fits now measure time from the trigger (segment t = 0), whatever window is
+  fitted.** The model was anchored at the window's first point, so a biexponential or
+  stretched fit with a raised start (as the Start box suggests, to skip the capacitive
+  spike) gave a <tau> that moved with the start: +30% at 1 s, with a CI under 1%. The
+  window now only chooses which points are fitted. A single exponential's tau is
+  unchanged; amplitudes are now values at t = 0. **Refit any biexp or stretched result
+  made with a start above 0 before this change.**
 - **A biexponential whose fast tau is below the sampling interval passed every check.**
   The checks read only the slow tau, so a one-sample spike fitted as a "fast component"
   dragged the mean tau down: 3 s data read 0.31 s, unflagged, and the Charge tab's 5 tau

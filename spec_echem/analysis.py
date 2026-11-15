@@ -437,9 +437,9 @@ class FitResult:
         self.ok = ok
         self.reason = reason
         self.n = n
-        # The fit is done against elapsed time from the window start, so t0 is
-        # needed to put the curve back on the segment's own time axis. Without it
-        # a plotted fit would be offset from its data and look wrong.
+        # The model's time origin on the segment's axis. 0 for every fit since
+        # 2026-11-14 (the trigger); kept so a curve is always drawn from the
+        # origin it was fitted against.
         self.t0 = t0
         self.t_first = t_first    # first/last time actually fitted, for shading
         self.t_last = t_last      # the window on a plot of the whole trace
@@ -720,6 +720,25 @@ def _initial_guess(model, t, y):
     return [a0, b0, span / 3, 0.8]
 
 
+def _shift_guess(model, p0, shift):
+    """Starting parameters guessed on the window (time from its first point),
+    carried back to an origin `shift` s earlier: each amplitude as it would be at
+    t = 0. The exponent is capped so a fast guess with a late start cannot overflow."""
+    p0 = list(p0)
+    if shift <= 0:
+        return p0
+
+    def back(b, tau, beta=1.0):
+        return b * float(np.exp(min((shift / tau) ** beta, 30.0)))
+    if model == "exp":
+        p0[1] = back(p0[1], p0[2])
+    elif model == "biexp":
+        p0[1], p0[3] = back(p0[1], p0[2]), back(p0[3], p0[4])
+    else:
+        p0[1] = back(p0[1], p0[2], p0[3])
+    return p0
+
+
 def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
     """Fit one transient over a window. Never raises — a bad fit comes back `ok=False`.
 
@@ -744,9 +763,13 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
         return FitResult(model, reason=f"only {len(t)} points in the window "
                                        f"for a {n_params}-parameter fit", n=len(t))
 
-    # Fit against elapsed time so the models' exp(-t/tau) is anchored at the window
-    # start rather than at the segment's zero.
-    t0 = t[0]
+    # Time zero is the segment's zero -- the trigger -- whatever window is fitted.
+    # The window only chooses WHICH points are fitted. Anchoring the model at the
+    # window start instead made biexp and stretched results depend on the start
+    # chosen: raising it 1 s (as one does to skip the capacitive spike) moved <tau>
+    # by +30% with a CI under 1% (2026-11-14). A single exponential was immune, as
+    # a shift only rescales its amplitude. Amplitudes are therefore values AT t = 0.
+    t0 = 0.0
     try:
         # The least-squares SEARCH legitimately probes nonsense parameters on its way
         # to the answer: tau -> 0 (divide by zero), tau < 0 under a fractional beta
@@ -760,7 +783,8 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
         # Scoped to this call rather than set module-wide, so a genuine numerical
         # fault anywhere else still surfaces.
         lower, upper = MODEL_BOUNDS[model]
-        p0 = _clip_to_bounds(_initial_guess(model, t - t0, y), lower, upper)
+        p0 = _clip_to_bounds(_shift_guess(model, _initial_guess(model, t - t[0], y),
+                                          float(t[0] - t0)), lower, upper)
         with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
             popt, pcov = curve_fit(func, t - t0, y, p0=p0,
                                    bounds=(lower, upper), maxfev=10000)

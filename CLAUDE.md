@@ -478,6 +478,9 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
 - **Pixels below `ANALYSIS_WL_MIN` (410 nm) never win band selection**, nor do pixels
   whose change is under 10× their own noise. MEASURED: 416 counts at 381 nm against
   41250 at 780 nm, and the blue edge was beating the real polaron on every segment.
+- **A fit's time zero is the TRIGGER (segment t = 0), never the window start** (2026-11-14):
+  the window chooses points only. Anchoring at the window start made biexp/stretched <tau>
+  depend on the start chosen (+30% at 1 s).
 - **Fits are bounded**: τ > 0, 0 < β ≤ 1 (above 1 is a *compressed* exponential),
   β ≥ 0.05 (⟨τ⟩ = (τ/β)·Γ(1/β) overflows past 1/β ≈ 170), and τ < 10× the fitted window.
 - **Segment potentials come from the DATA**, via `MainWindow.segment_potential()` →
@@ -489,7 +492,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 1168 tests total (1167 pass, 1 skip; counted 2026-11-14);
+- **`gui/` coverage — no longer the gap it was.** 1170 tests total (1169 pass, 1 skip; counted 2026-11-14);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
