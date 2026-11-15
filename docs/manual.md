@@ -159,7 +159,7 @@ says how *fast* a film switched at each potential, this says how *much*.
 | **Bleach at / neutral peak** | The wavelength the bleach is read at. **neutral peak** uses the strongest absorption of the neutral film, the band that bleaches. At a polaron wavelength the "bleach" comes out negative, because that band grows. |
 | **Equilibrium: last … s** | The end of each step. Absorbance and current are averaged over it, drift is measured over it, and its mean current is the leak (below). |
 | **move < … %** | A step is ringed if its absorbance or current still moved by more than this share of the step's whole change over that last span. |
-| **step ≥ … × tau** | ...or if the step was shorter than this many relaxation times (5 τ = 99.3% complete). Uses the Kinetics fits of absorbance and current that passed review; a step not yet fitted gets only the drift check, and the table says which checks were made. |
+| **step ≥ … × tau** | ...or if the step was shorter than this many relaxation times (5 τ = 99.3% complete for a single exponential; about 96% for a stretched one with β = 0.5). Uses the Kinetics fits of absorbance and current that passed review; a step not yet fitted gets only the drift check, and the table says which checks were made. |
 | **Film size / Edit… / Copy from another run…** | The film size in use, in **orange** while it is an estimate and **green** once measured. **Edit…** enters a measured thickness and area (± and a note, e.g. "profilometer"); **Copy from another run…** takes the size already entered for another run of the same film. Hover the size for its history. |
 | **Save table (CSV)…** | Every number for every step, with the film size, A₀ and every note behind them. The plot footnote is a short version. |
 

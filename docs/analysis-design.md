@@ -116,7 +116,7 @@ physical timescale, so a ratio of raw τ would be wrong in a way that looks enti
 
 ```
 exp        ⟨τ⟩ = τ
-biexp      ⟨τ⟩ = (B₁τ₁ + B₂τ₂) / (B₁ + B₂)        amplitude-weighted
+biexp      ⟨τ⟩ = (|B₁|τ₁ + |B₂|τ₂) / (|B₁| + |B₂|)  amplitude-weighted (magnitudes)
 stretched  ⟨τ⟩ = (τ/β)·Γ(1/β)
 ```
 

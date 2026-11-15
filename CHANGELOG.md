@@ -11,6 +11,25 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Fixed — check of the analysis maths (2026-11-14)
+
+A second-model check of `charge.py` and `analysis.py`, each item derived independently
+and verified numerically. The charge, density, bleach, reversibility and DOS maths were
+confirmed correct.
+
+- **A biexponential whose fast tau is below the sampling interval passed every check.**
+  The checks read only the slow tau, so a one-sample spike fitted as a "fast component"
+  dragged the mean tau down: 3 s data read 0.31 s, unflagged, and the Charge tab's 5 tau
+  check then passed too easily. The fast tau now gets the sampling-interval and
+  uncertainty checks too, and such a fit is marked NEEDS REVIEW (numbers kept).
+- **The noise part of Q's uncertainty was overstated on short steps** (1.9x at 10 s,
+  ~1.0x at 200 s): the tail samples sit in both the integral and the leak mean with
+  opposite signs, and the two had been added in quadrature. It is now exact, and matches
+  a Monte Carlo within 2%.
+- "5 tau = 99.3% complete" now says that holds for a single exponential (about 96% for a
+  stretched one with beta = 0.5); the design doc's biexp mean now shows |B|, as the code
+  computes it.
+
 ### Fixed — review of the hardware paths before v0.4.0 (2026-11-14)
 
 A second-model review of the potentiostat runners, `acquire_pitt` and the worker. Each

@@ -13,7 +13,8 @@ summed across steps. A dedoping step's charge is the charge taken back out.
 The numbers below are only equilibrium values if the step got there. Two checks,
 and a step that fails either is FLAGGED, never dropped -- the software raises the
 concern and the scientist decides:
-  - the step lasted at least `tau_multiple` relaxation times (5 tau = 99.3%), from
+  - the step lasted at least `tau_multiple` relaxation times (5 tau = 99.3% for a single
+    exponential; less for a stretched one, ~96% at beta = 0.5), from
     the Kinetics fits when there are any;
   - over the last `tail_s` seconds the absorbance and current moved by less than
     `drift_fraction` of the step's whole change;
@@ -275,10 +276,19 @@ def analyse_step(label, potential, direction, time, current, absorbance_time=Non
         line = np.polyfit(t[keep], i[keep], 1)
         tail_slope = float(line[0])
         sigma = float(np.std(i[keep] - np.polyval(line, t[keep]), ddof=2))
-        dt = float(np.median(np.diff(t)))
-        on_integral = 2.0 * sigma * dt * np.sqrt(t.size)
-        on_leak = 2.0 * sigma / np.sqrt(keep.sum()) * 0.75 * duration
-        u_noise = float(np.hypot(on_integral, on_leak))
+        # The tail samples are in the integral AND in the leak mean, with opposite
+        # signs, so the two noise terms are anticorrelated and do not add in
+        # quadrature (that overstated this term 1.9x on a 10 s step). Exactly: each
+        # sample's weight in q_corrected is its trapezoid weight, less
+        # 0.75*duration/n_tail if the leak mean uses it; white noise sigma gives
+        # sd = sigma * sqrt(sum(w**2)), doubled for the ~95% range used here.
+        w = np.zeros(t.size)
+        steps = np.diff(t) / 2.0
+        w[:-1] += steps
+        w[1:] += steps
+        in_leak = _tail(t, tail_s) & np.isfinite(i)
+        w[in_leak] -= 0.75 * duration / in_leak.sum()
+        u_noise = float(2.0 * sigma * np.sqrt(np.sum(w ** 2)))
     q_u = float(np.sqrt(u_background ** 2 + u_integration ** 2 + u_noise ** 2))
 
     reasons, checked = [], []

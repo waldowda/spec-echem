@@ -811,6 +811,20 @@ def fit_transient(time, values, model="exp", t_start=None, t_stop=None):
             return _rejected(
                 result, f"the two taus are the same ({fast:.4g} and {slow:.4g} s): "
                         f"the data looks single-exponential - try exp")
+        # The checks above and below read result.tau, the SLOW one. A fast tau under
+        # the sampling interval makes B1*exp(-t/tau1) one sample wide: the fit spends
+        # a component on the first point (a capacitive spike, an offset) and the
+        # amplitude-weighted mean drops with it -- 3 s data read 0.31 s, unflagged.
+        fast_sd = float(result.sd[2])
+        if dt > 0 and fast < FIT_MIN_TAU_SAMPLES * dt:
+            return _rejected(
+                result, f"the fast tau ({fast:.3g} s) is below the {dt:.3g} s "
+                        f"sampling interval: its amplitude rests on about one sample "
+                        f"- raise the start or try exp")
+        if fast_sd > FIT_SD_REJECT_FRACTION * fast:
+            return _rejected(
+                result, f"fast tau uncertainty too large (tau1 = {fast:.4g} +/- "
+                        f"{fast_sd:.4g})")
     if tau_sd > FIT_SD_REJECT_FRACTION * abs(tau):
         if model == "biexp":
             b1, b2 = abs(float(result.params[1])), abs(float(result.params[3]))

@@ -181,7 +181,8 @@ class ChargePanel(QWidget):
         self.tau_spin = self._spin(" × tau", 1.0, 20.0, DEFAULT_TAU_MULTIPLE, 1)
         self.tau_spin.setToolTip(
             "...or if the step was shorter than this many relaxation times\n"
-            "(5 tau = 99.3% complete). Uses the Kinetics fits of absorbance and\n"
+            "(5 tau = 99.3% complete for a single exponential; about 96% for a\n"
+            "stretched one with beta = 0.5). Uses the Kinetics fits of absorbance and\n"
             "current that passed review; a step not yet fitted gets the drift\n"
             "check only, and the table says so.")
         checks.addWidget(self.tau_spin)

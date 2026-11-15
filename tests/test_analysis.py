@@ -1185,3 +1185,17 @@ def test_biexp_with_equal_taus_says_try_exp():
         an.curve_fit = real
     assert fit.needs_review
     assert "the two taus are the same" in fit.reason and "try exp" in fit.reason
+
+
+def test_a_biexp_fast_tau_below_the_sampling_interval_needs_review():
+    """A one-sample spike fitted as a 'fast component': tau1 far below dt carries a
+    full share of the amplitude weighting, and the mean tau of 3 s data read 0.31 s
+    while every check (all on the SLOW tau) passed. The numbers stay; the fit is
+    flagged."""
+    t = np.arange(0, 60, 0.1)
+    i = 2e-6 + 30e-6 * np.exp(-t / 3.0) + np.random.default_rng(0).normal(0, 2e-8, t.size)
+    i[0] = 300e-6
+    r = fit_transient(t, i, model="biexp")
+    assert not r.ok
+    assert "fast tau" in r.reason and "sampling interval" in r.reason
+    assert r.params is not None                         # never withheld

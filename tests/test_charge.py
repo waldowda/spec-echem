@@ -244,10 +244,25 @@ def test_the_charge_uncertainty_is_its_three_parts_in_quadrature():
     assert min(step.u_background, step.u_integration, step.u_noise) > 0
     assert step.q_u == pytest.approx(np.sqrt(step.u_background ** 2 + step.u_integration
                                              ** 2 + step.u_noise ** 2))
-    # The noise part by hand: 2 sigma on the integral and on the background mean.
+    # The noise part by hand, in closed form: Q_corr = sum(dt*i) - 0.75*T*mean(tail),
+    # whose white-noise variance is sigma^2*dt*T*(0.5625*T/tail - 0.5) (the tail
+    # samples count in both terms, with opposite signs). The code's exact trapezoid
+    # end weights differ from this by under 1%.
     tail = T >= T[-1] - 5.0
     line = np.polyfit(T[tail], i[tail], 1)
     sigma = np.std(i[tail] - np.polyval(line, T[tail]), ddof=2)
-    assert step.u_noise == pytest.approx(np.hypot(
-        2 * sigma * 0.1 * np.sqrt(T.size), 2 * sigma / np.sqrt(tail.sum()) * 0.75 * 60.0),
-        rel=1e-6)
+    assert step.u_noise == pytest.approx(
+        2 * sigma * np.sqrt(0.1 * 60.0 * (0.5625 * 60.0 / 5.0 - 0.5)), rel=0.01)
+
+
+def test_the_noise_term_is_the_actual_spread_of_q_on_a_short_step():
+    """The tail samples sit in both the integral and the leak mean, with opposite
+    signs: adding the two in quadrature overstated the term 1.9x at 10 s. It must
+    match the spread of Q over noise draws (2 sd, the ~95% range used here)."""
+    t = np.arange(0, 10.0 + 1e-9, 0.1)
+    sigma, base = 1e-8, np.full(t.size, 1e-6)
+    rng = np.random.default_rng(0)
+    steps = [analyse_step("x", 0.1, "doping", t, base + rng.normal(0, sigma, t.size))
+             for _ in range(1500)]
+    spread = 2.0 * np.std([s.q_corrected for s in steps])
+    assert np.mean([s.u_noise for s in steps]) == pytest.approx(spread, rel=0.1)
