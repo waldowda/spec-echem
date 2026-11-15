@@ -33,6 +33,12 @@ confirmed correct.
   ~1.0x at 200 s): the tail samples sit in both the integral and the leak mean with
   opposite signs, and the two had been added in quadrature. It is now exact, and matches
   a Monte Carlo within 2%.
+- **The DOS width is given twice:** as measured, and with the thermal smearing fitted out
+  ("without kT broadening", 298 K). A CV reads the DOS convolved with the Fermi
+  derivative, so a measured 74 meV is 59 meV intrinsic. The convolution is fitted
+  directly; subtracting variances would be 3-10% low.
+- **The tau(abs)/tau(current) view now plots a ratio whose fit needs review, ringed**, as
+  the Kinetics ladder does, instead of leaving a gap. "Hide flagged points" works there.
 - "5 tau = 99.3% complete" now says that holds for a single exponential (about 96% for a
   stretched one with beta = 0.5); the design doc's biexp mean now shows |B|, as the code
   computes it.

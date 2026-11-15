@@ -469,6 +469,13 @@ orientation and few film defects, and a broadened one with face-on orientation a
 defects. A constant offset is fitted alongside, so an unsubtracted capacitive baseline is
 partly absorbed rather than inflating σ.
 
+**Two widths are shown.** The DOS read from a CV is the true DOS smeared by temperature
+(the derivative of the Fermi function, about 47 meV wide in σ terms at 298 K), so the
+fitted σ is broader than the film's own. The legend gives the width as measured and,
+below it, the width with that smearing fitted out ("without kT broadening", at 298 K):
+a measured 74 meV is about 59 meV intrinsic. Check which one a paper you compare against
+quotes before comparing.
+
 Two things get flagged rather than reported as measurements:
 
 - **σ at the window width** — the fit has railed against its bound, which means no peak

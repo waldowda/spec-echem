@@ -125,8 +125,9 @@ computes ⟨τ⟩ internally.
 
 Two consequences to build in deliberately:
 
-- **The ratio view has gaps where the individual view has points** — any potential where one of the
-  two fits failed. That is informative, and should look intentional rather than silently skipped.
+- **The ratio view rings a point where either fit needs review**, as the individual view does
+  (changed 2026-11-14; it used to leave a gap, which withheld a result). A gap remains only where
+  a fit did not converge, so there is nothing to divide. "Hide flagged points" applies here too.
 - **Both fits must share a model** for the ratio to mean anything. One dropdown drives both, so this
   holds by construction; keep it that way.
 

@@ -1254,13 +1254,10 @@ class AnalysisTab(QWidget):
     def _draw_ladder(self, *_):
         """tau (or the ratio) against the potential doped to, across whatever has been
         fitted so far -- so it builds as segments are fitted, not only at the end."""
-        # The ratio view draws no rings, so there is nothing for this to hide. Leaving
-        # the box live there would be a control that silently does nothing.
         # Every change of fits passes through here, and the Charge tab's
         # equilibrium check reads those fits.
         self.charge_panel.request_refresh()
         quantity = self.ladder_quantity.currentData()
-        self.hide_flagged_check.setEnabled(quantity != "ratio")
         rows = []
         no_rung = []
         for i in range(self.segment_combo.count()):
@@ -1339,20 +1336,36 @@ class AnalysisTab(QWidget):
             }
 
         if quantity == "ratio":
+            hide_flagged = self.hide_flagged_check.isChecked()
+            hidden = 0
             for direction in ("doping", "dedoping"):
                 vals, errs, present = [np.nan] * len(xs), [np.nan] * len(xs), False
+                flagged = [False] * len(xs)
                 for x, d, _label, fits in rows:
                     if d != direction:
                         continue
                     present = True
-                    # None -> NaN so a failed fit leaves a visible GAP; dropping the
-                    # point would hide which potential failed.
+                    # As the ladder: a fit that needs review gives a ringed point,
+                    # never a gap. Only a fit that did not converge (no numbers)
+                    # leaves one -- there is nothing to divide.
                     a, c = fits.get("absorbance"), fits.get("current")
                     r = tau_ratio(a, c)
                     vals[at[x]] = np.nan if r is None else r
                     errs[at[x]] = _ratio_ci95(r, a, c)
+                    if r is not None and not (a.ok and c.ok):
+                        flagged[at[x]] = True
+                        if hide_flagged:
+                            vals[at[x]] = errs[at[x]] = np.nan
+                            hidden += 1
                 if present:
-                    add(f"ratio ({direction})", vals, "absorbance", direction, errs)
+                    name = f"ratio ({direction})"
+                    if hide_flagged and not np.any(np.isfinite(vals)):
+                        continue
+                    add(name, vals, "absorbance", direction, errs)
+                    if any(flagged) and not hide_flagged:
+                        flags[name] = flagged
+            if hidden:
+                excluded.append(f"{hidden} flagged point(s) hidden")
             # Units on BOTH sides, so it is visible that they cancel. Requested: "so
             # we know the numerator and denominator have same units and Y is
             # dimensionless."

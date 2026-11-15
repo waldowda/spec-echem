@@ -168,16 +168,20 @@ def test_the_biexponential_mean_is_amplitude_weighted():
 
 # --- the ratio --------------------------------------------------------------
 
-def test_a_failed_fit_gives_no_ratio_so_the_plot_can_show_a_gap():
-    """None rather than NaN: a failed fit is information, and silently dropping the
-    point would hide which potential could not be fitted."""
+def test_a_fit_that_needs_review_still_gives_a_ratio_only_no_numbers_gives_none():
+    """As the ladder: a converged fit that failed a check is plotted ringed, never
+    left as a gap. None only when there is nothing to divide."""
+    from spec_echem.analysis import FitResult
     t = np.linspace(0.0, 20.0, 400)
     good = fit_transient(t, model_exp(t, 0.0, 1.0, 3.0), "exp")
-    bad = fit_transient(t, np.random.default_rng(1).normal(size=400), "exp")
+    flagged = FitResult("exp", params=good.params, sd=good.sd, ok=False,
+                        reason="a check objected", n=good.n, cov=good.cov)
+    no_numbers = FitResult("exp", reason="did not converge", n=400)
 
     assert tau_ratio(good, good) == pytest.approx(1.0)
-    assert tau_ratio(good, bad) is None
-    assert tau_ratio(bad, good) is None
+    assert tau_ratio(good, flagged) == pytest.approx(1.0)
+    assert tau_ratio(flagged, good) == pytest.approx(1.0)
+    assert tau_ratio(good, no_numbers) is None
     assert tau_ratio(good, None) is None
 
 
@@ -1217,3 +1221,19 @@ def test_mean_tau_does_not_depend_on_where_the_fit_window_starts(model, truth):
         fit = fit_transient(t, y, model, t_start=start)
         assert fit.ok and fit.t0 == 0.0
         assert mean_relaxation_time(model, fit.params) == pytest.approx(truth, rel=0.03)
+
+
+def test_the_dos_width_is_given_both_as_measured_and_without_thermal_broadening():
+    """A CV reads the DOS smeared by -df/dE. Smear a 59 meV Gaussian at 298 K: the
+    apparent width is ~74 meV and the thermal fit recovers 59. Variance subtraction
+    would give 57 (a sech^2 is not a Gaussian), which is why the convolution is fit."""
+    from spec_echem.analysis import K_B_EV, fermi_derivative
+    kt = K_B_EV * 298.15
+    e = np.arange(-0.6, 0.6, 0.0005)
+    u = np.arange(-0.4, 0.4, 0.0005)
+    smeared = np.convolve(np.exp(-e ** 2 / (2 * 0.059 ** 2)), fermi_derivative(u, kt),
+                          mode="same") * 0.0005 * 1e20 + 1e18
+    fit = fit_gaussian_dos(e, smeared)
+    assert fit["sigma_mev"] == pytest.approx(73.7, abs=0.5)
+    assert fit["sigma_intrinsic_mev"] == pytest.approx(59.0, abs=0.2)
+    assert fit["temperature_k"] == pytest.approx(298.15)

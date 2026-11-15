@@ -662,6 +662,12 @@ class ResultsTab(QWidget):
             if resolved:
                 label += (f"   sigma = {gauss['sigma_mev']:.0f} +/- "
                           f"{gauss['sigma_sd_mev']:.0f} meV")
+                # Both widths: as measured, and with the thermal smearing (~47 meV at
+                # 298 K) fitted out. Which one a paper quotes is the scientist's call.
+                if gauss.get("sigma_intrinsic_mev") is not None:
+                    label += (f"\n    {gauss['sigma_intrinsic_mev']:.0f} +/- "
+                              f"{gauss['sigma_intrinsic_sd_mev']:.0f} meV without kT "
+                              f"broadening ({gauss['temperature_k']:.0f} K)")
             elif tail["ok"]:
                 label += (f"   no peak in range; tail E0 = "
                           f"{abs(tail['e0_mev']):.0f} +/- {tail['e0_sd_mev']:.0f} meV"

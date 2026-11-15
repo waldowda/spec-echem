@@ -2023,14 +2023,30 @@ def test_hiding_every_point_of_a_trace_does_not_leave_an_empty_legend(ladder_win
     assert "Nothing selected under Show" not in shown
 
 
-def test_hide_flagged_is_disabled_in_the_ratio_view(ladder_window):
-    """It rings nothing, so a live checkbox there would do nothing silently."""
+def _with_current_fits(tab):
+    """Give each rung a current fit that passed, so the ratio's flag comes from the
+    absorbance fit alone (flagged below +0.40 V)."""
+    for fits in tab._fits.values():
+        fits["current"] = fits["absorbance"].__class__(
+            "exp", params=[0.0, 1.0, 2.0], sd=[0.01, 0.01, 0.1],
+            cov=[[1e-4, 0, 0], [0, 1e-4, 0], [0, 0, 1e-2]], ok=True, n=10)
+
+
+def test_the_ratio_view_rings_a_flagged_fit_rather_than_leaving_a_gap(ladder_window):
+    """As the ladder does: a fit that needs review is a ringed point, not a gap."""
+    import numpy as np
     tab = ladder_window.analysis_tab
-    assert tab.hide_flagged_check.isEnabled()
+    _with_current_fits(tab)
     tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("ratio"))
-    assert not tab.hide_flagged_check.isEnabled()
-    tab.ladder_quantity.setCurrentIndex(tab.ladder_quantity.findData("mean_tau"))
+    tab._draw_ladder()
+    finite = set()
+    for line in tab.ladder_canvas.ax.get_lines():
+        y = np.asarray(line.get_ydata(), dtype=float)
+        finite.update(np.asarray(line.get_xdata(), dtype=float)[np.isfinite(y)].tolist())
+    assert sorted(finite) == [0.10, 0.30, 0.50, 0.70]       # no gaps
     assert tab.hide_flagged_check.isEnabled()
+    tab.hide_flagged_check.setChecked(True)
+    assert "2 flagged point(s) hidden" in _ladder_footnote(tab)
 
 
 def test_the_range_still_applies_to_the_ratio_view(ladder_window):

@@ -1048,12 +1048,16 @@ def _rejected(result, reason):
 
 
 def tau_ratio(numerator, denominator):
-    """⟨τ⟩ ratio between two fits, or None if either failed.
+    """⟨τ⟩ ratio between two fits, or None if either has no numbers.
 
-    None rather than NaN so the caller can leave a visible GAP at that potential — a
-    failed fit is information, and silently skipping the point would hide it.
+    A fit that converged but NEEDS REVIEW still gives a ratio: the caller plots it
+    ringed, as the ladder does its points -- leaving a gap was the software deciding
+    the scientist should not see it (changed 2026-11-14). None only when a fit did not
+    converge, so there is genuinely nothing to divide.
     """
-    if numerator is None or denominator is None or not (numerator.ok and denominator.ok):
+    if numerator is None or denominator is None:
+        return None
+    if numerator.params is None or denominator.params is None:
         return None
     top, bottom = numerator.mean_tau, denominator.mean_tau
     if not bottom:
@@ -1217,7 +1221,7 @@ def density_of_states(potential, current, scan_rate_v_per_s, volume_cm3=None,
     return out
 
 
-def fit_gaussian_dos(energy, dos):
+def fit_gaussian_dos(energy, dos, temperature_k=298.15):
     """Fit a Gaussian to a DOS curve: the width is what the literature compares.
 
         g(E) = C + A·exp( −(E − E₀)² / (2σ²) )
@@ -1234,6 +1238,8 @@ def fit_gaussian_dos(energy, dos):
 
     Returns a dict with center_ev, sigma_mev, amplitude, offset, their 1-SD errors and
     `ok`/`reason`, or ok=False when there is nothing fittable. Never raises.
+    `sigma_intrinsic_mev` (+ `_sd_`) is the width with the thermal smearing at
+    `temperature_k` fitted out; `sigma_mev` is the apparent width, as measured.
     """
     e = np.asarray(energy, dtype=float)
     g = np.asarray(dos, dtype=float)
@@ -1304,6 +1310,9 @@ def fit_gaussian_dos(energy, dos):
                    f"distribution usually shows — likely the unsubtracted capacitive "
                    f"baseline, or a sweep that does not span the distribution")
 
+    thermal = _fit_thermal_gaussian(e, g, popt, bounds=(
+        [-np.inf, e[0], 1e-6, -np.inf], [np.inf, e[-1], span, np.inf]),
+        temperature_k=temperature_k)
     return {
         "ok": True,
         "reason": "",
@@ -1315,7 +1324,53 @@ def fit_gaussian_dos(energy, dos):
         "offset": offset, "offset_sd": float(sd[3]),
         "curve": model(e, *popt),
         "energy": e,
+        # The same Gaussian with the thermal smearing taken out (see
+        # _fit_thermal_gaussian): None when that fit did not converge.
+        "temperature_k": float(temperature_k),
+        "sigma_intrinsic_mev": thermal[0] if thermal else None,
+        "sigma_intrinsic_sd_mev": thermal[1] if thermal else None,
     }
+
+
+K_B_EV = 8.617333262e-5          # Boltzmann constant, eV/K
+
+
+def fermi_derivative(x, kt):
+    """-df/dE of the Fermi function, a unit-area sech^2 of width ~3.5 kT."""
+    return 1.0 / (4.0 * kt * np.cosh(np.clip(x / (2.0 * kt), -350, 350)) ** 2)
+
+
+def _fit_thermal_gaussian(e, g, p0, bounds, temperature_k):
+    """(sigma, sd) in meV of the Gaussian that, smeared by the Fermi derivative at
+    `temperature_k`, best fits g -- or None.
+
+    g = i/(nu*e*V) is the zero-temperature reading: what a sweep measures is the DOS
+    convolved with -df/dE, so the fitted sigma is the intrinsic width broadened by
+    temperature (variances add; the smearing's is (pi kT)^2/3, ~47 meV at 298 K).
+    Subtracting variances is biased 3-10% here, because a sech^2 is not a Gaussian,
+    so the convolution itself is fitted. Both widths are reported; which one a paper
+    quotes is the scientist's call.
+    """
+    kt = K_B_EV * float(temperature_k)
+    du = kt / 10.0
+    u = np.arange(-12.0 * kt, 12.0 * kt + du / 2, du)
+    w = fermi_derivative(u, kt) * du
+    w /= w.sum()
+
+    def model(x, amplitude, center, sigma, offset):
+        d = x[:, None] - u[None, :] - center
+        return offset + amplitude * (np.exp(-d ** 2 / (2.0 * sigma ** 2)) @ w)
+
+    try:
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            popt, pcov = curve_fit(model, e, g, p0=p0, bounds=bounds, maxfev=10000,
+                                   x_scale="jac")
+    except Exception:  # noqa: BLE001 -- the apparent width still stands
+        return None
+    sd = float(np.sqrt(abs(pcov[2, 2])))
+    if not np.isfinite(sd):
+        return None
+    return float(popt[2]) * 1000.0, sd * 1000.0
 
 
 def fit_exponential_tail(energy, dos):
