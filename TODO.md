@@ -58,8 +58,13 @@ The CHANGELOG says what shipped; git log says when.
          10 mV rms or peak?
       5. **Stop mid-sweep:** the frequency in hand finishes, `sweep_end` = stopped, cell
          off.
-      Then a film. Not built: C(w) = -1/(w Z''), Cdl vs Cmu, g(E), the comparison with
-      PITT dQ/dE (same steps, same file), equivalent-circuit fits.
+      Then a film. **Analysis:** a design exists (kept outside the repo, 2026-11-14).
+      Built: `spec_echem/impedance.py` (C'(w), plateau test, model-free Rs and Cdl,
+      Randles fit; NOT -1/(w Z''), which diverges with any DC path). Not built, waiting
+      on a real film: the film/ladder fits (Cmu, R_ion, D), PITT dQ/dE with the head
+      charge before the first sample, g(E), the PITT / EIS / CV cross-check, the GUI.
+      What a first film run should include: an early first sample, and on a few steps
+      a sweep down to ~0.05 Hz.
 - [ ] **Charge tab on a fresh run:** every view, the CSV, and a step that genuinely
       fails the 5 tau or drift check.
 - [ ] **Sample the current faster in the first second of a chrono step** (as PITT's fast

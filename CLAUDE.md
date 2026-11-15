@@ -378,6 +378,10 @@ Gamry-only is TEMPORARY: the Autolab's FRA32M is under repair; add an Autolab dr
   start refuses until it has ended. On the Autolab a GITT pulse is cut if the
   spectrometer wait runs `GITT_PULSE_GRACE_S` past its end (`_PulseGuard`).
 - The amplitude's units (rms vs peak) are unconfirmed; vmod/imod are saved to settle it.
+- **Analysis (`spec_echem/impedance.py`, first part):** use C'(w) = Im[1/(Z - Rs)]/w,
+  NEVER -1/(w Z'') (it diverges with any DC path), `zfreq` not `frequency_set`, and
+  rows with `ok`. C' at the lowest frequency is a lower bound until the plateau test
+  passes. The film fits and the PITT side wait on real film data.
 
 ### Metrohm / Autolab rig — Python drives it; chrono runs from `Ei` (2026-09-09)
 
@@ -492,7 +496,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 1171 tests total (1170 pass, 1 skip; counted 2026-11-14);
+- **`gui/` coverage — no longer the gap it was.** 1182 tests total (1181 pass, 1 skip; counted 2026-11-14);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage

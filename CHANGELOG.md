@@ -11,6 +11,18 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Added — impedance sweep analysis, first part (2026-11-14)
+
+- `spec_echem/impedance.py`: per sweep, the model-free series resistance (an upper
+  bound, flagged, when the sweep stops before the high-frequency limit), the parallel
+  capacitance C'(w) = Im[1/(Z - Rs)]/w with its uncertainty from the instrument's
+  accuracy, the low-frequency plateau test (C' there is a lower bound until the
+  plateau is reached, and says so), a model-free Cdl, and a complex least-squares
+  Randles fit that marks any parameter the sweep cannot determine. -1/(w Z'') is not
+  used: with any DC path it diverges (3150 uF at 1 Hz for a 1 uF capacitor). On the
+  2026-11-13 Randles dummy: Rs 200.5, Rct 3007 ohm, Cdl 1.003 uF against nominal
+  200, 3010, 1 uF. Not yet in the GUI.
+
 ### Fixed — check of the analysis maths (2026-11-14)
 
 A second-model check of `charge.py` and `analysis.py`, each item derived independently
