@@ -7,6 +7,7 @@ these tests exercise the arm/fire/finish coordination, not the Gamry itself.
 import types
 import logging
 import math
+import threading
 import time
 from unittest import mock
 
@@ -170,6 +171,84 @@ def test_normal_fire_runs_the_waveform(toolkit, tmp_path):
     assert curve.run.called
     assert mock.call(True) in pstat.set_cell.call_args_list
     assert mock.call(0x1, 0x1) in pstat.set_digital_out.call_args_list   # trigger edge
+
+
+def test_a_chrono_segment_switches_the_cell_off_before_the_edge_and_despite_it(
+        toolkit, tmp_path):
+    """The teardown order: on a failing link each call can cost a timeout, so the
+    cell goes off first, and a failed DIGOUT write cannot skip it."""
+    tkp, pstat, curve = toolkit
+    calls = []
+    pstat.set_cell.side_effect = lambda on: calls.append("cell %s" % ("on" if on else "off"))
+
+    def edge(value, mask):
+        calls.append("edge %s" % ("high" if value else "low"))
+        if not value:
+            raise RuntimeError("DIGOUT write failed")
+
+    pstat.set_digital_out.side_effect = edge
+    p = potentiostat.ToolkitPotentiostat(_settings(tmp_path))
+    p.prepare(_pre_segment())
+    p.fire()
+    p.finish(aborted=False)
+    assert calls[-2:] == ["cell off", "edge low"]
+
+
+@pytest.fixture
+def stuck_thread(monkeypatch):
+    """A live thread in the stuck list, released at teardown."""
+    release = threading.Event()
+    t = threading.Thread(target=release.wait, daemon=True)
+    t.start()
+    monkeypatch.setattr(potentiostat, "_STUCK_GAMRY_THREADS", [t])
+    yield t
+    release.set()
+    t.join(5.0)
+
+
+@pytest.mark.parametrize("start", [
+    lambda p: p.prepare(_pre_segment()),
+    lambda p: p.pitt_prepare(0.0),
+    lambda p: p.ereis_prepare(0.0),
+    lambda p: p.gitt_prepare(None),
+])
+def test_no_gamry_run_starts_beside_a_stuck_thread(toolkit, tmp_path, stuck_thread,
+                                                   start):
+    tkp, _pstat, _curve = toolkit
+    with pytest.raises(RuntimeError, match="still running"):
+        start(potentiostat.ToolkitPotentiostat(_settings(tmp_path)))
+    assert not tkp.toolkitpy_init.called
+
+
+def test_connect_does_not_open_the_toolkit_beside_a_stuck_thread(toolkit, stuck_thread):
+    """The popup's list, Identify and the ladder read each open and CLOSE the toolkit
+    -- under the thread that is the only thing able to switch the cell off."""
+    tkp, _pstat, _curve = toolkit
+    with pytest.raises(RuntimeError, match="still running"):
+        potentiostat.list_gamry_instruments()
+    with pytest.raises(RuntimeError, match="still running"):
+        potentiostat.probe_identity()
+    assert potentiostat.probe_gamry_ladder() is None
+    assert not tkp.toolkitpy_init.called and not tkp.toolkitpy_close.called
+
+
+def test_a_segment_thread_that_outlives_its_join_is_reported_and_blocks(
+        toolkit, tmp_path, monkeypatch):
+    monkeypatch.setattr(potentiostat, "_STUCK_GAMRY_THREADS", [])
+    release = threading.Event()
+    t = threading.Thread(target=release.wait, daemon=True)
+    t.start()
+    p = potentiostat.ToolkitPotentiostat(_settings(tmp_path))
+    p._thread, p._max_wait = t, -4.95                # joins for 0.05 s
+    try:
+        p.close()
+        assert p.device_lost() and potentiostat._STUCK_GAMRY_THREADS == [t]
+        with pytest.raises(RuntimeError, match="still running"):
+            potentiostat._refuse_if_gamry_stuck()
+    finally:
+        release.set()
+        t.join(5.0)
+    potentiostat._refuse_if_gamry_stuck()            # gone once it has ended
 
 
 def test_prepare_raises_when_gamry_setup_fails(toolkit, tmp_path):
@@ -2256,7 +2335,7 @@ def _run_gamry(s):
 def test_the_gamry_pitt_runs_one_curve_per_step_with_the_cell_held_on(gamry_pitt):
     tk = gamry_pitt()
     p, record = _run_gamry(_gamry_settings())
-    assert tk.events == ["cell on", "edge high", "edge low", "cell off"]
+    assert tk.events == ["cell on", "edge high", "cell off", "edge low"]
     assert tk.curves == pytest.approx([0.0, 0.1, 0.2])        # one curve per step
     assert tk.closed == 1
     assert record.completed and len(record.steps) == 3
@@ -2320,7 +2399,7 @@ def test_a_lost_gamry_stops_the_staircase_with_the_cell_off(gamry_pitt):
     threading.Timer(0.15, lambda: setattr(tk, "valid", False)).start()
     with pytest.raises(RuntimeError, match="stopped responding"):
         _run_gamry(_gamry_settings(pitt_max_hold_s=2.0))
-    assert tk.events[-1] == "cell off" and tk.closed == 1
+    assert tk.events[-2:] == ["cell off", "edge low"] and tk.closed == 1
 
 
 def test_a_failed_edge_low_still_switches_the_cell_off(gamry_pitt, monkeypatch):
@@ -2369,7 +2448,7 @@ def test_an_uncorroborated_overload_flag_is_not_warned(gamry_pitt, caplog):
     finally:
         _GCurve.acq_data = real
     assert not any("OVERLOAD" in r.message for r in caplog.records)
-    assert tk.events[-1] == "cell off"
+    assert tk.events[-2:] == ["cell off", "edge low"]
 
 
 def test_a_corroborated_overload_is_warned_once(gamry_pitt, monkeypatch, caplog):
@@ -2788,6 +2867,31 @@ def test_unreadable_samples_during_a_pulse_stop_the_gitt(gitt_autolab, monkeypat
         p.pitt_sample()
     assert p.device_lost()
 
+
+def test_unreadable_samples_at_0_A_do_not_stop_the_gitt(gitt_autolab, monkeypatch):
+    """The limit guards a PULSE: at 0 A there is nothing to drive E out of the
+    window, and a run of NaNs in a relaxation is a gap, not a reason to stop."""
+    from spec_echem.gitt import gitt_plan
+    p, _inst, _modes, _ranges = gitt_autolab
+    p.gitt_prepare(gitt_plan(p.settings)[0])
+    p.fire()
+    p._gitt["on"] = False
+    monkeypatch.setattr(potentiostat, "sample_ei", lambda inst_: False)
+    for _ in range(3 * potentiostat.AUTOLAB_GITT_MAX_BAD_SAMPLES):
+        assert math.isnan(p.pitt_sample()[1])
+    assert not p.device_lost()
+
+
+def test_a_streak_of_bad_samples_does_not_carry_into_the_next_staircase(
+        gitt_autolab, monkeypatch):
+    from spec_echem.gitt import gitt_plan
+    p, _inst, _modes, _ranges = gitt_autolab
+    p._bad_run = potentiostat.AUTOLAB_GITT_MAX_BAD_SAMPLES - 1   # left by a PITT
+    p.settings["gitt_pulse_s"] = 30.0
+    p.gitt_prepare(gitt_plan(p.settings)[0])
+    p.fire()
+    monkeypatch.setattr(potentiostat, "sample_ei", lambda inst_: False)
+    assert math.isnan(p.pitt_sample()[1])            # the first, not the tenth
 
 def test_a_current_that_does_not_take_stops_the_gitt(gitt_autolab):
     from spec_echem.gitt import gitt_plan

@@ -355,6 +355,7 @@ def list_gamry_instruments():
     call fails, which every caller treats as "use the default instrument"."""
     if not TOOLKITPY_AVAILABLE:
         return []
+    _refuse_if_gamry_stuck()   # opening the toolkit under a stuck curve thread
     try:
         tkp.toolkitpy_init("spec-echem-list")
     except Exception:   # noqa: BLE001
@@ -424,6 +425,7 @@ def probe_identity(section=None):
     """
     if not TOOLKITPY_AVAILABLE:
         raise RuntimeError("toolkitpy is not importable — Python potentiostat control unavailable.")
+    _refuse_if_gamry_stuck()
     tkp.toolkitpy_init("spec-echem-identify")
     try:
         pstat = open_gamry_pstat(section)
@@ -443,6 +445,7 @@ def probe_gamry_ladder(section=None):
     if not TOOLKITPY_AVAILABLE:
         return None
     try:
+        _refuse_if_gamry_stuck()
         tkp.toolkitpy_init("spec-echem-ladder")
     except Exception:   # noqa: BLE001
         return None
@@ -1382,6 +1385,7 @@ class AutolabPotentiostat(Potentiostat):
         self._ei_mode = True
         self._aborted = False
         self._overloaded = False
+        self._bad_run = 0           # a streak from an earlier staircase is not this one's
         self._t_cell_on = None
         ei = self._inst.Ei
         _set_ei_mode(ei)
@@ -1508,6 +1512,7 @@ class AutolabPotentiostat(Potentiostat):
         self._ei_mode = True
         self._aborted = False
         self._overloaded = False
+        self._bad_run = 0           # a streak from an earlier staircase is not this one's
         self._t_cell_on = None
         self.gitt_pulses = {}
         rng = gitt_autolab_range(self.settings)
@@ -2720,18 +2725,19 @@ class _GamryPittRunner:
             self.error = exc
             get_run_logger().exception("Gamry PITT thread failed")
         finally:
-            self._stop_curve(curve)
             if pstat is not None:
-                # Two tries: a failed DIGOUT write must never skip the cell-off.
-                try:
-                    pstat.set_digital_out(0x0, 0x1)     # DIGOUT0 LOW
-                except Exception:  # noqa: BLE001
-                    pass
+                # The cell first: on a failing link each call below can cost a
+                # timeout, and none of them may stand between an error and cell-off.
                 try:
                     pstat.set_cell(False)
                 except Exception:  # noqa: BLE001
                     get_run_logger().error("Gamry: could not switch the cell OFF; switch it "
                                            "off at the instrument.", exc_info=True)
+                try:
+                    pstat.set_digital_out(0x0, 0x1)     # DIGOUT0 LOW
+                except Exception:  # noqa: BLE001
+                    pass
+            self._stop_curve(curve)
             try:
                 tkp.toolkitpy_close()
             except Exception:  # noqa: BLE001
@@ -3303,6 +3309,15 @@ class ToolkitPotentiostat(Potentiostat):
         t = self._thread
         if t is not None and t.is_alive():
             t.join(timeout=self._max_wait + 5.0)
+            if t.is_alive():
+                # As pitt_end: it may hold the cell on, so no later Gamry start.
+                _STUCK_GAMRY_THREADS.append(t)
+                self._device_lost = True
+                get_run_logger().error(
+                    "Gamry: the segment thread did not stop within %.0f s, so the "
+                    "CELL MAY STILL BE ON. Switch the cell off at the instrument (or "
+                    "in Framework) and restart spec-echem before another run.",
+                    self._max_wait + 5.0)
         self._thread = None
 
     def _report_current_range(self, segment, acq):
@@ -3484,16 +3499,17 @@ class ToolkitPotentiostat(Potentiostat):
         finally:
             self._built.set()   # never leave prepare() blocked, even on a build error
             if pstat is not None:
-                # Two tries: a failed DIGOUT write must never skip the cell-off.
-                try:
-                    pstat.set_digital_out(0x0, 0x1)  # DIGOUT0 LOW
-                except Exception:  # noqa: BLE001
-                    pass
+                # The cell first, then the edge, each in its own try: a failed or
+                # slow DIGOUT write must never skip or delay the cell-off.
                 try:
                     pstat.set_cell(False)
                 except Exception:  # noqa: BLE001
                     get_run_logger().error("Gamry: could not switch the cell OFF; switch it "
                                            "off at the instrument.", exc_info=True)
+                try:
+                    pstat.set_digital_out(0x0, 0x1)  # DIGOUT0 LOW
+                except Exception:  # noqa: BLE001
+                    pass
             try:
                 tkp.toolkitpy_close()
             except Exception:  # noqa: BLE001

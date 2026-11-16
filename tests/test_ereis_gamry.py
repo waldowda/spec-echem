@@ -175,7 +175,7 @@ def test_each_sweep_runs_between_two_holds_with_the_cell_left_on(tk):
     assert record.completed and len(record.steps) == 2
     assert tk.overlaps == 0                      # no curve runs during a sweep
     flat = [e for e in tk.events if isinstance(e, str)]
-    assert flat == ["cell on", "edge high", "edge low", "cell off"]
+    assert flat == ["cell on", "edge high", "cell off", "edge low"]
     zs = [e[1] for e in tk.events if isinstance(e, tuple) and e[0] == "z"]
     assert zs == pytest.approx([1000.0, 100.0, 10.0] * 2)
     for st in record.steps:
@@ -215,7 +215,7 @@ def test_a_range_that_will_not_go_back_stops_the_run_with_the_cell_off(tk):
     tk.ignore_ie_range = True
     with pytest.raises(RuntimeError, match="could not be put back"):
         _run(_settings())
-    assert tk.events[-1] == "cell off" and tk.closed == 1
+    assert tk.events[-2:] == ["cell off", "edge low"] and tk.closed == 1
     assert not any(isinstance(e, tuple) and e[0] == "curve" and e[2] != 8
                    for e in tk.events)          # no hold ever ran on the wrong range
 
@@ -238,7 +238,7 @@ def test_stop_mid_sweep_lets_the_frequency_in_hand_finish(tk):
     assert not record.completed and len(record.steps) == 1
     assert record.steps[0]["sweep_end"] == "stopped"
     assert 1 <= record.steps[0]["n_freq"] < 3
-    assert tk.events[-1] == "cell off"
+    assert tk.events[-2:] == ["cell off", "edge low"]
 
 
 def test_a_thread_that_will_not_stop_is_reported_and_blocks_the_next_start(
@@ -260,7 +260,7 @@ def test_a_thread_that_will_not_stop_is_reported_and_blocks_the_next_start(
     with pytest.raises(RuntimeError, match="still running"):
         potentiostat.ToolkitPotentiostat(s).pitt_prepare(0.0)
     potentiostat._STUCK_GAMRY_THREADS[0].join(5.0)
-    assert tk.events[-1] == "cell off"
+    assert tk.events[-2:] == ["cell off", "edge low"]
     potentiostat._refuse_if_gamry_stuck()            # gone once it has ended
 
 

@@ -348,6 +348,28 @@ def test_run_pitt_segment_writes_the_file_and_returns_every_step(tmp_path):
     assert record.completed
 
 
+def test_a_fault_in_the_step_summary_does_not_cost_the_file(tmp_path, monkeypatch):
+    """The log lines run between the staircase and the write; an oddly shaped row
+    must not replace the run's outcome or skip the only copy of the data."""
+    import spec_echem.experiment as experiment
+    real = experiment.acquire_pitt
+
+    def odd_row(*a, **kw):
+        record = real(*a, **kw)
+        del record.steps[0]["n_spectra"]       # only the summary reads it
+        return record
+
+    monkeypatch.setattr(experiment, "acquire_pitt", odd_row)
+    s = _quick()
+    spec = FakeSpectrometer()
+    wl = spec.wavelengths()[1]
+    _steps, path, _record = run_pitt_segment(
+        spec, build_segments(s)[-1], np.full(wl.size, 100.0),
+        np.full(wl.size, 40000.0), wl, tmp_path, "20261004_pitt", s,
+        FakePittPotentiostat(r_leak=3210.0))
+    assert path is not None and path.exists()
+
+
 def test_the_worker_emits_each_step_then_finishes(tmp_path):
     pytest.importorskip("qtpy")
     import os
@@ -379,6 +401,67 @@ def test_the_worker_emits_each_step_then_finishes(tmp_path):
     assert done == ["PITT 0", "PITT 1"]
     assert finished == ["done"]
 
+
+
+def _pitt_worker(tmp_path, pot_cls, segments=None):
+    pytest.importorskip("qtpy")
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from qtpy.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from gui.workers import AcquisitionWorker
+
+    s = _quick()
+    spec = FakeSpectrometer()
+    wl = spec.wavelengths()[1]
+    pot_cls.settings = s
+    w = AcquisitionWorker(spec, segments or build_segments(s), np.full(wl.size, 100.0),
+                          np.full(wl.size, 40000.0), wl, tmp_path, "20261004_pitt",
+                          potentiostat=pot_cls(r_leak=3210.0), settings=s)
+    finished = []
+    w.finished.connect(finished.append)
+    w.gui_idle.set()
+    return w, finished
+
+
+def test_an_abort_the_thread_outlasted_ends_the_run_as_an_error(tmp_path):
+    """Abort mid-ReadZ, and the curve thread did not stop: the cell may still be on.
+    That is an error, not the ordinary "aborted" banner (found 2026-11-15)."""
+    holder = {}
+
+    class Pot(FakePittPotentiostat):
+        python_paced = True
+        lost = False
+        def open(self): pass
+        def close(self): pass
+        def stop(self): pass
+        def device_lost(self): return self.lost
+
+        def pitt_end(self):
+            super().pitt_end()
+            holder["w"].abort_event.set()
+            self.lost = True
+
+    w, finished = _pitt_worker(tmp_path, Pot)
+    holder["w"] = w
+    w.run()
+    assert finished == ["error"]
+
+
+def test_the_next_segment_waits_for_the_gui_after_a_staircase(tmp_path, monkeypatch):
+    class Pot(FakePittPotentiostat):
+        python_paced = True
+        def open(self): pass
+        def close(self): pass
+        def stop(self): pass
+        def device_lost(self): return False
+
+    segs = build_segments(_quick())
+    w, finished = _pitt_worker(tmp_path, Pot, segments=segs + segs)
+    waits = []
+    monkeypatch.setattr(w, "_wait_for_gui", lambda logger: waits.append(1))
+    w.run()
+    assert finished == ["done"] and len(waits) >= 1
 
 # --- showing each step as it ends (2026-10-17) -------------------------------
 
@@ -531,3 +614,61 @@ def test_a_setup_that_fails_part_way_still_reaches_pitt_end():
         acquire_pitt(ClockedSpectrometer(clock), pot, pitt_plan(s), s,
                      clock=clock, sleep=clock.sleep)
     assert pot.ended == 1
+
+
+
+def test_a_step_change_that_fails_closes_no_step_that_never_started():
+    """The instrument refused step 1's setpoint (an Autolab readback miss). Step 0 is
+    complete and kept as it ended; no row is written for step 1 carrying step 0's
+    clock and peak (found 2026-11-15)."""
+    from spec_echem.pitt import PittRecord
+    clock = Clock()
+
+    class StepRefused(CostlyPot):
+        def pitt_set_potential(self, potential):
+            raise RuntimeError("setpoint readback missed")
+
+    s = settings(pitt_cutoff_enabled=False, pitt_max_hold_s=1.0)
+    record = PittRecord()
+    with pytest.raises(RuntimeError, match="readback"):
+        acquire_pitt(ClockedSpectrometer(clock), StepRefused(clock=clock),
+                     pitt_plan(s), s, clock=clock, sleep=clock.sleep, record=record)
+    assert [st["index"] for st in record.steps] == [0]
+    assert record.steps[0]["end_reason"] == END_FIXED
+    assert "readback" in record.error
+    assert set(record.echem_step) == {0}
+
+
+def test_an_error_before_the_first_step_is_raised_not_returned_empty(tmp_path):
+    """Nothing to write, so nothing written -- but the run must still hear of it."""
+    class SetupFails(FakePittPotentiostat):
+        def pitt_prepare(self, potential):
+            raise RuntimeError("setpoint did not take")
+
+    s = _quick()
+    spec = FakeSpectrometer()
+    wl = spec.wavelengths()[1]
+    with pytest.raises(RuntimeError, match="did not take"):
+        run_pitt_segment(spec, build_segments(s)[-1], np.full(wl.size, 100.0),
+                         np.full(wl.size, 40000.0), wl, tmp_path, "20261004_pitt", s,
+                         SetupFails(r_leak=3210.0))
+
+
+def test_the_spectrometer_leaves_trigger_mode_when_spectrum_0_fails():
+    clock = Clock()
+
+    class Fails(ClockedSpectrometer):
+        modes = []
+
+        def set_trigger_mode(self, mode, measconfig=None):
+            self.modes.append(mode)
+
+        def measure(self, abort_event=None, on_armed=None):
+            raise RuntimeError("no spectrum came back")
+
+    spec = Fails(clock)
+    s = settings()
+    with pytest.raises(RuntimeError, match="no spectrum"):
+        acquire_pitt(spec, CostlyPot(clock=clock), pitt_plan(s), s, clock=clock,
+                     sleep=clock.sleep)
+    assert spec.modes == [1, 0]

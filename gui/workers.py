@@ -197,19 +197,22 @@ class AcquisitionWorker(QObject):
                         self.segment_done.emit(label, absorb_df)
                     logger.info("%s complete: %d steps -> %s", seg.label, len(steps),
                                 path.name if path is not None else "NOT SAVED")
-                    # Kept either way; the run still ends as the user asked it to.
-                    if self.abort_event.is_set():
-                        reason = "aborted"
-                        break
-                    if self.stop_event.is_set():
-                        reason = "stopped"
-                        break
+                    # A lost device first: an Abort that a slow impedance point
+                    # outlasted leaves the cell maybe ON, and must not end the run
+                    # under the ordinary "aborted" banner.
                     if getattr(self.potentiostat, "device_lost", lambda: False)():
                         logger.error(
                             "Stopping the run: the potentiostat was lost (or did not "
                             "stop) during '%s'. Every step up to then is written.",
                             seg.label)
                         reason = "error"
+                        break
+                    # Kept either way; the run still ends as the user asked it to.
+                    if self.abort_event.is_set():
+                        reason = "aborted"
+                        break
+                    if self.stop_event.is_set():
+                        reason = "stopped"
                         break
                     # As after any segment: the next one (a GITT after a PITT) must
                     # not start while the GUI is drawing this one's last step.

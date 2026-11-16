@@ -497,47 +497,52 @@ def run_pitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
         log.error("PITT ended by an ERROR (%s). Writing the %d step(s) collected "
                   "before it.", record.error or exc, len(record.steps))
     _use_hardware_echem(record, potentiostat)
-    cutoff = float(settings["pitt_cutoff_pct"]) / 100.0
-    for st in record.steps:
-        log.info("PITT %d at %+.3f V: %s after %.1f s, peak %.3g A, %d spectra",
-                 st["index"], st["potential_set"], st["end_reason"], st["hold_s"],
-                 st["peak_current_A"], st["n_spectra"])
-        if st["end_reason"] not in ("cutoff", "max_hold"):
-            pass                 # a fixed hold: the peak decided nothing
-        elif st.get("settle_fallback"):
-            log.warning(
-                "PITT %d: the potential never settled on the setpoint before the "
-                "minimum hold, so every sample from then on counted towards the peak.",
-                st["index"])
-        elif st.get("n_unsettled") and st.get("peak_all_A", 0) > st["peak_current_A"]:
-            log.info(
-                "PITT %d: %d sample(s) before the potential reached the setpoint were "
-                "left out of the peak (largest %.3g A); they are in the saved data.",
-                st["index"], st["n_unsettled"], st["peak_all_A"])
-        if st["end_reason"] == "max_hold" and st.get("cutoff_unresolved"):
-            log.warning(
-                "PITT %d: settling could NOT be judged. %g%% of its %.3g A peak is "
-                "%.3g A, finer than one count of this current range, so no reading "
-                "could show it -- the step ran to its maximum hold. Use a finer "
-                "range for currents this small.", st["index"], cutoff * 100,
-                st["peak_current_A"], cutoff * st["peak_current_A"])
-        elif st["end_reason"] == "max_hold":
-            # The concern, raised where it can be: the cutoff is a fraction of a peak
-            # nobody knows before the step runs, so this cannot be checked at Start.
-            log.warning(
-                "PITT %d did not settle: the current never fell to %.3g A (%g%% of "
-                "its %.3g A peak) within %.0f s. It is NOT at equilibrium. If %.3g A "
-                "is near the current range's noise floor, the cutoff cannot be met "
-                "on that range.", st["index"], cutoff * st["peak_current_A"],
-                cutoff * 100, st["peak_current_A"], st["hold_s"],
-                cutoff * st["peak_current_A"])
-        if st["index"] in sweeps:
-            _log_sweep(record, st, n_freq, log)
-    waits = [st["display_wait_s"] for st in record.steps if "display_wait_s" in st]
-    if waits:
-        log.info("PITT: held %d step ends for the display, mean %.0f ms, max %.0f ms "
-                 "(setpoint held and current sampled throughout).", len(waits),
-                 1000.0 * float(np.mean(waits)), 1000.0 * max(waits))
+    # The summary must never cost the data: a fault in it is logged and the file
+    # is written anyway, the original error (if any) re-raised after.
+    try:
+        cutoff = float(settings["pitt_cutoff_pct"]) / 100.0
+        for st in record.steps:
+            log.info("PITT %d at %+.3f V: %s after %.1f s, peak %.3g A, %d spectra",
+                     st["index"], st["potential_set"], st["end_reason"], st["hold_s"],
+                     st["peak_current_A"], st["n_spectra"])
+            if st["end_reason"] not in ("cutoff", "max_hold"):
+                pass                 # a fixed hold: the peak decided nothing
+            elif st.get("settle_fallback"):
+                log.warning(
+                    "PITT %d: the potential never settled on the setpoint before the "
+                    "minimum hold, so every sample from then on counted towards the peak.",
+                    st["index"])
+            elif st.get("n_unsettled") and st.get("peak_all_A", 0) > st["peak_current_A"]:
+                log.info(
+                    "PITT %d: %d sample(s) before the potential reached the setpoint were "
+                    "left out of the peak (largest %.3g A); they are in the saved data.",
+                    st["index"], st["n_unsettled"], st["peak_all_A"])
+            if st["end_reason"] == "max_hold" and st.get("cutoff_unresolved"):
+                log.warning(
+                    "PITT %d: settling could NOT be judged. %g%% of its %.3g A peak is "
+                    "%.3g A, finer than one count of this current range, so no reading "
+                    "could show it -- the step ran to its maximum hold. Use a finer "
+                    "range for currents this small.", st["index"], cutoff * 100,
+                    st["peak_current_A"], cutoff * st["peak_current_A"])
+            elif st["end_reason"] == "max_hold":
+                # The concern, raised where it can be: the cutoff is a fraction of a peak
+                # nobody knows before the step runs, so this cannot be checked at Start.
+                log.warning(
+                    "PITT %d did not settle: the current never fell to %.3g A (%g%% of "
+                    "its %.3g A peak) within %.0f s. It is NOT at equilibrium. If %.3g A "
+                    "is near the current range's noise floor, the cutoff cannot be met "
+                    "on that range.", st["index"], cutoff * st["peak_current_A"],
+                    cutoff * 100, st["peak_current_A"], st["hold_s"],
+                    cutoff * st["peak_current_A"])
+            if st["index"] in sweeps:
+                _log_sweep(record, st, n_freq, log)
+        waits = [st["display_wait_s"] for st in record.steps if "display_wait_s" in st]
+        if waits:
+            log.info("PITT: held %d step ends for the display, mean %.0f ms, max %.0f ms "
+                     "(setpoint held and current sampled throughout).", len(waits),
+                     1000.0 * float(np.mean(waits)), 1000.0 * max(waits))
+    except Exception:  # noqa: BLE001
+        log.exception("PITT: the per-step summary failed; writing the data anyway.")
     if not record.steps:
         if failure is not None:
             raise failure
@@ -635,24 +640,30 @@ def run_gitt_segment(spec, segment, dark, ref, wavelengths, data_root, added_pat
     for st in record.steps:
         if st["index"] in pulses:
             st["pulse_s_applied"] = float(pulses[st["index"]])
-        log.info("GITT %d: %s after %.1f s, last E %+.4f V, %d spectra", st["index"],
-                 st["end_reason"], st["hold_s"], st["e_last_V"], st["n_spectra"])
-        if st["end_reason"] == END_E_LIMIT:
-            log.warning(
-                "GITT STOPPED at step %d: the potential (last read %+.4f V) left the "
-                "window %+.3f to %+.3f V, so the cell was switched off and no further "
-                "pulse was applied. Every step up to here is saved.", st["index"],
-                st["e_last_V"], float(settings["gitt_e_min_v"]),
-                float(settings["gitt_e_max_v"]))
-        elif st["end_reason"] == END_MAX_HOLD:
-            log.warning(
-                "GITT %d did not relax: dE/dt was still %.3g \u00b5V/s (threshold %g) "
-                "when the %g s relaxation ended. Its last potential is NOT an "
-                "equilibrium one.", st["index"], st["relax_dvdt_V_s"] * 1e6,
-                float(settings["gitt_relax_dvdt_uv_s"]), float(settings["gitt_relax_s"]))
-        elif st["end_reason"] == END_RELAXED:
-            log.info("GITT %d relaxed: dE/dt %.3g \u00b5V/s.", st["index"],
-                     st["relax_dvdt_V_s"] * 1e6)
+    # The summary must never cost the data: a fault in it is logged and the file
+    # is written anyway, the original error (if any) re-raised after.
+    try:
+        for st in record.steps:
+            log.info("GITT %d: %s after %.1f s, last E %+.4f V, %d spectra", st["index"],
+                     st["end_reason"], st["hold_s"], st["e_last_V"], st["n_spectra"])
+            if st["end_reason"] == END_E_LIMIT:
+                log.warning(
+                    "GITT STOPPED at step %d: the potential (last read %+.4f V) left the "
+                    "window %+.3f to %+.3f V, so the cell was switched off and no further "
+                    "pulse was applied. Every step up to here is saved.", st["index"],
+                    st["e_last_V"], float(settings["gitt_e_min_v"]),
+                    float(settings["gitt_e_max_v"]))
+            elif st["end_reason"] == END_MAX_HOLD:
+                log.warning(
+                    "GITT %d did not relax: dE/dt was still %.3g \u00b5V/s (threshold %g) "
+                    "when the %g s relaxation ended. Its last potential is NOT an "
+                    "equilibrium one.", st["index"], st["relax_dvdt_V_s"] * 1e6,
+                    float(settings["gitt_relax_dvdt_uv_s"]), float(settings["gitt_relax_s"]))
+            elif st["end_reason"] == END_RELAXED:
+                log.info("GITT %d relaxed: dE/dt %.3g \u00b5V/s.", st["index"],
+                         st["relax_dvdt_V_s"] * 1e6)
+    except Exception:  # noqa: BLE001
+        log.exception("GITT: the per-step summary failed; writing the data anyway.")
     if not record.steps:
         if failure is not None:
             raise failure

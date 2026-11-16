@@ -140,6 +140,17 @@ The CHANGELOG says what shipped; git log says when.
   - Not fixing for now: Abort can call `Abort()` on an earlier CV's finished Autolab
     procedure (SDK effect unknown). A Gamry GITT `pulse_s` under half a period rounds
     to no pulse.
+- [ ] **Second review of the fixes (2026-11-15)** — 6 of 8 FIXED with tests (see the
+      CHANGELOG). Left, needing a decision:
+  - Autolab GITT: while spectrum 0 waits for its trigger nothing reads E, so a first
+    pulse runs its whole length (+ ~1 s) with no potential window. Options: (a) start
+    every Autolab GITT with a short 0 A rest, so the trigger is proven before current
+    flows; (b) cut at the no-trigger warning when no spectrum has ever arrived.
+  - Autolab cell-off failure after a failed 0 A write: say plainly that current may
+    still flow, and have the next PITT/GITT prepare refuse while `Ei` reads the cell
+    on (check on the rig that the SDK reads the cell state).
+  - On the rig (Gamry, dummy): does `CiivCurve` record a t = 0 point? The applied
+    pulse `min(seen, n_pulse) * period` is +/-1 period until checked.
 - [ ] **Charge plots in "Export all figures"** (it writes the fit traces and the Kinetics
       ladder only).
 - [ ] **Doping +0.9 V on the 2026-11-05 run:** exp passes at only 8 of 180 wavelengths

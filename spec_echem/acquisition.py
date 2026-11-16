@@ -523,7 +523,7 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
             result = measure(armed0)
         finally:
             stop_watchdog()
-        spec.set_trigger_mode(0)
+            spec.set_trigger_mode(0)           # also when the pulse guard cut it
         if result is None:
             return record                      # aborted before anything ran
         k = 0
@@ -591,9 +591,12 @@ def acquire_pitt(spec, pot, plan, settings, trigger=True, abort_event=None,
                     # here rather than step the cell to a potential nobody wants.
                     if _cut(abort_event) or _cut(stop_event):
                         break
+                # Moved to the new step only once the instrument took it: a failed
+                # change must not leave the error handler closing a step that never
+                # started, with the last one's clock and peak.
+                advance(plan[k + 1])
                 k += 1
                 step = plan[k]
-                advance(step)
                 step_start = clock()
                 rule = end_for(step, settings, resolution)
                 last_spectrum = None

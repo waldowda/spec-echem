@@ -11,6 +11,31 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Fixed — second review of the hardware error paths (2026-11-15)
+
+An independent review of the 2026-11-14 fixes, on fakes. Every failure path it traced
+already ended with the cell switched off and the measured steps written; these are the
+gaps it found around them.
+
+- **The Connect popup could open and close the Gamry toolkit under a stuck curve
+  thread** (the only thing able to switch that cell off). Listing the instruments,
+  Identify and the ladder read now refuse while one lives, as every run start already
+  did. A CV or chrono thread that outlives its join is now registered as stuck too, and
+  the run stops as for a lost instrument.
+- **A step change the instrument refused wrote a phantom step**: a row for the new step
+  with the previous step's hold time and peak, and no samples. The loop now moves to
+  the new step only after the instrument has taken it.
+- **An Abort that a slow impedance point outlasted ended the run as "aborted"**, with
+  only a log line saying the cell may still be on. A lost or stuck instrument is now
+  checked first and ends the run as an error.
+- **The per-step summary ran between the staircase and the file write**, so a fault in
+  it could have skipped the only copy of the data. It can no longer stop the write.
+- **Teardown switches the cell off first**, then the trigger line low, then stops the
+  curve: on a failing link each call can cost a timeout, and none now stands before the
+  cell-off.
+- The spectrometer leaves hardware-trigger mode even when spectrum 0 fails; a run of
+  unreadable Autolab samples from one staircase no longer counts towards the next.
+
 ### Added — impedance sweep analysis, first part (2026-11-14)
 
 - `spec_echem/impedance.py`: per sweep, the model-free series resistance (an upper
