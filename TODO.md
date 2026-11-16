@@ -122,8 +122,11 @@ The CHANGELOG says what shipped; git log says when.
       global argmax?
 - [ ] **The Modulation view** does not depend on the selected segment but sits behind
       the segment selector. Move it, or show the selector does not apply.
-- [ ] **Optional:** ask GitHub to purge cached views of old commits (history rewritten
-      2026-11-13; every clone re-cloned by 2026-11-14).
+- [ ] **Re-clone both Win11 boxes:** history rewritten again 2026-11-15 (the Mac is done).
+      Rename the old clone, disable its push (`git remote set-url --push origin DISABLED`),
+      clone `gui-dev` fresh, copy over `config/bench.ini`. Never push from an old clone.
+- [ ] **Optional:** ask GitHub to purge cached views of old commits, and Zenodo support
+      about the v0.3.0/v0.3.1 archives (they predate both rewrites).
 
 ## Code, no rig needed
 
