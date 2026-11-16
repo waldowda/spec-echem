@@ -271,7 +271,7 @@ def test_the_shipped_default_is_not_one_machines_account():
     rig and leaks a username into a public repo."""
     from spec_echem.settings import DEFAULT_SETTINGS
     root = DEFAULT_SETTINGS["data_root"]
-    assert "Users" not in root and "<user>" not in root
+    assert "Users" not in root
     assert root.startswith("~")
 
 

@@ -116,8 +116,8 @@ The CHANGELOG says what shipped; git log says when.
 - [ ] **Past Gamry data** from Python-mode runs before 2026-09-25 (range never set): does
       anything need re-taking?
 - [ ] **When to stop writing the ascii.** Tell the `OECT_processing` maintainer first.
-- [ ] **Lock the auto wavelength across a ladder?** It drifts 783 -> 808 nm with
-      potential on the reference run, probably a real red-shift.
+- [ ] **Lock the auto wavelength across a ladder?** It drifts with potential on the
+      reference run (details in private notes).
 - [ ] **Probe fallback when no peak survives:** say "no band found" rather than the
       global argmax?
 - [ ] **The Modulation view** does not depend on the selected segment but sits behind
@@ -153,8 +153,8 @@ The CHANGELOG says what shipped; git log says when.
     pulse `min(seen, n_pulse) * period` is +/-1 period until checked.
 - [ ] **Charge plots in "Export all figures"** (it writes the fit traces and the Kinetics
       ladder only).
-- [ ] **Doping +0.9 V on the 2026-11-05 run:** exp passes at only 8 of 180 wavelengths
-      (831–931 nm, tau 17–180 s). Look at that trace.
+- [ ] **One doping step on the 2026-11-05 run:** exp passes at only 8 of 180 wavelengths
+      (details in private notes). Look at that trace.
 - [ ] **Same-sign prefactors option** on the Analysis tab, off by default: fit twice
       (all B >= 0, all B <= 0), keep the better; key it off the `B*` names in `MODELS`.
 - [ ] **Richer models**, in this order (design in `docs/analysis-design.md`):

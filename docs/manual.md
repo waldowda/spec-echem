@@ -515,8 +515,8 @@ distribution and their peaks coincide: an ideal film shows ~0 mV between them. (
 familiar ~59 mV is for a *dissolved* species, where diffusion separates the peaks; a
 film on the electrode has no diffusion to the surface.) The
 tab computes the separation and, past **150 mV**, prints a red warning under the plot.
-On one real run the separation is **419 mV**, so every σ and E₀ on that figure is
-describing a transient rather than a density of states.
+On a run well past that limit, every σ and E₀ on the figure describes a transient
+rather than a density of states.
 
 The curves are still drawn and the fits still reported — they are the best available
 estimate and the decision is yours — but the warning is the thing to act on. The fix is

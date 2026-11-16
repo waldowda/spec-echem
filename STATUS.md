@@ -10,8 +10,8 @@ _Last updated: 2026-11-06_
 
 ## First real-sample sessions with students, and what they asked for (2026-11-05/06) — newest
 
-The code ran a full doping/dedoping ladder on a real film with students and a
-colleague (2026-11-05). Their requests, built and pushed on 2026-11-06 (1069 tests):
+The code ran a full doping/dedoping ladder on a real film with its first users
+(2026-11-05). Their requests, built and pushed on 2026-11-06 (1069 tests):
 - **Usability:** a **show cursor** box for the red wavelength line, also in the Export
   window; **Export…** on every plot; a data cursor on the Analysis traces; the run's
   length on the Parameters tab; saved file names that say which segment, trace,
@@ -21,8 +21,8 @@ colleague (2026-11-05). Their requests, built and pushed on 2026-11-06 (1069 tes
 - **Analysis, below the fit plot, now two tabs.** **Kinetics** is the ladder, with a
   Plot dropdown: mean τ, τ, β, ratio. **Charge** shows charge (raw and leak-corrected),
   carrier and charge density, bleach vs density, and Q out/Q in per step. Steps not at
-  equilibrium are ringed, never removed. On that run: 70–126 C/cm³, matching the
-  user's hand calculation.
+  equilibrium are ringed, never removed. On that run it matched the user's hand
+  calculation.
 - **Open:** the charge before the first current sample (~11–12% by extrapolation) is
   not counted, and it is the user's call (TODO § Charge tab). Rig check of all of
   the above.
@@ -100,9 +100,8 @@ on the way (settings overwritten at launch, a pending Avantes measurement after 
 abort, the live cycle count).
 
 **2026-10-07 — first real-film CVs through the new code** (Autolab, a 20 mV/s and a
-1 mV/s CV on one film). The gap between the sweeps, read optically, halved from ~230
-to ~118 mV — still well above equilibrium, so the PITT's return leg is the next
-measurement. Also added: a live-plot readout (cycle, E, I) and a reference reminder at
+1 mV/s CV on one film). The gap between the sweeps is read optically (what it shows is held
+privately); the PITT's return leg is the next measurement. Also added: a live-plot readout (cycle, E, I) and a reference reminder at
 Start, both requested at the bench.
 
 **Next — the priority:** a PITT on a real film, with the return leg (kinetics vs
@@ -289,11 +288,7 @@ potential across the ladder. The maths is in `spec_echem/analysis.py` (no Qt, no
 hardware); `gui/tabs/analysis_tab.py` is the view. **380 tests.**
 
 Validated against `tests/20250710` (the reference run) (six doping rungs
-0.2→0.7 V, outside this repo). **36/36 fits converge.** Over that ladder the optical τ
-FALLS 1.52 → 0.36 s while the current τ RISES 1.46 → 2.03 s, crossing near 0.45 V, and
-β climbs 0.77 → 1.00 — the kinetics become single-exponential once driven hard. the user
-notes bipolaron formation likely contributes to the optical trend at high doping, so the
-800 nm τ is not purely polaron growth.
+0.2→0.7 V, outside this repo). **36/36 fits converge.** What the fits say about the sample is held privately.
 
 **Real data broke things synthetic data could not**, which is the headline for anyone
 reading this later:
@@ -321,17 +316,14 @@ states from the CV — design settled in
 
 ## First film data (2026-09-11, `gui-dev`)
 
-Full write-up: [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md). Four the test film runs
-(the electrolyte, pseudo Ag/AgCl) plus a dummy check. **The first spectroelectrochemistry
+Full write-up: [`docs/bench-2026-09-11.md`](docs/bench-2026-09-11.md). Four test-film runs
+plus a dummy check. **The first spectroelectrochemistry
 on a real sample through this code, and nothing had to change to run one.**
 
 - **Timing held on films, unchanged from the resistor**: cell ON → trigger edge
   19–30 ms, `EDGE → spectrum 0` 29–42 ms, cadence 100.0 ms, every run `done`, zero
   non-finite absorbance anywhere.
-- **Dedoping at 0 V was leaving the film doped** (MEASURED: −0.5 V roughly 2.5×'d the
-  dedoping transient) — but that was not what killed the first film. A +0.8 V excursion
-  was: film A never recovered, while a fresh film on the corrected settings modulates
-  0.174 in absorbance. **Do not take the test film past +0.7 V.**
+- The sample observations from these runs are held privately.
 - **ACT ON THIS: the current range was 30× too coarse all day.** Largest transient
   anywhere was 625 µA, so `CR10_1mA` was right for every run; `CR09_10mA` carries a
   measured **+1.6 µA zero offset**, which is 10–100% of the settled currents. Peaks are
@@ -518,7 +510,7 @@ echem capture, Results / Load-Run / live-echem, and the opt-in wavelength window
 the working branch.** Version stays 0.1.0 (pre-release); a citable Zenodo 0.2.0 can be tagged later.
 
 **Merge gate met:** output validated end-to-end through `OECT_processing`, including a
-**cropped run** (2026-07-10, salt blank) — the narrower wavelength axis reads cleanly downstream.
+**cropped run** (2026-07-10) — the narrower wavelength axis reads cleanly downstream.
 
 Landed this cycle:
 - **Configurable wavelength window** — opt-in *software* crop of the noisy lamp edges, with a
@@ -529,7 +521,7 @@ Landed this cycle:
 - **Doc hygiene + README refresh** — deps/DOI/README, `docs/data-format.md`; the README now presents
   the GUI as the workflow with the 32-bit (Python Gamry) vs 64-bit env note.
 
-**Deferred (no rush):** fresh/degassed real-sample scientific demo (~Sept–Oct 2026, lab reno);
+**Deferred (no rush):** fresh/degassed real-sample scientific demo (~Sept–Oct 2026);
 a citable Zenodo 0.2.0 tag; a fuller "Analysis with OECT_processing" README section once the
 `OECT_processing` reader is fixed upstream (`specfiles`→`stepfiles` + `prededoping` mis-sort); the pre-dedoping-subfolder idea;
 exposing other `measconfig` fields.
@@ -538,9 +530,8 @@ exposing other `measconfig` fields.
 
 ## (prior) Milestone — first real-sample Python-mode run, validated end to end (2026-07-09)
 
-The user ran a full **Python-mode** sequence (CV + pre-dedope + 3 doping/dedoping cycles) on a real —
-if aged, non-degassed — film (the 2026-07-09 run). Signal was weaker than a fresh
-sample would give, but the **software plumbing is now proven on real data**:
+The user ran a full **Python-mode** sequence (CV + pre-dedope + 3 doping/dedoping cycles) on a real
+film (the 2026-07-09 run). The signal was weak, but the **software plumbing is now proven on real data**:
 
 - **File set complete and 1:1 paired** — every `*spectra*.txt` has its clean echem `.txt`
   (`CV/steps/dedoping/prededoping`) and native `.dta` partner; metadata + log present; all colocated
@@ -555,12 +546,9 @@ sample would give, but the **software plumbing is now proven on real data**:
   polarities, sensible film CV; `steps(0)` held +0.301 V with a proper charging-transient decay;
   every `.dta` CURVE-TABLE count == `.dta` rows == echem `.txt` rows. Chrono echem = 300 pts vs
   spectra 301 — **expected** (independent clocks; instruments share only the trigger).
-- **Correct spectroelectrochemistry observed (the real validation).** On the 0.7 V doping step the user
-  saw the neutral **π→π\* band bleach and polaron absorption grow**, cleanly reversing on dedoping —
-  the textbook p-doping signature, correlated with the potential step. So the coupled system captured
-  genuine SEC behavior, not just well-formed files. Weak/late doping (little happened below ~0.7 V,
-  small doping current) is a *sample* story (aged, non-degassed → high/sluggish oxidation onset),
-  not an instrument story.
+- **Correct spectroelectrochemistry observed (the real validation).** The absorbance changed
+  with each potential step and reversed on dedoping, so the coupled system captured genuine
+  SEC behavior, not just well-formed files.
 
 **Nesting question resolved: benign.** Save location had been left on an old `…\specechem_data\20260703_test`
 folder, so the run nested one level deeper than canonical — not a double-nest, not a code bug (every
@@ -577,7 +565,7 @@ writer joins the path once). Zero impact on analysis. Reinforces the pending par
 `OECT_processing` doping pipeline on the real 2026-07-09 data (Mac Mini, dedicated `oect`
 conda env). `read_files` → `UVVis.time_dep_spectra` → `current_vs_time` all run **clean end to end**:
 correct potentials (0.3/0.5/0.7 V), full 301×1265 spectra-vs-time per step, and doping currents
-24/53/**278 µA** — matching the raw CV and the observed "little doping until 0.7 V." **spec-echem's
+matching the raw CV. **spec-echem's
 output format is confirmed compatible; no output change needed for the merge.** The only fix was in
 the `OECT_processing` reader (a May-2026 `specfiles`→`stepfiles` regression — the potential lives in the step files;
 applied in our local clone, to be fixed upstream). Second reader nit, also upstream: `prededoping*` files
@@ -586,7 +574,7 @@ mis-sort into the dedoping lists (substring match). Upstream plans to make the r
 
 **`gui-dev → main`: ✅ DONE (merged 2026-07-10** — see the release section at the top). Both gates
 were met: OECT_processing compatibility proven (incl. a cropped run) + doc hygiene done. The
-fresh/degassed scientific gold-standard demo remains deferred (~Sept–Oct 2026, lab reno) — a quality
+fresh/degassed scientific gold-standard demo remains deferred (~Sept–Oct 2026) — a quality
 milestone, not a blocker, and it did not hold up the release.
 
 ---

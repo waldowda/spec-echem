@@ -219,8 +219,7 @@ data.
          to confirm: order when dope/dedope is also ticked (proposed: PITT last).
       5. Ceiling user-set, default +0.7 V (not everything is aqueous; vs Ag/AgCl +0.8 V
          can be fine); never exceeded, rounding down like n_doping_cycles.
-      **Drivers: AUTOLAB FIRST** (the user, 2026-10-04: the UDC4 can travel to the Autolab rig, and
-      visits there are frequent). The Gamry waits for the 64-bit pip toolkitpy; the user
+      **Drivers: AUTOLAB FIRST** (the user, 2026-10-04: the UDC4 can travel to the Autolab rig). The Gamry waits for the 64-bit pip toolkitpy; the user
       suspects toolkitpy has a staircase signal, which would make it one curve with
       fixed holds there. Build
       the segment, settings, storage and analysis instrument-independent. Before either
@@ -768,12 +767,9 @@ competing processes.
 - [ ] Applies to any sum-of-parts model, so key it off the `B*` names in `MODELS`
       rather than hardcoding biexp.
 
-**Evidence the flag tracks physics, not fit noise** (MEASURED on
-`the 20250710 reference run`, biexp): at the polaron band (800 nm) the prefactors agree in
-sign at +0.2…+0.5 V and go MIXED at +0.6 and +0.7 V; at π–π* (550 nm) they agree at
-**every** rung including those two. the user predicted exactly that asymmetry — a bipolaron
-steals from the polaron band without creating a competing process at π–π*. A numerical
-instability would have shown at both wavelengths.
+**Evidence the flag tracks physics, not fit noise:** on a real run it fired at one band and
+not the other, as predicted; a numerical instability would have shown at both wavelengths.
+The run and its reading are held privately.
 
 ## Minimum integration time — BOTH detectors probed, and wired (2026-09-16)
 
@@ -1160,8 +1156,7 @@ running an actual experiment rather than by testing.
 - **Re-run a fresh film on `CR10_1mA`.** The single highest-value item. Every film run on
   2026-09-11 used `CR09_10mA`, nothing anywhere exceeded 625 µA, and that range has a
   MEASURED +1.6 µA zero offset — 10–100% of the settled currents recorded. The peaks are
-  fine; the steady-state currents are not quantitatively trustworthy. Dedoping −0.5 V,
-  and do not go past +0.7 V (the test film does not survive +0.8 V — film A never recovered).
+  fine; the steady-state currents are not quantitatively trustworthy.
 - [x] ~~`examples/probe_overload.py`~~ — **written and run 2026-09-16**; transcript in
   `examples/probe_overload_report.txt`. It answers all three questions, and the first
   answer dissolves the CV mystery:
@@ -1625,8 +1620,7 @@ this run worth continuing". `banded_fits` and the rest are Jupyter work.
 
 ## Conversations with collaborators — kept OUT of this repo
 
-**This repository is public.** Notes about a named collaborator — which of his methods look
-historical, what he has not fixed, what to ask him — do not belong in it. They live outside the
+**This repository is public.** Notes about collaborators do not belong in it. They live outside the
 repo in `../private-notes/`. Credit their work by repository name
 (`rajgiriUW/OECT_processing`), never by a person's name (the user, 2026-10-03).
 
@@ -1743,14 +1737,14 @@ Confirmed with the fakes end-to-end: lost-device run emits only the first segmen
 ### "Test your setup" probes — Avantes done, Autolab connect probe to follow (the user, 2026-07-14)
 
 Standalone, read-only "can this PC talk to the instrument from Python?" self-checks — useful for
-anyone adopting the repo (and prompted by a colleague with a Metrohm **Autolab PGSTAT302N** + an
-Avantes **AvaSpec-ULS2048i**-class spectrometer). Full plan: `~/.claude/plans/parallel-bubbling-hare.md`.
+anyone adopting the repo (for example a Metrohm **Autolab PGSTAT302N** + an
+Avantes **AvaSpec-ULS2048i**-class spectrometer).
 Design findings live in the `hardware-portability` memory.
 
 - [x] **`examples/query_avantes.py` + `query_avantes_setup.md` — DONE (2026-07-14).** Opens the
       Avantes via the AvaSpec-DLL, prints serial/name/pixels/wavelength span, closes. No `spec_echem`
       import; hardened for a *different* model (`AVS_GetParameter` best-effort). Plus a Windows-only
-      Metrohm/Autolab **USB-presence** scan (PowerShell, no deps). Emailable to the colleague.
+      Metrohm/Autolab **USB-presence** scan (PowerShell, no deps).
 - [x] **`examples/query_autolab.py` + `query_autolab_setup.md` — DONE (2026-07-22).** Read-only,
       **cell-safe connect probe** via our own ~15 lines of `pythonnet`/`clr` (NOT a dependency on the
       stale pyMetrohmAUTOLAB — credited as reference). `clr.AddReference(SDK)` →
@@ -1759,7 +1753,7 @@ Design findings live in the `hardware-portability` memory.
       `Measure` / load a `.nox` (cell stays off — connect and cell power are separate in the SDK).
       Editable `SDK`/`ADX`/`HDW` paths with PGSTAT302N defaults. Stays in `examples/`, off the
       `potentiostat.py` seam. Graceful no-pythonnet path smoke-tested on the Mac (exit 0).
-      **Still needs the colleague's Win box to confirm:** (a) pythonnet/SDK **bitness** match,
+      **Still needs the Autolab rig's Win box to confirm:** (a) pythonnet/SDK **bitness** match,
       (b) `Connect()` really leaves the cell off (verify on a dummy cell first). Built ahead of the
       original "wait for the Avantes check" gate at the direction (2026-07-22).
 - **Findings that make an eventual Autolab *backend* look modest, not scary** (see memory): the SDK
@@ -1890,7 +1884,7 @@ DIGOUT0 handshake confirmed. Remaining items:
       the `m_StartPixel/m_StopPixel` hardware approach was abandoned (mis-mapped on real hardware — axis
       jumped to ~1050-1160 nm, graphs blank); `set_wavelength_window` now crops the calibrated `[395:1660]`
       window by index (`_crop`), never touching measconfig. Instrument-tab plots/loads crash-proofed.
-      Downstream confirmed 2026-07-10: a **cropped run** (400.5–1049.7 nm, salt blank) reads cleanly
+      Downstream confirmed 2026-07-10: a **cropped run** (400.5–1049.7 nm) reads cleanly
       through `OECT_processing`. **DONE + RELEASED to main.**
 - [x] **Linearity check — DONE + hardware-validated (2026-07-13).** Instrument tab has a `Linearity Check`
       box beside Spectrometer Settings: ramps integration time, tracks one fixed peak pixel, fits the linear

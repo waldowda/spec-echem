@@ -10,7 +10,7 @@
 
 **One job.** Everything else in this file is context for it.
 
-Written 2026-09-15 for the session on the instrument box at the other lab. Branch
+Written 2026-09-15 for the session on the Autolab rig's instrument box. Branch
 `gui-dev`, 436 tests passing. **`git pull` first.**
 
 ---

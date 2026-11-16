@@ -246,21 +246,12 @@ resid: noise 3.2e-04, model-miss 1.5e-03 (1.4% of swing)
 
 Successive differences cancel any smooth trend, so the point-to-point scatter IS the
 measurement noise; the RMS above that is a curve the model failed to follow. It ranks
-models directly — MEASURED on `the 20250710 reference run` Doping 0 @ 800 nm:
+models directly. On real data it has ranked biexp above stretched, with exp last; the
+numbers and the run are held privately. The available models still fall short, and the
+split is there to show by how much, not to choose among a richer set.
 
-| model | noise | model-miss | ratio | % of swing |
-|---|---|---|---|---|
-| exp | 1.7e-4 | 1.7e-3 | 10.2× | 1.6% |
-| **biexp** | 1.8e-4 | **3.9e-4** | **2.2×** | **0.4%** |
-| stretched | 3.2e-4 | 1.5e-3 | 4.6× | 1.4% |
-
-biexp leaves four times less systematic residual than stretched here. The user: *"we don't
-have better models currently"* — so the split is there to show how far short the
-available ones fall, not to choose among a richer set.
-
-**This ranking is specific to THIS system, not a general result.** The user: *"the conclusion
-about biexp compared to strexp is likely in the context of this particular OMIEC system
-and maybe different for a different system."* One sample, one electrolyte, one band. A
+**This ranking is specific to one system, not a general result.** One sample, one
+electrolyte, one band. A
 different OMIEC — different ion, different morphology, more dispersive transport — may
 well rank stretched above biexp. Re-read the split per system; do not carry this table
 forward as a default.
@@ -277,17 +268,10 @@ For a sum-of-parts model the prefactors of one process pull the same way. Opposi
 mean competing processes or a fit gone wrong, so `FitResult.mixed_amplitude_signs` says
 so on the legend rather than deciding which.
 
-On `the 20250710 reference run`, fitted biexp:
-
-| rung | polaron 800 nm | π–π* 550 nm |
-|---|---|---|
-| +0.2 … +0.5 V | same sign | same sign |
-| **+0.6 V** | **MIXED** | same sign |
-| **+0.7 V** | **MIXED** | same sign |
-
-The user predicted the asymmetry before it was checked: a bipolaron growing at high doping
-steals from the polaron band, while π–π* simply keeps bleaching and stays single-signed.
-Fit instability would have appeared at both wavelengths. **A second probe on the
+Expected physics, for p-doping: a bipolaron growing at high doping steals from the polaron
+band, while π–π* simply keeps bleaching and stays single-signed, so mixed signs at the
+polaron band alone point to that rather than to fit instability (which would show at both
+wavelengths). What real runs have shown is held privately. **A second probe on the
 bipolaron band would separate the two components properly** — the tab already fits any
 wavelength typed; what is missing is fitting two at once and comparing.
 
@@ -309,8 +293,7 @@ two polarons to form one bipolaron."*
 Seven parameters, so it needs the good data and probably bounds. The payoff is that the
 third component has a **predicted signature**: it consumes polarons, so it should appear
 with OPPOSITE sign at the polaron band and be absent or much weaker at π–π*. That is
-exactly the asymmetry `mixed_amplitude_signs` already detects — fires at 800 nm above
-+0.5 V, never at 550 nm. The flag is currently the only evidence of a process the models
+exactly the asymmetry `mixed_amplitude_signs` already detects. The flag is currently the only evidence of a process the models
 cannot represent; a tri-exponential would let it be measured instead of merely flagged.
 
 **Joint fit with shared τ.** *"One could even do dual fits of both polaron and pi-pi*
@@ -330,7 +313,7 @@ twice.
   differs between the bands.
 - **The assumption IS the hypothesis.** A shared-τ fit asserts both bands follow the same
   kinetics. Where that holds it is a much stronger measurement; where it fails — the
-  polaron band above +0.5 V, if the bipolaron reading is right — it will fail VISIBLY, in
+  polaron band at high doping, if the bipolaron reading is right — it will fail VISIBLY, in
   the residual split. That failure is a result, not a problem.
 #### Why the joint fit is NECESSARY, not just better — the user, 2026-09-15
 
@@ -364,9 +347,9 @@ the joint fit, and it is stronger than "the timescales should agree".
 the specification for the τ₃ term and should be captured before anyone implements it —
 `private-notes/` if they carry sample specifics, `docs/` if not.
 
-- **Sequencing:** shared-τ joint fit FIRST, on the rungs where the prefactor signs agree
-  (+0.2…+0.5 V), which is where it should work and where it validates the machinery. Let
-  it break at +0.6 and +0.7 V. Then add τ₃ to fix exactly that break.
+- **Sequencing:** shared-τ joint fit FIRST, on the rungs where the prefactor signs agree,
+  which is where it should work and where it validates the machinery. Let it break where
+  they are mixed. Then add τ₃ to fix exactly that break.
 
 ### Sequencing
 
@@ -398,20 +381,20 @@ The list above said these needed real data. They got it, and most were wrong:
 - **The current peak is NOT a useful window start.** On a step the spike peaks at the FIRST
   sample, so it resolves to t = 0 and excludes nothing. Left as the default by the user's call — the
   RC is unknown on this rig — with the window made tunable and the shading live.
-- **`FIT_SD_REJECT_FRACTION = 0.5` holds up.** It correctly rejected +0.3 V (0.0016 OD, the film
-  does not dope) and +0.5 V (still accelerating at 30 s, no timescale in the window) while
-  accepting +0.7 V. Rejecting is the right answer for both.
+- **`FIT_SD_REJECT_FRACTION = 0.5` holds up.** It correctly rejected a rung with almost no change
+  and one still accelerating at the end of the window (no timescale in it), while accepting
+  a rung that had one. Rejecting is the right answer for both.
 - **τ and β are now bounded** — τ > 0, 0 < β ≤ 1 (above 1 is a compressed exponential, a claim
   this model does not make). `BETA_MIN = 0.05` because ⟨τ⟩ = (τ/β)·Γ(1/β) overflows past
   1/β ≈ 170.
 
 **Still open:** a fit whose τ vastly exceeds the observation window passes the SD check — the
-charge integral at +0.3 V returned τ = 1.3×10⁵ s in a 30 s window with a tiny SD, because a
+charge integral on one rung returned τ = 1.3×10⁵ s in a 30 s window with a tiny SD, because a
 straight line is a very well-determined exponential with an enormous τ. A bound like
 `τ < 10 × span` is the obvious fix; the multiplier is the user's call.
 
-**Still needed:** a ladder with ≥3 steps above V_th (~0.6/0.8/1.0 V). The 2026-07-09 run reaches
-above V_th only at its top step, so the τ-vs-potential plot has one usable point.
+**Still needed:** a ladder with ≥3 steps where the film dopes. The 2026-07-09 run has one, so
+the τ-vs-potential plot has one usable point.
 
 ## Build order
 

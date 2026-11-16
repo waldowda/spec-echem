@@ -2,7 +2,7 @@
 
 **Version:** 0.2.0
 **Audience:** lab students, first-time users
-**System:** Windows 11 instrument PC (`<user>` account)
+**System:** Windows 11 instrument PC (the lab account)
 
 ---
 

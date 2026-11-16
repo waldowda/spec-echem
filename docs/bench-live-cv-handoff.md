@@ -11,7 +11,7 @@ through the prompts in order. Everything here is on `gui-dev` — `git pull` bef
 - The energized phases want a **10 kΩ dummy resistor**, not a film. W + WS on one leg,
   RE + CE on the other.
 - For the film run at the end: current range **`CR10_1mA`**, dedope at **−0.5 V**, and
-  **never past +0.7 V** — the test film does not survive +0.8 V.
+  **never past +0.7 V**.
 - The user decides when a cell is energized. Do not set `ENERGIZE_CELL = True` on your own.
 
 ---

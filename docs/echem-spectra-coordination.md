@@ -1,6 +1,6 @@
 # Coordinating echem with spectra — how it works, and where it breaks
 
-Written 2026-09-04, after reading the NOVA 2.1 manual (`docs/NOVA User manual.pdf`) against the
+Written 2026-09-04, after reading the NOVA 2.1 user manual (Metrohm's; it installs with NOVA and is available from [Metrohm](https://www.metrohm.com), so it is not copied here) against the
 timing measured on the Autolab rig on 2026-09-03/04.
 
 **The requirement (the user, standing since the project began): the spectroscopy must start when the
@@ -82,7 +82,7 @@ being separated by seconds of instrument-side preamble whose duration varies.
 
 The bias is handled: `_wait_window()` reads the procedure's own `FHWait` live and adds a
 per-template measured setup lag. **The jitter is not, and cannot be.** Removing
-`FHPreCurrentRangingCV` (the colleague spectro CV, lag 0.602 s) left the spread at ~150 ms, so the scatter is
+`FHPreCurrentRangingCV` (the rig's spectro CV, lag 0.602 s) left the spread at ~150 ms, so the scatter is
 in the host→instrument start path, not in ranging.
 
 **Current relative-timing uncertainty is roughly ±150 ms against a requirement of 1–40 ms — off by
@@ -271,10 +271,10 @@ is readable and `pump()` can check it, but that has to be written deliberately r
 NOVA runs do not.** But the cause is not the Autolab, the procedure model, or Python. It is which
 template `autolab_nox_cv` / `autolab_nox_ca` point at.
 
-MEASURED — read-only byte scan of `docs/dw_test.nox` and `docs/dw_test2.nox`, the user's own bare-bones
+MEASURED — read-only byte scan of two of the user's own bare-bones `.nox` files (kept outside the repo: a `.nox` records the instrument it was saved on),
 procedures, against the stock templates the driver currently uses:
 
-| | `dw_test*.nox` | `Standard Nova Procedures\*.nox` |
+| | the user's `.nox` files | `Standard Nova Procedures\*.nox` |
 |---|---|---|
 | `FHWait` | **ABSENT** | 5.0 s |
 | `FHPreCurrentRanging` | **ABSENT** | present, ~0.2–0.4 s |
@@ -296,10 +296,10 @@ data. The user set this up before the manual search found it.
 ### Which makes the `Ei` rewrite CONTINGENT, not agreed
 
 §7 exists to escape two costs: the ~6 s late start and the ±150 ms Python jitter. A template like
-`dw_test` removes the first; the counter removes the second — **while keeping firmware-timed current
+the user's removes the first; the counter removes the second — **while keeping firmware-timed current
 sampling, which the `Ei` route gives up.**
 
-**The measurement that decides it:** on a `dw_test`-style template, how long from `Set cell` to the
+**The measurement that decides it:** on a template like the user's, how long from `Set cell` to the
 first recorded `CalcTime` point, with no wait and no pre-ranging in between? Nobody has measured it.
 
 - **If it is tens of ms** — the procedure route wins outright. Minimal gap, exact alignment,

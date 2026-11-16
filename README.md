@@ -346,9 +346,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Author
 
-**Dean Waldow**  
-Department of Chemistry  
-(institution)
+**Dean Waldow** (see the citation above)
 
 ## Acknowledgments
 

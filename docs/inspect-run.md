@@ -9,8 +9,8 @@ overrides it.
 
 ## 0. What run this is about
 
-A real-sample test run (sample, non-degassed) done ~2026-07-09 on the Win11 box.
-It worked but produced weaker signal than a fresh/degassed sample would. Two things to verify:
+A real-sample test run done ~2026-07-09 on the Win11 box.
+It worked, with a weak signal. Two things to verify:
 the output format, and a **folder-nesting oddity the user noticed** (data may have landed one level
 deeper than expected, or the Gamry `.DTA` files landed somewhere separate).
 
@@ -94,8 +94,8 @@ python examples/plot_spectra_timing.py "C:\...\specechem_data\<run_folder>"
 Spot-check one spectra file and one echem file:
 - **Spectra `.txt`** — tab-separated, 8 columns, headers exactly per `docs/data-format.md`
   (Wavelength (nm), Absorbance, Column 3/4 (dark/ref, only at time_point 0), Measured value,
-  Spectrum number, Time (s), Corrected time (s)). Absorbance should be finite in the polymer's
-  absorbing band (weak-but-present for this aged sample); NaN/inf everywhere = bad dark/ref.
+  Spectrum number, Time (s), Corrected time (s)). Absorbance should be finite in the sample's
+  absorbing band; NaN/inf everywhere = bad dark/ref.
 - **Echem `.txt`** — load with `spec_echem.gamry_data.read_cv` (CV) / `read_chrono` (steps/dedoping)
   and confirm it parses and the current trace looks like a CV / a step response.
 
