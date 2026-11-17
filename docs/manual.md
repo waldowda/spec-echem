@@ -89,8 +89,8 @@ Everything about *this run*. Saved to `{folder}/{folder}_metadata.json` at run s
 data folder is self-documenting.
 
 - **Sample info** — name, electrolyte, notes.
-- **Film thickness** and **immersed film area** — only used by the density of states; see
-  Part 2.
+- **Film thickness** and **immersed film area** — used by the density of states (see
+  Part 2) and the GITT's charge-per-volume estimate.
 - **CV** — vertices, scan rate, cycles.
 - **Doping ladder** — start, step, end. In Python mode these *drive* the run; in External
   mode the sequence file holds the real values and these are documentation. The end is a
@@ -99,6 +99,128 @@ data folder is self-documenting.
   two steps. Each step's potential is written to the run log as it starts.
 - **Dedoping** and **pre-dedoping** potentials.
 - **Data folder** — `YYYYMMDD_Description`.
+- **PITT** and **GITT** — titrations that run after the doping ladder; see below.
+
+### PITT, GITT and the impedance box
+
+All three measure how much charge the film takes up as its potential changes: the
+same question the CV's density of states asks, but each one is closer to equilibrium.
+They need a Python-driven potentiostat (the Gamry in Python mode, or the Autolab):
+External mode cannot run them, because there the sequence file decides the waveform.
+Start refuses a combination the connected instrument cannot run.
+
+They run after the CV and the doping ladder: the PITT first, then the GITT. Each is
+saved **as HDF5 only**, whatever the file format above says, with one group per step:
+`{folder}_pitt.h5` and `{folder}_gitt.h5` (layout in
+[`data-format.md`](data-format.md) §5, §6 and §8). A staircase holds tens of thousands
+of spectra, too many for text files. The Results tab lists every step as a segment.
+
+Each group shows an **estimate** under its settings: how many steps, and how long the
+run can take. Read it before Start. Anything that would stop the run is shown in red
+right there, so a bad setting is caught before the cell is switched on.
+
+**Analysis is not built yet.** Charge per step, dQ/dE, the density of states and the
+comparison between PITT, impedance and CV are designed but wait on a real film.
+Until then the data are complete in the `.h5` files.
+
+#### PITT — potential staircase
+
+The potential steps from **Start** to **Stop** in increments of **Step**, and holds at
+each one while the film charges. The charge that flows at each step, divided by the
+step size, is the film's capacitance at that potential, dQ/dE. Small steps give a
+finely resolved curve but a smaller current to measure per step; 10–20 mV is typical.
+
+- **Stop is a ceiling.** The last step is the last one at or below it.
+- **How long each step holds.** By default every step holds for the full **Hold each
+  step for** time. A step is only at equilibrium if its current has fallen to the
+  film's steady leak, so pick a hold longer than the film's slowest response. A
+  step that ends early leaves charge uncounted.
+- **End each step when the current has decayed to … % of its peak** (off by default)
+  ends a step sooner, once the current is small. It saves time on a fast film. The
+  **Minimum hold** keeps a step from ending before its transient is recorded. A step
+  that reaches the **Maximum hold** never met the cutoff, so it is not at equilibrium.
+  A cutoff below the current range's noise floor can never be met, and those steps
+  all run to the maximum. **Ignore samples taken before the potential reaches the
+  setpoint** keeps the charging spike at a step's start from being taken as its peak.
+  Those samples are still saved.
+- **Spectra at full rate for … then one spectrum every …** The optical change is
+  fastest just after a step, so spectra come at the full rate first and then slow
+  down, which keeps a long staircase's file size reasonable. The current is sampled
+  at the full rate the whole time.
+- **Also step back down to the start** repeats the staircase in reverse. If the film
+  were at equilibrium, the way down would retrace the way up. A gap between them is
+  either slow kinetics or true hysteresis, and comparing the two legs is how to tell
+  which. It doubles the time.
+- **Dedope at the end** holds at a potential of its own after the last step, to leave
+  the film dedoped. It is not part of the measurement and is never swept.
+
+The current range is the run's usual one (`gamry_current_range` or
+`autolab_current_range`). Each step's end is drawn on the Run tab as it finishes.
+
+#### The impedance box (ER-EIS) — part of the PITT
+
+Ticking **Sweep impedance after each step's hold** adds a frequency sweep at the
+step's potential, once its hold is over, with the cell still on and spectra still
+running at the slow rate. The PITT gives the charge per step; the impedance separates
+what stores that charge (the double layer at high frequency, the film's chemical
+capacitance at low frequency) and how fast ions reach it. Comparing the two is a
+check on whether the PITT steps really reached equilibrium.
+
+**Gamry only for now.** The Autolab's impedance module is being repaired; Start
+refuses the box on the Autolab.
+
+- **Sweep every Nth potential** — 1 sweeps every step, 3 every third. Counted from the
+  start potential, so the way back down sweeps the same potentials as the way up and
+  the two can be compared. Sweeps are slow, so a sweep every 3rd or 4th step usually
+  gives the curve's shape for a fraction of the time.
+- **Highest frequency** and **Lowest frequency** — the sweep runs high to low. The
+  film's chemical capacitance only shows below the frequency where ions have time
+  to fill it, often well below 1 Hz. Each point takes at least a few periods, so
+  the low end dominates the time: up to about 30 s per point at 0.1 Hz, and
+  roughly twice that at 0.05 Hz. The
+  estimate includes the sweeps.
+- **Points per decade** — 5 is enough to see the shape of the spectrum.
+- **AC amplitude** — small enough that the film responds linearly (5–10 mV).
+  Whether the instrument reads it as rms or peak is not yet confirmed, and the run
+  saves what the instrument reports so it can be checked later.
+
+A swept step's current has a gap the length of its sweep; its charge is taken from
+the hold before it. **Stop** and **Abort** wait for the frequency being measured to
+finish, up to about 30 s at 0.1 Hz, and then switch the cell off.
+
+On the Results tab, a swept step shows its Nyquist plot.
+
+#### GITT — current pulses
+
+Instead of setting the potential, the GITT passes a fixed **Pulse current** for a
+fixed **Pulse length**, so each pulse puts in a known charge (current × time). Then
+it rests at 0 A, with the cell still on, while the potential relaxes towards
+equilibrium. The relaxed potential after each pulse traces the equilibrium
+charge–potential curve. How the potential rises during a pulse (versus the square
+root of time) gives the ion diffusion coefficient, which needs the **film
+thickness** above.
+
+- **Pulse current** — + oxidises (dopes a p-type film), − reduces. Choose it from
+  the charge you want per pulse: the estimate shows the total charge, and per volume
+  of film when the film size is filled in.
+- **Number of pulses** and **Relax at 0 A for** — the relaxation should be long
+  enough for the potential to stop drifting, or the "equilibrium" curve is not one.
+- **Rest before the first pulse** — at 0 A, to record where the film starts.
+- **End a relaxation early once dE/dt is below …** (off by default) — like the PITT
+  cutoff: it saves time on a film that settles quickly. dE/dt is a straight-line fit
+  over the window you set, starting 1 s after the pulse ends.
+- **Stop below / Stop above** — the safety window. **The run ends** the moment the
+  potential leaves it. A current source drives the potential wherever it has to,
+  and a film that runs out of capacity can be pushed into electrolyte breakdown.
+  Set the window to the potentials the film can tolerate.
+- **Charge cap** — the total charge of all pulses together. Start refuses a plan that
+  exceeds it. It mainly catches a units slip (µA typed as mA).
+- **Spectra at full rate for …** — after each pulse starts and again after it ends,
+  since both are when the spectrum changes fastest.
+
+The current range is chosen from the pulse current, not from the run's usual setting.
+On the Gamry the instrument times the pulse itself; on the Autolab, Python switches it
+to 0 A, which is accurate to one sample interval.
 
 ## 3. Run
 
