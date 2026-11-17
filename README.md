@@ -169,6 +169,9 @@ git clone https://github.com/waldowda/spec-echem.git
 cd spec-echem
 ```
 
+This gives the latest release (`main`). Development and lab machines want the dev branch:
+add `-b gui-dev` to the clone, or run `git checkout gui-dev` after cloning.
+
 ### 2. Install Avantes SDK
 
 Follow the installation guide provided by Avantes for your specific spectrometer model. Ensure the `avaspec` Python module is properly installed and accessible.
