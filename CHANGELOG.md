@@ -11,6 +11,26 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Added — PITT analysis and the Titration tab (2026-11-17)
+
+- **`spec_echem/pitt_analysis.py`** reads a `{folder}_pitt.h5` (never writes it). Per
+  step: dQ with the step's own tail current as the background and a ramp from the
+  previous step's as the far bound; the charge before the first sample (Q_head) as
+  its own number; C = dQ/dE at the midpoint of the measured potentials, sampled and
+  with Q_head; C per volume and g(E) with the film size; R_dc. A step swept for
+  impedance carries `impedance.analyse_sweep`. Across the staircase: Q(E) per leg,
+  closure, the largest forward/return gap and the Gaussian centre shift.
+  Every number is kept; concerns name the reason (maximum hold, cut short, current
+  still changing beyond its noise, large head or background, wrong sign, E off the
+  setpoint). An impedance sweep's concerns are kept apart from the step's charge.
+- **Analysis → Titration tab**, beside Kinetics and Charge: dQ/dE (or g(E)) vs
+  potential, Q(E), one step's current on a log axis, a swept step's Nyquist or
+  C′(ω); the per-step table with `?` on flagged values; Save table (CSV) with the
+  run, film and method as `#` lines. The film size is the Charge tab's.
+- Manual: the Titration tab, and the PITT, GITT and impedance-box settings.
+- Not yet: the step-current (transmission-line) fit for diffusion time and D, the
+  impedance film models, the PITT/impedance/CV cross-check, GITT analysis.
+
 ### Fixed — second review of the hardware error paths (2026-11-15)
 
 An independent review of the 2026-11-14 fixes, on fakes. Every failure path it traced

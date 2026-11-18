@@ -119,9 +119,11 @@ Each group shows an **estimate** under its settings: how many steps, and how lon
 run can take. Read it before Start. Anything that would stop the run is shown in red
 right there, so a bad setting is caught before the cell is switched on.
 
-**Analysis is not built yet.** Charge per step, dQ/dE, the density of states and the
-comparison between PITT, impedance and CV are designed but wait on a real film.
-Until then the data are complete in the `.h5` files.
+**Analysis:** a PITT's charge per step, dQ/dE, g(E) and its impedance sweeps are on
+the Analysis tab's **Titration** tab (§5). Not built yet: the GITT's analysis, the fit
+of each step's current (diffusion time and D), the impedance film models, and the
+comparison between PITT, impedance and CV. Those wait on a real film. All the data
+are in the `.h5` files.
 
 #### PITT — potential staircase
 
@@ -359,6 +361,54 @@ The fit plot shows the data, the fitted curve, and a **residual panel above** (t
 convention in XPS/NMR/IR fitting). The residuals are the point: an exponential and a
 stretched exponential look nearly identical drawn over the same decay, and structure in
 the residuals is how you tell them apart.
+
+### The Titration tab
+
+For a run with a PITT. It reads `{folder}_pitt.h5` and never changes it. Each step
+of the staircase gives one row of the table; **Save table (CSV)** writes them all,
+with a few `#` lines naming the run, the film size and how the numbers were made.
+
+What each step's numbers mean:
+
+- **E** is the *measured* potential, averaged over the end of the step, not the
+  setpoint (the Reference 600 sits about 1 mV off it). **dE** is the change from
+  the step before, and dQ/dE is placed at the midpoint between the two.
+- **dQ** is the charge that flowed in the step, less the steady current at its end
+  (I_ss, the leak) taken as flowing all step. The other possibility, a leak that
+  rose steadily from the previous step's, is **dQ_ramp**; half the difference is
+  the background part of **dQ_u**. With the integration check and the noise, that
+  makes the error bars, as on the Charge tab.
+- **Q_head** is the charge before the first current sample. The current is largest
+  right after the setpoint changes, and no sample covers that moment, so the
+  sampled charge is always a little low. Q_head runs an exponential through the
+  first samples back to the start of the step. It is a correction of one sign,
+  so it is its own column, not part of dQ_u. **include the charge before the first
+  sample** draws dQ/dE with it added; the sampled-only values stay faint behind.
+- **C = dQ/dE**, and with the film size (the Charge tab's **Film size**), C per
+  volume and **g(E) = C / (e × volume)** at the energy −E, as in the CV's density of
+  states. The first step has no dQ/dE (the potential before it is not known), and
+  neither has the end dedope.
+- **R_dc** is dE over the change in the leak: the resistance of whatever carries
+  the steady current.
+- The double layer is NOT in a PITT dQ: it charges in about a millisecond, before
+  any sample. A PITT C is the film's own (chemical) capacitance.
+
+A step a check objects to keeps its numbers, with `?` beside them in the table, a
+ring on the plot, and the reason in **reasons**: the hold reached its maximum, the
+step was cut short (dQ is then a lower bound), the current was still changing at the
+end by more than its own noise, Q_head or the background is a large part of dQ, dQ
+has the wrong sign, or the measured E is more than 2 mV from the setpoint. An
+impedance sweep's concerns are in **Z_concerns**, since they say nothing about dQ.
+
+The views:
+
+| Plot | What it shows |
+|---|---|
+| **dQ/dE vs potential** | Forward and return legs. If the film is at equilibrium the two lie on one curve; the CSV notes the Gaussian centre of each and how far apart they are. |
+| **Charge Q(E)** | The running sum of dQ along each leg, from 0 at the first step. The return leg ends at the charge left in the film (the CSV's "closure"). |
+| **Step current** | One step's current less I_ss, on a log axis. A straight line is a single exponential; a curve that bends is diffusion. Points after an impedance sweep are grey and not in dQ. |
+| **Impedance: Nyquist** | A swept step's impedance (marked `[Z]` in the step list). |
+| **Impedance: C′ vs frequency** | C′ = Im[1/(Z − R_s)]/ω, the capacitance behind the series resistance, with −1/(ωZ″) beside it for reference. With any DC path the latter climbs without limit at low frequency, which is why C′ is the one to read. The plateau at low frequency is the film's capacitance; if C′ is still rising at the lowest frequency, the value there is a lower bound and **Z_concerns** says so. |
 
 ---
 

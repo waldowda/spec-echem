@@ -367,19 +367,20 @@ TABLE_COLUMNS = [
     ("C_chem_F_cm3", "F cm-3"), ("C_chem_head_F_cm3", "F cm-3"),
     ("g_per_eV_cm3", "eV-1 cm-3"), ("g_head_per_eV_cm3", "eV-1 cm-3"),
     ("R_dc_ohm", "ohm"), ("Rs_ohm", "ohm"), ("Cdl_F", "F"), ("C_lf_F", "F"),
-    ("C_lf_reached", ""), ("status", ""), ("reasons", ""), ("notes", ""),
+    ("C_lf_reached", ""), ("status", ""), ("reasons", ""), ("Z_concerns", ""),
+    ("notes", ""),
 ]
 
 
 def pitt_table_rows(results):
     """One dict per step, keys as TABLE_COLUMNS. A flagged row carries its reasons;
-    a missing value is None."""
+    a missing value is None. `status` and `reasons` are the step's charge; an
+    impedance sweep's concerns are in `Z_concerns`, since they say nothing about dQ."""
     rows = []
     for r in results:
         sweep = r.sweep or {}
         low, high = sweep.get("low") or {}, sweep.get("high") or {}
-        reasons = list(r.reasons) + list(sweep.get("concerns") or []) \
-            + list(low.get("concerns") or [])
+        z_concerns = list(sweep.get("concerns") or []) + list(low.get("concerns") or [])
         rows.append({
             "step": r.index, "role": r.role, "E_set_V": r.potential_set, "E_V": r.e,
             "dE_mV": None if r.de is None else 1e3 * r.de, "E_mid_V": r.e_mid,
@@ -393,7 +394,7 @@ def pitt_table_rows(results):
             "Rs_ohm": sweep.get("rs"), "Cdl_F": high.get("cdl"),
             "C_lf_F": low.get("c_lf"),
             "C_lf_reached": low.get("reached") if low else None,
-            "status": "needs_review" if reasons else "ok",
-            "reasons": "; ".join(reasons), "notes": "; ".join(r.notes),
+            "status": r.status, "reasons": "; ".join(r.reasons),
+            "Z_concerns": "; ".join(z_concerns), "notes": "; ".join(r.notes),
         })
     return rows

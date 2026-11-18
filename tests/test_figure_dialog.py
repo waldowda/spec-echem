@@ -372,7 +372,8 @@ def test_the_single_export_is_named_after_the_trace_on_screen(app, tmp_path,
     from qtpy.QtWidgets import QPushButton
     from gui.widgets.figure_dialog import EXPORT_LABEL
     buttons = [b for b in tab.findChildren(QPushButton) if b.text() == EXPORT_LABEL
-               and not tab.charge_panel.isAncestorOf(b)]
+               and not tab.charge_panel.isAncestorOf(b)
+               and not tab.titration_panel.isAncestorOf(b)]
     for i in range(len(at.TRACES)):
         tab.table.selectRow(i)
         for button in buttons:
@@ -567,7 +568,8 @@ def test_the_fit_export_names_wavelength_model_and_window_of_the_FIT(app, tmp_pa
     from qtpy.QtWidgets import QPushButton
     from gui.widgets.figure_dialog import EXPORT_LABEL
     for b in tab.findChildren(QPushButton):
-        if b.text() == EXPORT_LABEL and not tab.charge_panel.isAncestorOf(b):
+        if b.text() == EXPORT_LABEL and not tab.charge_panel.isAncestorOf(b) \
+                and not tab.titration_panel.isAncestorOf(b):
             b.click()
     fit_ctx = next(v for k, v in seen.items() if "absorbance" in k)()
     assert f"wavelength: {wl:.1f} nm (auto: polaron band of this segment)" in fit_ctx

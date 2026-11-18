@@ -60,9 +60,12 @@ The CHANGELOG says what shipped; git log says when.
          off.
       Then a film. **Analysis:** a design exists (kept outside the repo, 2026-11-14).
       Built: `spec_echem/impedance.py` (C'(w), plateau test, model-free Rs and Cdl,
-      Randles fit; NOT -1/(w Z''), which diverges with any DC path). Not built, waiting
-      on a real film: the film/ladder fits (Cmu, R_ion, D), PITT dQ/dE with the head
-      charge before the first sample, g(E), the PITT / EIS / CV cross-check, the GUI.
+      Randles fit; NOT -1/(w Z''), which diverges with any DC path) and, 2026-11-17,
+      `spec_echem/pitt_analysis.py` + the Titration tab (dQ/dE with the head, g(E),
+      Q(E), hysteresis, the sweeps). Not built, waiting on a real film: the
+      transmission-line step fit (a better head, tau_d, D), the impedance film models
+      (Cmu, R_ion), the PITT / EIS / CV cross-check, GITT analysis. On the first film:
+      is Q_head small (then the step fit can wait), and does C' plateau?
       What a first film run should include: an early first sample, and on a few steps
       a sweep down to ~0.05 Hz.
 - [ ] **Charge tab on a fresh run:** every view, the CSV, and a step that genuinely

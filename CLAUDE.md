@@ -334,7 +334,12 @@ loop, cell held on throughout), `data.write_pitt_h5` (HDF5 only, a group per ste
 - **The cutoff is OPT-IN (2026-10-19, `pitt_cutoff_enabled`, default False):** off,
   every step is a fixed hold of `pitt_max_hold_s` ending `fixed` (no 'did not settle'
   warning). Test helpers that exercise the cutoff must set it True.
-- PITT analysis (dQ per step, g(E)) is deliberately NOT built yet.
+- **PITT analysis (2026-11-17):** `spec_echem/pitt_analysis.py` + the Analysis tab's
+  Titration tab (`gui/tabs/titration_panel.py`). E is the MEASURED tail mean, never
+  the setpoint; background = the step's own tail current (constant), far bound = a
+  ramp from the previous step's; Q_head is its own column, never in dQ_u; an
+  impedance concern goes in `Z_concerns`, never on the step's dQ. Not built: the
+  transmission-line step fit (D), impedance film models, the cross-check, GITT.
 
 ### GITT (data type 6) — built 2026-10-29, fakes only so far
 
@@ -496,7 +501,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 1197 tests total (1196 pass, 1 skip; counted 2026-11-15);
+- **`gui/` coverage — no longer the gap it was.** 1218 tests total (1217 pass, 1 skip; counted 2026-11-17);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
