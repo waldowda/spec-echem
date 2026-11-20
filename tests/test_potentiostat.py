@@ -354,6 +354,9 @@ def _autolab_settings(**over):
         "autolab_sdk": "sdk", "autolab_adx": "adx", "autolab_hdw": "hdw",
         "autolab_nox_cv": "cv.nox", "autolab_nox_ca": "ca.nox",
         "autolab_pulse_delay_s": 0.0,      # keep the tests fast
+        # These tests exercise the PROCEDURE path and the template's own FHWait,
+        # so they pin the pre-2026-11-20 defaults; the Ei path asks for "ei".
+        "autolab_ca_mode": "procedure", "autolab_wait_s": None,
         "cv_initial_v": 0.1, "cv_limit1_v": 0.8, "cv_limit2_v": -0.7,
         "cv_final_v": 0.05, "cv_step_size": 2.44, "cv_scan_rate": 100.0,
         "cv_cycles": 3,
@@ -959,6 +962,48 @@ def test_autolab_wait_s_rewrites_the_template_wait(autolab):
     p.prepare(_doping_segment())
     wait = p._proc.Commands[potentiostat.AUTOLAB_WAIT_COMMAND]
     assert list(wait.CommandParameters)[0].ValueAsObject == 0.0
+
+
+def _fresh_rig_settings():
+    """What a rig with no bench.ini runs on: code defaults plus the SDK paths. The
+    ca_mode and wait are NOT overridden — they are what these tests are about."""
+    s = DEFAULT_SETTINGS.copy()
+    s.update({"autolab_sdk": "sdk", "autolab_adx": "adx", "autolab_hdw": "hdw",
+              "autolab_nox_cv": "cv.nox", "autolab_nox_ca": "ca.nox"})
+    return s
+
+
+def test_the_defaults_are_ei_holds_and_no_template_wait():
+    """2026-11-20: a reclone deleted one rig's bench.ini, the stock template's 5 s
+    FHWait came back, and every hold switched the film before recording began."""
+    assert DEFAULT_SETTINGS["autolab_ca_mode"] == "ei"
+    assert DEFAULT_SETTINGS["autolab_wait_s"] == 0.0
+
+
+def test_with_no_bench_file_a_chrono_hold_loads_no_procedure(autolab, monkeypatch):
+    monkeypatch.setattr(potentiostat, "_set_ei_mode",
+                        lambda ei, potentiostatic=True: setattr(
+                            ei, "Mode", "Potentiostatic"))
+    monkeypatch.setattr(potentiostat, "_set_current_range",
+                        lambda ei, name: setattr(ei, "CurrentRange", name or None))
+    p, inst = autolab(settings=_fresh_rig_settings())
+    p.prepare(_doping_segment())
+    assert p._ei_mode is True and p._proc is None and inst.loaded == []
+    assert p._pulse_delay == 0.0
+
+
+def test_with_no_bench_file_a_cv_has_no_template_wait(autolab):
+    """The CV keeps the procedure; its 5 s wait becomes 0 and the trigger follows."""
+    p, inst = autolab(wait_s=5.0, settings=_fresh_rig_settings())
+    p.prepare(_cv_segment())
+    wait = p._proc.Commands[potentiostat.AUTOLAB_WAIT_COMMAND]
+    assert list(wait.CommandParameters)[0].ValueAsObject == 0.0
+    assert p._pulse_delay == pytest.approx(potentiostat.AUTOLAB_SETUP_LAG_CV_S)
+
+
+def test_an_empty_ca_mode_in_a_bench_file_means_ei(autolab):
+    p, _inst = autolab(settings=dict(_fresh_rig_settings(), autolab_ca_mode=""))
+    assert p._ca_mode == "ei"
 
 
 def test_the_trigger_delay_follows_the_rewritten_wait(autolab):

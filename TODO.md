@@ -128,6 +128,9 @@ The CHANGELOG says what shipped; git log says when.
 - [ ] **Re-clone both Win11 boxes:** history rewritten again 2026-11-15 (the Mac and the Autolab rig's box are done).
       Rename the old clone, disable its push (`git remote set-url --push origin DISABLED`),
       clone `gui-dev` fresh, copy over `config/bench.ini`. Never push from an old clone.
+      **Copy `config/bench.ini` out BEFORE deleting anything** (it is untracked): the
+      Autolab box lost it 2026-11-20 and ran three bad runs. If lost, rebuild it from
+      an old run's `_metadata.json` (see `config/bench.example.ini`).
 - [ ] **Optional:** ask GitHub to purge cached views of old commits, and Zenodo support
       about the v0.3.0/v0.3.1 archives (they predate both rewrites).
 

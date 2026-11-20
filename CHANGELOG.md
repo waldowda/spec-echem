@@ -11,6 +11,19 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Changed — Autolab chrono holds default to Ei with no template wait (2026-11-20)
+
+- `autolab_ca_mode` now defaults to `ei` and `autolab_wait_s` to `0`. The old defaults
+  ran the stock NOVA template, which holds the cell at the segment's potential for 5 s
+  before recording or triggering. The fix lived only in one rig's `bench.ini`; a re-clone
+  deleted it, and every doping/dedoping hold switched the film before its first
+  spectrum. The CV's trigger delay is derived from the wait, so it follows. Set
+  `autolab_ca_mode = procedure` and a blank `autolab_wait_s` to get the old behaviour.
+- **`config/bench.example.ini`** (tracked, never read by the app): a starting
+  `bench.ini` with the Autolab SDK paths, the trigger pin and the safe hold settings, and
+  how to rebuild a lost one from a run's metadata. The "autolab_sdk is not set" error
+  points to it.
+
 ### Added — PITT analysis and the Titration tab (2026-11-17)
 
 - **`spec_echem/pitt_analysis.py`** reads a `{folder}_pitt.h5` (never writes it). Per

@@ -10,6 +10,11 @@ different thing entirely, and are saved/loaded per run as JSON from the **Parame
 |---|---|---|
 | `defaults.ini` | **Yes** | The **lab-wide** standard. What a fresh clone starts with. |
 | `bench.ini` | **No** (gitignored) | **This machine's** overrides. Created by *Save as defaults*. |
+| `bench.example.ini` | **Yes** | A starting `bench.ini` (Autolab SDK paths, the trigger pin, the safe hold settings). Never read by the app. |
+
+⚠️ `bench.ini` is untracked, so **deleting the clone deletes it.** Copy it out before
+re-cloning. If it is lost, copy `bench.example.ini` to `bench.ini` and edit it, or rebuild
+it from any earlier run's `{run}_metadata.json` (that file's header says how).
 
 ## Which one do I edit?
 

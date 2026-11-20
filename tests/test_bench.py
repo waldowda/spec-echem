@@ -280,3 +280,24 @@ def test_the_floor_survives_save_as_defaults(tmp_path):
     save_bench_defaults({"integration_time_ms": 3.0}, ini)
 
     assert read_detector_floor("SN-TEST-0001", ini) == 1.048
+
+
+def test_the_tracked_example_bench_file_parses_cleanly_and_carries_no_machine():
+    """config/bench.example.ini is the starting point after a reclone. It must read
+    with no warnings, ask for the safe Autolab behaviour, and name no machine: the
+    repo is public, so no data_root, no user folder and no detector serial."""
+    from pathlib import Path
+    from spec_echem.bench import read_bench_file
+    path = Path(__file__).resolve().parent.parent / "config" / "bench.example.ini"
+    values, warnings = read_bench_file(path)
+    assert warnings == []
+    assert values["autolab_ca_mode"] == "ei"
+    assert values["autolab_wait_s"] == 0.0
+    assert values["autolab_current_range"] == "CR10_1mA"
+    assert values["autolab_dio_mask"] == 1
+    assert values["autolab_pulse_delay_s"] is None
+    assert "data_root" not in values
+    import re
+    text = path.read_text(encoding="utf-8")
+    assert not re.search(r"^\[detector\.", text, re.M)        # no serial section
+    assert not re.search(r"^data_root", text, re.M)             # left commented out

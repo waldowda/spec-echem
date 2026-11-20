@@ -118,8 +118,10 @@ DEFAULT_SETTINGS = {
     # The stock CA template ships 5.0 s, and the driver writes the DOPING potential
     # into the setpoint command that runs BEFORE it — so the cell sits at the doping
     # potential for those 5 s with nothing recording, and the steepest part of the
-    # transient is lost. Set this to shrink or remove that window.
-    "autolab_wait_s": None,
+    # transient is lost. 0 by default (2026-11-20): it lived only in one rig's
+    # bench.ini, and a reclone that lost the file lost the first 5 s of every hold.
+    # The trigger delay is derived from the wait, so the CV follows it.
+    "autolab_wait_s": 0.0,
     # FHLevel's "Use fast options" bool. None = leave the .nox alone (it ships
     # False). True is an experiment: see AutolabPotentiostat._apply_fast_options.
     "autolab_ca_fast_options": None,
@@ -127,7 +129,8 @@ DEFAULT_SETTINGS = {
     # behavior); "ei" drives doping/dedoping/pre-dedoping from Python via Ei and
     # leaves CV on the procedure. Ei exists because the .nox spends ~0.93 s reaching
     # its recorder (measured 2026-09-09) and nothing configurable shortens it.
-    "autolab_ca_mode": "procedure",
+    # "ei" by default (2026-11-20), for the same reason as autolab_wait_s above.
+    "autolab_ca_mode": "ei",
     # Fixed current range for Ei mode, e.g. "CR10_1mA". Blank = leave whatever the
     # instrument has. The procedure sets this itself via FHGetSetValues; with no
     # procedure, it becomes Python's job.

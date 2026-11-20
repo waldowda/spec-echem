@@ -835,7 +835,9 @@ def open_instrument(settings):
     if not sdk:
         raise ConfigurationError(
             "autolab_sdk is not set. The Autolab needs sdk/adx/hdw paths in "
-            "config/bench.ini — they are machine-specific, like data_root.")
+            "config/bench.ini — they are machine-specific, like data_root. "
+            "Start from config/bench.example.ini, or restore the bench.ini "
+            "this machine had.")
     import sys
     sdk_dir = os.path.dirname(sdk)
     if sdk_dir and sdk_dir not in sys.path:
@@ -1188,9 +1190,9 @@ class AutolabPotentiostat(Potentiostat):
         # cannot produce one. A bad value should stop the run before it starts.
         self._dio_mask = parse_dio_mask(
             self.settings.get("autolab_dio_mask", 0xFF))
-        # "procedure" runs the .nox for every segment (the shipped behavior);
-        # "ei" drives chrono holds from Python and leaves CV on the procedure.
-        self._ca_mode = str(self.settings.get("autolab_ca_mode") or "procedure").lower()
+        # "ei" (the default) drives chrono holds from Python and leaves CV on the
+        # procedure; "procedure" runs the .nox for every segment.
+        self._ca_mode = str(self.settings.get("autolab_ca_mode") or "ei").lower()
         if self._ca_mode not in ("procedure", "ei"):
             raise ValueError(
                 f"autolab_ca_mode must be 'procedure' or 'ei', got {self._ca_mode!r}")

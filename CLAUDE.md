@@ -403,10 +403,13 @@ timing came from). Headlines:
   apply to a CV — it runs the procedure, which auto-ranges. Unresolved; see §4 there.
 
 - **Two backends for a chrono hold**, chosen by `autolab_ca_mode`:
-  - `procedure` (default) — loads the `.nox` for every segment.
-  - `ei` — Python writes Mode/CurrentRange/Setpoint while the cell is still OPEN, then
+  - `procedure` — loads the `.nox` for every segment.
+  - `ei` (default since 2026-11-20, with `autolab_wait_s = 0`) — Python writes Mode/CurrentRange/Setpoint while the cell is still OPEN, then
     cell ON → trigger edge → samples `Ei` itself. **No procedure is loaded.** CV always
     keeps the procedure; the staircase is a real waveform worth the instrument generating.
+  Both used to default to the stock template (procedure, 5 s FHWait at the doping
+  potential before recording) and were fixed only in one rig's bench.ini; a reclone
+  that deleted the file lost the first 5 s of every hold (2026-11-20).
 - **Why `ei` exists:** `Measure()` hands control to the `.nox`, which walks
   `FHGetSetValues → FHSetSetpointPotential → FHSwitchCell` before `FHLevel` records.
   MEASURED ~0.93 s, and it is a sum of per-command overheads (one command ≈ 0.23 s), so
@@ -501,7 +504,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 1218 tests total (1217 pass, 1 skip; counted 2026-11-17);
+- **`gui/` coverage — no longer the gap it was.** 1223 tests total (1222 pass, 1 skip; counted 2026-11-20);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
