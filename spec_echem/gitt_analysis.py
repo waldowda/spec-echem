@@ -32,7 +32,7 @@ Per titration step (one pulse at I, then a relaxation at 0 A):
 Every number is returned; a step a check objects to carries the reason and the
 status `needs_review`. The software raises concerns, the scientist decides.
 
-Not here yet: the spectra per step (bleach and polaron vs charge), and the GUI.
+The GUI is gui/tabs/gitt_panel.py; the spectra per step are in staircase_views.
 """
 import json
 import math

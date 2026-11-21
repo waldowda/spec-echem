@@ -8,10 +8,13 @@ title carries the same folder name, so a screenshot says which run it shows.
 
 Two halves. **Part 1** is the tabs: what each control does and what it is for. **Part 2**
 is the mathematics: which functions are fitted, how the mean relaxation time and its
-confidence interval are computed, what makes a fit get flagged, and how the density of
-states is calculated. Part 2 exists because several of these numbers are easy to
-misread — the mean relaxation time is *not* the fitted τ, and the 95% interval is
-narrower than the true uncertainty for a reason worth understanding.
+confidence interval are computed, what makes a fit get flagged, how the density of
+states is calculated, and how the charge, PITT, GITT and impedance numbers are made.
+Part 2 opens with a table of **every analysis method**, its formula, the code that
+computes it and the section that explains it, so any number on screen can be checked
+by hand. Part 2 exists because several of these numbers are easy to misread — the mean
+relaxation time is *not* the fitted τ, and the 95% interval is narrower than the true
+uncertainty for a reason worth understanding.
 
 A principle that runs through the whole program: **it raises concerns; it does not hide
 results.** No fit, plot, or table is withheld because software judged it unworthy. Where
@@ -89,8 +92,12 @@ Everything about *this run*. Saved to `{folder}/{folder}_metadata.json` at run s
 data folder is self-documenting.
 
 - **Sample info** — name, electrolyte, notes.
-- **Film thickness** and **immersed film area** — used by the density of states (see
-  Part 2) and the GITT's charge-per-volume estimate.
+- **Film thickness** and **immersed film area** — the size planned for *this* run,
+  saved into its metadata. They set every per-volume number: carrier and charge
+  density (Charge tab), the DOS (Results, PITT tab), the GITT's D (thickness) and its
+  charge-per-volume estimate. A size measured *after* a run is entered for that run,
+  not here: **Edit…** on the Charge tab or **Edit film…** beside the Results DOS.
+  Both write the same per-run record (see the Charge tab, §5).
 - **CV** — vertices, scan rate, cycles.
 - **Doping ladder** — start, step, end. In Python mode these *drive* the run; in External
   mode the sequence file holds the real values and these are documentation. The end is a
@@ -100,6 +107,14 @@ data folder is self-documenting.
 - **Dedoping** and **pre-dedoping** potentials.
 - **Data folder** — `YYYYMMDD_Description`.
 - **PITT** and **GITT** — titrations that run after the doping ladder; see below.
+
+**Save Settings File / Load Settings File.** A loaded file sets the experiment, but
+never this rig's wiring. The `[bench]` and `[autolab]` sections of `config/bench.ini`
+(data folder, potentiostat mode, trigger, the Autolab's SDK paths, DIO pins, chrono
+mode, pre-record wait and current range) are kept, and a popup lists any value in the
+file that was ignored. An old file once brought back a 5 s wait before every hold;
+this is why. Exposure, averages, the wavelength window and the linearity ramp *are*
+taken from the file, as are all the experiment's own settings.
 
 ### PITT, GITT and the impedance box
 
@@ -243,7 +258,7 @@ shows for the selected segment:
 | **Spectra (all times)** | Every spectrum in the segment, colored by elapsed time. Click the plot to set the analysis wavelength — a red line marks it. |
 | **Kinetics (one wavelength)** | Absorbance against time at one wavelength. |
 | **Modulation (across the ladder)** | Absorbance at the **end** of each doping step, against potential. One point per rung, building during a run. This is the view to watch live: a film that stops modulating has stopped being worth the rest of the ladder. |
-| **Density of states (CV) — in dev.** | See Part 2. Requires a CV segment. |
+| **Density of states (CV) — in dev.** | See Part 2. Requires a CV segment. The film size is the run's own (the Charge tab's, below), and the line under the plot says which size was used and where it came from (`measured <date>`, `ESTIMATE, provisional`, or the Parameters tab for a run that recorded none). **Edit film…** beside the DOS range opens the Charge tab's film dialog; saving redraws the DOS. |
 
 The **wavelength** box always shows the wavelength in use, as a number. With **auto**
 ticked (the default) it follows the polaron band for each segment, so the number changes
@@ -265,7 +280,7 @@ Fitting, after a run.
 | **Fit segment / Fit all segments** | Fits absorbance, current and charge. |
 | **Fit table** | One row per trace; **click a row to plot it**. Columns follow the model the fits were made with: `exp` τ; `biexp` τ1, τ2; `stretched` τ, β; and always ⟨τ⟩ with its 95% CI, which is what the ladder plots. Each value's SD is on its tooltip. Amplitudes and the offset are in the plot legend and in **All fits…**. |
 | **All fits…** | Every fit in the run, one row per segment per trace. Carries **every fitted parameter with its SD** — the columns follow whichever model was used — plus y(0), ⟨τ⟩, its 95% CI, the point count and the residual split. **Copy as CSV** / **Save CSV…**. |
-| **Kinetics / Charge tabs** | Two views under the fit plot. **Kinetics** is the ladder of fit results against potential. **Charge** is the charge each step moved; see below. |
+| **Kinetics / Charge / PITT / GITT tabs** | Four views under the fit plot. **Kinetics** is the ladder of fit results against potential. **Charge** is the charge each doping-ladder step moved, **PITT** a PITT staircase's charge per step, and **GITT** a GITT's pulses; see below. (**PITT** was called **Titration** until 2026-11-21.) |
 | **Plot** (Kinetics) | What the ladder draws: **mean tau** (⟨τ⟩, the physical timescale for every model), **tau** (the raw fitted τ; for `biexp` the slower one), **beta** (from a `stretched` fit only; otherwise the plot says so), or **tau(abs) / tau(current)**. Every value carries its 95% CI. |
 | **Show / log y** | Which traces appear on the ladder, and whether its y-axis is logarithmic. **charge** starts unticked: its ⟨τ⟩ typically runs ~100× the others and flattens them. It is still fitted and in the table. |
 | **hide flagged points** | Leave the ringed needs-review points off the ladder, so both axes scale to the fits you trust. Off by default. Does nothing in the ratio view, which rings nothing, so it is disabled there. |
@@ -284,7 +299,7 @@ says how *fast* a film switched at each potential, this says how *much*.
 | **Equilibrium: last … s** | The end of each step. Absorbance and current are averaged over it, drift is measured over it, and its mean current is the leak (below). |
 | **move < … %** | A step is ringed if its absorbance or current still moved by more than this share of the step's whole change over that last span. |
 | **step ≥ … × tau** | ...or if the step was shorter than this many relaxation times (5 τ = 99.3% complete for a single exponential; about 96% for a stretched one with β = 0.5). Uses the Kinetics fits of absorbance and current that passed review; a step not yet fitted gets only the drift check, and the table says which checks were made. |
-| **Film size / Edit… / Copy from another run…** | The film size in use, in **orange** while it is an estimate and **green** once measured. **Edit…** enters a measured thickness and area (± and a note, e.g. "profilometer"); **Copy from another run…** takes the size already entered for another run of the same film. Hover the size for its history. |
+| **Film size / Edit… / Copy from another run…** | The film size in use, in **orange** while it is an estimate and **green** once measured. **Edit…** enters a measured thickness and area (± and a note, e.g. "profilometer"); **Copy from another run…** takes the size already entered for another run of the same film. Hover the size for its history. The grey line under it is a reminder: the size sets every per-volume number for the run, here and on the PITT, GITT and Results tabs. |
 | **Save table (CSV)…** | Every number for every step, with the film size, A₀ and every note behind them. The plot footnote is a short version. |
 
 **Film size measured after the run.** Thickness and area are usually estimates at
@@ -292,8 +307,12 @@ Start: set **Film size is: an estimate** on the Parameters tab. Every density pl
 CSV then says *ESTIMATE (provisional)* until a measured size is entered here. Edits are
 saved beside the run in `{folder}_film.json` as a history: the first entry is the run's
 own values, each edit adds one, and the latest is used. The run's metadata is never
-changed, so what was assumed and what was measured both stay on record. Only the
-densities change; the charge and the bleach do not depend on film size.
+changed, so what was assumed and what was measured both stay on record. **This one
+record is the run's film size everywhere**: the Charge, PITT and GITT tabs and the
+Results DOS all read it, and **Edit film…** on Results writes to it too, so an edit in
+either place redraws every view. Only per-volume numbers change: carrier and charge
+density, C per volume and g(E), the DOS, and the GITT's D. The charge, the bleach,
+C and R do not depend on film size.
 
 What each number is:
 
@@ -306,9 +325,10 @@ What each number is:
   the two (Q_raw − ¾ × leak × duration) and half their difference is part of its
   uncertainty. Raw and corrected are both drawn, so the size of the correction is
   visible.
-- **Carrier density** is |Q| / (e × area × thickness), with the film size **this run
-  recorded**. An older run that recorded none uses the Parameters tab, and the plot
-  footnote says which.
+- **Carrier density** is |Q| / (e × area × thickness), with the run's film size: the
+  latest entry of its film record (an edit, or the size the run recorded at Start).
+  An older run that recorded none uses the Parameters tab, and the plot footnote says
+  which.
 - **Charge density** is |Q| / (area × thickness), in C/cm³: the same quantity as the
   carrier density times e, in the units an electrochemist usually reports.
 - **Bleach** is (A₀ − A) / A₀ at the chosen wavelength, with A at the end of the step and
@@ -407,12 +427,131 @@ The views:
 | **dQ/dE vs potential** | Forward and return legs. If the film is at equilibrium the two lie on one curve; the CSV notes the Gaussian centre of each and how far apart they are. |
 | **Charge Q(E)** | The running sum of dQ along each leg, from 0 at the first step. The return leg ends at the charge left in the film (the CSV's "closure"). |
 | **Step current** | One step's current less I_ss, on a log axis. A straight line is a single exponential; a curve that bends is diffusion. Points after an impedance sweep are grey and not in dQ. |
+| **All steps: current vs run time** | Every step's \|I\| on one log axis against the run's own clock, so the whole staircase reads as one experiment: how fast each step decays, and whether the leak grows. |
+| **All steps: overlaid from each start** | Every step's \|I\| against time from its own start, on a log axis. Steps that decay alike lie on top of each other; one that is slower stands out. It plots \|I\|, not \|I − I_ss\|, because the latter crosses zero in the tail and wrecks a log axis. |
+| **All steps: spectra at each step's end** | The last spectrum of every step, less the first spectrum of the first step: how the film's absorption moved along the staircase. |
+| **All steps: bands vs potential** | ΔA at the end of each step at two wavelengths, the largest fall (the bleach) and the largest rise (the polaron), against the step's measured E. Both wavelengths come from the step that changed most (see Part 2, *Every-step views*). |
+
+In the every-step views the colour runs from dark (early) to light (late), and the
+legend names at most five steps: the first, the last and a few between.
+
+| Plot | What it shows |
+|---|---|
 | **Impedance: Nyquist** | A swept step's impedance (marked `[Z]` in the step list). |
 | **Impedance: C′ vs frequency** | C′ = Im[1/(Z − R_s)]/ω, the capacitance behind the series resistance, with −1/(ωZ″) beside it for reference. With any DC path the latter climbs without limit at low frequency, which is why C′ is the one to read. The plateau at low frequency is the film's capacitance; if C′ is still rising at the lowest frequency, the value there is a lower bound and **Z_concerns** says so. |
+
+The formulas, the windows and every threshold behind a concern are in Part 2,
+*PITT — charge per step* and *Impedance — C′ and the Randles fit*.
+
+### The GITT tab
+
+For a run with a GITT. It reads `{folder}_gitt.h5` and never changes it. Each step is
+one pulse at the set current followed by its relaxation at 0 A; a rest before the
+first pulse, if the run had one, comes first and sets the starting potential. Each
+step gives one row of the table; **Save table (CSV)** writes them all, with `#` lines
+naming the run and the film thickness used. The thickness is the Charge tab's film
+size, as for every other tab.
+
+What each step's numbers mean (the formulas are in Part 2, *GITT — per pulse*):
+
+- **q** is the measured current integrated over the whole step, pulse and relaxation.
+  **q_set** = I × pulse length is what was asked for; they should agree within 5%. At
+  0 A the Autolab still passes a small zero offset, and that is charge the film
+  received too, which is why q, not q_set, is used.
+- **E_relaxed** is the mean potential at the end of the relaxation, and **drift** its
+  slope there. A relaxation still drifting gives a bound, not an equilibrium value.
+- **R_off** is the IR step when the current switches off, divided by I: the
+  resistance between the reference and the film.
+- **dE_s** is the change in E_relaxed from the step before, and **C = q / dE_s** the
+  film's capacitance over that step.
+- **i_leak** and **C_leak**: at 0 A a film that keeps losing charge drifts. i_leak =
+  −C × drift is the current that would explain the drift, and C_leak the capacitance
+  with that leak taken out of q. It assumes the leak held at its end-of-step rate all
+  step, so it is shown **beside** C, never folded into it.
+- **dE/d√t** and its **R²**: during a pulse into a film limited by diffusion, E is a
+  straight line in √t.
+- **D** by Weppner–Huggins, using the film thickness. It is valid only while the
+  pulse is short compared with the diffusion time across the film (τ ≪ L²/D), and
+  the step says so when it is not. With 10 s pulses on a 150 nm film, every D was
+  flagged; pulses of about 1 s are needed there.
+
+A step a check objects to keeps its numbers, with `?` beside the flagged columns, a
+ring on the plot, and the reason in **reasons**: the potential left the safety window
+(the run stopped there), the step ended some other way than planned, the measured
+charge is more than 5% from the set charge, the relaxation had not levelled off, the
+pulse is not linear in √t (R² < 0.99), or τ is not ≪ L²/D.
+
+| Plot | What it shows |
+|---|---|
+| **Relaxed E vs charge** | The equilibrium titration curve: E_relaxed against the running total of q (0 at the rest), with E at the end of each pulse beside it. The gap between the two is the overpotential the pulse needed. |
+| **C per pulse vs potential** | C, and C_leak beside it, at the midpoint of each step's relaxed potentials. |
+| **Step potential** | One step's E against time: the pulse, the IR step at switch-off, the relaxation. |
+| **All steps: potential vs run time** | Every step on the run's own clock: the whole titration as one trace. |
+| **All steps: overlaid from each start** | Every step's E − E at its start, in mV, against time from the pulse: pulses that respond alike lie on top of each other. |
+| **All steps: spectra at each step's end** | As on the PITT tab. |
+| **All steps: bands vs charge** | As on the PITT tab, against the running charge instead of potential. |
+
+## 6. Band Fits
+
+Fits the transient at **every wavelength** in a range, for one segment or for the
+whole ladder, and plots τ against wavelength. A τ that varies across an absorption
+band says the band is not one species relaxing, which a single probe wavelength
+cannot show.
+
+| Control | Purpose |
+|---|---|
+| **Segment** | The step to fit. CVs are not offered: a sweep has no single transient. |
+| **Wavelengths** | The range fitted, one fit per detector pixel. |
+| **Model / Time window** | As on the Analysis tab (0 = the whole segment). Pre-filled from it the first time the tab is shown, and its own after that. |
+| **Fit this segment / Fit all segments** | One segment, or every segment offered. |
+| **Show all segments / Plot potentials / log tau axis** | The ladder of band results against potential, a range of potentials to show, and a logarithmic τ axis. |
+| **Save CSV…** | Every wavelength's fit, in long format across segments. |
+
+Each wavelength is fitted exactly as a single-wavelength fit is on the Analysis tab:
+the same models, bounds, uncertainties and checks (Part 2, *The models* to *When a fit
+is flagged*). A wavelength that does not converge is recorded as such and the rest of
+the band carries on.
 
 ---
 
 # Part 2 — The mathematics
+
+## Every analysis method, and where to check it
+
+Each row is one number the program reports: how it is made, the function that makes
+it, and the section that explains it. The functions are in `spec_echem/`, which has no
+Qt and no hardware, so any of them can be called from a notebook on your own data to
+check a number by hand. Every saved CSV starts with `#` lines saying which settings
+made it (see *Where things are recorded*).
+
+| Number | Method | Function | Section |
+|---|---|---|---|
+| Absorbance A | −log₁₀((sample − dark)/(reference − dark)) | `data.compute_absorbance` | *Absorbance* |
+| Probe wavelength (auto) | argmax / argmin of the signed ΔA, ≥ 410 nm, ≥ 10× noise | `analysis.probe_wavelength` | *Choosing the wavelength* |
+| τ, τ₁, τ₂, β | bounded least squares (exp, biexp, stretched); t = 0 at the trigger | `analysis.fit_transient` | *The models* |
+| ⟨τ⟩ and its 95% CI | integral mean of the fitted decay; delta method, full covariance, Student t | `analysis.fit_transient` | *Mean relaxation time*, *Uncertainty* |
+| Residual split | successive-difference noise against model miss | `analysis.fit_transient` | *The interval is a within-model number* |
+| τ across a band | the same fit at every pixel | `analysis.fit_band` | §6 Band Fits |
+| Step charge Q | trapezoid ∫I dt; leak = tail mean; corrected = Q − ¾·leak·T | `charge.analyse_step` | §5 The Charge tab |
+| Integration check | the same integral from every other sample | `charge.integrate_every_other` | §5 Uncertainties |
+| Q_head | an exponential through the first 3 samples, run back to switch-on | `charge.head_charge_max` | §5 Uncertainties |
+| Carrier / charge density | \|Q\| / (e·A·d), \|Q\| / (A·d) | `charge.carrier_density`, `charge.charge_density` | §5 The Charge tab |
+| Bleach | (A₀ − A)/A₀; its ± from block averages | `charge.bleach_fraction`, `charge.block_sem` | §5 The Charge tab |
+| Q out / Q in | \|Q_dedope\| / \|Q_dope\| | `charge.reversibility` | §5 The Charge tab |
+| PITT dQ, dQ_ramp, dQ_u | ∫I dt − I_ss·T; the ramp bound; three parts in quadrature | `pitt_analysis.analyse_pitt_step` | *PITT — charge per step* |
+| PITT C, C/V, g(E), R_dc | dQ/dE at E_mid; C/(e·V) at −E_mid; dE/ΔI_ss | `pitt_analysis.analyse_pitt_step` | *PITT — charge per step* |
+| PITT Q(E), hysteresis | running sum of dQ per leg; gap, closure, centre shift | `pitt_analysis.running_charge`, `pitt_analysis.staircase_hysteresis` | *PITT — charge per step* |
+| GITT q, E_relaxed, R_off, C, C_leak | per pulse, on the step's own clock | `gitt_analysis.analyse_gitt_step` | *GITT — per pulse* |
+| GITT D | Weppner–Huggins, 4L²/(πτ)·(dE_s/dE_t)², valid for τ ≪ L²/D | `gitt_analysis.analyse_gitt_step` | *GITT — per pulse* |
+| Bands per step | largest fall and rise of the most-changed step's ΔA | `staircase_views.band_wavelengths` | *Every-step views* |
+| C′(ω), C at low f, Cdl | Im[1/(Z − R_s)]/ω; a plateau test; the flattest high-f stretch | `impedance.capacitance_spectrum`, `impedance.low_frequency_capacitance`, `impedance.high_frequency_capacitance` | *Impedance — C′ and the Randles fit* |
+| Randles R_s, R_ct, C_dl | least squares on the relative complex residual | `impedance.fit_impedance` | *Impedance — C′ and the Randles fit* |
+| CV DOS g(E) | i/(v·e·V), v measured from the data | `analysis.density_of_states` | *Density of states* |
+| DOS σ and centre | Gaussian + constant; also with the kT smearing fitted out | `analysis.fit_gaussian_dos` | *How it is plotted, and why* |
+| Tail energy E₀ | a straight line in log g against E, with its R² | `analysis.fit_exponential_tail` | *The equilibrium check* |
+| Sweep separation | the two directions' peak positions, flagged past 150 mV | `analysis.dos_equilibrium_check` | *The equilibrium check* |
+
+The film volume is V = area × thickness throughout, from the run's film record (§5).
 
 ## Absorbance
 
@@ -594,6 +733,206 @@ If the filters empty the plot, it says which filter did it rather than sending y
 A ladder with rungs removed is a different figure from one without, and the footnote is
 what lets a reader tell. If a rung below threshold fits badly, that is itself a result
 about where the film starts switching — worth noting before you hide it.
+
+## PITT — charge per step
+
+Code: `spec_echem/pitt_analysis.py`, `analyse_pitt_step`. Step k goes from the
+potential of step k−1 to its own setpoint. Time is the step's own clock.
+
+**Which samples count.** The hold is the samples before the first gap longer than 5
+sample periods. On a step swept for impedance the sweep is that gap, and the samples
+after it are left out of the charge (the table counts them).
+
+**The tail** is the last min(5 s, 0.2 × hold) of the step. Over it:
+
+```
+E      = mean(E_measured)              never the setpoint
+E_u    = block standard error of E     (charge.block_sem, 5 blocks)
+I_ss   = mean(I)                       the steady (leak) current
+```
+
+**The charge**, with T the hold's duration and I_ss,prev the previous step's:
+
+```
+Q_raw    = ∫ I dt                              trapezoid
+dQ       = Q_raw − I_ss · T                    leak constant all step
+dQ_ramp  = Q_raw − ½ (I_ss,prev + I_ss) · T    leak rising from the previous step's
+u_background  = |dQ − dQ_ramp| / 2
+u_integration = |Q_raw − Q_every-other-sample|
+u_noise  = 2σ · √(Σ wᵢ²)
+dQ_u     = √(u_background² + u_integration² + u_noise²)
+```
+
+σ is the scatter of the tail current about a straight line, and wᵢ is each sample's
+weight in dQ: its trapezoid weight, less T/n_tail for a tail sample, because the leak
+subtracted is the mean of those same samples.
+
+**The head.** Q_head = `charge.head_charge_max(t, I − I_ss, t₀)`: an exponential
+through the first 3 samples, integrated back over the t₀ before the first sample. It
+is an upper bound (the real current is capped by the cell resistance) and a bias of
+one sign, so it is a column of its own and never part of dQ_u. 0 if the first sample
+is at t = 0.
+
+**Per potential**, with ΔE = E_k − E_(k−1):
+
+```
+E_mid  = ½ (E_k + E_(k−1))
+C      = dQ / ΔE                   C_u/C = √((dQ_u/dQ)² + (ΔE_u/ΔE)²)
+C_head = (dQ + Q_head) / ΔE
+C/V    = C / V                     F cm⁻³
+g(E)   = C / (e · V)               at the energy −E_mid, eV⁻¹ cm⁻³
+R_dc   = ΔE / (I_ss − I_ss,prev)
+```
+
+The first step and the end dedope have no C: the potential before the first step is
+not measured, and the dedope is a reset, not a step of the staircase.
+
+**Concerns**, with the thresholds that raise them:
+
+| Concern | When |
+|---|---|
+| reached the maximum hold | the step ended on its maximum: not at equilibrium |
+| cut short | ended by Stop, Abort or an error: dQ is a lower bound |
+| cutoff never judged | the cutoff was below one count of the Autolab's current range |
+| never settled | the potential never reached the setpoint |
+| E off the setpoint | \|E − setpoint\| > 2 mV |
+| current still changing | the tail slope carried over the step, \|slope\|·T²/2, > 5% of dQ, **and** the slope > 2× its own standard error |
+| background large | u_background > 20% of \|dQ\| |
+| head large | \|Q_head\| > 10% of \|dQ\| |
+| wrong sign | dQ and ΔE have opposite signs |
+
+**Along the staircase** (`running_charge`, `staircase_hysteresis`): Q(E) is the
+running sum of dQ from 0 at the first step; the return leg carries on from the
+forward total. The *gap* is the largest \|Q_forward − Q_return\| at the same
+setpoint, over the forward total. The *closure* is the charge at the end of the
+return leg over the forward total (0 = all of it came back). The *centre shift* is
+the return leg's Gaussian centre less the forward leg's, from `fit_gaussian_dos` on C
+against −E_mid, with at least 5 steps per leg.
+
+**Not done yet**, waiting on a real film: a fit of each step's current to a
+diffusion model (a better head, the diffusion time, D), the impedance film models,
+and the cross-check of PITT, impedance and CV.
+
+## GITT — per pulse
+
+Code: `spec_echem/gitt_analysis.py`, `analyse_gitt_step`. Each step is a pulse at the
+set current I followed by its relaxation at 0 A. Time is the step's own clock, which
+starts with the pulse; it is not re-zeroed to the first sample (about 50 ms in).
+
+**Which samples are the pulse:** those with \|I\| > ½\|I_set\|. Everything after the
+last of them is the relaxation.
+
+```
+q          = ∫ I dt over the whole step         trapezoid; q_total = running sum
+q_set      = I_set × applied pulse length
+τ          = time from the first pulse sample to the last
+```
+
+**The relaxation's end.** The tail is the last min(5 s, 0.2 × the relaxation):
+
+```
+E_relaxed  = mean(E) over the tail
+drift      = slope of a straight line through E over the last 10 s,
+             starting no earlier than 1 s after switch-off (the IR step is not drift)
+```
+
+**The IR step at switch-off.** The last pulse sample comes up to one sample interval
+before the current actually stops, and the film keeps charging in that time. So E at
+the end of the pulse is carried forward along the pulse's own slope (a line through
+the last 1 s of the pulse) to the applied pulse length:
+
+```
+E_end  = E_last pulse sample + slope_pulse × (τ_applied − t_last pulse sample)
+R_off  = (E_end − E_first relaxation sample) / I_set
+```
+
+Without that carry R reads low: by a third on a 3 mF film sampled every 100 ms.
+
+**Per step**, with E_start the previous step's E_relaxed:
+
+```
+dE_s     = E_relaxed − E_start           the equilibrium change
+dE_t     = E_last pulse − E_first pulse  the change under current, IR step excluded
+C        = q / dE_s
+i_leak   = −C × drift                    the current that would explain the drift
+q_leak   = i_leak × T                    T the step's duration
+C_leak   = (q − q_leak) / dE_s           beside C, never folded into it
+dE/d√t   = slope of E against √t over the pulse, with its R²
+```
+
+q_leak assumes the leak held at its end-of-step rate for the whole step; that is why
+C_leak is a second column and not a correction.
+
+**Weppner–Huggins D**, for a film of thickness L (in cm):
+
+```
+D        = (4 L² / (π τ)) · (dE_s / dE_t)²
+τ_limit  = L² / D
+```
+
+The formula assumes semi-infinite diffusion: the pulse must end before the diffusion
+front reaches the back of the film. That is τ ≪ L²/D, taken here as τ ≤ 0.1 L²/D.
+Past it D is reported and flagged invalid, and the fix is a shorter pulse. Both D and
+the limit scale as L², so a wrong thickness moves D but not the verdict.
+
+**Concerns:**
+
+| Concern | When |
+|---|---|
+| left the window | the step ended on the E limit: the run stopped there |
+| ended otherwise | the step ended some way other than fixed or relaxed |
+| charge off | \|q − q_set\| > 5% of \|q_set\| |
+| not relaxed | \|drift\| × 10 s > 10% of \|dE_s\|: E_relaxed is a bound |
+| not √t | R² of E against √t < 0.99 |
+| D invalid | τ > 0.1 × L²/D |
+
+## Every-step views
+
+Code: `spec_echem/staircase_views.py` (the numbers) and `gui/tabs/staircase_draw.py`
+(the plots), shared by the PITT and GITT tabs.
+
+- **Timeline** uses each step's `time_potentiostat`, the run's continuous clock; the
+  overlays use the step's own clock.
+- **Spectra at each step's end**: the last spectrum of each step less the reference,
+  the first spectrum of the first step (the film before the titration moved it).
+- **Bands**: the step whose end spectrum differs most from the reference (the largest
+  \|ΔA\| at any wavelength) picks the two wavelengths, since the last step may be a
+  dedope back to the start. Its ΔA is smoothed over 9 points, the outer 5% of the
+  detector at each end is left out, and the wavelengths of the most negative and
+  most positive ΔA are the *largest fall* and *largest rise*. ΔA at those two
+  wavelengths is then read for every step.
+
+## Impedance — C′ and the Randles fit
+
+Code: `spec_echem/impedance.py`. A sweep at one DC potential gives Z at each frequency
+f, ω = 2πf. Use the measured frequency (`zfreq`), not the one asked for, and only rows
+marked `ok`.
+
+```
+R_s     = Re Z at the highest frequency
+C′(ω)   = Im[1 / (Z − R_s)] / ω          the capacitance behind R_s
+C_s(ω)  = −1 / (ω Z″)                    for reference only
+```
+
+Why C′ and not C_s: with any DC path behind R_s (a charge-transfer resistance, a
+leak), C_s climbs without limit at low frequency, to 3150 µF at 1 Hz on a 1 µF dummy.
+For R ∥ C, C′ equals C at every frequency, and for any RC network it falls with
+frequency towards the total capacitance.
+
+- **C at low frequency** is C′ at the lowest frequency. The plateau is reached when
+  \|d ln C′ / d ln f\| ≤ 0.1 over the lowest 3 points (C′ then within about 5% of its
+  limit). Not reached: it is a **lower bound** and says so.
+- **Its ±** comes from the instrument's accuracy found on the Randles dummy (\|Z\| to
+  0.5%, phase to 0.1°), propagated linearly through C′. It is large where the phase of
+  Z − R_s is small; below 5° there is a concern.
+- **R_s is an upper bound** when the phase at the highest frequency is beyond 10°:
+  the high-frequency limit was not reached.
+- **Cdl** (model-free) is the geometric mean of C′ over the flattest 3-point stretch
+  on the high-frequency side.
+- **The Randles fit**, Z = R_s + R_ct ∥ C_dl, is least squares on the relative
+  complex residual (Z_fit − Z)/\|Z\|, real and imaginary parts, in log parameters. A parameter
+  with a relative SD above 50% is "not determined by this sweep", and an rms misfit
+  \|ΔZ\|/\|Z\| above 2% "misses the data".
 
 ## Density of states — under development
 
@@ -803,6 +1142,8 @@ and then whatever changes the numbers:
 - **The ladder:** one line per fitted segment, giving its wavelength, model and window.
 - **Band fits:** the model, the wavelength range and the time window.
 - **The Charge tab:** the film size, A₀, and the equilibrium-check settings.
+- **The PITT and GITT tabs:** the run, the film size (or thickness) used, and how
+  the numbers were made.
 
 These lines describe the fit as it was made, not the controls as they are now. Read
 the files with `pandas.read_csv(path, comment="#")`.

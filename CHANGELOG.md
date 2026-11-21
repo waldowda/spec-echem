@@ -27,6 +27,16 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   changed most (found from the data) against potential or charge. Steps are coloured
   dark to light in run order; the legend names at most five.
 
+### Docs — The manual covers every analysis method (2026-11-21)
+
+- Part 2 opens with a table of every number the program reports: its method, the
+  `spec_echem` function that computes it, and the section that explains it.
+- New: the GITT tab, the Band Fits tab, the PITT tab's every-step views, and Part 2
+  sections giving the PITT, GITT, every-step and impedance formulas with every
+  threshold behind a concern.
+- Corrected: the film size's source (the run's film record, editable from Charge or
+  Results), and that a loaded settings file keeps this rig's bench keys.
+
 ### Fixed — The Results DOS now uses the film size edited on the Charge tab (2026-11-20)
 
 - The DOS read only the run's recorded size, then the Parameters tab, so a measured
