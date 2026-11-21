@@ -1716,6 +1716,35 @@ def test_a_range_close_to_clipping_warns(autolab, caplog):
     assert "close to" in caplog.text
 
 
+def test_past_full_scale_says_so_and_names_the_range_that_fits(autolab, caplog):
+    """2026-11-20: dedoping steps reached up to 275% of CR10_1mA and the warning only
+    said "close to clipping ... raise the range"."""
+    p, inst = autolab(settings=_autolab_settings(autolab_current_range="CR10_1mA"))
+    p._ei_mode = True
+    p._segment = _cv_segment()
+    p._last_data = EchemData(time=np.zeros(2), potential=np.zeros(2),
+                             current=np.array([0.0, -2.75e-3]))
+    with caplog.at_level(logging.WARNING):
+        p._advise_current_range("Dedoping 6")
+    assert "past full scale" in caplog.text
+    assert "CR09_10mA would fit" in caplog.text
+    assert "healthier" not in caplog.text
+
+
+def test_a_tight_range_names_a_coarser_one_not_zero_x_finer(autolab, caplog):
+    """2026-11-20: 86% of CR10_1mA printed "CR09_10mA would ... give ~0x finer
+    resolution"."""
+    p, inst = autolab(settings=_autolab_settings(autolab_current_range="CR10_1mA"))
+    p._ei_mode = True
+    p._segment = _cv_segment()
+    p._last_data = EchemData(time=np.zeros(2), potential=np.zeros(2),
+                             current=np.array([0.0, 8.6e-4]))
+    with caplog.at_level(logging.INFO):
+        p._advise_current_range("Doping 4")
+    assert "finer" not in caplog.text
+    assert "little headroom" in caplog.text and "CR09_10mA" in caplog.text
+
+
 def test_procedure_mode_gets_no_range_advice(autolab, caplog):
     """autolab_current_range does not apply to the .nox path — advising there sent
     someone to change a setting that does nothing (fixed 2026-09-11)."""

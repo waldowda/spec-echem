@@ -339,7 +339,14 @@ loop, cell held on throughout), `data.write_pitt_h5` (HDF5 only, a group per ste
   the setpoint; background = the step's own tail current (constant), far bound = a
   ramp from the previous step's; Q_head is its own column, never in dQ_u; an
   impedance concern goes in `Z_concerns`, never on the step's dQ. Not built: the
-  transmission-line step fit (D), impedance film models, the cross-check, GITT.
+  transmission-line step fit (D), impedance film models, the cross-check.
+- **GITT analysis (2026-11-20):** `spec_echem/gitt_analysis.py`, module only (no GUI
+  yet). Per pulse: q (measured, whole step) vs q_set, E_relaxed (tail) + drift, R_off
+  (last pulse sample carried along the pulse slope to `pulse_s_applied`, else R reads
+  low), C = q/dE_s, leak = -C dE/dt beside C (C_leak, never folded in), dE/dsqrt(t)
+  + R2, Weppner-Huggins D with a tau << L^2/D check. Time is the step's own clock
+  (pulse starts at 0), not re-zeroed. First real film (20261120, 150 nm, 10 s
+  pulses): every D flagged invalid (tau ~ L^2/D); shorter pulses needed.
 
 ### GITT (data type 6) — built 2026-10-29, fakes only so far
 
@@ -507,7 +514,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 1226 tests total (1225 pass, 1 skip; counted 2026-11-20);
+- **`gui/` coverage — no longer the gap it was.** 1238 tests total (1237 pass, 1 skip; counted 2026-11-20);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage

@@ -2388,17 +2388,29 @@ class AutolabPotentiostat(Potentiostat):
 
         used = peak / full
         better = suggest_current_range(peak)
+        better_full = range_full_scale_a(better) if better else None
         if used > 0.9:
+            # 2026-11-20: dedoping steps reached 116-275% of CR10_1mA. Say so plainly
+            # and name the range that fits, not just "raise it".
             get_run_logger().warning(
-                "%s: peak current %.3g A is %.0f%% of the %s full scale — close to "
-                "clipping. A healthier film draws more, so raise the range.",
-                label, peak, used * 100, member)
-        elif better and better != member:
+                "%s: peak current %.3g A is %.0f%% of the %s full scale — %s. %s",
+                label, peak, used * 100, member,
+                "past full scale, so the first samples may be clipped" if used > 1
+                else "close to clipping",
+                "%s would fit with headroom." % better if better
+                else "Use a coarser range.")
+        elif better and better_full is not None and better_full < full:
             get_run_logger().info(
                 "%s: peak current %.3g A used %.1f%% of the %s full scale. %s would "
                 "fit with headroom and give ~%.0fx finer resolution.",
-                label, peak, used * 100, member, better,
-                full / range_full_scale_a(better))
+                label, peak, used * 100, member, better, full / better_full)
+        elif better and better_full is not None and better_full > full:
+            # Before 2026-11-20 this case fell into the line above and printed
+            # "~0x finer resolution" (86% of CR10_1mA).
+            get_run_logger().info(
+                "%s: peak current %.3g A used %.1f%% of the %s full scale, which "
+                "leaves little headroom; %s would give more.",
+                label, peak, used * 100, member, better)
 
     def _warn_if_current_never_rose(self, label):
         """bench_autolab_fault.py (2026-09-03): an open cell / loose lead is
@@ -3380,9 +3392,12 @@ class ToolkitPotentiostat(Potentiostat):
             # let 600 mA go unnoticed for months in the first place.
             if used > 0.9:
                 get_run_logger().warning(
-                    "%s: peak current %.3g A is %.0f%% of the %.3g A range — close to "
-                    "clipping. A healthier film draws more, so raise the range.",
-                    label, peak, used * 100, full)
+                    "%s: peak current %.3g A is %.0f%% of the %.3g A range — %s. %s",
+                    label, peak, used * 100, full,
+                    "past full scale, so the first samples may be clipped" if used > 1
+                    else "close to clipping",
+                    "A %.3g A setting would fit with headroom." % better
+                    if better and better > full else "Use a coarser range.")
             elif better and better < full:
                 get_run_logger().info(
                     "%s: peak current %.3g A used %.2f%% of the %.3g A range. A "

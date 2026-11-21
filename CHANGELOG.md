@@ -11,6 +11,21 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Added — GITT analysis (2026-11-20)
+
+- `spec_echem/gitt_analysis.py` reads a `_gitt.h5` and gives, per pulse: the measured
+  and set charge, the relaxed potential and its drift, R from the switch-off IR step,
+  C = q/dE_s, the leak (-C dE/dt) and a leak-corrected C beside it, dE/dsqrt(t) and
+  its linearity, and the Weppner-Huggins D with a check that the pulse is short
+  against L^2/D. Concerns are flagged per step, never hidden. No GUI yet.
+
+### Fixed — Current-range advice in the run log (2026-11-20)
+
+- A peak at 80-90% of the Autolab range printed "~0x finer resolution"; it now says
+  the range leaves little headroom and names the coarser one.
+- Past full scale, the warning says so ("the first samples may be clipped") and names
+  the range that fits, instead of "A healthier film draws more, so raise the range".
+
 ### Changed — A loaded settings file no longer overrides this rig's settings (2026-11-20)
 
 - Parameters → Load keeps every rig key from `config/bench.ini`: the `[bench]` keys
