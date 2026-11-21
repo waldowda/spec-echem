@@ -136,6 +136,13 @@ The CHANGELOG says what shipped; git log says when.
 
 ## Code, no rig needed
 
+- [ ] **Look for O₂ reduction in the −0.5 V dedoping holds (2026-11-20).** When the
+      bench test runs are analysed, check the end of each dedoping hold. A film's
+      dedoping current decays toward zero, while O₂ reduction leaves a steady cathodic
+      plateau. Check both the ACN runs (Autolab) and the aqueous NaCl runs (Gamry), and
+      compare the plateau with the Charge tab's leak term. If it's there, the dedoping
+      charge is inflated and the cell needs purging. The spectra are not affected.
+
 - [ ] **Cut v0.4.0** — 243 commits since v0.3.1. The review of the hardware paths
       (potentiostat runners, `acquire_pitt`, worker) ran 2026-11-14; fix its findings
       below, then merge to `main`.
