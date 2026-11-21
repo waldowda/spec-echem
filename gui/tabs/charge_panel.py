@@ -28,6 +28,10 @@ from gui.widgets.plot_canvas import MplCanvas
 from gui.widgets.figure_dialog import EXPORT_LABEL, EXPORT_TIP, open_figure_dialog
 from spec_echem import film as film_store
 
+# One film size per run, shared by every view; said wherever it is edited.
+FILM_USES = ("Sets every per-volume number for this run: carrier and charge "
+             "density, the DOS, and GITT's D.")
+
 VIEWS = (
     ("Charge vs potential", "charge"),
     ("Carrier density vs potential", "density"),
@@ -209,6 +213,9 @@ class ChargePanel(QWidget):
         film_row.addWidget(self.film_copy_btn)
         film_row.addStretch()
         layout.addLayout(film_row)
+        self.film_uses = QLabel(FILM_USES, self)
+        self.film_uses.setStyleSheet("color: #555;")
+        layout.addWidget(self.film_uses)
 
         split = QSplitter(Qt.Vertical, self)
         plot_box = QWidget(self)
@@ -826,6 +833,10 @@ class FilmDialog(QDialog):
         form.addRow("Status:", self.status)
         form.addRow("Note:", self.note)
         layout.addLayout(form)
+        uses = QLabel(FILM_USES, self)
+        uses.setWordWrap(True)
+        uses.setStyleSheet("color: #555;")
+        layout.addWidget(uses)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)

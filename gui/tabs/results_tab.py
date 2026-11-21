@@ -188,9 +188,16 @@ class ResultsTab(QWidget):
             "reading the DOS against a band or energy-level diagram.\n"
             "Unchecked gives energy horizontal, as the electrochemical DOS papers\n"
             "plot it. Same data either way; it is a transpose.")
+        # The same per-run film record the Charge tab edits -- one value, one history.
+        from gui.tabs.charge_panel import FILM_USES
+        self.dos_film_btn = QPushButton("Edit film…")
+        self.dos_film_btn.setToolTip(
+            "Thickness and area of the loaded run's film (the Charge tab's Edit…).\n"
+            + FILM_USES)
+        self.dos_film_btn.clicked.connect(self.on_edit_film)
         for widget, label in ((QLabel("  DOS range:"), None), (self.dos_vmin, None),
                               (QLabel("to"), None), (self.dos_vmax, None),
-                              (self.dos_energy_y, None)):
+                              (self.dos_energy_y, None), (self.dos_film_btn, None)):
             view_row.addWidget(widget)
             self.dos_widgets.append(widget)
         for w in (self.dos_vmin, self.dos_vmax):
@@ -587,6 +594,18 @@ class ResultsTab(QWidget):
         where = ("the run's metadata" if settings.get("film_area_cm2")
                  else "the Parameters tab (this run did not record them)")
         return float(thickness), float(area), where
+
+    def on_edit_film(self):
+        """The Charge tab's film dialog, so an edit here and there is one record;
+        saving redraws this DOS (ChargePanel._add_film)."""
+        panel = getattr(getattr(self.win, "analysis_tab", None), "charge_panel", None)
+        if panel is None or getattr(self.win, "run_folder", None) is None:
+            QMessageBox.information(
+                self, "No run loaded",
+                "Load a run first: the film size is saved beside the run's data.\n"
+                "For the next run, set it on the Parameters tab.")
+            return
+        panel.on_edit_film()
 
     def _plot_dos(self, label, absorb_df=None):
         """Density of states from the CV — g(E) = i / (v·e·V_film).

@@ -520,13 +520,15 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 1246 tests total (1245 pass, 1 skip; counted 2026-11-20);
+- **`gui/` coverage — no longer the gap it was.** 1247 tests total (1246 pass, 1 skip; counted 2026-11-21);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage
   was built still stands: every bug in the 0.2.0 cycle lived in GUI wiring and the core suite
   passed through all of them. Qt-dependent tests must `pytest.importorskip("qtpy")` — the suite
   has to keep running in environments with no Qt.
+  A `window` fixture must `deleteLater()` its MainWindow, not just close it: closed
+  windows piled up and the app-wide style-switch test segfaulted (2026-11-21).
 - **The live-CV wedge fix is confirmed on the rig (2026-09-25).** Read
   [`docs/bench-2026-09-25.md`](docs/bench-2026-09-25.md) first. **Between segments the
   worker waits for the GUI to finish drawing** (Python-driven modes only, cell off).

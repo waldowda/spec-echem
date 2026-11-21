@@ -33,6 +33,9 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   size entered with Charge → Edit… never reached it. It now reads the same per-run
   film file as the Analysis tabs, says under the plot which size it used and where
   from, and redraws when the size is edited.
+- **Edit film…** beside the Results DOS opens the same dialog and writes the same
+  record as Charge → Edit… (2026-11-21). Both places, and the dialog, now say the size
+  sets every per-volume number: carrier and charge density, the DOS, and GITT's D.
 
 ### Fixed — Current-range advice in the run log (2026-11-20)
 

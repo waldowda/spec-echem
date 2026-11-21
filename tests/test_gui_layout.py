@@ -40,6 +40,11 @@ def window(app):
     win.show()          # size hints aren't computed for a window that never laid out
     yield win
     win.close()
+    # Delete it, not just close it: closed windows piled up across the module, and
+    # the app-wide style switch below re-polished every one -- a segfault once a
+    # second film-edit test was added (2026-11-21).
+    win.deleteLater()
+    QApplication.processEvents()
 
 
 def _connection_group_width(tab):
@@ -1771,6 +1776,35 @@ def test_a_film_size_edited_on_the_charge_tab_reaches_the_results_dos(window, tm
     assert after == pytest.approx(before / 2.0, rel=1e-6)       # half the density
     texts = " ".join(t.get_text() for t in r.canvas.fig.texts)
     assert "300 nm" in texts and "measured" in texts
+
+
+def test_the_results_dos_edits_the_same_film_record_as_the_charge_tab(
+        window, tmp_path, monkeypatch):
+    """Requested 2026-11-21: edit the film where the DOS is read, with a note that it
+    changes every per-volume number. One dialog, one file, one history."""
+    import numpy as np
+    import gui.tabs.charge_panel as cp
+    r = _cv_window(window, tmp_path, film_thickness_nm=150.0, film_area_cm2=1.6)
+    r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
+    r.on_segment_changed()
+    assert "per-volume" in r.dos_film_btn.toolTip()
+    before = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
+
+    def fake_exec(dialog):              # the real dialog, as test_charge_panel does
+        assert "per-volume" in " ".join(
+            w.text() for w in dialog.findChildren(cp.QLabel))
+        dialog.thickness.setValue(300.0)
+        dialog.area.setValue(1.6)
+        dialog.status.setCurrentIndex(dialog.status.findData("measured"))
+        return True
+
+    monkeypatch.setattr(cp.FilmDialog, "exec_", fake_exec)
+    r.dos_film_btn.click()
+    after = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
+    assert after == pytest.approx(before / 2.0, rel=1e-6)
+    panel = window.analysis_tab.charge_panel
+    assert panel._film()[0] == 300.0                       # the Charge tab sees it too
+    assert "per-volume" in panel.film_uses.text()
 
 
 # --- The linearity plot must follow the data, not the ADC ceiling ----------------
