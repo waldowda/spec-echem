@@ -18,10 +18,10 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   C = q/dE_s, the leak (-C dE/dt) and a leak-corrected C beside it, dE/dsqrt(t) and
   its linearity, and the Weppner-Huggins D with a check that the pulse is short
   against L^2/D. Concerns are flagged per step, never hidden.
-- Analysis → **GITT** tab (beside Titration): relaxed E vs charge (with E at each
+- Analysis → **GITT** tab (beside PITT): relaxed E vs charge (with E at each
   pulse's end), C per pulse with the leak-corrected estimate beside it, one step's
   potential, the table and its CSV. The film thickness for D is the Charge tab's.
-- **Every step on one plot**, on both the Titration (PITT) and GITT tabs: the run as
+- **Every step on one plot**, on both the PITT and GITT tabs: the run as
   one timeline (current or potential on the run's clock), every step overlaid from
   its own start, the absorbance change at each step's end, and the two bands that
   changed most (found from the data) against potential or charge. Steps are coloured
@@ -68,7 +68,7 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   how to rebuild a lost one from a run's metadata. The "autolab_sdk is not set" error
   points to it.
 
-### Added — PITT analysis and the Titration tab (2026-11-17)
+### Added — PITT analysis and its tab (2026-11-17)
 
 - **`spec_echem/pitt_analysis.py`** reads a `{folder}_pitt.h5` (never writes it). Per
   step: dQ with the step's own tail current as the background and a ramp from the
@@ -80,11 +80,11 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   Every number is kept; concerns name the reason (maximum hold, cut short, current
   still changing beyond its noise, large head or background, wrong sign, E off the
   setpoint). An impedance sweep's concerns are kept apart from the step's charge.
-- **Analysis → Titration tab**, beside Kinetics and Charge: dQ/dE (or g(E)) vs
+- **Analysis → PITT tab** (named Titration until 2026-11-21), beside Kinetics and Charge: dQ/dE (or g(E)) vs
   potential, Q(E), one step's current on a log axis, a swept step's Nyquist or
   C′(ω); the per-step table with `?` on flagged values; Save table (CSV) with the
   run, film and method as `#` lines. The film size is the Charge tab's.
-- Manual: the Titration tab, and the PITT, GITT and impedance-box settings.
+- Manual: the PITT tab, and the PITT, GITT and impedance-box settings.
 - Not yet: the step-current (transmission-line) fit for diffusion time and D, the
   impedance film models, the PITT/impedance/CV cross-check, GITT analysis.
 

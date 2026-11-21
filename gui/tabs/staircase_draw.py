@@ -1,4 +1,4 @@
-"""Every-step views shared by the Titration (PITT) and GITT tabs (2026-11-20).
+"""Every-step views shared by the PITT and GITT tabs (2026-11-20).
 
 One step at a time hides how the steps differ; these draw them all on one plot,
 coloured in run order (early dark, late light), with staircase_views supplying

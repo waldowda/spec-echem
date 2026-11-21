@@ -61,7 +61,7 @@ The CHANGELOG says what shipped; git log says when.
       Then a film. **Analysis:** a design exists (kept outside the repo, 2026-11-14).
       Built: `spec_echem/impedance.py` (C'(w), plateau test, model-free Rs and Cdl,
       Randles fit; NOT -1/(w Z''), which diverges with any DC path) and, 2026-11-17,
-      `spec_echem/pitt_analysis.py` + the Titration tab (dQ/dE with the head, g(E),
+      `spec_echem/pitt_analysis.py` + the PITT tab (dQ/dE with the head, g(E),
       Q(E), hysteresis, the sweeps). Not built, waiting on a real film: the
       transmission-line step fit (a better head, tau_d, D), the impedance film models
       (Cmu, R_ion), the PITT / EIS / CV cross-check. GITT analysis and its tab built

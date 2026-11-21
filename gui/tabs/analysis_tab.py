@@ -480,7 +480,7 @@ class AnalysisTab(QWidget):
         self.lower_tabs.addTab(self.charge_panel, "Charge")
         # A PITT staircase's charge per step, dQ/dE and impedance (2026-11-17).
         self.titration_panel = TitrationPanel(self)
-        self.lower_tabs.addTab(self.titration_panel, "Titration")
+        self.lower_tabs.addTab(self.titration_panel, "PITT")
         # A GITT run pulse by pulse (2026-11-20).
         self.gitt_panel = GittPanel(self)
         self.lower_tabs.addTab(self.gitt_panel, "GITT")

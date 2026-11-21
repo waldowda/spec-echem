@@ -335,7 +335,7 @@ loop, cell held on throughout), `data.write_pitt_h5` (HDF5 only, a group per ste
   every step is a fixed hold of `pitt_max_hold_s` ending `fixed` (no 'did not settle'
   warning). Test helpers that exercise the cutoff must set it True.
 - **PITT analysis (2026-11-17):** `spec_echem/pitt_analysis.py` + the Analysis tab's
-  Titration tab (`gui/tabs/titration_panel.py`). E is the MEASURED tail mean, never
+  PITT tab (`gui/tabs/titration_panel.py`; named Titration until 2026-11-21). E is the MEASURED tail mean, never
   the setpoint; background = the step's own tail current (constant), far bound = a
   ramp from the previous step's; Q_head is its own column, never in dQ_u; an
   impedance concern goes in `Z_concerns`, never on the step's dQ. Not built: the
@@ -348,7 +348,7 @@ loop, cell held on throughout), `data.write_pitt_h5` (HDF5 only, a group per ste
   (pulse starts at 0), not re-zeroed. First real film (20261120, 150 nm, 10 s
   pulses): every D flagged invalid (tau ~ L^2/D); shorter pulses needed.
 - **Every-step views (2026-11-20):** `spec_echem/staircase_views.py` (data, no Qt) +
-  `gui/tabs/staircase_draw.py`, used by both Titration and GITT. Timeline uses
+  `gui/tabs/staircase_draw.py`, used by both the PITT and GITT tabs. Timeline uses
   echem `time_potentiostat` (the run's clock). The PITT overlay plots |I|, NOT
   |I - I_ss| (that crosses zero in the tail and wrecks the log axis). Tests that click
   every Analysis Export button must skip the charge/titration/gitt panels' buttons,

@@ -1,12 +1,12 @@
 """The GITT tab under the Analysis fit plot: a GITT run, pulse by pulse.
 
-Beside Titration (the PITT), this reads the run's `{folder}_gitt.h5` through
+Beside the PITT tab, this reads the run's `{folder}_gitt.h5` through
 spec_echem.gitt_analysis and draws the relaxed potential against charge, C per
 pulse, every step on one plot, one step's potential, and the spectra at each step's
 end. The table under the plot has every number for every step, with the reasons
 beside any it objects to; nothing is hidden.
 
-The film thickness for D is the Charge tab's (its Edit... box), as Titration's is.
+The film thickness for D is the Charge tab's (its Edit... box), as the PITT tab's is.
 """
 import pathlib
 

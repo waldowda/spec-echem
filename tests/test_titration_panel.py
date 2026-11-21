@@ -1,4 +1,4 @@
-"""The Titration tab under the Analysis fit plot: a PITT staircase's dQ/dE, Q(E),
+"""The PITT tab under the Analysis fit plot: a PITT staircase's dQ/dE, Q(E),
 step current and impedance, drawn from the run's _pitt.h5 (spec_echem.pitt_analysis)."""
 import os
 
@@ -64,7 +64,7 @@ def _panel(w):
 def test_it_sits_beside_kinetics_and_charge(win):
     tabs = win.analysis_tab.lower_tabs
     assert [tabs.tabText(i) for i in range(tabs.count())] == [
-        "Kinetics", "Charge", "Titration", "GITT"]
+        "Kinetics", "Charge", "PITT", "GITT"]
 
 
 def test_the_table_has_a_row_per_step_and_the_rc_capacitance(win):

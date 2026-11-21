@@ -120,7 +120,7 @@ run can take. Read it before Start. Anything that would stop the run is shown in
 right there, so a bad setting is caught before the cell is switched on.
 
 **Analysis:** a PITT's charge per step, dQ/dE, g(E) and its impedance sweeps are on
-the Analysis tab's **Titration** tab (§5). Not built yet: the GITT's analysis, the fit
+the Analysis tab's **PITT** tab, and a GITT's on its **GITT** tab (§5). Not built yet: the fit
 of each step's current (diffusion time and D), the impedance film models, and the
 comparison between PITT, impedance and CV. Those wait on a real film. All the data
 are in the `.h5` files.
@@ -362,7 +362,7 @@ convention in XPS/NMR/IR fitting). The residuals are the point: an exponential a
 stretched exponential look nearly identical drawn over the same decay, and structure in
 the residuals is how you tell them apart.
 
-### The Titration tab
+### The PITT tab
 
 For a run with a PITT. It reads `{folder}_pitt.h5` and never changes it. Each step
 of the staircase gives one row of the table; **Save table (CSV)** writes them all,

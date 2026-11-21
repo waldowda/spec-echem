@@ -1,4 +1,4 @@
-"""The Titration tab under the Analysis fit plot: a PITT staircase's charge per step.
+"""The PITT tab (named Titration until 2026-11-21) under the Analysis fit plot: a PITT staircase's charge per step.
 
 Beside Kinetics (how fast each step switched) and Charge (the doping ladder's
 charge), this reads the run's `{folder}_pitt.h5` through spec_echem.pitt_analysis

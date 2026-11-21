@@ -2,7 +2,7 @@
 Whole-run views of a PITT or GITT h5: every step on one plot.
 
 Requested 2026-11-20: one step at a time hides how the steps differ, so these put
-them side by side. Pure data, no Qt; the Titration and GITT tabs draw them.
+them side by side. Pure data, no Qt; the PITT and GITT tabs draw them.
 
   - `step_traces`: each step's echem on its own clock (from its start) and on the
     run's clock (`time_potentiostat`, continuous across steps), so a timeline and
