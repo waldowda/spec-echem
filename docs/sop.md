@@ -362,7 +362,10 @@ normally, so the film is conditioned, but **no files are written for it**: no sp
 and its data would only clutter the folder.
 
 **Save Settings File** / **Load Settings File** store this whole tab as JSON, so you can reload an
-experiment's parameters exactly.
+experiment's parameters exactly. A loaded file never changes this rig's own settings: the data
+folder, potentiostat mode, trigger and the Autolab's connection, chrono mode, pre-record wait and
+current range stay as `config/bench.ini` has them, and a popup lists anything in the file that was
+ignored. Exposure, averages, the wavelength window and the linearity ramp *are* loaded from the file.
 
 ### 3.8 Run Tab — Start
 

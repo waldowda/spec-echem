@@ -27,6 +27,13 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   changed most (found from the data) against potential or charge. Steps are coloured
   dark to light in run order; the legend names at most five.
 
+### Docs — The manual as a PDF; the SOP on Load Settings (2026-11-21)
+
+- `sh docs/build_manual_pdf.sh [out.pdf]` builds the manual into a standalone PDF
+  (pandoc plus headless Chrome; no LaTeX). The contents page names the build it came
+  from. The PDF itself is not tracked.
+- `docs/sop.md` §3.7: a loaded settings file keeps this rig's own settings.
+
 ### Docs — The manual covers every analysis method (2026-11-21)
 
 - Part 2 opens with a table of every number the program reports: its method, the
