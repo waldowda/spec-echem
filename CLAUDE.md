@@ -453,7 +453,10 @@ ULS2048L has 66 counts of signal above its floor at 1100 nm, 17 at the 1123.7 nm
 - **Bench defaults** (`bench.py`, `config/*.ini`) — *this rig*: integration time, scan averages,
   wavelength window, linearity ramp, `data_root`, `potentiostat_mode`. `config/defaults.ini` is
   tracked and lab-wide; `config/bench.ini` is per-machine and gitignored ("Save as defaults").
-  Precedence: code defaults → lab defaults → this machine → an explicitly loaded experiment JSON.
+  Precedence: code defaults → lab defaults → this machine → an explicitly loaded experiment JSON,
+  EXCEPT the rig keys (`bench.RIG_KEYS` = the `[bench]` + `[autolab]` sections, current range
+  included): a loaded JSON never overrides those, and a popup + app log lists any it ignored
+  (since 2026-11-20; an old file had brought back procedure mode with the 5 s wait).
   `data_root` and `potentiostat_mode` are deliberately ABSENT from the tracked file (machine-specific).
 
 ### ⚠️ The software raises concerns; the SCIENTIST decides
@@ -504,7 +507,7 @@ Fitting after a run: `spec_echem/analysis.py` holds the maths (no Qt, no hardwar
   is gone — `set_layout_engine` (3.6+) crashed the GUI at startup there.
 
 ### Known gaps (see TODO.md)
-- **`gui/` coverage — no longer the gap it was.** 1223 tests total (1222 pass, 1 skip; counted 2026-11-20);
+- **`gui/` coverage — no longer the gap it was.** 1226 tests total (1225 pass, 1 skip; counted 2026-11-20);
   `tests/test_gui_layout.py` alone holds 203 and `tests/test_dark_save.py` another 3, both
   headless via `QT_QPA_PLATFORM=offscreen`. This line read "165 total, exactly 4 touch `gui/`"
   until 2026-09-24, which was badly stale — recount before quoting it. The reason the coverage

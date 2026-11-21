@@ -11,6 +11,17 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
 
 ## [Unreleased]
 
+### Changed — A loaded settings file no longer overrides this rig's settings (2026-11-20)
+
+- Parameters → Load keeps every rig key from `config/bench.ini`: the `[bench]` keys
+  (`data_root`, `potentiostat_mode`, `trigger`, `save_dta`) and all `[autolab]` keys,
+  `autolab_current_range` included. A settings file saves every key, so an old one could
+  quietly restore an old rig setup: on 2026-11-20 one put the Autolab back in procedure
+  mode with the stock 5 s wait while bench.ini said Ei and 0. Spectrometer and linearity
+  values still load from the file.
+- When the file disagrees, a popup lists each rig value it did not load (file vs kept),
+  and the app log records the same. Change a rig setting with Instrument → Save as defaults.
+
 ### Changed — Autolab chrono holds default to Ei with no template wait (2026-11-20)
 
 - `autolab_ca_mode` now defaults to `ei` and `autolab_wait_s` to `0`. The old defaults

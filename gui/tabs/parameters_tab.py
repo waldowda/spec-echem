@@ -15,14 +15,15 @@ from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QScrollArea,
     QSizePolicy,
     QPushButton, QLabel, QLineEdit, QPlainTextEdit, QCheckBox,
-    QDoubleSpinBox, QSpinBox, QFileDialog, QComboBox,
+    QDoubleSpinBox, QSpinBox, QFileDialog, QComboBox, QMessageBox,
 )
+from spec_echem.bench import RIG_KEYS
 
 from spec_echem.potentiostat import (AUTOLAB_CURRENT_RANGES, GAMRY_CURRENT_RANGES,
                                      GAMRY_HIGH_CURRENT_RANGE_A,
                                      is_high_current_range)
 from spec_echem.acquisition import spectrum_cost_seconds
-from spec_echem.settings import load_settings, save_settings, DEFAULT_SETTINGS
+from spec_echem.settings import load_experiment_settings, save_settings, DEFAULT_SETTINGS
 from spec_echem.ereis import (ereis_duration_s, ereis_frequencies, ereis_problems,
                               ereis_sweep_s, ereis_sweep_steps)
 from spec_echem.gitt import (gitt_duration_bounds, gitt_plan, gitt_planned_charge_c,
@@ -1052,9 +1053,24 @@ class ParametersTab(QWidget):
         if not path:
             return
         # bench_base(), not the bare default: a file that predates a bench key must
-        # not silently revert this rig's value for it.
-        settings = load_settings(path, base=self.win.bench_base())
+        # not silently revert this rig's value for it. And the rig keys always come
+        # from bench.ini, never from the file: an old file once put the Autolab back
+        # in procedure mode with a 5 s wait.
+        settings, ignored = load_experiment_settings(
+            path, self.win.bench_base(), RIG_KEYS)
         self.win.apply_settings(settings)
+        if ignored:
+            lines = [f"{key}: file {file_value!r}, kept {kept!r}"
+                     for key, file_value, kept in ignored]
+            logger.warning("Loaded %s; kept this rig's bench.ini value for: %s",
+                           path, "; ".join(lines))
+            QMessageBox.information(
+                self, "Rig settings kept",
+                "This file was saved with different rig settings. They were not "
+                "loaded; this rig's bench.ini values are in use:\n\n"
+                + "\n".join(lines)
+                + "\n\nTo change a rig setting, edit it and use Instrument → Save "
+                  "as defaults.")
 
     def on_save(self):
         settings_dir = self._settings_dir()

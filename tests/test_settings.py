@@ -158,3 +158,60 @@ def test_tidying_drops_precision_the_measurement_never_had():
     assert tidy_detector_floor(FLOOR_SLOW) == 1.05
     assert tidy_detector_floor(None) is None
     assert tidy_detector_floor(0) is None
+
+
+# --- A loaded experiment file never overrides the rig ---------------------------
+
+def _rig_base():
+    from spec_echem.bench import apply_bench_defaults
+    base = DEFAULT_SETTINGS.copy()
+    apply_bench_defaults(base, {"autolab_ca_mode": "ei", "autolab_wait_s": 0.0,
+                                "autolab_current_range": "CR10_1mA",
+                                "data_root": "C:/this/rig"})
+    return base
+
+
+def test_an_old_settings_file_cannot_bring_back_procedure_mode(tmp_path):
+    """2026-11-20: an old file put the Autolab back in procedure mode with the stock
+    5 s wait while bench.ini said Ei and 0. The rig keys now come from the base."""
+    import json
+    from spec_echem.bench import RIG_KEYS
+    from spec_echem.settings import load_experiment_settings
+    path = tmp_path / "old.json"
+    path.write_text(json.dumps({
+        "sample_name": "from the file", "cv_scan_rate": 0.02,
+        "autolab_ca_mode": "procedure", "autolab_wait_s": None,
+        "autolab_current_range": "", "data_root": "C:/another/machine",
+        "integration_time_ms": 3.3}), encoding="utf-8")
+
+    loaded, ignored = load_experiment_settings(path, _rig_base(), RIG_KEYS)
+
+    assert loaded["sample_name"] == "from the file"      # the experiment loads
+    assert loaded["cv_scan_rate"] == 0.02
+    assert loaded["integration_time_ms"] == 3.3          # not a rig key
+    assert loaded["autolab_ca_mode"] == "ei"             # the rig is kept
+    assert loaded["autolab_wait_s"] == 0.0
+    assert loaded["autolab_current_range"] == "CR10_1mA"
+    assert loaded["data_root"] == "C:/this/rig"
+    assert sorted(k for k, _, _ in ignored) == [
+        "autolab_ca_mode", "autolab_current_range", "autolab_wait_s", "data_root"]
+    assert ("autolab_wait_s", None, 0.0) in ignored
+
+
+def test_rig_values_that_already_agree_are_not_reported(tmp_path):
+    import json
+    from spec_echem.bench import RIG_KEYS
+    from spec_echem.settings import load_experiment_settings
+    path = tmp_path / "same.json"
+    path.write_text(json.dumps({"autolab_ca_mode": "ei", "autolab_wait_s": 0.0}),
+                    encoding="utf-8")
+    _, ignored = load_experiment_settings(path, _rig_base(), RIG_KEYS)
+    assert ignored == []
+
+
+def test_the_rig_keys_are_the_bench_and_autolab_sections_only():
+    from spec_echem.bench import BENCH_SCHEMA, RIG_KEYS
+    assert "autolab_current_range" in RIG_KEYS
+    assert "autolab_ca_mode" in RIG_KEYS and "data_root" in RIG_KEYS
+    for key in list(BENCH_SCHEMA["spectrometer"]) + list(BENCH_SCHEMA["linearity"]):
+        assert key not in RIG_KEYS

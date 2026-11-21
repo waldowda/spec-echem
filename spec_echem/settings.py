@@ -292,6 +292,33 @@ def load_settings(path, base=None):
     return settings
 
 
+def load_experiment_settings(path, base, rig_keys):
+    """
+    Load a settings file for THIS rig: the file sets the experiment, `base` keeps
+    every key in `rig_keys`.
+
+    A settings file carries every key, the rig's included, so loading one saved
+    before a bench change silently brings the old rig back. 2026-11-20: an old file
+    put the Autolab back in procedure mode with the stock 5 s FHWait, so every hold
+    sat at its potential for 5 s before the first spectrum, while bench.ini said Ei
+    and 0. How this machine works is bench.ini's job, never an experiment file's.
+
+    Returns (settings, ignored). `ignored` lists (key, file value, kept value) for
+    each rig key where the file disagreed, so the caller can say so.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        saved = json.load(f)
+    settings = base.copy()
+    ignored = []
+    for key, value in saved.items():
+        if key in rig_keys:
+            if value != base.get(key):
+                ignored.append((key, value, base.get(key)))
+            continue
+        settings[key] = value
+    return settings, ignored
+
+
 def save_settings(settings, path):
     """
     Save settings dict to a JSON file.

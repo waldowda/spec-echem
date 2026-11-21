@@ -121,6 +121,13 @@ _FLAT = {key: (section, parse)
 
 BENCH_KEYS = tuple(_FLAT)
 
+# How THIS machine works: a loaded experiment settings file never overrides these
+# (settings.load_experiment_settings). The spectrometer and linearity keys are bench
+# DEFAULTS that an experiment may legitimately change, so they are not rig keys.
+# The current range is a rig key by the user's decision (2026-11-20): a blank or
+# stale range clipped a PITT that day.
+RIG_KEYS = tuple(BENCH_SCHEMA["bench"]) + tuple(BENCH_SCHEMA["autolab"])
+
 
 NEWLINE = chr(10)
 
