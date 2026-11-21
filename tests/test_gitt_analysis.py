@@ -129,7 +129,7 @@ def test_the_table_has_every_column_for_every_step():
     rest = ga.analyse_gitt_step(*_rest())
     row, t, i, v = _pulse(0.30)
     rows = ga.gitt_table_rows([rest, ga.analyse_gitt_step(row, t, i, v, prev=rest)])
-    assert [list(r) for r in rows] == [ga.TABLE_COLUMNS] * 2
+    assert [list(r) for r in rows] == [[n for n, _u in ga.TABLE_COLUMNS]] * 2
     assert rows[0]["C_F"] is None and rows[1]["C_F"] is not None
 
 

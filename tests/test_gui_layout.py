@@ -1754,6 +1754,25 @@ def test_film_geometry_may_come_from_the_form_for_an_older_run(window, tmp_path)
     assert any("Parameters tab" in t.get_text() for t in r.canvas.fig.texts)
 
 
+def test_a_film_size_edited_on_the_charge_tab_reaches_the_results_dos(window, tmp_path):
+    """Asked 2026-11-20: editing the film on the Charge tab did not change the DOS
+    here, which read only the run's metadata and the Parameters tab. Both now read
+    the run folder's film file first, and an edit redraws the DOS."""
+    import numpy as np
+    from spec_echem import film
+    r = _cv_window(window, tmp_path, film_thickness_nm=150.0, film_area_cm2=1.6)
+    r.view_combo.setCurrentIndex(r.view_combo.findData("dos"))
+    r.on_segment_changed()
+    before = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
+
+    entry = film.new_entry(300.0, 1.6, "measured")             # twice as thick
+    assert window.analysis_tab.charge_panel._add_film(entry)
+    after = float(np.nanmax(r.canvas.ax.get_lines()[0].get_ydata()))
+    assert after == pytest.approx(before / 2.0, rel=1e-6)       # half the density
+    texts = " ".join(t.get_text() for t in r.canvas.fig.texts)
+    assert "300 nm" in texts and "measured" in texts
+
+
 # --- The linearity plot must follow the data, not the ADC ceiling ----------------
 
 def _linearity_result(counts):

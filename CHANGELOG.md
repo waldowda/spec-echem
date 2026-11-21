@@ -17,7 +17,22 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   and set charge, the relaxed potential and its drift, R from the switch-off IR step,
   C = q/dE_s, the leak (-C dE/dt) and a leak-corrected C beside it, dE/dsqrt(t) and
   its linearity, and the Weppner-Huggins D with a check that the pulse is short
-  against L^2/D. Concerns are flagged per step, never hidden. No GUI yet.
+  against L^2/D. Concerns are flagged per step, never hidden.
+- Analysis → **GITT** tab (beside Titration): relaxed E vs charge (with E at each
+  pulse's end), C per pulse with the leak-corrected estimate beside it, one step's
+  potential, the table and its CSV. The film thickness for D is the Charge tab's.
+- **Every step on one plot**, on both the Titration (PITT) and GITT tabs: the run as
+  one timeline (current or potential on the run's clock), every step overlaid from
+  its own start, the absorbance change at each step's end, and the two bands that
+  changed most (found from the data) against potential or charge. Steps are coloured
+  dark to light in run order; the legend names at most five.
+
+### Fixed — The Results DOS now uses the film size edited on the Charge tab (2026-11-20)
+
+- The DOS read only the run's recorded size, then the Parameters tab, so a measured
+  size entered with Charge → Edit… never reached it. It now reads the same per-run
+  film file as the Analysis tabs, says under the plot which size it used and where
+  from, and redraws when the size is edited.
 
 ### Fixed — Current-range advice in the run log (2026-11-20)
 

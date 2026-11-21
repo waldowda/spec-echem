@@ -64,9 +64,9 @@ The CHANGELOG says what shipped; git log says when.
       `spec_echem/pitt_analysis.py` + the Titration tab (dQ/dE with the head, g(E),
       Q(E), hysteresis, the sweeps). Not built, waiting on a real film: the
       transmission-line step fit (a better head, tau_d, D), the impedance film models
-      (Cmu, R_ion), the PITT / EIS / CV cross-check. GITT analysis: module built
-      2026-11-20 (`gitt_analysis.py`); still to do: a GUI tab and the spectra per
-      step (bleach/polaron vs charge). On the first film:
+      (Cmu, R_ion), the PITT / EIS / CV cross-check. GITT analysis and its tab built
+      2026-11-20, with every-step views on PITT and GITT; on the rig, a GITT with
+      ~1 s pulses for a valid D. On the first film:
       is Q_head small (then the step fit can wait), and does C' plateau?
       What a first film run should include: an early first sample, and on a few steps
       a sweep down to ~0.05 Hz.

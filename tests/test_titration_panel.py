@@ -64,7 +64,7 @@ def _panel(w):
 def test_it_sits_beside_kinetics_and_charge(win):
     tabs = win.analysis_tab.lower_tabs
     assert [tabs.tabText(i) for i in range(tabs.count())] == [
-        "Kinetics", "Charge", "Titration"]
+        "Kinetics", "Charge", "Titration", "GITT"]
 
 
 def test_the_table_has_a_row_per_step_and_the_rc_capacitance(win):
@@ -88,6 +88,30 @@ def test_every_view_draws_without_hiding_anything(win):
     panel.redraw()
     labels = [line.get_label() for line in panel.canvas.ax.get_lines()]
     assert any("forward" in x for x in labels) and any("return" in x for x in labels)
+
+
+def test_the_all_steps_views_draw_one_curve_per_step_in_run_order(win):
+    """Requested 2026-11-20: every step on one plot, coloured in run order."""
+    panel = _panel(win)
+    for view in ("timeline", "overlay"):
+        panel.view_combo.setCurrentIndex(panel.view_combo.findData(view))
+        panel.redraw()
+        lines = panel.canvas.ax.get_lines()
+        assert len(lines) == len(panel.results), view
+        assert len({line.get_color() if isinstance(line.get_color(), str)
+                    else tuple(line.get_color()) for line in lines}) == len(lines)
+        assert lines[0].get_label().startswith("0: +0.000 V")
+        # Every step drawn; at most five named in the legend, first and last kept.
+        named = [ln.get_label() for ln in lines if not ln.get_label().startswith("_")]
+        assert len(named) <= 5 and named[-1] == lines[-1].get_label()
+    panel.view_combo.setCurrentIndex(panel.view_combo.findData("timeline"))
+    panel.redraw()
+    # (The fake's first step, 0 V from 0 V, draws no current: nothing on a log axis.)
+    xs = [x for x in (line.get_xdata() for line in panel.canvas.ax.get_lines())
+          if len(x)]
+    assert len(xs) >= len(panel.results) - 1
+    # The run's clock: each step starts after the one before it ends.
+    assert all(b[0] >= a[-1] for a, b in zip(xs, xs[1:]))
 
 
 def test_a_step_without_a_sweep_says_so_and_names_the_swept_ones(win):

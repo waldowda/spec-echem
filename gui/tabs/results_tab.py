@@ -567,6 +567,27 @@ class ResultsTab(QWidget):
             title="Modulation across the doping ladder"
                   f"{self._probe_text(chosen)}")
 
+    def _film_geometry(self):
+        """(thickness_nm, area_cm2, where), the same per-run film size the Analysis
+        tabs use: the Charge tab's Edit... (the run folder's film file) first, then
+        what the run recorded, then the Parameters tab. Until 2026-11-20 this read
+        only the last two, so a measured size entered on the Charge tab never
+        reached the DOS here."""
+        panel = getattr(getattr(self.win, "analysis_tab", None), "charge_panel", None)
+        if panel is not None:
+            try:
+                thickness, area, _ut, _ua, where = panel._film()
+                return float(thickness or 0.0), float(area or 0.0), where
+            except Exception:  # noqa: BLE001 -- fall back to the settings below
+                pass
+        settings = self.win.label_settings()
+        live = self.win.settings
+        thickness = settings.get("film_thickness_nm") or live.get("film_thickness_nm") or 0.0
+        area = settings.get("film_area_cm2") or live.get("film_area_cm2") or 0.0
+        where = ("the run's metadata" if settings.get("film_area_cm2")
+                 else "the Parameters tab (this run did not record them)")
+        return float(thickness), float(area), where
+
     def _plot_dos(self, label, absorb_df=None):
         """Density of states from the CV — g(E) = i / (v·e·V_film).
 
@@ -622,11 +643,8 @@ class ResultsTab(QWidget):
         # them from the form mislabeled +0.700 V as +0.400 V. Geometry is different:
         # it is recorded nowhere in older data, so the form is the only place it can
         # come from, and the title says when it did.
-        settings = self.win.label_settings()
-        live = self.win.settings
-        thickness_nm = settings.get("film_thickness_nm") or live.get("film_thickness_nm") or 0.0
-        area_cm2 = settings.get("film_area_cm2") or live.get("film_area_cm2") or 0.0
-        from_form = not settings.get("film_area_cm2") and bool(area_cm2)
+        thickness_nm, area_cm2, film_where = self._film_geometry()
+        from_form = film_where.startswith("the Parameters tab") and bool(area_cm2)
         volume = (area_cm2 * thickness_nm * 1e-7) if (area_cm2 and thickness_nm) else None
 
         try:
@@ -717,6 +735,9 @@ class ResultsTab(QWidget):
             provenance.append("no film volume — dQ/dV")
         if from_form:
             provenance.append("geometry from the Parameters tab")
+        elif volume:
+            provenance.append(f"film {thickness_nm:g} nm x {area_cm2:g} cm2 "
+                              f"({film_where})")
         if dropped:
             provenance.append(f"{dropped} non-positive point(s) omitted (log axis)")
 

@@ -348,6 +348,15 @@ class ChargePanel(QWidget):
             QMessageBox.warning(self, "Film size not saved", str(exc))
             return False
         self.refresh()
+        # Every view that uses the film size follows the edit (2026-11-20: the
+        # Results DOS kept the old size).
+        results = getattr(self.win, "results_tab", None)
+        if results is not None:
+            results.on_segment_changed()
+        for name in ("titration_panel", "gitt_panel"):
+            panel = getattr(self.tab, name, None)
+            if panel is not None:
+                panel.request_refresh()
         return True
 
     def on_edit_film(self):

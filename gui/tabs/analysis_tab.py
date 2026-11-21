@@ -33,6 +33,7 @@ from spec_echem.gamry_data import read_chrono
 from gui.widgets.plot_canvas import MplCanvas
 from gui.tabs.charge_panel import ChargePanel
 from gui.tabs.titration_panel import TitrationPanel
+from gui.tabs.gitt_panel import GittPanel
 from gui.widgets.figure_dialog import (EXPORT_LABEL, EXPORT_TIP, open_figure_dialog,
                                        save_figure)
 from gui.segment_labels import (prepare_segment_combo, segment_display,
@@ -480,6 +481,9 @@ class AnalysisTab(QWidget):
         # A PITT staircase's charge per step, dQ/dE and impedance (2026-11-17).
         self.titration_panel = TitrationPanel(self)
         self.lower_tabs.addTab(self.titration_panel, "Titration")
+        # A GITT run pulse by pulse (2026-11-20).
+        self.gitt_panel = GittPanel(self)
+        self.lower_tabs.addTab(self.gitt_panel, "GITT")
         split.addWidget(self.lower_tabs)
 
         layout.addWidget(split, stretch=1)
@@ -733,6 +737,7 @@ class AnalysisTab(QWidget):
         self.segment_combo.blockSignals(False)
         self.charge_panel.request_refresh()
         self.titration_panel.request_refresh()
+        self.gitt_panel.request_refresh()
         self.on_segment_changed()
 
     def _sync_wavelength_range(self):

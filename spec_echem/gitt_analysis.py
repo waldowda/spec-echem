@@ -254,11 +254,15 @@ def analyse_gitt(path, thickness_nm=None, tail_s=DEFAULT_TAIL_S,
     return results
 
 
+# (name, unit), as pitt_analysis.TABLE_COLUMNS.
 TABLE_COLUMNS = [
-    "step", "role", "I_set_A", "end", "hold_s", "pulse_s", "q_C", "q_set_C",
-    "Q_total_C", "E_start_V", "E_relaxed_V", "drift_V_s", "R_off_ohm", "dE_s_V",
-    "dE_t_V", "C_F", "i_leak_A", "q_leak_C", "C_leak_F", "dE_dsqrt_t", "sqrt_t_R2",
-    "D_cm2_s", "L2_over_D_s", "status", "reasons", "notes",
+    ("step", ""), ("role", ""), ("I_set_A", "A"), ("end", ""), ("hold_s", "s"),
+    ("pulse_s", "s"), ("q_C", "C"), ("q_set_C", "C"), ("Q_total_C", "C"),
+    ("E_start_V", "V"), ("E_relaxed_V", "V"), ("drift_V_s", "V/s"),
+    ("R_off_ohm", "ohm"), ("dE_s_V", "V"), ("dE_t_V", "V"), ("C_F", "F"),
+    ("i_leak_A", "A"), ("q_leak_C", "C"), ("C_leak_F", "F"),
+    ("dE_dsqrt_t", "V s^-0.5"), ("sqrt_t_R2", ""), ("D_cm2_s", "cm^2/s"),
+    ("L2_over_D_s", "s"), ("status", ""), ("reasons", ""), ("notes", ""),
 ]
 
 

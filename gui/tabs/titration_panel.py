@@ -21,11 +21,17 @@ from spec_echem.data import DATA_TYPE_PITT, h5_path, read_impedance_h5
 from spec_echem.pitt import ROLE_FORWARD, ROLE_RETURN
 from gui.widgets.figure_dialog import EXPORT_LABEL, EXPORT_TIP, open_figure_dialog
 from gui.widgets.plot_canvas import MplCanvas
+from gui.tabs import staircase_draw as sd
+from spec_echem import staircase_views as sv
 
 VIEWS = (
     ("dQ/dE vs potential", "dqde"),
     ("Charge Q(E)", "q"),
     ("Step current", "step"),
+    ("All steps: current vs run time", "timeline"),
+    ("All steps: overlaid from each start", "overlay"),
+    ("All steps: spectra at each step's end", "spectra"),
+    ("All steps: bands vs potential", "bands"),
     ("Impedance: Nyquist", "nyquist"),
     ("Impedance: C′ vs frequency", "cprime"),
 )
@@ -232,6 +238,8 @@ class TitrationPanel(QWidget):
             self._draw_q()
         elif view == "step":
             self._draw_step()
+        elif view in ("timeline", "overlay", "spectra", "bands"):
+            self._draw_all_steps(view)
         else:
             self._draw_impedance(view)
 
@@ -330,6 +338,40 @@ class TitrationPanel(QWidget):
             footnote=f"I_ss = {r.i_ss:.3g} A (tail mean); "
                      f"end: {r.end_reason}; " + ("; ".join(r.reasons) or "no concerns"),
             footnote_warn=bool(r.reasons))
+
+    def _step_label(self, index):
+        for r in self.results:
+            if r.index == index:
+                e = r.potential_set if r.potential_set is not None else float("nan")
+                return f"{index}: {e:+.3f} V" + (f" ({r.role})" if r.role != ROLE_FORWARD
+                                                   else "")
+        return str(index)
+
+    def _draw_all_steps(self, view):
+        """Every step on one plot (requested 2026-11-20)."""
+        path = self._path()
+        label = lambda tr: self._step_label(tr["index"])
+        if view == "timeline":
+            sd.draw_timeline(self.canvas, sv.step_traces(path), lambda tr: tr["i"],
+                             "|I| (A)", label, "PITT: every step's current",
+                             logy=True, footnote="the run's own clock; |I| on a log "
+                             "axis so the tails show beside the peaks")
+        elif view == "overlay":
+            # |I|, not |I - I_ss|: the difference crosses zero in the tail and a log
+            # axis then plunges to 1e-19 there (seen on the first film, 2026-11-20).
+            sd.draw_overlay(self.canvas, sv.step_traces(path), lambda tr: tr["i"],
+                            "|I| (A)", label, "PITT: every step from its own start",
+                            logy=True, footnote="a tail that flattens is the step's "
+                            "steady (leak) current")
+        elif view == "spectra":
+            sd.draw_end_spectra(self.canvas, path, self._step_label,
+                                "PITT: absorbance change at each step's end")
+        else:
+            e_of = {r.index: r.e for r in self.results
+                    if r.role in (ROLE_FORWARD, ROLE_RETURN)}
+            sd.draw_bands(self.canvas, path, lambda k: e_of.get(k),
+                          "Potential (V), measured at the step's end",
+                          "PITT: the bands at each step's end")
 
     def _draw_impedance(self, view):
         r = self._selected()
