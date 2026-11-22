@@ -1018,11 +1018,24 @@ class MplCanvas(FigureCanvasQTAgg):
         width_in, height_in = self.fig.get_size_inches()
         # ~0.55 em per character for the default sans face; 0.96 leaves a margin.
         cols = max(30, int(width_in * 0.96 * 72 / (0.55 * size)))
-        lines = []
-        for para in footnote.splitlines():
-            lines.extend(textwrap.wrap(para, cols) or [""])
+        lines = self._wrap_footnote(artist, footnote, cols)
+        # That guess is too narrow for BOLD text: the concern line ran off both
+        # edges of an exported 6.5 in figure (2026-11-21). So measure the text as
+        # drawn and narrow the wrap until it fits.
+        try:
+            from matplotlib.backends.backend_agg import RendererAgg
+            renderer = RendererAgg(int(self.fig.bbox.width),
+                                   int(self.fig.bbox.height), self.fig.dpi)
+            room = 0.96 * self.fig.bbox.width
+            for _ in range(10):
+                drawn = artist.get_window_extent(renderer).width
+                if drawn <= room or cols <= 30:
+                    break
+                cols = max(30, min(cols - 1, int(cols * room / drawn)))
+                lines = self._wrap_footnote(artist, footnote, cols)
+        except Exception:  # noqa: BLE001 — cosmetic; keep the estimate
+            logger.debug("could not measure the footnote", exc_info=True)
         band = min(0.45, (len(lines) * size * 1.6 / 72) / height_in + 0.015)
-        artist.set_text("\n".join(lines))
         artist.set_position((0.5, band / 2.0))
 
         # plot_fit builds a shared-x gridspec under CONSTRAINED layout, which
@@ -1049,6 +1062,14 @@ class MplCanvas(FigureCanvasQTAgg):
             self.fig.tight_layout(rect=(0.0, band, 1.0, 1.0))
         except Exception:  # noqa: BLE001 — cosmetic, and version-dependent
             logger.debug("tight_layout(rect=) unsupported by this matplotlib")
+
+    @staticmethod
+    def _wrap_footnote(artist, footnote, cols):
+        lines = []
+        for para in footnote.splitlines():
+            lines.extend(textwrap.wrap(para, cols) or [""])
+        artist.set_text("\n".join(lines))
+        return lines
 
     def _suptitle_band(self, footnote_artist):
         """Fraction of the figure height a suptitle needs, or 0 when there is none.

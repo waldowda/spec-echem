@@ -101,6 +101,34 @@ def test_the_footnote_wraps_to_the_output_width_not_the_widgets(canvas):
         "footnote is not following the output width")
 
 
+def test_a_warning_footnote_stays_inside_every_export_preset(canvas):
+    """Reported 2026-11-21: the bold red concern line on an exported Charge plot was
+    cut off at both edges. The wrap guessed a character width too narrow for bold
+    text; it must hold for the text as actually drawn, at every preset."""
+    import matplotlib
+    from gui.widgets.figure_dialog import PRESETS, preset_rc
+    note = ("film 125 nm x 2.25 cm2 (measured 2026-11-21), volume +-4.6% not in the "
+            "bars; bars: background model, integration, noise; largest bars: y "
+            "+-1.5e+19; Q leaves out the charge before the first current sample "
+            "(Q_head_max in the table); 7 step(s) ringed: not at equilibrium "
+            "(reason in the table)")
+    for label, size, pt in PRESETS:
+        with matplotlib.rc_context(preset_rc(pt)):
+            fig = canvas.render_to_figure(
+                lambda: canvas.plot_multi_xy(
+                    [(np.arange(5.0), np.arange(5.0), "a")], "x", "y",
+                    footnote=note, footnote_warn=True),
+                figsize=size, dpi=300)
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+            FigureCanvasAgg(fig).draw()
+            r = fig.canvas.get_renderer()
+            box = [t for t in fig.texts if t.get_text()][-1].get_window_extent(r)
+            frame = fig.get_window_extent(r)
+        assert box.x0 >= frame.x0 and box.x1 <= frame.x1, (
+            f"{label}: footnote spans {box.x0:.0f}..{box.x1:.0f} px of "
+            f"{frame.x0:.0f}..{frame.x1:.0f}")
+
+
 def test_a_stamped_fit_figure_collides_with_neither_its_title_nor_its_footnote(app):
     """plot_fit builds a shared-x gridspec under CONSTRAINED layout, which
     tight_layout cannot handle: it warns and does nothing, so the footnote band was

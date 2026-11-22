@@ -27,6 +27,13 @@ names, ordering, and filenames. See [`docs/data-format.md`](docs/data-format.md)
   changed most (found from the data) against potential or charge. Steps are coloured
   dark to light in run order; the legend names at most five.
 
+### Fixed — Exported footnotes stay inside the figure (2026-11-21)
+
+- The bold red concern line under a plot ran off both edges of an exported figure
+  (17 px each side on the 6.5 in preset). Its wrap guessed a character width too
+  narrow for bold text; it now measures the text as drawn and narrows the wrap until
+  it fits. A test checks every export preset.
+
 ### Docs — The manual as a PDF; the SOP on Load Settings (2026-11-21)
 
 - `sh docs/build_manual_pdf.sh [out.pdf]` builds the manual into a standalone PDF
